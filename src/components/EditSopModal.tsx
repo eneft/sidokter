@@ -453,25 +453,27 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
     }
 
     // -------------------------------------------------------
-    // VALIDASI BATANG TUBUH
+    // VALIDASI BATANG TUBUH (Hanya untuk SPO Baru / Standar, bukan SPO Eksisting)
     // Semua bagian wajib kecuali ALUR. Konten berupa gambar saja
     // tetap dianggap terisi.
     // -------------------------------------------------------
-    const missingSections: string[] = [];
+    if (!isExisting) {
+      const missingSections: string[] = [];
 
-    if (!hasRichContent(pengertian)) missingSections.push('PENGERTIAN');
-    if (!hasRichContent(tujuan)) missingSections.push('TUJUAN');
-    if (!hasRichContent(kebijakan)) missingSections.push('KEBIJAKAN');
-    if (!hasRichContent(prosedur)) missingSections.push('PROSEDUR');
-    if (!hasRichContent(unitTerkait)) missingSections.push('UNIT TERKAIT');
+      if (!hasRichContent(pengertian)) missingSections.push('PENGERTIAN');
+      if (!hasRichContent(tujuan)) missingSections.push('TUJUAN');
+      if (!hasRichContent(kebijakan)) missingSections.push('KEBIJAKAN');
+      if (!hasRichContent(prosedur)) missingSections.push('PROSEDUR');
+      if (!hasRichContent(unitTerkait)) missingSections.push('UNIT TERKAIT');
 
-    if (missingSections.length > 0) {
-      setValidationMessage(missingSections);
-      setActiveTab('konten');
-      alert(
-        `SPO belum dapat diperbarui / diterbitkan!\n\nBagian wajib berikut masih kosong (belum diisi teks maupun gambar):\n• ${missingSections.join('\n• ')}\n\nSilakan lengkapi bagian tersebut dengan mengetik teks atau menyisipkan gambar/diagram. (Bagian ALUR bersifat opsional).`
-      );
-      return;
+      if (missingSections.length > 0) {
+        setValidationMessage(missingSections);
+        setActiveTab('konten');
+        alert(
+          `SPO belum dapat diperbarui / diterbitkan!\n\nBagian wajib berikut masih kosong (belum diisi teks maupun gambar):\n• ${missingSections.join('\n• ')}\n\nSilakan lengkapi bagian tersebut dengan mengetik teks atau menyisipkan gambar/diagram. (Bagian ALUR bersifat opsional).`
+        );
+        return;
+      }
     }
 
     setValidationMessage([]);
@@ -839,24 +841,26 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
             Informasi Dokumen
           </button>
 
-          <button
-            type="button"
-            onClick={() =>
-              setActiveTab('konten')
-            }
-            className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap touch-manipulation ${
-              activeTab === 'konten'
-                ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <span>Isi Standar SPO</span>
-            {validationMessage.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold">
-                !
-              </span>
-            )}
-          </button>
+          {!isExisting && (
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab('konten')
+              }
+              className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap touch-manipulation ${
+                activeTab === 'konten'
+                  ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>Isi Standar SPO (Batang Tubuh)</span>
+              {validationMessage.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold">
+                  !
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             type="button"

@@ -64,6 +64,10 @@ export const DashboardOverviewPage: React.FC<
     (s) => s.status === 'MENUNGGU_PENGESAHAN'
   ).length;
 
+  const draftSop = sops.filter(
+    (s) => s.status === 'DRAFT' || s.status === 'BELUM_UPLOAD' || s.isNumberReservation
+  ).length;
+
   const skDocs = useMemo(
     () =>
       documents.filter(
@@ -429,12 +433,21 @@ export const DashboardOverviewPage: React.FC<
               </strong>
             </span>
 
-            {pendingSop > 0 && (
-              <span className="text-amber-700 font-bold">
-                {pendingSop}{' '}
-                Menunggu
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {pendingSop > 0 && (
+                <span className="text-amber-700 font-bold">
+                  {pendingSop}{' '}
+                  Menunggu
+                </span>
+              )}
+
+              {draftSop > 0 && (
+                <span className="text-sky-700 font-bold">
+                  {draftSop}{' '}
+                  Belum Upload
+                </span>
+              )}
+            </div>
 
           </div>
 
@@ -626,15 +639,21 @@ export const DashboardOverviewPage: React.FC<
 
                         <span
                           className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                            sop.status ===
-                            'AKTIF'
+                            sop.status === 'AKTIF'
                               ? 'bg-emerald-100 text-emerald-800'
+                              : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                              ? 'bg-sky-100 text-sky-800'
+                              : sop.status === 'TIDAK_AKTIF'
+                              ? 'bg-slate-100 text-slate-700'
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {sop.status ===
-                          'AKTIF'
+                          {sop.status === 'AKTIF'
                             ? 'AKTIF'
+                            : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                            ? 'BELUM UPLOAD'
+                            : sop.status === 'TIDAK_AKTIF'
+                            ? 'TIDAK AKTIF'
                             : 'MENUNGGU PENGESAHAN'}
                         </span>
 

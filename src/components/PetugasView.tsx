@@ -28,7 +28,9 @@ import {
   ChevronRight,
   Layers,
   Handshake,
-  FileCheck
+  FileCheck,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -40,7 +42,7 @@ import {
   LibraryDocument,
   MainMenuTab
 } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -411,11 +413,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       return;
     }
 
-    if (issuedSopId) {
-      if (documentType !== 'BARU') {
-        setSubmitError('Nomor yang sudah diterbitkan hanya dapat dilanjutkan sebagai SPO Baru.');
-        return;
-      }
+    if (issuedSopId && documentType === 'BARU') {
       if (issuedSopDivision !== selectedCatCode || (issuedSopHierarchy || '') !== (subHierarchyCode || '') || issuedSopDate !== effectiveDate) {
         setSubmitError('Unit/hirarki atau tanggal berubah setelah nomor diterbitkan. Batalkan dan terbitkan nomor baru agar register tetap konsisten.');
         return;
@@ -423,13 +421,22 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     }
 
     if (documentType === 'LAMA') {
-      if (!manualLegacyNumber.trim()) {
+      const cleanNum = manualLegacyNumber.trim();
+      if (!cleanNum) {
         setSubmitError('Nomor SPO Lama resmi wajib diisi.');
         return;
       }
       if (!selectedFile) {
         setSubmitError('Wajib mengunggah scan file PDF asli SPO Eksisting yang sudah bertanda tangan.');
         return;
+      }
+
+      const dup = checkDuplicateSopNumber(sops || [], cleanNum);
+      if (dup.isDuplicate && dup.matchedDoc) {
+        if (dup.matchedDoc.status === 'AKTIF') {
+          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF. Dokumen tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
+          return;
+        }
       }
     }
 
@@ -494,6 +501,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
         const dataUrl = await dataUrlPromise;
         if (isLegacy) {
+          sopData.fileName = selectedFile.name;
+          sopData.fileSize = selectedFile.size;
+          sopData.fileType = selectedFile.type || 'application/pdf';
+          sopData.fileDataUrl = dataUrl;
+          sopData.oldFileName = selectedFile.name;
+          sopData.oldFileSize = selectedFile.size;
+          sopData.oldFileType = selectedFile.type || 'application/pdf';
+          sopData.oldFileDataUrl = dataUrl;
           sopData.signedScanFileName = selectedFile.name;
           sopData.signedScanFileSize = selectedFile.size;
           sopData.signedScanFileType = selectedFile.type || 'application/pdf';
@@ -831,107 +846,249 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     )}
                   </section>
 
-                  {/* 3. Opsi cepat: terbitkan nomor saja */}
-                  <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <div className="w-9 h-9 rounded-xl bg-white border border-emerald-200 text-emerald-700 flex items-center justify-center">
-                            <FileCheck2 className="w-4 h-4" />
+                  {/* 3. Opsi cepat: terbitkan nomor saja (Khusus SPO Baru) */}
+                  {documentType === 'BARU' && (
+                    <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="w-9 h-9 rounded-xl bg-white border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                              <FileCheck2 className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Terbitkan Nomor SPO Saja</h3>
+                              <p className="text-[10px] text-slate-500 mt-0.5">Nomor diambil dari register otomatis dan dikunci agar tidak pernah sama.</p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Terbitkan Nomor SPO Saja</h3>
-                            <p className="text-[10px] text-slate-500 mt-0.5">Nomor diambil dari register otomatis dan dikunci agar tidak pernah sama.</p>
-                          </div>
-                        </div>
-                        {issuedSopNumber && (
-                          <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3.5 py-2.5">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">Nomor diterbitkan</span>
-                            <span className="font-mono text-sm font-black text-emerald-800">{issuedSopNumber}</span>
-                            <button type="button" onClick={() => navigator.clipboard?.writeText(issuedSopNumber)} className="text-[10px] font-bold text-emerald-700 hover:underline">Salin</button>
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowIssueNumberModal(true)}
-                        disabled={isIssuingNumber}
-                        className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
-                      >
-                        {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
-                      </button>
-                    </div>
-                  </section>
-
-                  {/* 3. Compact SPO detail summary + modal trigger */}
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">3. Rincian SPO</h3>
-                        <div className="mt-2 text-sm font-black text-slate-900 truncate">
-                          {title.trim() || 'Judul SPO belum diisi'}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                            title.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {title.trim() ? 'Judul ✓' : 'Judul belum diisi'}
-                          </span>
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                            pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                              ? 'Batang tubuh lengkap ✓'
-                              : 'Batang tubuh belum lengkap'}
-                          </span>
-                          {selectedFile && (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-50 text-blue-700">
-                              Lampiran ✓
-                            </span>
+                          {issuedSopNumber && (
+                            <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3.5 py-2.5">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">Nomor diterbitkan</span>
+                              <span className="font-mono text-sm font-black text-emerald-800">{issuedSopNumber}</span>
+                              <button type="button" onClick={() => navigator.clipboard?.writeText(issuedSopNumber)} className="text-[10px] font-bold text-emerald-700 hover:underline">Salin</button>
+                            </div>
                           )}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowIssueNumberModal(true)}
+                          disabled={isIssuingNumber}
+                          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
+                        >
+                          {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
+                        </button>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
+                  {documentType === 'LAMA' ? (
+                    <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-6 space-y-4">
+                      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-950">
+                        <BookOpen className="w-4 h-4 text-purple-700" />
+                        <span>3. Rincian & Berkas SPO Eksisting</span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setIsDetailModalOpen(true)}
-                        disabled={!hasValidPetugasAssignment}
-                        className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-black shrink-0"
-                      >
-                        <FilePlus className="w-4 h-4" />
-                        <span>Isi / Edit Rincian SPO</span>
-                      </button>
-                    </div>
-                  </section>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Nomor SPO Lama */}
+                        <div>
+                          <label className="block text-xs font-bold text-purple-950 mb-1.5">
+                            Nomor SPO yang Sudah Ada (Manual) <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={manualLegacyNumber}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setManualLegacyNumber(val);
+                              const clean = val.trim();
+                              if (clean) {
+                                const dup = checkDuplicateSopNumber(sops || [], clean);
+                                if (dup.isDuplicate && dup.matchedDoc) {
+                                  if (!title.trim() && dup.matchedDoc.title) {
+                                    setTitle(dup.matchedDoc.title);
+                                  }
+                                  if (dup.matchedDoc.effectiveDate) {
+                                    setEffectiveDate(dup.matchedDoc.effectiveDate);
+                                  }
+                                }
+                              }
+                            }}
+                            placeholder="Contoh: 440/102/SPO/PEL/2023 atau PEL/1.1.3/008/2024"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                          />
 
-                  {/* File upload is part of the compact main form */}
-                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-black text-slate-700">
-                          {documentType === 'LAMA' ? 'Lampiran PDF SPO Eksisting (Wajib)' : 'Lampiran Dokumen (Opsional)'}
+                          {manualLegacyNumber.trim() && (() => {
+                            const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
+                            if (!dup.isDuplicate || !dup.matchedDoc) return null;
+                            const status = dup.matchedDoc.status;
+                            const statusLabel =
+                              status === 'MENUNGGU_PENGESAHAN'
+                                ? 'Menunggu Pengesahan'
+                                : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
+                                ? 'Belum Upload'
+                                : status === 'AKTIF'
+                                ? 'Aktif'
+                                : status || 'Belum Aktif';
+
+                            if (status === 'AKTIF') {
+                              return (
+                                <div className="mt-2 p-2.5 rounded-xl bg-rose-100/90 border border-rose-300 text-rose-900 text-xs font-medium flex items-center gap-2">
+                                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                  <span>
+                                    <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="mt-2 p-2.5 rounded-xl bg-sky-100/90 border border-sky-300 text-sky-950 text-xs font-medium flex items-center gap-2">
+                                <Info className="w-4 h-4 text-sky-700 shrink-0" />
+                                <span>
+                                  <strong>Update/Replace:</strong> Ditemukan dokumen berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan dokumen tersebut di Library.
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">PDF, Word, atau dokumen pendukung.</div>
+
+                        {/* Tanggal Penetapan/Pengesahan */}
+                        <div>
+                          <label className="block text-xs font-bold text-purple-950 mb-1.5">
+                            Tanggal Ditetapkan / Pengesahan Asli
+                          </label>
+                          <input
+                            type="date"
+                            value={effectiveDate}
+                            onChange={(e) => setEffectiveDate(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white text-xs outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                          />
+                        </div>
                       </div>
-                      <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50">
-                        <Upload className="w-4 h-4" />
-                        Pilih File
+
+                      {/* Judul Dokumen */}
+                      <div>
+                        <label className="block text-xs font-bold text-purple-950 mb-1.5">
+                          Judul SPO Eksisting <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={title}
+                          onChange={(e) => setTitle(e.target.value)}
+                          placeholder="Contoh: Prosedur Pelayanan Rekam Medis Rawat Jalan"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white text-xs sm:text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                        />
+                      </div>
+
+                      {/* File Upload PDF SPO Eksisting */}
+                      <div className="p-4 rounded-xl border-2 border-dashed border-purple-300 bg-white space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                            <Upload className="w-4 h-4 text-purple-700" />
+                            Upload File Scan PDF SPO Eksisting (Wajib) <span className="text-rose-500">*</span>
+                          </span>
+                          {selectedFile && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedFile(null)}
+                              className="text-[11px] font-bold text-rose-600 hover:text-rose-800"
+                            >
+                              Hapus File
+                            </button>
+                          )}
+                        </div>
                         <input
                           type="file"
-                          accept="application/pdf,.pdf,.doc,.docx"
+                          accept="application/pdf,.pdf"
                           onChange={handleFileChange}
-                          className="hidden"
+                          className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer shadow-2xs"
                         />
-                      </label>
-                    </div>
-                    {selectedFile && (
-                      <p className="mt-2 text-[11px] font-bold text-emerald-700 truncate">
-                        ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
-                      </p>
-                    )}
-                  </section>
+                        {selectedFile ? (
+                          <p className="text-xs font-bold text-emerald-800 bg-emerald-50 p-2 rounded-lg border border-emerald-200 truncate">
+                            ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-purple-900">
+                            * Cukup unggah berkas pindaian scan PDF SPO resmi yang sudah bertanda tangan untuk langsung menggantikan dan mengaktifkan dokumen di Library.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  ) : (
+                    <>
+                      {/* 3. Compact SPO detail summary + modal trigger (Untuk SPO Baru / Riviu) */}
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="min-w-0">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">3. Rincian SPO & Batang Tubuh</h3>
+                            <div className="mt-2 text-sm font-black text-slate-900 truncate">
+                              {title.trim() || 'Judul SPO belum diisi'}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                title.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {title.trim() ? 'Judul ✓' : 'Judul belum diisi'}
+                              </span>
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
+                                  ? 'Batang tubuh lengkap ✓'
+                                  : 'Batang tubuh belum lengkap'}
+                              </span>
+                              {selectedFile && (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-50 text-blue-700">
+                                  Lampiran ✓
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsDetailModalOpen(true)}
+                            disabled={!hasValidPetugasAssignment}
+                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-black shrink-0"
+                          >
+                            <FilePlus className="w-4 h-4" />
+                            <span>Isi / Edit Batang Tubuh SPO</span>
+                          </button>
+                        </div>
+                      </section>
+
+                      {/* File upload untuk SPO Baru / Riviu */}
+                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-black text-slate-700">
+                              Lampiran Dokumen (Opsional)
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">PDF, Word, atau dokumen pendukung.</div>
+                          </div>
+                          <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50">
+                            <Upload className="w-4 h-4" />
+                            Pilih File
+                            <input
+                              type="file"
+                              accept="application/pdf,.pdf,.doc,.docx"
+                              onChange={handleFileChange}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                        {selectedFile && (
+                          <p className="mt-2 text-[11px] font-bold text-emerald-700 truncate">
+                            ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
+                          </p>
+                        )}
+                      </section>
+                    </>
+                  )}
 
                   <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
                     <button
@@ -1031,6 +1188,40 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                 placeholder="Contoh: 001/SPO/PEL/2024"
                                 className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 text-xs bg-white outline-none focus:ring-2 focus:ring-purple-500"
                               />
+
+                              {manualLegacyNumber.trim() && (() => {
+                                const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
+                                if (!dup.isDuplicate || !dup.matchedDoc) return null;
+                                const status = dup.matchedDoc.status;
+                                const statusLabel =
+                                  status === 'MENUNGGU_PENGESAHAN'
+                                    ? 'Menunggu Pengesahan'
+                                    : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
+                                    ? 'Belum Upload'
+                                    : status === 'AKTIF'
+                                    ? 'Aktif'
+                                    : status || 'Belum Aktif';
+
+                                if (status === 'AKTIF') {
+                                  return (
+                                    <div className="mt-1.5 p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
+                                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                      <span>
+                                        <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
+                                      </span>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="mt-1.5 p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
+                                    <Info className="w-4 h-4 text-sky-700 shrink-0" />
+                                    <span>
+                                      <strong>Update/Replace:</strong> Ditemukan nomor berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan nomor tersebut di Library.
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div>
                               <label className="block text-xs font-bold text-purple-900 mb-1.5">Tanggal Pengesahan Asli</label>

@@ -14,10 +14,13 @@ import {
   Printer, 
   Eye, 
   Trash2,
-  Lock
+  Lock,
+  AlertTriangle,
+  Info,
+  Upload
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -327,13 +330,24 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     }
 
     if (documentType === 'LAMA') {
-      if (!manualLegacyNumber.trim()) {
+      const cleanNum = manualLegacyNumber.trim();
+      if (!cleanNum) {
         alert("Silakan masukkan Nomor SPO Lama yang sudah ada.");
         return;
       }
       if (!selectedFile && !fileDataUrl) {
         alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah Berkas Dokumen SPO Resmi yang sudah ditandatangani Direktur!");
         return;
+      }
+
+      // Validasi aturan SPO Existing & pencegahan duplikasi
+      const dup = checkDuplicateSopNumber(sops || [], cleanNum);
+      if (dup.isDuplicate && dup.matchedDoc) {
+        if (dup.matchedDoc.status === 'AKTIF') {
+          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF. Dokumen tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
+          alert(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF.\n\nSesuai aturan, dokumen berstatus Aktif tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
+          return;
+        }
       }
     } else {
       // Wajibkan pengisian seluruh Batang Tubuh SPO untuk SPO Baru & Review (Pengertian, Tujuan, Kebijakan, Prosedur, Unit Terkait)
@@ -517,11 +531,16 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       oldFileSize: documentType === 'LAMA' ? selectedFile?.size : selectedOldFile?.size,
       oldFileType: documentType === 'LAMA' ? selectedFile?.type : selectedOldFile?.type,
       oldFileDataUrl: documentType === 'LAMA' ? fileDataUrl : (documentType === 'REVIEW' ? oldFileDataUrl : undefined),
+      signedScanFileName: documentType === 'LAMA' ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : undefined,
+      signedScanFileSize: documentType === 'LAMA' ? selectedFile?.size : undefined,
+      signedScanFileType: documentType === 'LAMA' ? selectedFile?.type || 'application/pdf' : undefined,
+      signedScanDataUrl: documentType === 'LAMA' ? fileDataUrl : undefined,
     };
 
     const newGeneratedId = `sop-${Date.now()}`;
     if (fileDataUrl) {
       saveFileToLocalCache(newGeneratedId, 'file', fileDataUrl);
+      saveFileToLocalCache(newGeneratedId, 'signedScan', fileDataUrl);
     }
     if (oldFileDataUrl || (documentType === 'LAMA' && fileDataUrl)) {
       saveFileToLocalCache(newGeneratedId, 'oldFile', (oldFileDataUrl || fileDataUrl)!);
@@ -556,6 +575,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     if (fullSop && fullSop.id !== newGeneratedId) {
       if (fileDataUrl) {
         saveFileToLocalCache(fullSop.id, 'file', fileDataUrl);
+        saveFileToLocalCache(fullSop.id, 'signedScan', fileDataUrl);
       }
       if (oldFileDataUrl || (documentType === 'LAMA' && fileDataUrl)) {
         saveFileToLocalCache(fullSop.id, 'oldFile', (oldFileDataUrl || fileDataUrl)!);
@@ -675,23 +695,25 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
             </button>
           </div>
 
-          {/* Tab navigasi: sengaja dibuat sama dengan Edit/Revisi agar posisi isi selalu terlihat jelas */}
-          <div className="flex border-b border-slate-200 bg-slate-50/50 px-3 sm:px-6 pt-2 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">
-            <button type="button" onClick={() => setActiveTab('info')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap touch-manipulation ${activeTab === 'info' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>Informasi Dokumen</button>
-            <button type="button" onClick={() => setActiveTab('konten')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap touch-manipulation ${activeTab === 'konten' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>
-              <span>Isi Standar SPO</span>
-              {missingSections.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold">
-                  !
-                </span>
-              )}
-            </button>
-            <button type="button" onClick={() => setActiveTab('lampiran')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap touch-manipulation ${activeTab === 'lampiran' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>Lampiran & Review</button>
-          </div>
+          {/* Tab navigasi: hanya tampilkan tab naskah & lampiran jika BUKAN SPO Eksisting */}
+          {documentType !== 'LAMA' && (
+            <div className="flex border-b border-slate-200 bg-slate-50/50 px-3 sm:px-6 pt-2 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">
+              <button type="button" onClick={() => setActiveTab('info')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap touch-manipulation ${activeTab === 'info' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>Informasi Dokumen</button>
+              <button type="button" onClick={() => setActiveTab('konten')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap touch-manipulation ${activeTab === 'konten' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>
+                <span>Isi Standar SPO (Batang Tubuh)</span>
+                {missingSections.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold">
+                    !
+                  </span>
+                )}
+              </button>
+              <button type="button" onClick={() => setActiveTab('lampiran')} className={`px-3 sm:px-4 py-2 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap touch-manipulation ${activeTab === 'lampiran' ? 'border-indigo-600 text-indigo-600 bg-white rounded-t-lg' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>Lampiran & Review</button>
+            </div>
+          )}
 
           {/* Form Scrollable Area */}
           <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
-            {activeTab === 'info' && (
+            {(activeTab === 'info' || documentType === 'LAMA') && (
               <div className="space-y-6">
             
             {/* 1. Klasifikasi Hierarki RSUD Dr. Soegiri */}
@@ -828,26 +850,75 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                   <div className="mt-3 pt-3 border-t border-purple-200 space-y-4 bg-purple-50/90 p-4 rounded-xl border border-purple-300">
                     <div className="flex items-center gap-2 text-xs font-bold text-purple-950">
                       <BookOpen className="w-4 h-4 text-purple-700" />
-                      <span>Form Penerbitan / Pencatatan SPO Lama yang Masih Berlaku</span>
+                      <span>Form Pengunggahan & Penggantian (Replace) SPO Eksisting</span>
                     </div>
 
                     <p className="text-xs text-purple-900 leading-relaxed">
-                      Cukup masukkan <strong>Nomor SPO</strong>, <strong>Judul SPO</strong>, <strong>Tahun Terbit</strong>, <strong>No. Revisi</strong>, dan <strong>Unggah Dokumen Resmi Fisik / Pindaian PDF yang sudah bertanda tangan Direktur</strong>.
+                      Cukup masukkan <strong>Nomor SPO</strong> yang sudah ada dan <strong>Unggah File PDF Resmi</strong> yang sudah bertandatangan Direktur. Dokumen di Library dengan nomor yang sama akan otomatis digantikan (replace) dan diaktifkan.
                     </p>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-purple-200">
                       <div className="md:col-span-2 space-y-1">
                         <label className="block text-xs font-bold text-purple-950">
-                          Nomor SPO Lama yang Sudah Ada (Manual) <span className="text-rose-500">*</span>
+                          Nomor SPO yang Sudah Ada (Manual) <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="text"
                           required={documentType === 'LAMA'}
                           value={manualLegacyNumber}
-                          onChange={(e) => setManualLegacyNumber(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setManualLegacyNumber(val);
+                            const clean = val.trim();
+                            if (clean) {
+                              const dup = checkDuplicateSopNumber(sops || [], clean);
+                              if (dup.isDuplicate && dup.matchedDoc) {
+                                if (!title.trim() && dup.matchedDoc.title) {
+                                  setTitle(dup.matchedDoc.title);
+                                }
+                                if (dup.matchedDoc.effectiveDate) {
+                                  setEffectiveDate(dup.matchedDoc.effectiveDate);
+                                }
+                              }
+                            }
+                          }}
                           placeholder="Contoh: 440/102/SPO/PEL/2023 atau PEL/1.1.3/008/2024"
                           className="w-full text-xs sm:text-sm border border-purple-300 rounded-xl px-3.5 py-2 text-slate-900 bg-white font-mono font-bold focus:ring-2 focus:ring-purple-500 shadow-2xs"
                         />
+
+                        {manualLegacyNumber.trim() && (() => {
+                          const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
+                          if (!dup.isDuplicate || !dup.matchedDoc) return null;
+                          const status = dup.matchedDoc.status;
+                          const statusLabel =
+                            status === 'MENUNGGU_PENGESAHAN'
+                              ? 'Menunggu Pengesahan'
+                              : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
+                              ? 'Belum Upload'
+                              : status === 'AKTIF'
+                              ? 'Aktif'
+                              : status || 'Belum Aktif';
+
+                          if (status === 'AKTIF') {
+                            return (
+                              <div className="mt-1.5 p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
+                                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                <span>
+                                  <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="mt-1.5 p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
+                              <Info className="w-4 h-4 text-sky-700 shrink-0" />
+                              <span>
+                                <strong>Update/Replace:</strong> Ditemukan nomor berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan nomor tersebut di Library.
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div className="space-y-1">
@@ -863,6 +934,45 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                           className="w-full text-xs sm:text-sm border border-purple-300 rounded-xl px-3.5 py-2 text-slate-900 bg-white font-mono font-bold focus:ring-2 focus:ring-purple-500 shadow-2xs"
                         />
                       </div>
+                    </div>
+
+                    {/* Upload File PDF Resmi langsung di dalam Card SPO Eksisting */}
+                    <div className="p-3.5 rounded-xl border-2 border-dashed border-purple-300 bg-white space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                          <Upload className="w-4 h-4 text-purple-700" />
+                          Upload Berkas PDF SPO Resmi (Sudah Bertanda Tangan) <span className="text-rose-500">*</span>
+                        </span>
+                        {selectedFile && (
+                          <button
+                            type="button"
+                            onClick={handleClearFile}
+                            className="px-2 py-0.5 text-[10px] font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Hapus Berkas"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Hapus Berkas</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <input
+                        id="admin-upload-file-input"
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={handleFileChange}
+                        className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer shadow-2xs"
+                      />
+
+                      {selectedFile ? (
+                        <div className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200 truncate">
+                          ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-purple-900 font-medium">
+                          * Unggah pindaian/scan dokumen PDF resmi yang sudah bertanda tangan Direktur RSUD Dr. Soegiri untuk menggantikan dokumen di Library.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

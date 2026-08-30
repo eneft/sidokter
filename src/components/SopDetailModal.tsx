@@ -19,6 +19,7 @@ import {
   FileCheck2,
   AlertCircle,
   Eye,
+  ExternalLink,
   Trash2,
   RefreshCw,
   Stamp,
@@ -140,10 +141,75 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // Preview selalu menggunakan Format Baku SPO A4. Mode Ringkas dinonaktifkan.
   const activeTab = 'official_format' as const;
 
-  // Retrieve actual uploaded file (supports oldFileDataUrl, fileDataUrl, or local cache)
-  const legacyFileUrl = sop ? (sop.oldFileDataUrl || sop.fileDataUrl || getFileFromLocalCache(sop.id, 'oldFile') || getFileFromLocalCache(sop.id, 'file')) : null;
-  const legacyFileName = sop ? (sop.oldFileName || sop.fileName || 'Dokumen_SPO_Lama.pdf') : 'Dokumen_SPO_Lama.pdf';
-  const legacyFileSize = sop ? (sop.oldFileSize || sop.fileSize) : undefined;
+  // Retrieve actual uploaded file (supports oldFileDataUrl, fileDataUrl, signedScanDataUrl, or persistent local cache)
+  const [resolvedLegacyFileUrl, setResolvedLegacyFileUrl] = useState<string | null>(null);
+  const [isLoadingLegacyFile, setIsLoadingLegacyFile] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!sop) {
+      setResolvedLegacyFileUrl(null);
+      setIsLoadingLegacyFile(false);
+      return;
+    }
+
+    // 1. Direct object or synchronous cache properties
+    const directUrl =
+      sop.fileDataUrl ||
+      sop.signedScanDataUrl ||
+      sop.oldFileDataUrl ||
+      getFileFromLocalCache(sop.id, 'file') ||
+      getFileFromLocalCache(sop.id, 'signedScan') ||
+      getFileFromLocalCache(sop.id, 'oldFile');
+
+    if (directUrl) {
+      setResolvedLegacyFileUrl(directUrl);
+      setIsLoadingLegacyFile(false);
+      return;
+    }
+
+    // 2. Fetch asynchronously from IndexedDB
+    setIsLoadingLegacyFile(true);
+    const loadFromIdb = async () => {
+      try {
+        const file1 = await getFileFromPersistentCacheAsync(sop.id, 'file');
+        if (file1 && !isCancelled) {
+          setResolvedLegacyFileUrl(file1);
+          setIsLoadingLegacyFile(false);
+          return;
+        }
+        const file2 = await getFileFromPersistentCacheAsync(sop.id, 'signedScan');
+        if (file2 && !isCancelled) {
+          setResolvedLegacyFileUrl(file2);
+          setIsLoadingLegacyFile(false);
+          return;
+        }
+        const file3 = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
+        if (file3 && !isCancelled) {
+          setResolvedLegacyFileUrl(file3);
+          setIsLoadingLegacyFile(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not load persistent cache for SOP file:', err);
+      }
+      if (!isCancelled) {
+        setResolvedLegacyFileUrl(null);
+        setIsLoadingLegacyFile(false);
+      }
+    };
+
+    loadFromIdb();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [sop?.id, sop?.fileDataUrl, sop?.signedScanDataUrl, sop?.oldFileDataUrl, isOpen]);
+
+  const legacyFileUrl = resolvedLegacyFileUrl || (sop ? (sop.signedScanDataUrl || sop.fileDataUrl || sop.oldFileDataUrl || getFileFromLocalCache(sop.id, 'file') || getFileFromLocalCache(sop.id, 'signedScan') || getFileFromLocalCache(sop.id, 'oldFile')) : null);
+  const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
+  const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
 
   // Review evidence attachment handlers
   const handleDownloadReviewEvidence = async () => {
@@ -1677,13 +1743,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           {isExisting ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900 truncate">{sop.title}</h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 bg-purple-200/80 px-2 py-0.5 rounded-md border border-purple-300">
+                        SPO Eksisting / Lama
+                      </span>
+                      <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                        {sop.status === 'AKTIF' ? 'AKTIF' : (sop.status || 'AKTIF')}
+                      </span>
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900 leading-snug">{sop.title}</h3>
                     <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
                       <div className="min-w-0">
-                        <span className="font-semibold text-purple-900">Nomor Dokumen:</span>
-                        <span className="ml-1.5 font-mono font-semibold text-slate-700">{sop.sopNumber || '-'}</span>
+                        <span className="font-semibold text-purple-900">Nomor SPO:</span>
+                        <span className="ml-1.5 font-mono font-bold text-slate-800">{sop.sopNumber || '-'}</span>
                       </div>
                       <div className="min-w-0">
                         <span className="font-semibold text-purple-900">Penerbit:</span>
@@ -1691,21 +1765,47 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       </div>
                     </div>
                   </div>
-                  <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
-                    AKTIF
-                  </span>
+
+                  {legacyFileUrl && (
+                    <div className="flex items-center gap-2 shrink-0 self-start">
+                      <button
+                        type="button"
+                        onClick={() => openDocumentPreview(legacyFileUrl, legacyFileName)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-900 bg-purple-200/90 hover:bg-purple-300 rounded-xl transition-colors cursor-pointer"
+                        title="Buka PDF di tab baru peramban"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Buka Tab Baru</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => triggerFileDownload(legacyFileUrl, legacyFileName)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl transition-colors cursor-pointer shadow-xs"
+                        title="Unduh berkas PDF asli"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh PDF</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {legacyFileUrl ? (
+              {isLoadingLegacyFile ? (
+                <div className="flex flex-col items-center justify-center gap-3 p-12 bg-white rounded-2xl border border-slate-200 min-h-[380px]">
+                  <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+                  <p className="text-xs font-semibold text-slate-600">Memuat berkas PDF asli SPO Eksisting...</p>
+                </div>
+              ) : legacyFileUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white min-h-[560px]">
                   <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} heightClass="h-[68vh] w-full" />
                 </div>
               ) : (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center">
-                  <AlertCircle className="mx-auto h-8 w-8 text-rose-500" />
-                  <p className="mt-2 text-sm font-bold text-rose-900">File PDF asli belum tersedia</p>
-                  <p className="mt-1 text-xs text-rose-700">Metadata SPO tetap tersimpan, tetapi berkas asli belum dapat dipratinjau.</p>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
+                  <AlertCircle className="mx-auto h-8 w-8 text-amber-500" />
+                  <p className="mt-2 text-sm font-bold text-amber-900">Berkas PDF Asli Belum Tersimpan di Peramban Ini</p>
+                  <p className="mt-1 text-xs text-amber-700">Metadata SPO tetap tersimpan. Silakan unggah kembali berkas scan PDF untuk pratinjau langsung.</p>
                 </div>
               )}
             </div>

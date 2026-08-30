@@ -805,12 +805,143 @@ export default function App() {
   // Add New SOP
   const handleCreateSop = async (newSopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string }): Promise<SopDocument> => {
     const now = new Date().toISOString();
-    const newId = newSopData.id || `sop-${Date.now()}`;
-    const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop;
+    const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop || newSopData.jenis_spo === 'EKSISTING';
     const isNewSopInput = (newSopData.jenis_spo || newSopData.documentType) === 'BARU';
     const isCompletingIssuedNumber = Boolean(
       newSopData.id && newSopData.sopNumber && Number(newSopData.sequenceNumber) > 0
     );
+
+    const targetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
+    const dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
+
+    if (isLegacyInput) {
+      // Aturan SPO Eksisting:
+      // 1. Jika nomor sudah ada dengan status "AKTIF": Tolak dan jangan replace (cegah nomor SPO duplikat).
+      // 2. Selama statusnya belum "AKTIF" (misal: "Belum Upload", "Menunggu Pengesahan", dll):
+      //    Replace / update dokumen tersebut di Library!
+      if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
+        const existing = dupCheck.matchedDoc;
+        if (existing.status === 'AKTIF') {
+          throw new Error(`Nomor SPO "${targetNumber}" sudah ada dengan status AKTIF. Tidak dapat menggantikan dokumen aktif atau membuat nomor duplikat.`);
+        }
+
+        const replacedId = existing.id;
+        const statusPreviousName =
+          existing.status === 'MENUNGGU_PENGESAHAN'
+            ? 'Menunggu Pengesahan'
+            : existing.status === 'DRAFT' || existing.status === 'BELUM_UPLOAD' || existing.isNumberReservation
+            ? 'Belum Upload'
+            : existing.status || 'Belum Aktif';
+
+        const finalSop: SopDocument = {
+          ...newSopData,
+          id: replacedId,
+          sopNumber: targetNumber,
+          legacySopNumber: targetNumber,
+          documentType: 'LAMA',
+          jenis_spo: 'EKSISTING',
+          isLegacySop: true,
+          isNumberReservation: false,
+          status: 'AKTIF',
+          createdAt: existing.createdAt || now,
+          updatedAt: now,
+          revisionHistory: [
+            ...(existing.revisionHistory || []),
+            {
+              id: `rev-replace-${Date.now()}`,
+              version: newSopData.revisionNumber || newSopData.version || '00',
+              date: newSopData.effectiveDate || now.split('T')[0],
+              author: newSopData.creatorName || userSession?.name || 'Petugas',
+              notes: `Dokumen diperbarui melalui unggah SPO Eksisting (menggantikan dokumen berstatus ${statusPreviousName}).`
+            }
+          ]
+        };
+
+        if (finalSop.fileDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
+          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
+        }
+        if (finalSop.signedScanDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
+          saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
+        }
+        if (finalSop.oldFileDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
+        }
+
+        await saveSopToLocal(finalSop);
+        setSops((prev) => prev.map((s) => (s.id === replacedId ? finalSop : s)));
+
+        addToast(
+          'success',
+          'SPO Eksisting Berhasil Diperbarui!',
+          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil menggantikan dokumen berstatus ${statusPreviousName}.`
+        );
+
+        return finalSop;
+      }
+
+      // Nomor baru yang belum ada -> simpan sebagai SPO Eksisting
+      const newId = newSopData.id || `sop-${Date.now()}`;
+      const finalSop: SopDocument = {
+        ...newSopData,
+        id: newId,
+        sopNumber: targetNumber,
+        legacySopNumber: targetNumber,
+        documentType: 'LAMA',
+        jenis_spo: 'EKSISTING',
+        isLegacySop: true,
+        isNumberReservation: false,
+        status: 'AKTIF',
+        createdAt: now,
+        updatedAt: now,
+        revisionHistory: [
+          {
+            id: `rev-init-${Date.now()}`,
+            version: newSopData.revisionNumber || newSopData.version || '00',
+            date: newSopData.effectiveDate || now.split('T')[0],
+            author: newSopData.creatorName,
+            notes: 'Registrasi dokumen resmi SPO Eksisting RSUD Dr. Soegiri Lamongan.'
+          }
+        ]
+      };
+
+      if (finalSop.fileDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
+        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
+      }
+      if (finalSop.signedScanDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
+        saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
+      }
+      if (finalSop.oldFileDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
+      }
+
+      await saveSopToLocal(finalSop);
+      setSops((prev) => [finalSop, ...prev.filter((s) => s.id !== finalSop.id)]);
+
+      addToast(
+        'success',
+        'SPO Lama Berhasil Disimpan!',
+        `Dokumen SPO Lama "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil disimpan ke database tanpa menerbitkan nomor urut baru.`
+      );
+
+      return finalSop;
+    }
+
+    // Untuk SPO Baru dan Review: cegah nomor SPO duplikat
+    if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
+      const existing = dupCheck.matchedDoc;
+      const isCompletingSameDoc = newSopData.id && newSopData.id === existing.id;
+      if (!isCompletingSameDoc) {
+        throw new Error(`Nomor SPO "${targetNumber}" sudah digunakan oleh dokumen "${existing.title}". Nomor SPO tidak boleh duplikat.`);
+      }
+    }
 
     // SPO Baru MUST use a number that was explicitly issued from the
     // "Terbitkan Nomor SPO" flow. Never reserve a number as a side effect
@@ -820,11 +951,13 @@ export default function App() {
       throw new Error('Nomor SPO belum diterbitkan. Klik "Terbitkan Nomor SPO", isi Judul, Tanggal Berlaku, dan Revisi, lalu terbitkan nomor terlebih dahulu.');
     }
 
+    const newId = newSopData.id || `sop-${Date.now()}`;
     const newSop: SopDocument = {
       ...authoritativeSopData,
       id: newId,
       createdAt: now,
       updatedAt: now,
+      isNumberReservation: false,
       revisionHistory: [
         {
           id: `rev-init-${Date.now()}`,
@@ -844,25 +977,7 @@ export default function App() {
       saveFileToLocalCache(newSop.id, 'oldFile', newSop.oldFileDataUrl);
     }
 
-    const isLegacy = authoritativeSopData.documentType === 'LAMA' || authoritativeSopData.isLegacySop;
-    const finalSop = isLegacy ? newSop : standardizeSopDocument(newSop);
-
-    if (isLegacy) {
-      // Even legacy uploads must wait for the authoritative local database write
-      // before the UI reports success.
-      await saveSopToLocal(finalSop);
-      setSops((prev) => prev.some((s) => s.id === finalSop.id)
-        ? prev.map((s) => (s.id === finalSop.id ? finalSop : s))
-        : [finalSop, ...prev]);
-
-      addToast(
-        'success',
-        'SPO Lama Berhasil Disimpan!',
-        `Dokumen SPO Lama "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil disimpan ke database tanpa menerbitkan nomor urut baru.`
-      );
-
-      return finalSop;
-    }
+    const finalSop = standardizeSopDocument(newSop);
 
     // Calculate updated numbering config per division and unit
     const prevCounters = numberingConfig?.divisionCounters || {};
@@ -1049,6 +1164,13 @@ export default function App() {
       normalizedNumber = normalizedHierarchy
         ? `${normalizedDivision} / ${normalizedHierarchy} / ${padded} / ${effectiveYear}`
         : `${normalizedDivision} / ${padded} / ${effectiveYear}`;
+    }
+
+    // Cegah nomor duplikat saat edit
+    const dupCheck = checkDuplicateSopNumber(sops, normalizedNumber, updatedSop.id);
+    if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
+      addToast('error', 'Nomor SPO Duplikat', `Nomor SPO "${normalizedNumber}" sudah digunakan oleh dokumen "${dupCheck.matchedDoc.title}". Perubahan dibatalkan.`);
+      return;
     }
 
     const finalUpdatedSop: SopDocument = {

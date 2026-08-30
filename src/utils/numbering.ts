@@ -1,4 +1,4 @@
-import { NumberingConfig, SopDocument } from '../types';
+import { NumberingConfig, SopDocument, SopStatus } from '../types';
 import { SOEGIRI_MASTER_CATEGORIES, SOEGIRI_HOSPITAL_INFO } from './soegiriStructure';
 
 export const ROMAN_MONTHS = [
@@ -242,23 +242,49 @@ export function getUsedSequencesForUnit(
 }
 
 /**
+ * Normalize an SOP number string for robust duplicate checks and comparisons.
+ * Collapses whitespace, removes extra spaces around slashes, and converts to uppercase.
+ */
+export function normalizeSopNumber(sopNumStr?: string | null): string {
+  if (!sopNumStr || !sopNumStr.trim()) return '';
+  return sopNumStr
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\/\s*/g, '/');
+}
+
+export interface DuplicateCheckResult {
+  isDuplicate: boolean;
+  duplicateWith?: {
+    id: string;
+    title?: string;
+    sopNumber: string;
+    status?: SopStatus;
+    isNumberReservation?: boolean;
+  };
+  matchedDoc?: SopDocument;
+}
+
+/**
  * Check if an SOP number is already used by another document
  */
 export function checkDuplicateSopNumber(
-  sops: Array<{ id: string; sopNumber?: string; title?: string }>,
+  sops: Array<any>,
   targetSopNumber: string,
   excludeId?: string
-): { isDuplicate: boolean; duplicateWith?: { id: string; title?: string; sopNumber: string } } {
+): DuplicateCheckResult {
   if (!sops || !Array.isArray(sops) || !targetSopNumber || !targetSopNumber.trim()) {
     return { isDuplicate: false };
   }
 
-  const cleanTarget = targetSopNumber.trim().replace(/\s+/g, ' ').toUpperCase();
+  const cleanTarget = normalizeSopNumber(targetSopNumber);
+  if (!cleanTarget) return { isDuplicate: false };
 
   const found = sops.find((s) => {
     if (excludeId && s.id === excludeId) return false;
     if (!s.sopNumber) return false;
-    const cleanCurrent = s.sopNumber.trim().replace(/\s+/g, ' ').toUpperCase();
+    const cleanCurrent = normalizeSopNumber(s.sopNumber);
     return cleanCurrent === cleanTarget;
   });
 
@@ -268,8 +294,11 @@ export function checkDuplicateSopNumber(
       duplicateWith: {
         id: found.id,
         title: found.title,
-        sopNumber: found.sopNumber || targetSopNumber
-      }
+        sopNumber: found.sopNumber || targetSopNumber,
+        status: found.status,
+        isNumberReservation: Boolean(found.isNumberReservation)
+      },
+      matchedDoc: found as SopDocument
     };
   }
 

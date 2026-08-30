@@ -16,11 +16,18 @@ import {
 } from 'lucide-react';
 import { dataUrlToBlob, triggerFileDownload } from '../utils/fileStorage';
 
-// Configure pdfjs worker to avoid any cross-origin/iframe blocks in browsers
+// Configure pdfjs worker using bundled worker
 try {
   if (typeof window !== 'undefined' && pdfjsLib) {
-    const version = (pdfjsLib as any).version || '4.0.379';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.mjs`;
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url
+      ).toString();
+    } catch {
+      const version = (pdfjsLib as any).version || '6.2.108';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.mjs`;
+    }
   }
 } catch (e) {
   // Ignore worker initialization warning
