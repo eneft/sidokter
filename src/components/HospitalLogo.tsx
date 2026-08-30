@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import logoImg from '../images/logo_soegiri_transparent.png';
+
+const logoImg = '/logo_soegiri_transparent.png';
 
 interface HospitalLogoProps {
   className?: string;
