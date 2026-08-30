@@ -1,4 +1,4 @@
-export type SopStatus = 'AKTIF' | 'MENUNGGU_PENGESAHAN' | 'TIDAK_AKTIF';
+export type SopStatus = 'AKTIF' | 'MENUNGGU_PENGESAHAN' | 'TIDAK_AKTIF' | 'DRAFT';
 
 export type UserRole = 'admin' | 'petugas';
 

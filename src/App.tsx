@@ -802,11 +802,15 @@ export default function App() {
     const newId = newSopData.id || `sop-${Date.now()}`;
     const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop;
     const isNewSopInput = (newSopData.jenis_spo || newSopData.documentType) === 'BARU';
+    const isCompletingIssuedNumber = Boolean(
+      newSopData.id && newSopData.sopNumber && Number(newSopData.sequenceNumber) > 0
+    );
 
-    // BARU always receives its sequence from the atomic reservation register.
-    // This prevents two tabs/users from ever getting the same number.
+    // A normal SPO Baru gets a number from the atomic reservation register.
+    // If the user already issued a number, reuse that exact reservation instead
+    // of consuming a second number.
     let authoritativeSopData = newSopData;
-    if (isNewSopInput && !isLegacyInput) {
+    if (isNewSopInput && !isLegacyInput && !isCompletingIssuedNumber) {
       const reserved = await reserveNextSopNumber({
         config: numberingConfig,
         divisionCode: newSopData.divisionCode,
@@ -872,7 +876,7 @@ export default function App() {
     const unitKey = getUnitKey(divCode, subCode);
 
     // Collision prevention: ensure sequenceNumber and sopNumber are strictly unique in this unit
-    const usedSequences = getUsedSequencesForUnit(sops, divCode, subCode, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+    const usedSequences = getUsedSequencesForUnit(sops.filter((s) => s.id !== finalSop.id), divCode, subCode, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
     let allocatedSeq = finalSop.sequenceNumber || getNextSequenceNumber(numberingConfig, divCode, subCode, sops, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
 
     if (usedSequences.has(allocatedSeq)) {
@@ -922,7 +926,7 @@ export default function App() {
     return finalSop;
   };
 
-  const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }): Promise<string> => {
+  const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }): Promise<SopDocument> => {
     if (userSession?.role !== 'admin' && userSession?.role !== 'petugas') {
       throw new Error('Akses penerbitan nomor SPO ditolak.');
     }
@@ -946,10 +950,16 @@ export default function App() {
       id: `sop-number-${reserved.id}`,
       sopNumber: reserved.sopNumber,
       sequenceNumber: reserved.sequenceNumber,
+      divisionId: reserved.divisionCode,
       divisionCode: reserved.divisionCode,
+      divisionName: SOEGIRI_HOSPITAL_INFO.name || reserved.divisionCode,
+      categoryId: reserved.divisionCode,
+      categoryName: reserved.divisionCode,
       subHierarchyCode: reserved.subHierarchyCode || '',
       title: params.title.trim(),
       effectiveDate: params.dateStr!,
+      reviewPeriodMonths: 12,
+      nextReviewDate: '',
       revisionNumber: String(params.revisionNumber).trim(),
       documentType: 'BARU',
       jenis_spo: 'BARU',
@@ -960,13 +970,27 @@ export default function App() {
       createdAt: now,
       updatedAt: now,
       creatorName: userSession?.name || userSession?.username || 'Administrator',
+      summary: '',
+      tags: [reserved.divisionCode, reserved.subHierarchyCode].filter(Boolean),
       confidentialityLevel: 'Internal',
+      revisionHistory: [],
       locationOrFolder: 'Register SPO - Nomor Terbit',
       status: 'DRAFT'
     };
-    await registerSopAndNumberingToLocal(placeholder);
+    const unitKey = getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '');
+    const updatedConfig: NumberingConfig = {
+      ...numberingConfig,
+      currentCounter: Math.max((numberingConfig?.currentCounter || 0), reserved.sequenceNumber),
+      divisionCounters: {
+        ...(numberingConfig?.divisionCounters || {}),
+        [unitKey]: Math.max((numberingConfig?.divisionCounters?.[unitKey] || 0), reserved.sequenceNumber),
+        [reserved.divisionCode]: Math.max((numberingConfig?.divisionCounters?.[reserved.divisionCode] || 0), reserved.sequenceNumber)
+      }
+    };
+    await registerSopAndNumberingToLocal(placeholder, updatedConfig);
+    setNumberingConfig(updatedConfig);
     setSops(prev => prev.some(s => s.id === placeholder.id) ? prev : [placeholder, ...prev]);
-    return reserved.sopNumber;
+    return placeholder;
   };
 
   const handleSaveMaintenanceMode = async (enabled: boolean, message: string) => {
