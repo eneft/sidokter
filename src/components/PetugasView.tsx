@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import IssueSopNumberModal from './IssueSopNumberModal';
 import { 
   FilePlus, 
   Eye, 
@@ -855,7 +854,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setShowIssueNumberModal(true)}
-                        disabled={isIssuingNumber || !hasValidPetugasAssignment || !onIssueSopNumber}
+                        disabled={isIssuingNumber}
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                       >
                         {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
@@ -1165,24 +1164,101 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
 
 
-      <IssueSopNumberModal
-        open={showIssueNumberModal}
-        title={title}
-        effectiveDate={effectiveDate}
-        revisionNumber={String(revisionNumber ?? '')}
-        isIssuingNumber={isIssuingNumber}
-        onTitleChange={setTitle}
-        onEffectiveDateChange={setEffectiveDate}
-        onRevisionChange={setRevisionNumber}
-        onClose={() => setShowIssueNumberModal(false)}
-        onSubmit={handleIssueNumber}
-      />
-
       {/* Success Modal */}
       {isSuccessModalOpen && latestCreatedSop && (
         <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 text-center animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-c      {showIssueNumberModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2147483647,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            backgroundColor: 'rgba(15, 23, 42, 0.70)'
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              background: '#ffffff',
+              borderRadius: '20px',
+              boxShadow: '0 25px 60px rgba(0,0,0,.30)',
+              overflow: 'hidden'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{padding:'20px 24px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontSize:'18px', fontWeight:800, color:'#0f172a'}}>Terbitkan Nomor SPO</div>
+                <div style={{fontSize:'13px', color:'#64748b', marginTop:'4px'}}>Lengkapi data berikut. Nomor belum diterbitkan.</div>
+              </div>
+              <button type="button" onClick={() => setShowIssueNumberModal(false)} style={{border:0, background:'transparent', fontSize:'25px', cursor:'pointer', color:'#64748b'}}>×</button>
+            </div>
+
+            <div style={{padding:'24px'}}>
+              <div style={{marginBottom:'16px'}}>
+                <label style={{display:'block', fontSize:'13px', fontWeight:700, color:'#334155', marginBottom:'7px'}}>
+                  Judul SPO <span style={{color:'#ef4444'}}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Masukkan judul SPO"
+                  autoFocus
+                  style={{width:'100%', boxSizing:'border-box', padding:'11px 13px', border:'1px solid #cbd5e1', borderRadius:'10px', fontSize:'14px', outline:'none'}}
+                />
+              </div>
+
+              <div style={{marginBottom:'16px'}}>
+                <label style={{display:'block', fontSize:'13px', fontWeight:700, color:'#334155', marginBottom:'7px'}}>
+                  Tanggal Berlaku <span style={{color:'#ef4444'}}>*</span>
+                </label>
+                <input
+                  type="date"
+                  value={effectiveDate}
+                  onChange={(e) => setEffectiveDate(e.target.value)}
+                  style={{width:'100%', boxSizing:'border-box', padding:'11px 13px', border:'1px solid #cbd5e1', borderRadius:'10px', fontSize:'14px'}}
+                />
+              </div>
+
+              <div>
+                <label style={{display:'block', fontSize:'13px', fontWeight:700, color:'#334155', marginBottom:'7px'}}>
+                  Revisi <span style={{color:'#ef4444'}}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={revisionNumber}
+                  onChange={(e) => setRevisionNumber(e.target.value)}
+                  placeholder="00"
+                  style={{width:'100%', boxSizing:'border-box', padding:'11px 13px', border:'1px solid #cbd5e1', borderRadius:'10px', fontSize:'14px'}}
+                />
+              </div>
+            </div>
+
+            <div style={{padding:'16px 24px', background:'#f8fafc', borderTop:'1px solid #e2e8f0', display:'flex', justifyContent:'flex-end', gap:'10px'}}>
+              <button type="button" onClick={() => setShowIssueNumberModal(false)} disabled={isIssuingNumber}
+                style={{padding:'10px 18px', border:'1px solid #cbd5e1', borderRadius:'10px', background:'#fff', fontWeight:700, cursor:'pointer'}}>
+                Batal
+              </button>
+              <button type="button" onClick={handleIssueNumber}
+                disabled={isIssuingNumber || !title.trim() || !effectiveDate || !String(revisionNumber).trim()}
+                style={{padding:'10px 18px', border:0, borderRadius:'10px', background:'#059669', color:'#fff', fontWeight:800, cursor:'pointer', opacity:(isIssuingNumber || !title.trim() || !effectiveDate || !String(revisionNumber).trim()) ? .5 : 1}}>
+                {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+enter justify-center mx-auto mb-3">
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <h3 className="text-base font-black text-slate-900">SPO Berhasil Didaftarkan!</h3>
