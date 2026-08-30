@@ -922,10 +922,13 @@ export default function App() {
     return finalSop;
   };
 
-  const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string }): Promise<string> => {
+  const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }): Promise<string> => {
     if (userSession?.role !== 'admin' && userSession?.role !== 'petugas') {
       throw new Error('Akses penerbitan nomor SPO ditolak.');
     }
+    if (!params.title?.trim()) throw new Error('Judul SPO wajib diisi.');
+    if (!params.dateStr) throw new Error('Tanggal berlaku wajib diisi.');
+    if (!String(params.revisionNumber ?? '').trim()) throw new Error('Revisi wajib diisi.');
     const effectiveDivision = String(params.divisionCode || '').trim().toUpperCase();
     if (!effectiveDivision || effectiveDivision === 'ALL') {
       throw new Error('Unit kerja yang dipilih tidak valid untuk penerbitan nomor SPO.');
@@ -938,6 +941,31 @@ export default function App() {
       dateStr: params.dateStr || new Date().toISOString().slice(0, 10),
       reservedBy: userSession?.name || userSession?.username || 'Administrator'
     });
+    const now = new Date().toISOString();
+    const placeholder: SopDocument = {
+      id: `sop-number-${reserved.id}`,
+      sopNumber: reserved.sopNumber,
+      sequenceNumber: reserved.sequenceNumber,
+      divisionCode: reserved.divisionCode,
+      subHierarchyCode: reserved.subHierarchyCode || '',
+      title: params.title.trim(),
+      effectiveDate: params.dateStr!,
+      revisionNumber: String(params.revisionNumber).trim(),
+      documentType: 'BARU',
+      jenis_spo: 'BARU',
+      isLegacySop: false,
+      isNumberReservation: true,
+      fileName: '',
+      fileUrl: '',
+      createdAt: now,
+      updatedAt: now,
+      creatorName: userSession?.name || userSession?.username || 'Administrator',
+      confidentialityLevel: 'Internal',
+      locationOrFolder: 'Register SPO - Nomor Terbit',
+      status: 'DRAFT'
+    };
+    await registerSopAndNumberingToLocal(placeholder);
+    setSops(prev => prev.some(s => s.id === placeholder.id) ? prev : [placeholder, ...prev]);
     return reserved.sopNumber;
   };
 
