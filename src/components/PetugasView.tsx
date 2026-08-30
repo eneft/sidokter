@@ -855,7 +855,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setShowIssueNumberModal(true)}
-                        disabled={isIssuingNumber || !hasValidPetugasAssignment || !onIssueSopNumber}
+                        disabled={isIssuingNumber}
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                       >
                         {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
