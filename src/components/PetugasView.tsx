@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import IssueSopNumberModal from './IssueSopNumberModal';
 import { 
   FilePlus, 
   Eye, 
@@ -713,48 +714,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
                     {hasValidPetugasAssignment ? (
                       <>
-      {showIssueNumberModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Terbitkan Nomor SPO</h3>
-                <p className="text-xs text-slate-500 mt-1">Nomor akan langsung masuk daftar SPO meskipun dokumen belum di-upload.</p>
-              </div>
-              <button type="button" onClick={() => setShowIssueNumberModal(false)} disabled={isIssuingNumber}
-                className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Judul SPO <span className="text-rose-500">*</span></label>
-                <input value={title} onChange={e => setTitle(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Contoh: SPO Pelayanan Pasien Rawat Jalan" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tanggal Berlaku <span className="text-rose-500">*</span></label>
-                <input type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Revisi <span className="text-rose-500">*</span></label>
-                <input value={revisionNumber} onChange={e => setRevisionNumber(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="00" />
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowIssueNumberModal(false)} disabled={isIssuingNumber}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700">Batal</button>
-              <button type="button" onClick={handleIssueNumber} disabled={isIssuingNumber}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">
-                {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
 
 
                         <div className={effectiveAssignments.length > 1 ? 'grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)] gap-3 items-stretch' : 'grid grid-cols-1 gap-3'}>
@@ -899,7 +858,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                         disabled={isIssuingNumber || !hasValidPetugasAssignment || !onIssueSopNumber}
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                       >
-                        {isIssuingNumber ? 'Menerbitkan...' : issuedSopNumber ? 'Terbitkan Nomor Berikutnya' : 'Terbitkan Nomor SPO'}
+                        {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
                       </button>
                     </div>
                   </section>
@@ -1203,6 +1162,21 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
           />
         )}
       </main>
+
+
+
+      <IssueSopNumberModal
+        open={showIssueNumberModal}
+        title={title}
+        effectiveDate={effectiveDate}
+        revisionNumber={String(revisionNumber ?? '')}
+        isIssuingNumber={isIssuingNumber}
+        onTitleChange={setTitle}
+        onEffectiveDateChange={setEffectiveDate}
+        onRevisionChange={setRevisionNumber}
+        onClose={() => setShowIssueNumberModal(false)}
+        onSubmit={handleIssueNumber}
+      />
 
       {/* Success Modal */}
       {isSuccessModalOpen && latestCreatedSop && (
