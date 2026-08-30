@@ -67,8 +67,8 @@ interface PetugasViewProps {
   onLogout: () => void;
   sops: SopDocument[];
   libraryDocuments: LibraryDocument[];
-  onAddSop: (sop: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'>) => Promise<SopDocument>;
-  onIssueSopNumber?: (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }) => Promise<string>;
+  onAddSop: (sop: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string }) => Promise<SopDocument>;
+  onIssueSopNumber?: (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }) => Promise<SopDocument>;
   numberingConfig: NumberingConfig;
   divisions: Division[];
   categories: SopCategory[];
@@ -273,6 +273,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isIssuingNumber, setIsIssuingNumber] = useState(false);
   const [issuedSopNumber, setIssuedSopNumber] = useState<string | null>(null);
+  const [issuedSopId, setIssuedSopId] = useState<string | null>(null);
+  const [issuedSopSequence, setIssuedSopSequence] = useState<number | null>(null);
+  const [issuedSopDivision, setIssuedSopDivision] = useState<string | null>(null);
+  const [issuedSopHierarchy, setIssuedSopHierarchy] = useState<string | null>(null);
+  const [issuedSopDate, setIssuedSopDate] = useState<string | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestCreatedSop, setLatestCreatedSop] = useState<SopDocument | null>(null);
@@ -314,16 +319,21 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     try {
       setIsIssuingNumber(true);
       setSubmitError(null);
-      const number = await onIssueSopNumber({
+      const issued = await onIssueSopNumber({
         divisionCode: selectedCatCode,
         subHierarchyCode: subHierarchyCode || undefined,
         dateStr: effectiveDate,
         title: title.trim(),
         revisionNumber: String(revisionNumber).trim()
       });
-      setIssuedSopNumber(number);
+      setIssuedSopNumber(issued.sopNumber);
+      setIssuedSopId(issued.id);
+      setIssuedSopSequence(issued.sequenceNumber);
+      setIssuedSopDivision(issued.divisionCode);
+      setIssuedSopHierarchy(issued.subHierarchyCode || '');
+      setIssuedSopDate(issued.effectiveDate);
       setShowIssueNumberModal(false);
-      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${number} masuk daftar sebagai "Nomor Terbit — Belum Upload".`);
+      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} masuk daftar sebagai "Nomor Terbit — Belum Upload".`);
     } catch (err: any) {
       const message = err?.message || 'Nomor SPO gagal diterbitkan.';
       setSubmitError(message);
@@ -367,6 +377,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     setExistingSopId('');
     setSubmitError(null);
     setIssuedSopNumber(null);
+    setIssuedSopId(null);
+    setIssuedSopSequence(null);
+    setIssuedSopDivision(null);
+    setIssuedSopHierarchy(null);
+    setIssuedSopDate(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -395,6 +410,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       return;
     }
 
+    if (issuedSopId) {
+      if (documentType !== 'BARU') {
+        setSubmitError('Nomor yang sudah diterbitkan hanya dapat dilanjutkan sebagai SPO Baru.');
+        return;
+      }
+      if (issuedSopDivision !== selectedCatCode || (issuedSopHierarchy || '') !== (subHierarchyCode || '') || issuedSopDate !== effectiveDate) {
+        setSubmitError('Unit/hirarki atau tanggal berubah setelah nomor diterbitkan. Batalkan dan terbitkan nomor baru agar register tetap konsisten.');
+        return;
+      }
+    }
+
     if (documentType === 'LAMA') {
       if (!manualLegacyNumber.trim()) {
         setSubmitError('Nomor SPO Lama resmi wajib diisi.');
@@ -412,8 +438,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       const isLegacy = documentType === 'LAMA';
       const isReview = documentType === 'REVIEW';
 
-      const sopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> = {
-        sequenceNumber: 0,
+      const sopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string } = {
+        sequenceNumber: issuedSopSequence || 0,
+        id: issuedSopId || undefined,
         title: title.trim(),
         divisionId: selectedCatCode,
         divisionCode: selectedCatCode,
@@ -440,7 +467,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         jenis_spo: isLegacy ? 'EKSISTING' : isReview ? 'RIVIU' : 'BARU',
         isLegacySop: isLegacy,
         legacySopNumber: isLegacy ? manualLegacyNumber.trim() : undefined,
-        sopNumber: isLegacy ? manualLegacyNumber.trim() : '',
+        sopNumber: isLegacy ? manualLegacyNumber.trim() : (issuedSopNumber || ''),
         existingSopId: isReview ? existingSopId : undefined,
         pengertian: pengertian.trim() || undefined,
         tujuan: tujuan.trim() || undefined,
