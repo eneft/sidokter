@@ -806,23 +806,12 @@ export default function App() {
       newSopData.id && newSopData.sopNumber && Number(newSopData.sequenceNumber) > 0
     );
 
-    // A normal SPO Baru gets a number from the atomic reservation register.
-    // If the user already issued a number, reuse that exact reservation instead
-    // of consuming a second number.
+    // SPO Baru MUST use a number that was explicitly issued from the
+    // "Terbitkan Nomor SPO" flow. Never reserve a number as a side effect
+    // of saving/submitting the form.
     let authoritativeSopData = newSopData;
     if (isNewSopInput && !isLegacyInput && !isCompletingIssuedNumber) {
-      const reserved = await reserveNextSopNumber({
-        config: numberingConfig,
-        divisionCode: newSopData.divisionCode,
-        subHierarchyCode: newSopData.subHierarchyCode,
-        dateStr: newSopData.effectiveDate,
-        reservedBy: newSopData.creatorName || userSession?.name || 'Administrator'
-      });
-      authoritativeSopData = {
-        ...newSopData,
-        sequenceNumber: reserved.sequenceNumber,
-        sopNumber: reserved.sopNumber
-      };
+      throw new Error('Nomor SPO belum diterbitkan. Klik "Terbitkan Nomor SPO", isi Judul, Tanggal Berlaku, dan Revisi, lalu terbitkan nomor terlebih dahulu.');
     }
 
     const newSop: SopDocument = {

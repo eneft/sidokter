@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   FilePlus, 
   Eye, 
@@ -311,6 +312,21 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     subUnitCode: selectedSubUnitCode
   });
 
+  const openIssueNumberModal = () => {
+    // IMPORTANT: opening the dialog must never call the numbering service.
+    // Reservation happens exclusively inside handleIssueNumber after validation.
+    if (isIssuingNumber) return;
+    if (!hasValidPetugasAssignment) {
+      onShowToast?.('error', 'Akses Ditolak', 'Akun Petugas belum memiliki hirarki yang valid.');
+      return;
+    }
+    if (!onIssueSopNumber) {
+      onShowToast?.('error', 'Fungsi Tidak Tersedia', 'Fungsi penerbitan nomor SPO belum terhubung.');
+      return;
+    }
+    setShowIssueNumberModal(true);
+  };
+
   const handleIssueNumber = async () => {
     if (!onIssueSopNumber || !hasValidPetugasAssignment) return;
     if (!title.trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Judul SPO wajib diisi.'); return; }
@@ -407,6 +423,11 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
     if (!title.trim()) {
       setSubmitError('Judul SPO wajib diisi.');
+      return;
+    }
+
+    if (documentType === 'BARU' && !issuedSopId) {
+      setSubmitError('Terbitkan nomor SPO terlebih dahulu. Nomor diterbitkan melalui tombol “Terbitkan Nomor SPO”.');
       return;
     }
 
@@ -713,48 +734,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
                     {hasValidPetugasAssignment ? (
                       <>
-      {showIssueNumberModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Terbitkan Nomor SPO</h3>
-                <p className="text-xs text-slate-500 mt-1">Nomor akan langsung masuk daftar SPO meskipun dokumen belum di-upload.</p>
-              </div>
-              <button type="button" onClick={() => setShowIssueNumberModal(false)} disabled={isIssuingNumber}
-                className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Judul SPO <span className="text-rose-500">*</span></label>
-                <input value={title} onChange={e => setTitle(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Contoh: SPO Pelayanan Pasien Rawat Jalan" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tanggal Berlaku <span className="text-rose-500">*</span></label>
-                <input type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Revisi <span className="text-rose-500">*</span></label>
-                <input value={revisionNumber} onChange={e => setRevisionNumber(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="00" />
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowIssueNumberModal(false)} disabled={isIssuingNumber}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700">Batal</button>
-              <button type="button" onClick={handleIssueNumber} disabled={isIssuingNumber}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">
-                {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
                         <div className={effectiveAssignments.length > 1 ? 'grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)] gap-3 items-stretch' : 'grid grid-cols-1 gap-3'}>
                           {effectiveAssignments.length > 1 && (
                             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -893,7 +872,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setShowIssueNumberModal(true)}
+                        onClick={openIssueNumberModal}
                         disabled={isIssuingNumber || !hasValidPetugasAssignment || !onIssueSopNumber}
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
                       >
@@ -1201,6 +1180,105 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
           />
         )}
       </main>
+
+      {/* Terbitkan Nomor SPO — rendered at document.body so it can never be trapped
+          by a parent stacking/overflow context. Opening this modal NEVER reserves a number. */}
+      {showIssueNumberModal && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="issue-sop-number-title"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isIssuingNumber) setShowIssueNumberModal(false);
+          }}
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div>
+                <h3 id="issue-sop-number-title" className="text-lg font-black text-slate-900">Terbitkan Nomor SPO</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Isi data wajib terlebih dahulu. Nomor baru akan dibuat hanya setelah tombol
+                  <span className="font-bold text-slate-700"> Terbitkan Nomor </span>
+                  ditekan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowIssueNumberModal(false)}
+                disabled={isIssuingNumber}
+                className="w-8 h-8 shrink-0 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 text-xl leading-none"
+                aria-label="Tutup"
+              >×</button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Judul SPO <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  autoFocus
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  placeholder="Contoh: SPO Pelayanan Pasien Rawat Jalan"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Tanggal Berlaku <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={effectiveDate}
+                    onChange={e => setEffectiveDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Revisi <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    value={revisionNumber}
+                    onChange={e => setRevisionNumber(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                    placeholder="00"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-sky-100 bg-sky-50 px-3.5 py-3 text-xs text-sky-800 leading-relaxed">
+                <strong>Catatan:</strong> nomor yang berhasil diterbitkan langsung masuk register
+                dengan status <strong>Nomor Terbit — Belum Upload</strong> dan tidak akan dipakai ulang.
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowIssueNumberModal(false)}
+                disabled={isIssuingNumber}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleIssueNumber}
+                disabled={isIssuingNumber || !hasValidPetugasAssignment || !onIssueSopNumber}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Success Modal */}
       {isSuccessModalOpen && latestCreatedSop && (
