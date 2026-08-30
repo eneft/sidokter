@@ -114,7 +114,7 @@ export const DashboardOverviewPage: React.FC<
             a.createdAt || 0
           ).getTime()
       )
-      .slice(0, 3);
+      .slice(0, 5);
   }, [skDocs]);
 
   // Recent MOU
@@ -129,7 +129,7 @@ export const DashboardOverviewPage: React.FC<
             a.createdAt || 0
           ).getTime()
       )
-      .slice(0, 3);
+      .slice(0, 5);
   }, [mouDocs]);
 
   // Global search
@@ -535,7 +535,7 @@ export const DashboardOverviewPage: React.FC<
 
         </button>
 
-        {/* Library Card - TETAP */}
+        {/* Library Card - SPO Aktif */}
         <button
           type="button"
           onClick={() =>
@@ -550,20 +550,20 @@ export const DashboardOverviewPage: React.FC<
               <BookOpen className="w-5 h-5" />
             </div>
 
-            <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
-             Dokumen Soegri
+            <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+              SPO Aktif
             </span>
 
           </div>
 
           <div className="mt-4 text-2xl sm:text-3xl font-black text-slate-900">
-            {totalFinalDocs}
+            {activeSop}
           </div>
 
           <div className="text-xs sm:text-sm font-bold text-slate-700 mt-1 flex items-center justify-between">
 
             <span>
-              Total Dokumen
+              Library (SPO Aktif)
             </span>
 
             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-700 transition-colors" />
@@ -571,7 +571,7 @@ export const DashboardOverviewPage: React.FC<
           </div>
 
           <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] text-slate-500 truncate">
-            Semua Dokumen Aktif & Sah
+            Seluruh SPO Sah & Terverifikasi
           </div>
 
         </button>
@@ -579,16 +579,18 @@ export const DashboardOverviewPage: React.FC<
       </section>
 
 
-      {/* 4. Recent SPO & SK/MOU */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* 3. Three Parallel Columns: SPO Terbaru | SK Terbaru | MOU Terbaru */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
 
-        {/* Recent SPO */}
-        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+        {/* KOLOM 1: SPO TERBARU */}
+        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs flex flex-col">
 
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
 
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-600" />
+              <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700">
+                <FileText className="w-4 h-4" />
+              </div>
 
               <h2 className="text-sm font-black text-slate-900">
                 SPO Terbaru
@@ -611,12 +613,13 @@ export const DashboardOverviewPage: React.FC<
 
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 flex-1">
 
             {recentSops.length === 0 ? (
 
-              <div className="p-8 text-center text-xs text-slate-400">
-                Belum ada data SPO terdaftar.
+              <div className="p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center h-full">
+                <FileText className="w-8 h-8 text-slate-300 mb-2" />
+                <span>Belum ada data SPO terdaftar.</span>
               </div>
 
             ) : (
@@ -625,14 +628,18 @@ export const DashboardOverviewPage: React.FC<
                 (sop) => (
                   <div
                     key={sop.id}
-                    className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3"
+                    onClick={() =>
+                      onViewSop &&
+                      onViewSop(sop)
+                    }
+                    className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
                   >
 
                     <div className="min-w-0 flex-1">
 
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
 
-                        <span className="font-mono text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        <span className="font-mono text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 truncate max-w-[140px]">
                           {sop.sopNumber ||
                             'Menunggu'}
                         </span>
@@ -659,12 +666,12 @@ export const DashboardOverviewPage: React.FC<
 
                       </div>
 
-                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
                         {sop.title}
                       </div>
 
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {sop.divisionName}{' '}
+                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {sop.divisionName || 'RSUD Dr. Soegiri'}{' '}
                         •{' '}
                         {sop.effectiveDate ||
                           '2026'}
@@ -674,11 +681,11 @@ export const DashboardOverviewPage: React.FC<
 
                     <button
                       type="button"
-                      onClick={() =>
-                        onViewSop &&
-                        onViewSop(sop)
-                      }
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewSop && onViewSop(sop);
+                      }}
+                      className="p-2 rounded-xl bg-slate-100 group-hover:bg-emerald-50 text-slate-400 group-hover:text-emerald-700 transition-colors cursor-pointer shrink-0"
                       title="Buka SPO"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -693,169 +700,201 @@ export const DashboardOverviewPage: React.FC<
           </div>
         </div>
 
-        {/* Recent SK & MOU */}
-        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+        {/* KOLOM 2: SK TERBARU */}
+        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs flex flex-col">
 
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
 
             <div className="flex items-center gap-2">
-
-              <FileCheck className="w-4 h-4 text-blue-600" />
+              <div className="p-1.5 rounded-lg bg-teal-100 text-teal-700">
+                <FileCheck className="w-4 h-4" />
+              </div>
 
               <h2 className="text-sm font-black text-slate-900">
-                SK & MOU Terbaru
+                SK Terbaru
               </h2>
-
             </div>
 
-            <div className="flex items-center gap-2">
-
-              <button
-                type="button"
-                onClick={() =>
-                  onNavigate('sk')
-                }
-                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
-              >
-                SK
-              </button>
-
-              <span className="text-slate-300">
-                •
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate('sk')
+              }
+              className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer"
+            >
+              <span>
+                Lihat Semua
               </span>
 
-              <button
-                type="button"
-                onClick={() =>
-                  onNavigate('mou')
-                }
-                className="text-xs font-bold text-blue-700 hover:text-blue-900 cursor-pointer"
-              >
-                MOU
-              </button>
-
-            </div>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
 
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 flex-1">
 
-            {recentSk.length === 0 &&
-            recentMou.length === 0 ? (
+            {recentSk.length === 0 ? (
 
-              <div className="p-8 text-center text-xs text-slate-400">
-                Belum ada dokumen SK atau MOU.
+              <div className="p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center h-full">
+                <FileCheck className="w-8 h-8 text-slate-300 mb-2" />
+                <span>Belum ada dokumen SK terdaftar.</span>
               </div>
 
             ) : (
 
-              <>
+              recentSk.map(
+                (doc) => (
+                  <div
+                    key={doc.id}
+                    onClick={() =>
+                      onNavigate('sk')
+                    }
+                    className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
+                  >
 
-                {recentSk.map(
-                  (doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3"
-                    >
+                    <div className="min-w-0 flex-1">
 
-                      <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
 
-                        <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200">
+                          SK
+                        </span>
 
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            SK
+                        {doc.documentNumber && (
+                          <span className="font-mono text-[10px] font-bold text-slate-600 truncate max-w-[140px]">
+                            {doc.documentNumber}
                           </span>
-
-                          {doc.documentNumber && (
-                            <span className="font-mono text-[10px] font-bold text-slate-600 truncate">
-                              {doc.documentNumber}
-                            </span>
-                          )}
-
-                        </div>
-
-                        <div className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                          {doc.title}
-                        </div>
-
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {doc.fileName}{' '}
-                          •{' '}
-                          {formatBytes(
-                            doc.fileSize
-                          )}
-                        </div>
+                        )}
 
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onNavigate('sk')
-                        }
-                        className="p-2 rounded-xl bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer shrink-0"
-                        title="Buka Halaman SK"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
+                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-teal-700 transition-colors">
+                        {doc.title}
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {doc.fileName || 'Dokumen SK'}{' '}
+                        {doc.fileSize ? `• ${formatBytes(doc.fileSize)}` : ''}
+                      </div>
 
                     </div>
-                  )
-                )}
 
-                {recentMou.map(
-                  (doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3"
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigate('sk');
+                      }}
+                      className="p-2 rounded-xl bg-slate-100 group-hover:bg-teal-50 text-slate-400 group-hover:text-teal-700 transition-colors cursor-pointer shrink-0"
+                      title="Buka SK"
                     >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
 
-                      <div className="min-w-0 flex-1">
+                  </div>
+                )
+              )
 
-                        <div className="flex items-center gap-2 mb-1">
+            )}
 
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
-                            MOU
+          </div>
+        </div>
+
+        {/* KOLOM 3: MOU TERBARU */}
+        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs flex flex-col">
+
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700">
+                <Handshake className="w-4 h-4" />
+              </div>
+
+              <h2 className="text-sm font-black text-slate-900">
+                MOU Terbaru
+              </h2>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate('mou')
+              }
+              className="text-xs font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+            >
+              <span>
+                Lihat Semua
+              </span>
+
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+          </div>
+
+          <div className="divide-y divide-slate-100 flex-1">
+
+            {recentMou.length === 0 ? (
+
+              <div className="p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center h-full">
+                <Handshake className="w-8 h-8 text-slate-300 mb-2" />
+                <span>Belum ada dokumen MOU terdaftar.</span>
+              </div>
+
+            ) : (
+
+              recentMou.map(
+                (doc) => (
+                  <div
+                    key={doc.id}
+                    onClick={() =>
+                      onNavigate('mou')
+                    }
+                    className="p-4 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
+                  >
+
+                    <div className="min-w-0 flex-1">
+
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                          MOU
+                        </span>
+
+                        {doc.partnerName && (
+                          <span className="text-[11px] font-bold text-slate-600 truncate max-w-[140px]">
+                            {doc.partnerName}
                           </span>
-
-                          {doc.partnerName && (
-                            <span className="text-[11px] font-bold text-slate-600 truncate">
-                              {doc.partnerName}
-                            </span>
-                          )}
-
-                        </div>
-
-                        <div className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                          {doc.title}
-                        </div>
-
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {doc.fileName}{' '}
-                          •{' '}
-                          {formatBytes(
-                            doc.fileSize
-                          )}
-                        </div>
+                        )}
 
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onNavigate('mou')
-                        }
-                        className="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-700 transition-colors cursor-pointer shrink-0"
-                        title="Buka Halaman MOU"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
+                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-blue-700 transition-colors">
+                        {doc.title}
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {doc.fileName || 'Dokumen MOU'}{' '}
+                        {doc.fileSize ? `• ${formatBytes(doc.fileSize)}` : ''}
+                      </div>
 
                     </div>
-                  )
-                )}
 
-              </>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigate('mou');
+                      }}
+                      className="p-2 rounded-xl bg-slate-100 group-hover:bg-blue-50 text-slate-400 group-hover:text-blue-700 transition-colors cursor-pointer shrink-0"
+                      title="Buka MOU"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                  </div>
+                )
+              )
+
             )}
 
           </div>

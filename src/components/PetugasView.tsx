@@ -30,7 +30,9 @@ import {
   Handshake,
   FileCheck,
   AlertTriangle,
-  Info
+  Info,
+  LayoutList,
+  Table as TableIcon
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -271,6 +273,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [legacyApprover, setLegacyApprover] = useState('Direktur RSUD Dr. Soegiri');
   const [legacySignedDate, setLegacySignedDate] = useState(new Date().toISOString().split('T')[0]);
   const [existingSopId, setExistingSopId] = useState('');
+  const [oldSopNumber, setOldSopNumber] = useState('');
+  const [reviewReason, setReviewReason] = useState('');
+  const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
+
+  // Editor mode: 'form' (Formulir isian standar) or 'a4_official' (Format Baku A4 Resmi)
+  const [editorMode, setEditorMode] = useState<'form' | 'a4_official'>('form');
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -608,18 +616,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                   <span>Daftar SPO Unit ({accessibleSops.length})</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setSpoSubTab('input')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    spoSubTab === 'input'
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>+ Usulkan / Input SPO</span>
-                </button>
+                {spoSubTab === 'input' && documentType === 'BARU' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowIssueNumberModal(true)}
+                    disabled={isIssuingNumber}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                  >
+                    <FileCheck2 className="w-4 h-4" />
+                    <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -718,7 +725,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     </div>
                   </section>
 
-                  {/* 2. Unit / Hierarchy */}
+                  {/* 2. Unit / Hierarchy — hanya untuk SPO Baru/Riviu.
+                      SPO Eksisting otomatis mengikuti unit dari nomor SPO yang sudah ada. */}
+                  {(documentType === 'BARU' || documentType === 'REVIEW') && (
                   <section className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
@@ -846,38 +855,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     )}
                   </section>
 
-                  {/* 3. Opsi cepat: terbitkan nomor saja (Khusus SPO Baru) */}
-                  {documentType === 'BARU' && (
-                    <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="w-9 h-9 rounded-xl bg-white border border-emerald-200 text-emerald-700 flex items-center justify-center">
-                              <FileCheck2 className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Terbitkan Nomor SPO Saja</h3>
-                              <p className="text-[10px] text-slate-500 mt-0.5">Nomor diambil dari register otomatis dan dikunci agar tidak pernah sama.</p>
-                            </div>
-                          </div>
-                          {issuedSopNumber && (
-                            <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3.5 py-2.5">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">Nomor diterbitkan</span>
-                              <span className="font-mono text-sm font-black text-emerald-800">{issuedSopNumber}</span>
-                              <button type="button" onClick={() => navigator.clipboard?.writeText(issuedSopNumber)} className="text-[10px] font-bold text-emerald-700 hover:underline">Salin</button>
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowIssueNumberModal(true)}
-                          disabled={isIssuingNumber}
-                          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shrink-0"
-                        >
-                          {isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}
-                        </button>
+                  )}
+
+                  {/* Nomor SPO diterbitkan ditampilkan ringkas di bawah form setelah berhasil. */}
+                  {documentType === 'BARU' && issuedSopNumber && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800">Nomor SPO diterbitkan</div>
+                        <div className="font-mono text-sm font-black text-slate-900 mt-0.5">{issuedSopNumber}</div>
                       </div>
-                    </section>
+                      <button type="button" onClick={() => navigator.clipboard?.writeText(issuedSopNumber)} className="text-xs font-bold text-emerald-700 hover:underline">Salin Nomor</button>
+                    </div>
                   )}
 
                   {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
@@ -917,6 +905,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             placeholder="Contoh: 440/102/SPO/PEL/2023 atau PEL/1.1.3/008/2024"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
                           />
+
+                          {manualLegacyNumber.trim() && (() => {
+                            const match = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
+                            if (!match.isDuplicate || !match.matchedDoc) return null;
+                            const matched = match.matchedDoc as any;
+                            const matchedUnit = matched.unitName || matched.creatorUnit || matched.hierarchyName || matched.divisionName || matched.categoryName || matched.divisionCode || 'Unit kerja terdeteksi dari nomor SPO';
+                            return (
+                              <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5">
+                                <div className="text-[10px] uppercase tracking-wider font-black text-emerald-700">Unit Kerja Otomatis</div>
+                                <div className="mt-0.5 text-xs font-black text-slate-900">{matchedUnit}</div>
+                                <div className="mt-0.5 text-[10px] text-slate-500">Unit mengikuti data SPO dengan nomor tersebut.</div>
+                              </div>
+                            );
+                          })()}
 
                           {manualLegacyNumber.trim() && (() => {
                             const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
@@ -1018,48 +1020,146 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     </section>
                   ) : (
                     <>
-                      {/* 3. Compact SPO detail summary + modal trigger (Untuk SPO Baru / Riviu) */}
-                      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="min-w-0">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">3. Rincian SPO & Batang Tubuh</h3>
-                            <div className="mt-2 text-sm font-black text-slate-900 truncate">
-                              {title.trim() || 'Judul SPO belum diisi'}
+                      {/* 3. Live form SPO Baru / ringkasan SPO Riviu */}
+                      {documentType === 'BARU' ? (
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-5">
+                          <div>
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                              3. Rincian SPO & Batang Tubuh
+                            </h3>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Isi langsung sesuai urutan format resmi SPO: Pengertian → Tujuan → Kebijakan → Prosedur → Alur (jika ada) → Unit Terkait.
+                            </p>
+                          </div>
+
+                          {/* Identitas SPO */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="sm:col-span-2">
+                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                Judul Standar Prosedur Operasional <span className="text-rose-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="Contoh: Prosedur Penerimaan Pasien Rawat Inap"
+                                className="w-full px-3.5 py-3 rounded-xl border border-slate-300 bg-white text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                                title.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {title.trim() ? 'Judul ✓' : 'Judul belum diisi'}
-                              </span>
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                                pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                                  ? 'Batang tubuh lengkap ✓'
-                                  : 'Batang tubuh belum lengkap'}
-                              </span>
-                              {selectedFile && (
-                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-50 text-blue-700">
-                                  Lampiran ✓
-                                </span>
-                              )}
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                Tanggal Ditetapkan / Berlaku
+                              </label>
+                              <input
+                                type="date"
+                                value={effectiveDate}
+                                onChange={(e) => setEffectiveDate(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                Periode Riviu Berkala
+                              </label>
+                              <select
+                                value={reviewPeriodMonths}
+                                onChange={(e) => setReviewPeriodMonths(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                              >
+                                <option value="12">Setiap 1 Tahun (12 Bulan)</option>
+                                <option value="24">Setiap 2 Tahun (24 Bulan)</option>
+                                <option value="36">Setiap 3 Tahun (36 Bulan)</option>
+                              </select>
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => setIsDetailModalOpen(true)}
-                            disabled={!hasValidPetugasAssignment}
-                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-black shrink-0"
-                          >
-                            <FilePlus className="w-4 h-4" />
-                            <span>Isi / Edit Batang Tubuh SPO</span>
-                          </button>
-                        </div>
-                      </section>
+                          {/* Batang tubuh resmi */}
+                          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4 sm:p-5">
+                            <div className="mb-4">
+                              <div className="text-xs font-black uppercase tracking-wider text-emerald-900">
+                                Batang Tubuh SPO
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-1">
+                                Tidak dibatasi jumlah halaman. Isi sesuai kebutuhan dokumen.
+                              </div>
+                            </div>
+
+                            <div className="space-y-4">
+                              {[
+                                ['Pengertian', pengertian, setPengertian, 'Jelaskan pengertian, definisi istilah, dan ruang lingkup yang perlu dipahami.'],
+                                ['Tujuan', tujuan, setTujuan, 'Tuliskan tujuan penyusunan dan pelaksanaan SPO.'],
+                                ['Kebijakan', kebijakan, setKebijakan, 'Tuliskan kebijakan Direktur/Pimpinan yang menjadi dasar SPO.'],
+                                ['Prosedur', prosedur, setProsedur, 'Tuliskan langkah-langkah kerja secara runtut dan jelas.'],
+                                ['Alur (Opsional)', alur, setAlur, 'Tambahkan alur proses apabila diperlukan.'],
+                                ['Unit Terkait', unitTerkait, setUnitTerkait, 'Tuliskan unit/bagian yang terkait dalam pelaksanaan SPO.']
+                              ].map(([label, value, setter, placeholder]) => (
+                                <div key={label as string}>
+                                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                    {label}
+                                    {label !== 'Alur (Opsional)' && <span className="text-rose-500"> *</span>}
+                                  </label>
+                                  <textarea
+                                    rows={
+                                      label === 'Prosedur'
+                                        ? 8
+                                        : label === 'Alur (Opsional)'
+                                          ? 4
+                                          : 5
+                                    }
+                                    value={value as string}
+                                    onChange={(e) =>
+                                      (setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)
+                                    }
+                                    placeholder={placeholder as string}
+                                    className="w-full px-3.5 py-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 resize-y"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </section>
+                      ) : (
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="min-w-0">
+                              <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                                3. Rincian SPO & Batang Tubuh
+                              </h3>
+                              <div className="mt-2 text-sm font-black text-slate-900 truncate">
+                                {title.trim() || 'Judul SPO belum diisi'}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                  title.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {title.trim() ? 'Judul ✓' : 'Judul belum diisi'}
+                                </span>
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                  pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
+                                    ? 'Batang tubuh lengkap ✓'
+                                    : 'Batang tubuh belum lengkap'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setIsDetailModalOpen(true)}
+                              disabled={!hasValidPetugasAssignment}
+                              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-black shrink-0"
+                            >
+                              <FilePlus className="w-4 h-4" />
+                              <span>Isi / Edit Batang Tubuh SPO</span>
+                            </button>
+                          </div>
+                        </section>
+                      )}
 
                       {/* File upload untuk SPO Baru / Riviu */}
                       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

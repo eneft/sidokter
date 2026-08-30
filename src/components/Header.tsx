@@ -22,18 +22,19 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  activeTab, onTabChange, totalSopCount, skCount = 0, mouCount = 0,
-  finalDocCount = 0, userSession, onLogout, onOpenUpload
+  activeTab, onTabChange, totalSopCount, activeSopCount, skCount = 0, mouCount = 0,
+  finalDocCount = 0, userSession, onLogout
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isAdmin = userSession?.role === 'admin';
 
+  // Library = SPO Aktif count
   const petugasItems: Array<{ id: MainMenuTab; label: string; icon: React.ComponentType<{className?: string}>; count?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
     { id: 'sk', label: 'SK', icon: FileCheck, count: skCount },
     { id: 'mou', label: 'MOU', icon: Handshake, count: mouCount },
-    { id: 'library', label: 'Library', icon: BookOpen, count: finalDocCount },
+    { id: 'library', label: 'Library', icon: BookOpen, count: activeSopCount },
     { id: 'profile', label: 'Profil', icon: UserRound },
   ];
 
@@ -47,70 +48,127 @@ export const Header: React.FC<HeaderProps> = ({
   if (!isAdmin) {
     return (
       <>
-        <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 shadow-sm flex-col no-print">
-          <div className="h-20 px-5 flex items-center gap-3 border-b border-slate-100">
+        <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200/90 shadow-sm flex-col no-print select-none">
+          {/* Brand Header */}
+          <div className="h-20 px-5 flex items-center gap-3.5 border-b border-slate-100">
             <HospitalLogo size="md" />
             <div className="min-w-0">
-              <div className="font-black text-slate-900 tracking-tight">SIDOKTER SOEGIRI</div>
-              <div className="text-[10px] text-slate-500 font-medium truncate">RSUD Dr. Soegiri Lamongan</div>
+              <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
+              <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
             </div>
           </div>
 
-          <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
+          {/* Navigation Menu */}
+          <nav className="flex-1 p-3.5 space-y-1.5 overflow-y-auto">
+            <div className="px-3 pt-2 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Menu Utama
+            </div>
             {petugasItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
               return (
-                <button key={item.id} type="button" onClick={() => handleSelect(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-bold transition-all text-left ${active ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}>
-                  <Icon className="w-5 h-5 shrink-0" />
-                  <span className="flex-1">{item.label}</span>
-                  {typeof item.count === 'number' && item.count > 0 && (
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${active ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>{item.count}</span>
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSelect(item.id)}
+                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all text-left cursor-pointer group ${
+                    active
+                      ? 'bg-emerald-600 text-white shadow-xs font-black'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`w-4.5 h-4.5 shrink-0 transition-transform group-hover:scale-105 ${active ? 'text-white' : 'text-slate-400 group-hover:text-emerald-600'}`} />
+                  <span className="flex-1 text-xs">{item.label}</span>
+                  {typeof item.count === 'number' && item.count >= 0 && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-black min-w-5 text-center transition-colors ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-800'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
                   )}
-                  {active && <ChevronRight className="w-4 h-4 opacity-70" />}
+                  {active && <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />}
                 </button>
               );
             })}
-            {onOpenUpload && (
-              <button type="button" onClick={onOpenUpload}
-                className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-colors">
-                <Upload className="w-4 h-4" /> Upload / Usulkan SPO
-              </button>
-            )}
           </nav>
 
-          <div className="p-4 border-t border-slate-100">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-black text-sm shrink-0">
+          {/* User Profile Card & Logout at Bottom */}
+          <div className="p-3.5 border-t border-slate-100">
+            <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100/80">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-xs shrink-0 ring-1 ring-emerald-200">
                 {(userSession?.name || userSession?.username || 'P')[0].toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-black text-slate-800 truncate">{userSession?.name || 'Petugas'}</div>
-                <div className="text-[10px] text-slate-500 truncate">{userSession?.unitName || 'Petugas'}</div>
+                <div className="text-xs font-black text-slate-800 truncate leading-tight">{userSession?.name || 'Petugas'}</div>
+                <div className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{userSession?.unitName || userSession?.divisionCode || 'Petugas Unit'}</div>
               </div>
-              <button type="button" onClick={onLogout} title="Keluar" className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Keluar dari Akun"
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+              >
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>
         </aside>
 
+        {/* Mobile Topbar & Drawer */}
         <div className="lg:hidden sticky top-0 z-50 bg-white border-b border-slate-200 no-print">
           <div className="h-16 px-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0"><HospitalLogo size="sm" /><span className="font-black text-sm truncate">SIDOKTER SOEGIRI</span></div>
-            <button type="button" onClick={() => setMobileMenuOpen(v => !v)} className="p-2 rounded-xl hover:bg-slate-100">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <HospitalLogo size="sm" />
+              <div>
+                <span className="font-black text-xs text-slate-900 block leading-tight">SIDOKTER SOEGIRI</span>
+                <span className="text-[10px] text-slate-500 font-medium truncate block">RSUD Dr. Soegiri Lamongan</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(v => !v)}
+              className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
+              aria-label="Buka Menu"
+            >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
             </button>
           </div>
           {mobileMenuOpen && (
-            <nav className="p-3 border-t border-slate-100 space-y-1 bg-white shadow-lg">
-              {petugasItems.map((item) => { const Icon = item.icon; const active = activeTab === item.id; return (
-                <button key={item.id} type="button" onClick={() => handleSelect(item.id)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-left ${active ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>
-                  <Icon className="w-5 h-5" /><span className="flex-1">{item.label}</span>{item.count ? <span>{item.count}</span> : null}
-                </button>
-              ); })}
-              <button type="button" onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold text-rose-600 hover:bg-rose-50"><LogOut className="w-5 h-5" />Keluar</button>
+            <nav className="p-3 border-t border-slate-100 space-y-1.5 bg-white shadow-xl animate-in slide-in-from-top-2 duration-150">
+              {petugasItems.map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelect(item.id)}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-left cursor-pointer ${
+                      active ? 'bg-emerald-600 text-white font-black' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Icon className="w-4.5 h-4.5" />
+                    <span className="flex-1">{item.label}</span>
+                    {typeof item.count === 'number' && item.count >= 0 && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 cursor-pointer pt-2 border-t border-slate-100 mt-2"
+              >
+                <LogOut className="w-4.5 h-4.5" />
+                <span>Keluar Akun</span>
+              </button>
             </nav>
           )}
         </div>
