@@ -295,10 +295,18 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                         : sop.status === 'MENUNGGU_PENGESAHAN'
                         ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                        ? 'bg-sky-100 text-sky-800 border border-sky-200'
                         : 'bg-slate-100 text-slate-700'
                     }`}
                   >
-                    {sop.status === 'MENUNGGU_PENGESAHAN' ? 'Menunggu Pengesahan' : sop.status}
+                    {sop.status === 'MENUNGGU_PENGESAHAN'
+                      ? 'Menunggu Pengesahan'
+                      : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                      ? 'Belum Upload'
+                      : sop.status === 'TIDAK_AKTIF'
+                      ? 'Tidak Aktif'
+                      : 'Aktif'}
                   </span>
                 </div>
 

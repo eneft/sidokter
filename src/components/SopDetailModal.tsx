@@ -2164,8 +2164,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     onChange={(e) => onUpdateStatus(sop.id, e.target.value as SopStatus)}
                     className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    {sop.status === 'AKTIF' && <option value="AKTIF">Aktif</option>}
-                    {sop.status === 'MENUNGGU_PENGESAHAN' && <option value="MENUNGGU_PENGESAHAN">Menunggu Pengesahan</option>}
+                    <option value="DRAFT">Belum Upload</option>
+                    <option value="MENUNGGU_PENGESAHAN">Menunggu Pengesahan</option>
+                    <option value="AKTIF">Aktif</option>
                     <option value="TIDAK_AKTIF">Tidak Aktif</option>
                   </select>
                 )
@@ -2177,12 +2178,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                         : sop.status === 'MENUNGGU_PENGESAHAN'
                         ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                        : sop.status === 'MENUNGGU_PENGESAHAN'
-                        ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                        : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                        ? 'bg-sky-100 text-sky-800 border border-sky-300'
                         : 'bg-slate-100 text-slate-700 border border-slate-300'
                     }`}
                   >
-                    {sop.status === 'MENUNGGU_PENGESAHAN' ? 'Menunggu Pengesahan' : sop.status === 'TIDAK_AKTIF' ? 'Tidak Aktif' : 'Aktif'}
+                    {sop.status === 'MENUNGGU_PENGESAHAN'
+                      ? 'Menunggu Pengesahan'
+                      : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                      ? 'Belum Upload'
+                      : sop.status === 'TIDAK_AKTIF'
+                      ? 'Tidak Aktif'
+                      : 'Aktif'}
                   </span>
                 </div>
               )}

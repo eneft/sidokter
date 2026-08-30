@@ -1101,13 +1101,14 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
                       onChange={(e) => setStatus(e.target.value as SopStatus)}
                       className="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                      {status === 'AKTIF' && <option value="AKTIF">AKTIF</option>}
-                      {status === 'MENUNGGU_PENGESAHAN' && <option value="MENUNGGU_PENGESAHAN">MENUNGGU PENGESAHAN</option>}
-                      {status !== 'AKTIF' && <option value="TIDAK_AKTIF">TIDAK AKTIF</option>}
+                      <option value="DRAFT">BELUM UPLOAD</option>
+                      <option value="MENUNGGU_PENGESAHAN">MENUNGGU PENGESAHAN</option>
+                      <option value="AKTIF">AKTIF</option>
+                      <option value="TIDAK_AKTIF">TIDAK AKTIF</option>
                     </select>
                   ) : (
                     <div className="w-full text-xs font-bold border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-100 text-slate-700">
-                      {sop.status}
+                      {sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation ? 'BELUM UPLOAD' : sop.status === 'MENUNGGU_PENGESAHAN' ? 'MENUNGGU PENGESAHAN' : sop.status}
                     </div>
                   )}
 

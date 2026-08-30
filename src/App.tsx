@@ -750,8 +750,14 @@ export default function App() {
         }
 
         // Status Filter
-        if (filters.status && sop.status !== filters.status) {
-          return false;
+        if (filters.status) {
+          if (filters.status === 'DRAFT' || filters.status === 'BELUM_UPLOAD') {
+            if (sop.status !== 'DRAFT' && sop.status !== 'BELUM_UPLOAD' && !sop.isNumberReservation) {
+              return false;
+            }
+          } else if (sop.status !== filters.status) {
+            return false;
+          }
         }
 
         // Year Filter

@@ -2,7 +2,7 @@
  * SPO SERVICE
  * Service khusus dokumen SPO dan konfigurasi penomoran SPO.
  */
-import { SopDocument, NumberingConfig } from '../types';
+import { SopDocument, NumberingConfig, SopStatus } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
 
 const KEYS = {
@@ -129,8 +129,20 @@ function notifySopSubscribers(): void {
 }
 
 function normalizeSop(sop: SopDocument): SopDocument {
-  const status = String((sop as any).status || 'MENUNGGU_PENGESAHAN');
-  return { ...sop, status: status === 'AKTIF' ? 'AKTIF' : status === 'TIDAK_AKTIF' ? 'TIDAK_AKTIF' : 'MENUNGGU_PENGESAHAN' };
+  const rawStatus = String((sop as any).status || '');
+  let status: SopStatus = 'MENUNGGU_PENGESAHAN';
+  if (rawStatus === 'AKTIF') {
+    status = 'AKTIF';
+  } else if (rawStatus === 'TIDAK_AKTIF') {
+    status = 'TIDAK_AKTIF';
+  } else if (rawStatus === 'DRAFT' || rawStatus === 'BELUM_UPLOAD' || (sop as any).isNumberReservation) {
+    status = 'DRAFT';
+  } else if (rawStatus === 'MENUNGGU_PENGESAHAN') {
+    status = 'MENUNGGU_PENGESAHAN';
+  } else {
+    status = (sop as any).isNumberReservation ? 'DRAFT' : 'MENUNGGU_PENGESAHAN';
+  }
+  return { ...sop, status };
 }
 
 

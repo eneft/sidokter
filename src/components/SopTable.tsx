@@ -50,7 +50,7 @@ export const SopTable: React.FC<SopTableProps> = ({
   const isReview = (sop: SopDocument) => getStandardJenisSpo(sop) === 'RIVIU';
   const revision = (sop: SopDocument) => sop.revisionNumber || sop.version || (isReview(sop) ? '01' : '00');
 
-  const renderStatusBadge = (status: SopStatus) => {
+  const renderStatusBadge = (status: SopStatus, isReservation?: boolean) => {
     if (status === 'AKTIF') {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -67,11 +67,11 @@ export const SopTable: React.FC<SopTableProps> = ({
         </span>
       );
     }
-    if (status === 'DRAFT') {
+    if (status === 'DRAFT' || status === 'BELUM_UPLOAD' || isReservation) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
           <FileCheck2 className="w-3 h-3 text-sky-600" />
-          <span>Nomor Terbit — Belum Upload</span>
+          <span>Belum Upload</span>
         </span>
       );
     }
@@ -138,7 +138,7 @@ export const SopTable: React.FC<SopTableProps> = ({
                     {sop.title || 'Tanpa Judul SPO'}
                   </h3>
 
-                  {renderStatusBadge(sop.status)}
+                  {renderStatusBadge(sop.status, sop.isNumberReservation)}
 
                   {review && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">

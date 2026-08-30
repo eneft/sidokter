@@ -334,7 +334,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       setIssuedSopHierarchy(issued.subHierarchyCode || '');
       setIssuedSopDate(issued.effectiveDate);
       setShowIssueNumberModal(false);
-      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} masuk daftar sebagai "Nomor Terbit — Belum Upload".`);
+      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil diterbitkan dengan status "Belum Upload".`);
     } catch (err: any) {
       const message = err?.message || 'Nomor SPO gagal diterbitkan.';
       setSubmitError(message);
