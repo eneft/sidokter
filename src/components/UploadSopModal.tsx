@@ -340,12 +340,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         return;
       }
 
-      // Validasi aturan SPO Existing & pencegahan duplikasi
+      // Validasi aturan SPO Eksisting: Tidak boleh mereplace SPO yang sudah berstatus AKTIF
       const dup = checkDuplicateSopNumber(sops || [], cleanNum);
       if (dup.isDuplicate && dup.matchedDoc) {
         if (dup.matchedDoc.status === 'AKTIF') {
-          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF. Dokumen tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
-          alert(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF.\n\nSesuai aturan, dokumen berstatus Aktif tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
+          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}"). Dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting.`);
+          alert(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}").\n\nSesuai aturan Rumah Sakit, dokumen berstatus Aktif TIDAK DAPAT digantikan dengan SPO Eksisting. Silakan gunakan alur "SPO Riviu" jika ingin melakukan revisi/pembaruan terhadap SPO Aktif.`);
           return;
         }
       }

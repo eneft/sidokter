@@ -44,7 +44,7 @@ import {
   LibraryDocument,
   MainMenuTab
 } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -56,7 +56,6 @@ import {
 } from '../utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { Header } from './Header';
-import { RichTextEditor } from './RichTextEditor';
 import { SopLiveTemplate } from './SopLiveTemplate';
 import { PetugasLibraryTab } from './PetugasLibraryTab';
 import { PetugasPasswordTab } from './PetugasPasswordTab';
@@ -277,9 +276,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [reviewReason, setReviewReason] = useState('');
   const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
 
-  // Editor mode: 'form' (Formulir isian standar) or 'a4_official' (Format Baku A4 Resmi)
-  const [editorMode, setEditorMode] = useState<'form' | 'a4_official'>('form');
-
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isIssuingNumber, setIsIssuingNumber] = useState(false);
@@ -289,10 +285,42 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [issuedSopDivision, setIssuedSopDivision] = useState<string | null>(null);
   const [issuedSopHierarchy, setIssuedSopHierarchy] = useState<string | null>(null);
   const [issuedSopDate, setIssuedSopDate] = useState<string | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestCreatedSop, setLatestCreatedSop] = useState<SopDocument | null>(null);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+
+  // Validation helper for rich text and image content
+  const hasRichContent = (html: string = '') => {
+    if (!html || !html.trim()) return false;
+    const source = html.trim();
+    if (
+      /<img\b/i.test(source) ||
+      /data-sop-image\s*=\s*["']true["']/i.test(source) ||
+      /data-storage-image\s*=\s*["']true["']/i.test(source) ||
+      /class\s*=\s*["'][^"']*figure-wrapper/i.test(source) ||
+      /<figure\b/i.test(source)
+    ) {
+      return true;
+    }
+    const temp = document.createElement('div');
+    temp.innerHTML = source;
+    const text = (temp.textContent || temp.innerText || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.length > 0;
+  };
+
+  const missingSections = useMemo(() => {
+    if (documentType === 'LAMA') return [];
+    const list: string[] = [];
+    if (!hasRichContent(pengertian)) list.push('PENGERTIAN');
+    if (!hasRichContent(tujuan)) list.push('TUJUAN');
+    if (!hasRichContent(kebijakan)) list.push('KEBIJAKAN');
+    if (!hasRichContent(prosedur)) list.push('PROSEDUR');
+    if (!hasRichContent(unitTerkait)) list.push('UNIT TERKAIT');
+    return list;
+  }, [documentType, pengertian, tujuan, kebijakan, prosedur, unitTerkait]);
 
   // Accessible SOPs count
   const accessibleSops = useMemo(() => {
@@ -386,6 +414,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     setManualLegacyNumber('');
     setRevisionNumber('00');
     setExistingSopId('');
+    setOldSopNumber('');
+    setReviewReason('');
+    setSelectedExistingSopIdForReview('');
     setSubmitError(null);
     setIssuedSopNumber(null);
     setIssuedSopId(null);
@@ -399,39 +430,60 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     e.preventDefault();
     setSubmitError(null);
 
-    if (!hasValidPetugasAssignment || !activeAssignment?.divisionCode || String(activeAssignment.divisionCode).toUpperCase() === 'ALL') {
-      setSubmitError('Akun Petugas belum memiliki hirarki yang valid. Pengajuan SPO tidak dapat dilakukan.');
-      return;
-    }
+    const isLegacy = documentType === 'LAMA';
+    const isReview = documentType === 'REVIEW';
 
-    const selectedPath = [selectedSubCode, selectedInstCode, selectedPoliCode, selectedSubUnitCode].filter(Boolean);
-    const assignmentPath = getAssignmentPath(activeAssignment);
-    const selectedFollowsAssignment = assignmentPath.every((v, i) => selectedPath[i] === v);
-    if (!selectedFollowsAssignment) {
-      setSubmitError('Hirarki yang dipilih tidak sesuai dengan assignment akun Petugas.');
-      return;
-    }
-    if (getHierarchyChildren(selectedCatCode, selectedPath).length > 0) {
-      setSubmitError('Pilih sampai tingkat unit terakhir yang tersedia sebelum mengajukan SPO.');
-      return;
-    }
+    // Validasi hirarki hanya untuk SPO Baru dan SPO Riviu (SPO Eksisting tidak wajib isi hirarki/unit)
+    if (!isLegacy) {
+      if (!hasValidPetugasAssignment || !activeAssignment?.divisionCode || String(activeAssignment.divisionCode).toUpperCase() === 'ALL') {
+        setSubmitError('Akun Petugas belum memiliki hirarki yang valid. Pengajuan SPO tidak dapat dilakukan.');
+        return;
+      }
 
-    if (!title.trim()) {
-      setSubmitError('Judul SPO wajib diisi.');
-      return;
-    }
+      const selectedPath = [selectedSubCode, selectedInstCode, selectedPoliCode, selectedSubUnitCode].filter(Boolean);
+      const assignmentPath = getAssignmentPath(activeAssignment);
+      const selectedFollowsAssignment = assignmentPath.every((v, i) => selectedPath[i] === v);
+      if (!selectedFollowsAssignment) {
+        setSubmitError('Hirarki yang dipilih tidak sesuai dengan assignment akun Petugas.');
+        return;
+      }
+      if (getHierarchyChildren(selectedCatCode, selectedPath).length > 0) {
+        setSubmitError('Pilih sampai tingkat unit terakhir yang tersedia sebelum mengajukan SPO.');
+        return;
+      }
 
-    if (issuedSopId && documentType === 'BARU') {
-      if (issuedSopDivision !== selectedCatCode || (issuedSopHierarchy || '') !== (subHierarchyCode || '') || issuedSopDate !== effectiveDate) {
-        setSubmitError('Unit/hirarki atau tanggal berubah setelah nomor diterbitkan. Batalkan dan terbitkan nomor baru agar register tetap konsisten.');
+      if (!title.trim()) {
+        setSubmitError('Judul SPO wajib diisi.');
+        return;
+      }
+
+      if (missingSections.length > 0) {
+        setSubmitError(`Bagian batang tubuh SPO berikut belum lengkap (wajib diisi teks atau gambar):\n• ${missingSections.join('\n• ')}`);
         return;
       }
     }
 
-    if (documentType === 'LAMA') {
+    let finalIssuedId = issuedSopId;
+    let finalIssuedSequence = issuedSopSequence;
+    let finalIssuedNumber = issuedSopNumber;
+
+    if (issuedSopId && documentType === 'BARU') {
+      if (issuedSopDivision !== selectedCatCode || (issuedSopHierarchy || '') !== (subHierarchyCode || '') || issuedSopDate !== effectiveDate) {
+        // Jika hirarki/tanggal berubah setelah reservasi nomor sebelumnya,
+        // alokasikan nomor urut baru secara otomatis sesuai hirarki dan tanggal aktif
+        finalIssuedId = null;
+        finalIssuedSequence = null;
+        finalIssuedNumber = null;
+      }
+    }
+
+    let matchedExistingDoc: SopDocument | undefined = undefined;
+    let detectedInfo: ReturnType<typeof detectHierarchyFromSopNumber> = null;
+
+    if (isLegacy) {
       const cleanNum = manualLegacyNumber.trim();
       if (!cleanNum) {
-        setSubmitError('Nomor SPO Lama resmi wajib diisi.');
+        setSubmitError('Nomor SPO Lama / Eksisting resmi wajib diisi.');
         return;
       }
       if (!selectedFile) {
@@ -439,57 +491,98 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         return;
       }
 
-      const dup = checkDuplicateSopNumber(sops || [], cleanNum);
-      if (dup.isDuplicate && dup.matchedDoc) {
-        if (dup.matchedDoc.status === 'AKTIF') {
-          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF. Dokumen tidak dapat digantikan dan nomor SPO tidak boleh duplikat.`);
-          return;
-        }
+      // Deteksi dokumen terdaftar yang sudah ada di sistem
+      matchedExistingDoc = sops?.find((s) => 
+        (s.sopNumber && s.sopNumber.trim().toLowerCase() === cleanNum.toLowerCase()) ||
+        (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === cleanNum.toLowerCase()) ||
+        (existingSopId && s.id === existingSopId)
+      );
+
+      // Aturan: SPO Eksisting TIDAK BISA menggantikan SPO yang sudah berstatus AKTIF
+      if (matchedExistingDoc && matchedExistingDoc.status === 'AKTIF') {
+        setSubmitError(
+          `Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${matchedExistingDoc.title}"). Sesuai aturan rumah sakit, dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting. Silakan gunakan alur "SPO Riviu" untuk melakukan revisi dokumen aktif.`
+        );
+        return;
+      }
+
+      // Deteksi hirarki otomatis dari nomor SPO
+      detectedInfo = detectHierarchyFromSopNumber(cleanNum);
+
+      if (!title.trim() && !matchedExistingDoc?.title) {
+        setSubmitError('Judul SPO Eksisting wajib diisi.');
+        return;
       }
     }
 
     try {
       setIsSubmitting(true);
 
-      const isLegacy = documentType === 'LAMA';
-      const isReview = documentType === 'REVIEW';
+      const cleanNum = manualLegacyNumber.trim();
+
+      // Tentukan field hirarki dan metadata
+      const finalDivCode = isLegacy
+        ? (matchedExistingDoc?.divisionCode || detectedInfo?.divisionCode || selectedCatCode || 'PEL')
+        : selectedCatCode;
+      const finalDivName = isLegacy
+        ? (matchedExistingDoc?.divisionName || (matchedExistingDoc as any)?.categoryName || detectedInfo?.divisionName || activeCategory?.name || finalDivCode)
+        : (activeCategory?.name || selectedCatCode);
+      const finalSubHierarchy = isLegacy
+        ? (matchedExistingDoc?.subHierarchyCode !== undefined ? matchedExistingDoc.subHierarchyCode : (detectedInfo?.subHierarchyCode !== undefined ? detectedInfo.subHierarchyCode : (subHierarchyCode || '')))
+        : subHierarchyCode;
+      const finalSubCode = isLegacy
+        ? (matchedExistingDoc?.subCode || detectedInfo?.subCode || selectedSubCode)
+        : selectedSubCode;
+      const finalInstCode = isLegacy
+        ? (matchedExistingDoc?.instalasiCode || (matchedExistingDoc as any)?.instCode || detectedInfo?.instalasiCode || selectedInstCode)
+        : selectedInstCode;
+      const finalPoliCode = isLegacy
+        ? (matchedExistingDoc?.poliCode || detectedInfo?.poliCode || selectedPoliCode)
+        : selectedPoliCode;
+      const finalSubUnitCode = isLegacy
+        ? (matchedExistingDoc?.subUnitCode || detectedInfo?.subUnitCode || selectedSubUnitCode)
+        : selectedSubUnitCode;
+      const finalHierarchyDesc = isLegacy
+        ? (matchedExistingDoc?.hierarchyDescription || detectedInfo?.hierarchyDescription || hierarchyInfo.conclusion)
+        : hierarchyInfo.conclusion;
+      const finalTitle = title.trim() || matchedExistingDoc?.title || `SPO Eksisting ${cleanNum}`;
 
       const sopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string } = {
-        sequenceNumber: issuedSopSequence || 0,
-        id: issuedSopId || undefined,
-        title: title.trim(),
-        divisionId: selectedCatCode,
-        divisionCode: selectedCatCode,
-        divisionName: activeCategory?.name || selectedCatCode,
-        categoryId: selectedCatCode,
-        categoryName: selectedCatCode,
-        version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || '00') : '00',
+        sequenceNumber: isLegacy ? 0 : (finalIssuedSequence || 0),
+        id: isLegacy ? (matchedExistingDoc?.id || undefined) : (finalIssuedId || undefined),
+        title: finalTitle,
+        divisionId: finalDivCode,
+        divisionCode: finalDivCode,
+        divisionName: finalDivName,
+        categoryId: finalDivCode,
+        categoryName: finalDivName,
+        version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
         status: isLegacy ? 'AKTIF' : 'MENUNGGU_PENGESAHAN',
-        effectiveDate,
+        effectiveDate: effectiveDate || (isLegacy ? matchedExistingDoc?.effectiveDate : undefined) || new Date().toISOString().split('T')[0],
         reviewPeriodMonths: Number(reviewPeriodMonths) || 12,
         nextReviewDate: '',
         creatorName: userSession.name,
-        creatorUnit: userSession.unitName || selectedCatCode,
-        approverName: isLegacy ? legacyApprover : '',
-        summary: summary.trim(),
-        tags: [selectedCatCode, subHierarchyCode].filter(Boolean),
-        subHierarchyCode,
-        subCode: selectedSubCode,
-        instalasiCode: selectedInstCode,
-        poliCode: selectedPoliCode,
-        subUnitCode: selectedSubUnitCode || undefined,
-        hierarchyDescription: hierarchyInfo.conclusion || undefined,
+        creatorUnit: userSession.unitName || finalDivName,
+        approverName: isLegacy ? (legacyApprover || matchedExistingDoc?.approverName || SOEGIRI_HOSPITAL_INFO.director.name) : SOEGIRI_HOSPITAL_INFO.director.name,
+        summary: isReview && reviewReason ? `Riviu SPO: ${reviewReason}` : summary.trim() || `Standar Prosedur Operasional ${finalTitle}`,
+        tags: [finalDivCode, finalSubHierarchy, isReview ? 'riviu' : isLegacy ? 'eksisting' : ''].filter(Boolean),
+        subHierarchyCode: finalSubHierarchy,
+        subCode: finalSubCode,
+        instalasiCode: finalInstCode,
+        poliCode: finalPoliCode,
+        subUnitCode: finalSubUnitCode || undefined,
+        hierarchyDescription: finalHierarchyDesc || undefined,
         documentType: isLegacy ? 'LAMA' : 'BARU',
         jenis_spo: isLegacy ? 'EKSISTING' : isReview ? 'RIVIU' : 'BARU',
         isLegacySop: isLegacy,
-        legacySopNumber: isLegacy ? manualLegacyNumber.trim() : undefined,
-        sopNumber: isLegacy ? manualLegacyNumber.trim() : (issuedSopNumber || ''),
-        existingSopId: isReview ? existingSopId : undefined,
-        pengertian: pengertian.trim() || undefined,
-        tujuan: tujuan.trim() || undefined,
-        kebijakan: kebijakan.trim() || undefined,
-        prosedur: prosedur.trim() || undefined,
-        unitTerkait: unitTerkait.trim() || undefined,
+        legacySopNumber: isLegacy ? cleanNum : undefined,
+        sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
+        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : isLegacy ? matchedExistingDoc?.id : undefined,
+        pengertian: pengertian.trim() || (isLegacy ? matchedExistingDoc?.pengertian : undefined) || undefined,
+        tujuan: tujuan.trim() || (isLegacy ? matchedExistingDoc?.tujuan : undefined) || undefined,
+        kebijakan: kebijakan.trim() || (isLegacy ? matchedExistingDoc?.kebijakan : undefined) || undefined,
+        prosedur: prosedur.trim() || (isLegacy ? matchedExistingDoc?.prosedur : undefined) || undefined,
+        unitTerkait: unitTerkait.trim() || (isLegacy ? matchedExistingDoc?.unitTerkait : undefined) || undefined,
         confidentialityLevel: 'Internal',
       };
 
@@ -871,16 +964,58 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                   {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
                   {documentType === 'LAMA' ? (
                     <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-6 space-y-4">
-                      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-950">
-                        <BookOpen className="w-4 h-4 text-purple-700" />
-                        <span>3. Rincian & Berkas SPO Eksisting</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-950">
+                          <BookOpen className="w-4 h-4 text-purple-700" />
+                          <span>3. Rincian & Berkas SPO Eksisting</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100/80 px-2.5 py-1 rounded-full border border-purple-200">
+                          Format Penomoran Asli / Lama
+                        </span>
                       </div>
+
+                      {/* Dropdown Opsional: Pilih dokumen terdaftar untuk digantikan */}
+                      {sops && sops.length > 0 && (
+                        <div className="rounded-xl border border-purple-200 bg-white/80 p-3">
+                          <label className="block text-[11px] font-bold text-purple-950 mb-1">
+                            Pilih Dokumen Terdaftar untuk Diganti / Diperbarui (Opsional)
+                          </label>
+                          <select
+                            value={existingSopId || ''}
+                            onChange={(e) => {
+                              const pickedId = e.target.value;
+                              setExistingSopId(pickedId);
+                              if (pickedId) {
+                                const doc = sops.find((s) => s.id === pickedId);
+                                if (doc) {
+                                  setManualLegacyNumber(doc.sopNumber || doc.legacySopNumber || '');
+                                  if (doc.title) setTitle(doc.title);
+                                  if (doc.effectiveDate) setEffectiveDate(doc.effectiveDate);
+                                  if (doc.divisionCode) setSelectedCatCode(doc.divisionCode);
+                                  if (doc.subCode) setSelectedSubCode(doc.subCode);
+                                  if (doc.instalasiCode || (doc as any).instCode) setSelectedInstCode(doc.instalasiCode || (doc as any).instCode);
+                                  if (doc.poliCode) setSelectedPoliCode(doc.poliCode);
+                                  if (doc.subUnitCode) setSelectedSubUnitCode(doc.subUnitCode);
+                                }
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-purple-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="">-- Ketik nomor manual di bawah, atau pilih dari daftar --</option>
+                            {sops.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.sopNumber || s.legacySopNumber || 'Tanpa Nomor'} - {s.title} ({s.status || 'Belum Aktif'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Nomor SPO Lama */}
                         <div>
                           <label className="block text-xs font-bold text-purple-950 mb-1.5">
-                            Nomor SPO yang Sudah Ada (Manual) <span className="text-rose-500">*</span>
+                            Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type="text"
@@ -891,13 +1026,17 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                               setManualLegacyNumber(val);
                               const clean = val.trim();
                               if (clean) {
-                                const dup = checkDuplicateSopNumber(sops || [], clean);
-                                if (dup.isDuplicate && dup.matchedDoc) {
-                                  if (!title.trim() && dup.matchedDoc.title) {
-                                    setTitle(dup.matchedDoc.title);
+                                const matched = sops?.find((s) => 
+                                  (s.sopNumber && s.sopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
+                                  (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === clean.toLowerCase())
+                                );
+                                if (matched) {
+                                  setExistingSopId(matched.id);
+                                  if (!title.trim() && matched.title) {
+                                    setTitle(matched.title);
                                   }
-                                  if (dup.matchedDoc.effectiveDate) {
-                                    setEffectiveDate(dup.matchedDoc.effectiveDate);
+                                  if (matched.effectiveDate) {
+                                    setEffectiveDate(matched.effectiveDate);
                                   }
                                 }
                               }
@@ -906,50 +1045,77 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
                           />
 
+                          {/* Informasi Deteksi Otomatis Nomor & Hirarki */}
                           {manualLegacyNumber.trim() && (() => {
-                            const match = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
-                            if (!match.isDuplicate || !match.matchedDoc) return null;
-                            const matched = match.matchedDoc as any;
-                            const matchedUnit = matched.unitName || matched.creatorUnit || matched.hierarchyName || matched.divisionName || matched.categoryName || matched.divisionCode || 'Unit kerja terdeteksi dari nomor SPO';
-                            return (
-                              <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5">
-                                <div className="text-[10px] uppercase tracking-wider font-black text-emerald-700">Unit Kerja Otomatis</div>
-                                <div className="mt-0.5 text-xs font-black text-slate-900">{matchedUnit}</div>
-                                <div className="mt-0.5 text-[10px] text-slate-500">Unit mengikuti data SPO dengan nomor tersebut.</div>
-                              </div>
+                            const clean = manualLegacyNumber.trim();
+                            const matched = sops?.find((s) => 
+                              (s.sopNumber && s.sopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
+                              (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
+                              (existingSopId && s.id === existingSopId)
                             );
-                          })()}
 
-                          {manualLegacyNumber.trim() && (() => {
-                            const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
-                            if (!dup.isDuplicate || !dup.matchedDoc) return null;
-                            const status = dup.matchedDoc.status;
-                            const statusLabel =
-                              status === 'MENUNGGU_PENGESAHAN'
-                                ? 'Menunggu Pengesahan'
-                                : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
-                                ? 'Belum Upload'
-                                : status === 'AKTIF'
-                                ? 'Aktif'
-                                : status || 'Belum Aktif';
+                            if (matched) {
+                              const isAktif = matched.status === 'AKTIF';
+                              const statusLabel =
+                                matched.status === 'MENUNGGU_PENGESAHAN'
+                                  ? 'Menunggu Pengesahan'
+                                  : matched.status === 'DRAFT' || matched.status === 'BELUM_UPLOAD' || matched.isNumberReservation
+                                  ? 'Belum Upload'
+                                  : matched.status === 'AKTIF'
+                                  ? 'Aktif'
+                                  : matched.status || 'Belum Aktif';
+                              const unitName = matched.hierarchyDescription || matched.divisionName || (matched as any).unitName || matched.divisionCode || 'Unit kerja terdaftar';
 
-                            if (status === 'AKTIF') {
+                              if (isAktif) {
+                                return (
+                                  <div className="mt-2 rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-rose-700">
+                                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                      <span>Nomor Terdaftar dengan Status AKTIF (Tidak Dapat Diganti)</span>
+                                    </div>
+                                    <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
+                                    <div className="text-[11px] text-rose-800">
+                                      <span className="font-semibold">Unit/Hirarki:</span> {unitName}
+                                    </div>
+                                    <div className="text-[10px] font-semibold text-rose-700">
+                                      Sesuai aturan, SPO berstatus <strong>Aktif</strong> tidak dapat diganti melalui SPO Eksisting. Silakan gunakan alur <strong>SPO Riviu</strong> untuk memperbarui dokumen aktif.
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               return (
-                                <div className="mt-2 p-2.5 rounded-xl bg-rose-100/90 border border-rose-300 text-rose-900 text-xs font-medium flex items-center gap-2">
-                                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                  <span>
-                                    <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
-                                  </span>
+                                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/90 p-3 space-y-1">
+                                  <div className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>Dokumen Terdaftar Ditemukan ({statusLabel})</span>
+                                  </div>
+                                  <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
+                                  <div className="text-[11px] text-emerald-800">
+                                    <span className="font-semibold">Hirarki Terdaftar:</span> {unitName}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 italic">
+                                    Unggahan berkas ini akan melengkapi dan mengaktifkan dokumen berstatus {statusLabel} ini di sistem.
+                                  </div>
                                 </div>
                               );
                             }
 
+                            // Jika belum terdaftar, deteksi hirarki dari string nomor
+                            const detected = detectHierarchyFromSopNumber(clean);
                             return (
-                              <div className="mt-2 p-2.5 rounded-xl bg-sky-100/90 border border-sky-300 text-sky-950 text-xs font-medium flex items-center gap-2">
-                                <Info className="w-4 h-4 text-sky-700 shrink-0" />
-                                <span>
-                                  <strong>Update/Replace:</strong> Ditemukan dokumen berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan dokumen tersebut di Library.
-                                </span>
+                              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/90 p-3 space-y-1">
+                                <div className="flex items-center gap-1.5 text-xs font-black text-blue-900">
+                                  <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <span>Nomor SPO Belum Terdaftar (Otomatis Registrasi)</span>
+                                </div>
+                                <div className="text-[11px] text-blue-950">
+                                  <span className="font-semibold">Hirarki Terdeteksi:</span>{' '}
+                                  {detected?.hierarchyDescription || detected?.divisionName || 'Bidang Pelayanan RSUD Dr. Soegiri'}
+                                </div>
+                                <div className="text-[10px] text-slate-500 italic">
+                                  Dokumen akan otomatis didaftarkan sebagai SPO Eksisting Aktif dengan nomor ini tetap dipertahankan.
+                                </div>
                               </div>
                             );
                           })()}
@@ -966,6 +1132,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             onChange={(e) => setEffectiveDate(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white text-xs outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
                           />
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Tanggal pengesahan sesuai yang tercantum di lembar tanda tangan dokumen fisik.
+                          </p>
                         </div>
                       </div>
 
@@ -1020,146 +1189,160 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     </section>
                   ) : (
                     <>
-                      {/* 3. Live form SPO Baru / ringkasan SPO Riviu */}
-                      {documentType === 'BARU' ? (
-                        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-5">
-                          <div>
-                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
-                              3. Rincian SPO & Batang Tubuh
-                            </h3>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Isi langsung sesuai urutan format resmi SPO: Pengertian → Tujuan → Kebijakan → Prosedur → Alur (jika ada) → Unit Terkait.
-                            </p>
+                      {/* Rujukan & Identitas SPO Riviu */}
+                      {documentType === 'REVIEW' && (
+                        <section className="rounded-2xl border border-amber-300 bg-amber-50/80 p-4 sm:p-5 space-y-4">
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-950">
+                            <RefreshCw className="w-4 h-4 text-amber-700" />
+                            <span>Rujukan Dokumen SPO Lama yang Direview</span>
                           </div>
 
-                          {/* Identitas SPO */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="sm:col-span-2">
-                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                Judul Standar Prosedur Operasional <span className="text-rose-500">*</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                placeholder="Contoh: Prosedur Penerimaan Pasien Rawat Inap"
-                                className="w-full px-3.5 py-3 rounded-xl border border-slate-300 bg-white text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                              />
-                            </div>
-
+                          {/* Dropdown pilih SPO terdaftar untuk auto-populate */}
+                          <div className="space-y-3">
                             <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                Tanggal Ditetapkan / Berlaku
-                              </label>
-                              <input
-                                type="date"
-                                value={effectiveDate}
-                                onChange={(e) => setEffectiveDate(e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                Periode Riviu Berkala
+                              <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                Pilih SPO Terdaftar untuk Diriviu (Otomatis Isi Data)
                               </label>
                               <select
-                                value={reviewPeriodMonths}
-                                onChange={(e) => setReviewPeriodMonths(e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                                value={selectedExistingSopIdForReview}
+                                onChange={(e) => {
+                                  const chosenId = e.target.value;
+                                  setSelectedExistingSopIdForReview(chosenId);
+                                  setExistingSopId(chosenId);
+                                  const found = sops.find((s) => s.id === chosenId);
+                                  if (found) {
+                                    setTitle(found.title || '');
+                                    setOldSopNumber(found.sopNumber || '');
+                                    setPengertian(found.pengertian || '');
+                                    setTujuan(found.tujuan || '');
+                                    setKebijakan(found.kebijakan || '');
+                                    setProsedur(found.prosedur || '');
+                                    setAlur((found as any).alur || '');
+                                    setUnitTerkait(found.unitTerkait || '');
+                                    const currentRevNum = parseInt(found.version || '0', 10);
+                                    const nextRev = isNaN(currentRevNum) ? '01' : String(currentRevNum + 1).padStart(2, '0');
+                                    setRevisionNumber(nextRev);
+                                    onShowToast?.('info', 'Data SPO Dimuat', `Data dari "${found.title}" telah dimuat untuk proses riviu.`);
+                                  }
+                                }}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
                               >
-                                <option value="12">Setiap 1 Tahun (12 Bulan)</option>
-                                <option value="24">Setiap 2 Tahun (24 Bulan)</option>
-                                <option value="36">Setiap 3 Tahun (36 Bulan)</option>
+                                <option value="">-- Pilih dari Daftar Dokumen SPO Tersedia --</option>
+                                {accessibleSops.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    [{s.sopNumber || 'Tanpa No'}] {s.title} (Rev: {s.version || '00'})
+                                  </option>
+                                ))}
                               </select>
                             </div>
-                          </div>
 
-                          {/* Batang tubuh resmi */}
-                          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4 sm:p-5">
-                            <div className="mb-4">
-                              <div className="text-xs font-black uppercase tracking-wider text-emerald-900">
-                                Batang Tubuh SPO
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="sm:col-span-2">
+                                <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                  Nomor / Judul Rujukan SPO Lama <span className="text-rose-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  required={documentType === 'REVIEW'}
+                                  value={oldSopNumber}
+                                  onChange={(e) => setOldSopNumber(e.target.value)}
+                                  placeholder="Contoh: PEL / 1.1.3 / 015 / 2023 - SPO Rekam Jantung"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                                />
                               </div>
-                              <div className="text-[10px] text-slate-500 mt-1">
-                                Tidak dibatasi jumlah halaman. Isi sesuai kebutuhan dokumen.
+
+                              <div>
+                                <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                  Nomor Revisi Baru <span className="text-rose-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  required={documentType === 'REVIEW'}
+                                  value={revisionNumber}
+                                  onChange={(e) => setRevisionNumber(e.target.value)}
+                                  placeholder="01"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                                />
                               </div>
                             </div>
 
-                            <div className="space-y-4">
-                              {[
-                                ['Pengertian', pengertian, setPengertian, 'Jelaskan pengertian, definisi istilah, dan ruang lingkup yang perlu dipahami.'],
-                                ['Tujuan', tujuan, setTujuan, 'Tuliskan tujuan penyusunan dan pelaksanaan SPO.'],
-                                ['Kebijakan', kebijakan, setKebijakan, 'Tuliskan kebijakan Direktur/Pimpinan yang menjadi dasar SPO.'],
-                                ['Prosedur', prosedur, setProsedur, 'Tuliskan langkah-langkah kerja secara runtut dan jelas.'],
-                                ['Alur (Opsional)', alur, setAlur, 'Tambahkan alur proses apabila diperlukan.'],
-                                ['Unit Terkait', unitTerkait, setUnitTerkait, 'Tuliskan unit/bagian yang terkait dalam pelaksanaan SPO.']
-                              ].map(([label, value, setter, placeholder]) => (
-                                <div key={label as string}>
-                                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                    {label}
-                                    {label !== 'Alur (Opsional)' && <span className="text-rose-500"> *</span>}
-                                  </label>
-                                  <textarea
-                                    rows={
-                                      label === 'Prosedur'
-                                        ? 8
-                                        : label === 'Alur (Opsional)'
-                                          ? 4
-                                          : 5
-                                    }
-                                    value={value as string}
-                                    onChange={(e) =>
-                                      (setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)
-                                    }
-                                    placeholder={placeholder as string}
-                                    className="w-full px-3.5 py-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 resize-y"
-                                  />
-                                </div>
-                              ))}
+                            <div>
+                              <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                Dasar Kebijakan / Alasan Riviu & Catatan Perubahan
+                              </label>
+                              <textarea
+                                rows={2}
+                                value={reviewReason}
+                                onChange={(e) => setReviewReason(e.target.value)}
+                                placeholder="Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026."
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
+                              />
                             </div>
-                          </div>
-                        </section>
-                      ) : (
-                        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="min-w-0">
-                              <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
-                                3. Rincian SPO & Batang Tubuh
-                              </h3>
-                              <div className="mt-2 text-sm font-black text-slate-900 truncate">
-                                {title.trim() || 'Judul SPO belum diisi'}
-                              </div>
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                                  title.trim() ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                                }`}>
-                                  {title.trim() ? 'Judul ✓' : 'Judul belum diisi'}
-                                </span>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                                  pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-slate-100 text-slate-500'
-                                }`}>
-                                  {pengertian.trim() && tujuan.trim() && kebijakan.trim() && prosedur.trim() && unitTerkait.trim()
-                                    ? 'Batang tubuh lengkap ✓'
-                                    : 'Batang tubuh belum lengkap'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setIsDetailModalOpen(true)}
-                              disabled={!hasValidPetugasAssignment}
-                              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-black shrink-0"
-                            >
-                              <FilePlus className="w-4 h-4" />
-                              <span>Isi / Edit Batang Tubuh SPO</span>
-                            </button>
                           </div>
                         </section>
                       )}
+
+                      {/* 3. Batang Tubuh SPO — Mode Lembar Tabel Format Resmi A4 (Sesuai Standar EditSopModal) */}
+                      <section className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                          <div>
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-emerald-600" />
+                              <span>3. Isi Standar Batang Tubuh SPO {documentType === 'REVIEW' ? '(Riviu)' : '(Baru)'}</span>
+                            </h3>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              Format resmi lembar naskah A4 RSUD Dr. Soegiri Lamongan lengkap dengan kop logo dan penetapan Direktur.
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[11px] font-bold text-slate-600">Periode Riviu:</label>
+                              <select
+                                value={reviewPeriodMonths}
+                                onChange={(e) => setReviewPeriodMonths(e.target.value)}
+                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                              >
+                                <option value="12">1 Tahun (12 Bln)</option>
+                                <option value="24">2 Tahun (24 Bln)</option>
+                                <option value="36">3 Tahun (36 Bln)</option>
+                              </select>
+                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black shrink-0 border border-emerald-200">
+                              <TableIcon className="w-3.5 h-3.5" />
+                              <span>Format Resmi A4</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="pt-1">
+                          <SopLiveTemplate
+                            title={title}
+                            onTitleChange={setTitle}
+                            sopNumber={issuedSopNumber || (documentType === 'REVIEW' ? (oldSopNumber || 'SPO Riviu') : 'Otomatis')}
+                            version={revisionNumber || (documentType === 'REVIEW' ? '01' : '00')}
+                            effectiveDate={effectiveDate}
+                            onEffectiveDateChange={setEffectiveDate}
+                            approverName={SOEGIRI_HOSPITAL_INFO.director.name}
+                            pengertian={pengertian}
+                            onPengertianChange={setPengertian}
+                            tujuan={tujuan}
+                            onTujuanChange={setTujuan}
+                            kebijakan={kebijakan}
+                            onKebijakanChange={setKebijakan}
+                            prosedur={prosedur}
+                            onProsedurChange={setProsedur}
+                            alur={alur}
+                            onAlurChange={setAlur}
+                            unitTerkait={unitTerkait}
+                            onUnitTerkaitChange={setUnitTerkait}
+                            titleEditable={true}
+                            dateEditable={true}
+                            showPageHint={true}
+                            missingSections={missingSections}
+                          />
+                        </div>
+                      </section>
 
                       {/* File upload untuk SPO Baru / Riviu */}
                       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1214,201 +1397,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                 </form>
               </div>
             )}
-
-            {/* SPO Detail Modal */}
-            {isDetailModalOpen && (
-              <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-0 sm:p-5">
-                <div className="w-full h-full sm:h-auto sm:max-h-[94vh] sm:max-w-4xl bg-white sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-                  <div className="shrink-0 px-5 sm:px-7 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider font-black text-emerald-700">Rincian SPO</div>
-                      <h3 className="text-lg sm:text-xl font-black text-slate-900">Judul & Batang Tubuh SPO</h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsDetailModalOpen(false)}
-                      className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50"
-                      aria-label="Tutup"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto p-5 sm:p-7">
-                    <div className="space-y-5">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          Judul Standar Prosedur Operasional <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={title}
-                          onChange={(e) => setTitle(e.target.value)}
-                          placeholder="Contoh: Prosedur Penerimaan Pasien Rawat Inap"
-                          className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Tanggal Ditetapkan / Berlaku</label>
-                          <input
-                            type="date"
-                            value={effectiveDate}
-                            onChange={(e) => setEffectiveDate(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Periode Riviu Berkala</label>
-                          <select
-                            value={reviewPeriodMonths}
-                            onChange={(e) => setReviewPeriodMonths(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-                          >
-                            <option value="12">Setiap 1 Tahun (12 Bulan)</option>
-                            <option value="24">Setiap 2 Tahun (24 Bulan)</option>
-                            <option value="36">Setiap 3 Tahun (36 Bulan)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {documentType === 'LAMA' && (
-                        <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 space-y-3">
-                          <div className="text-xs font-black text-purple-900">Rincian SPO Eksisting</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-bold text-purple-900 mb-1.5">
-                                Nomor SPO Lama <span className="text-rose-500">*</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={manualLegacyNumber}
-                                onChange={(e) => setManualLegacyNumber(e.target.value)}
-                                placeholder="Contoh: 001/SPO/PEL/2024"
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 text-xs bg-white outline-none focus:ring-2 focus:ring-purple-500"
-                              />
-
-                              {manualLegacyNumber.trim() && (() => {
-                                const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
-                                if (!dup.isDuplicate || !dup.matchedDoc) return null;
-                                const status = dup.matchedDoc.status;
-                                const statusLabel =
-                                  status === 'MENUNGGU_PENGESAHAN'
-                                    ? 'Menunggu Pengesahan'
-                                    : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
-                                    ? 'Belum Upload'
-                                    : status === 'AKTIF'
-                                    ? 'Aktif'
-                                    : status || 'Belum Aktif';
-
-                                if (status === 'AKTIF') {
-                                  return (
-                                    <div className="mt-1.5 p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
-                                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                      <span>
-                                        <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
-                                      </span>
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <div className="mt-1.5 p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
-                                    <Info className="w-4 h-4 text-sky-700 shrink-0" />
-                                    <span>
-                                      <strong>Update/Replace:</strong> Ditemukan nomor berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan nomor tersebut di Library.
-                                    </span>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-purple-900 mb-1.5">Tanggal Pengesahan Asli</label>
-                              <input
-                                type="date"
-                                value={legacySignedDate}
-                                onChange={(e) => setLegacySignedDate(e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 text-xs bg-white outline-none focus:ring-2 focus:ring-purple-500"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {documentType === 'REVIEW' && (
-                        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
-                          <label className="block text-xs font-bold text-amber-900 mb-1.5">Nomor Revisi</label>
-                          <input
-                            type="text"
-                            value={revisionNumber}
-                            onChange={(e) => setRevisionNumber(e.target.value)}
-                            placeholder="01"
-                            className="w-full sm:max-w-xs px-3.5 py-2.5 rounded-xl border border-amber-300 text-xs bg-white outline-none focus:ring-2 focus:ring-amber-500"
-                          />
-                        </div>
-                      )}
-
-                      <div className="border-t border-slate-100 pt-5">
-                        <div className="mb-4">
-                          <div className="text-xs font-black uppercase tracking-wider text-slate-700">Batang Tubuh SPO</div>
-                          <div className="text-[10px] text-slate-400 mt-1">
-                            Urutan: Pengertian → Tujuan → Kebijakan → Prosedur → Alur (opsional) → Unit Terkait.
-                          </div>
-                        </div>
-
-                        {[
-                          ['Pengertian', pengertian, setPengertian, 'Jelaskan pengertian/definisi istilah dan ruang lingkup yang perlu dipahami.'],
-                          ['Tujuan', tujuan, setTujuan, 'Sebagai acuan penerapan langkah-langkah untuk ...'],
-                          ['Kebijakan', kebijakan, setKebijakan, 'Tuliskan kebijakan Direktur/Pimpinan yang mendasari SPO.'],
-                          ['Prosedur', prosedur, setProsedur, 'Tuliskan langkah-langkah kerja secara runtut dan menggunakan kalimat perintah aktif.'],
-                          ['Alur (Opsional)', alur, setAlur, 'Tambahkan alur proses jika diperlukan.'],
-                          ['Unit Terkait', unitTerkait, setUnitTerkait, 'Tuliskan unit-unit yang terkait dalam pelaksanaan SPO.']
-                        ].map(([label, value, setter, placeholder]) => (
-                          <div key={label as string} className="mb-4 last:mb-0">
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                              {label}
-                              {label !== 'Alur (Opsional)' && <span className="text-rose-500"> *</span>}
-                            </label>
-                            <textarea
-                              rows={label === 'Prosedur' ? 7 : label === 'Alur (Opsional)' ? 4 : 4}
-                              value={value as string}
-                              onChange={(e) => (setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)}
-                              placeholder={placeholder as string}
-                              className="w-full px-3.5 py-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 resize-y"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 px-5 sm:px-7 py-4 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsDetailModalOpen(false)}
-                      className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50"
-                    >
-                      Selesai Nanti
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!title.trim() || !pengertian.trim() || !tujuan.trim() || !kebijakan.trim() || !prosedur.trim() || !unitTerkait.trim()) {
-                          setSubmitError('Lengkapi Judul, Pengertian, Tujuan, Kebijakan, Prosedur, dan Unit Terkait.');
-                          return;
-                        }
-                        setSubmitError(null);
-                        setIsDetailModalOpen(false);
-                      }}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black"
-                    >
-                      Simpan Rincian
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1453,7 +1441,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
           />
         )}
       </main>
-
 
 
       {/* Issue SOP Number Modal */}

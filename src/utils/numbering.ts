@@ -1,5 +1,5 @@
 import { NumberingConfig, SopDocument, SopStatus } from '../types';
-import { SOEGIRI_MASTER_CATEGORIES, SOEGIRI_HOSPITAL_INFO } from './soegiriStructure';
+import { SOEGIRI_MASTER_CATEGORIES, SOEGIRI_HOSPITAL_INFO, getSoegiriHierarchyInfo } from './soegiriStructure';
 
 export const ROMAN_MONTHS = [
   'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'
@@ -33,8 +33,21 @@ export interface ParsedSopNumber {
   year: string;
 }
 
+export interface DetectedHierarchyInfo {
+  divisionCode: string;
+  divisionName: string;
+  subHierarchyCode?: string;
+  subCode?: string;
+  instalasiCode?: string;
+  poliCode?: string;
+  subUnitCode?: string;
+  hierarchyDescription?: string;
+  sequenceNumber?: number;
+  year?: string;
+}
+
 /**
- * Robustly parse any SOP number string (e.g. PEL / 1.1.3 / 001 / 2026, PEL/1.1.3/001/2026, SPO/PEL/1.1.3/001/2026, etc.)
+ * Robustly parse any SOP number string (e.g. PEL / 1.1.3 / 001 / 2026, 440/102/SPO/PEL/2023, PEL/1.1.3/008/2024, etc.)
  */
 export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
   if (!sopNumStr || !sopNumStr.trim()) return null;
@@ -46,7 +59,7 @@ export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
 
   if (parts.length === 0) return null;
 
-  // Strip leading "SPO" or "SOP" prefix token if present
+  // Strip leading "SPO" or "SOP" prefix token if present at start
   let prefix: string | undefined = undefined;
   if (parts[0].toUpperCase() === 'SPO' || parts[0].toUpperCase() === 'SOP') {
     prefix = parts[0].toUpperCase();
@@ -55,51 +68,55 @@ export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
 
   if (parts.length === 0) return null;
 
-  const divisionCode = parts[0].toUpperCase();
-
-  // Check last part for 4-digit year
-  let year = SOEGIRI_HOSPITAL_INFO.year || '2026';
-  if (parts.length >= 2 && /^\d{4}$/.test(parts[parts.length - 1])) {
-    year = parts[parts.length - 1];
+  // 1. Detect known division/category code from master list
+  const knownCatCodes = SOEGIRI_MASTER_CATEGORIES.map((c) => c.code.toUpperCase());
+  let divisionCode = 'PEL';
+  const foundCatIdx = parts.findIndex((p) => knownCatCodes.includes(p.toUpperCase()));
+  if (foundCatIdx >= 0) {
+    divisionCode = parts[foundCatIdx].toUpperCase();
+  } else {
+    // Look for any alpha token that isn't SPO/SOP/SK/RSUD/etc.
+    const alphaCandidate = parts.find(
+      (p) => /^[A-Z]{3,8}$/i.test(p) && !['SPO', 'SOP', 'RSUD', 'DIR', 'SK', 'NO', 'NOMOR'].includes(p.toUpperCase())
+    );
+    if (alphaCandidate) {
+      divisionCode = alphaCandidate.toUpperCase();
+    } else if (parts[0]) {
+      divisionCode = parts[0].toUpperCase();
+    }
   }
 
-  let sequenceNumber = 1;
-  let subHierarchyCode: string | undefined = undefined;
-  let romanMonth: string | undefined = undefined;
+  // 2. Detect 4-digit Year
+  let year = SOEGIRI_HOSPITAL_INFO.year || '2026';
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (/^\d{4}$/.test(parts[i])) {
+      year = parts[i];
+      break;
+    }
+  }
 
-  // Check for Roman month
+  // 3. Detect Roman Month
+  let romanMonth: string | undefined = undefined;
   const romanIdx = parts.findIndex((p) => ROMAN_MONTHS.includes(p.toUpperCase()));
   if (romanIdx >= 0) {
     romanMonth = parts[romanIdx].toUpperCase();
   }
 
-  if (parts.length >= 4) {
-    // 4+ parts: [DIV, SUB_CODE, SEQ, YEAR] or with Roman month
-    subHierarchyCode = parts[1];
-    const seqCandidate = parts.find(
-      (p, idx) => idx > 0 && idx < parts.length - 1 && /^\d+$/.test(p) && p !== parts[parts.length - 1]
-    );
-    if (seqCandidate) {
-      sequenceNumber = parseInt(seqCandidate, 10);
-    }
-  } else if (parts.length === 3) {
-    if (/^\d{4}$/.test(parts[2])) {
-      // [DIV, SEQ, YEAR]
-      if (/^\d+$/.test(parts[1])) {
-        sequenceNumber = parseInt(parts[1], 10);
-      } else {
-        // [DIV, SUB, YEAR]
-        subHierarchyCode = parts[1];
-      }
-    } else if (/^\d+$/.test(parts[2])) {
-      // [DIV, SUB, SEQ]
-      subHierarchyCode = parts[1];
-      sequenceNumber = parseInt(parts[2], 10);
-    }
-  } else if (parts.length === 2) {
-    if (/^\d+$/.test(parts[1])) {
-      sequenceNumber = parseInt(parts[1], 10);
-    }
+  // 4. Detect Sub-Hierarchy code (e.g. 1.1.3, 2.1, 1.2.2.1)
+  let subHierarchyCode: string | undefined = undefined;
+  const dotHierarchy = parts.find((p) => /^\d+(\.\d+)+$/.test(p));
+  if (dotHierarchy) {
+    subHierarchyCode = dotHierarchy;
+  }
+
+  // 5. Detect Sequence Number (a numeric part that is NOT the 4-digit year)
+  let sequenceNumber = 1;
+  const seqCandidate = parts.find(
+    (p) => /^\d{1,4}$/.test(p) && p !== year && !ROMAN_MONTHS.includes(p.toUpperCase())
+  );
+  if (seqCandidate) {
+    const parsedSeq = parseInt(seqCandidate, 10);
+    if (parsedSeq > 0) sequenceNumber = parsedSeq;
   }
 
   return {
@@ -109,6 +126,53 @@ export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
     sequenceNumber: sequenceNumber > 0 ? sequenceNumber : 1,
     romanMonth,
     year
+  };
+}
+
+/**
+ * Automatically detects hospital hierarchy and division structure from any SOP number string.
+ */
+export function detectHierarchyFromSopNumber(sopNumStr?: string): DetectedHierarchyInfo | null {
+  const parsed = parseSopNumber(sopNumStr);
+  if (!parsed) return null;
+
+  const divCode = parsed.divisionCode.toUpperCase();
+  const category = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code.toUpperCase() === divCode);
+  const divisionName = category?.name || divCode;
+
+  let subCode: string | undefined = undefined;
+  let instalasiCode: string | undefined = undefined;
+  let poliCode: string | undefined = undefined;
+  let subUnitCode: string | undefined = undefined;
+
+  if (parsed.subHierarchyCode) {
+    const parts = parsed.subHierarchyCode.split('.').filter(Boolean);
+    subCode = parts[0];
+    instalasiCode = parts[1];
+    poliCode = parts[2];
+    subUnitCode = parts[3];
+  }
+
+  const hierarchyInfo = getSoegiriHierarchyInfo({
+    categoryCode: divCode,
+    subCode,
+    instalasiCode,
+    poliCode,
+    subUnitCode,
+    hierarchyCode: parsed.subHierarchyCode
+  });
+
+  return {
+    divisionCode: divCode,
+    divisionName,
+    subHierarchyCode: parsed.subHierarchyCode,
+    subCode,
+    instalasiCode,
+    poliCode,
+    subUnitCode,
+    hierarchyDescription: hierarchyInfo?.conclusion || divisionName,
+    sequenceNumber: parsed.sequenceNumber,
+    year: parsed.year
   };
 }
 
