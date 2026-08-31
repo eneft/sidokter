@@ -113,15 +113,7 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onSwitchToInputTab}
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
-            >
-              <span>+ Daftarkan SPO Baru</span>
-            </button>
-          </div>
+
         </div>
 
         {/* Decorative Background Glow */}

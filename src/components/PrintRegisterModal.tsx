@@ -8,7 +8,7 @@ import {
   Building2,
   FileText
 } from 'lucide-react';
-import { SopDocument } from '../types';
+import { SopDocument, getStandardJenisSpo } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
@@ -315,12 +315,12 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-medium text-slate-900 border-r border-slate-200">
                           <div>{sop.title}</div>
-                          {sop.oldSopNumber && (
+                          {sop.oldSopNumber && getStandardJenisSpo(sop) === 'RIVIU' && (
                             <span className="block text-[10px] text-amber-900 font-mono mt-0.5">
                               🔄 Review SPO Lama: {sop.oldSopNumber}
                             </span>
                           )}
-                          {sop.hierarchyDescription && !sop.oldSopNumber && (
+                          {sop.hierarchyDescription && (!sop.oldSopNumber || getStandardJenisSpo(sop) !== 'RIVIU') && (
                             <span className="block text-[10px] text-slate-500 mt-0.5">
                               {sop.hierarchyDescription}
                             </span>
@@ -337,7 +337,7 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
                           {sop.effectiveDate}
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          {sop.isReviewDocument || sop.documentType === 'REVIEW' ? (
+                          {getStandardJenisSpo(sop) === 'RIVIU' ? (
                             <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                               REVISI
                             </span>

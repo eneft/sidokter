@@ -20,7 +20,7 @@ import {
   Upload
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -330,7 +330,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     }
 
     if (documentType === 'LAMA') {
-      const cleanNum = manualLegacyNumber.trim();
+      const cleanNum = normalizeSopNumberInput(manualLegacyNumber);
       if (!cleanNum) {
         alert("Silakan masukkan Nomor SPO Lama yang sudah ada.");
         return;
@@ -340,8 +340,17 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         return;
       }
 
-      // Validasi aturan SPO Eksisting: Tidak boleh mereplace SPO yang sudah berstatus AKTIF
+      const isNewFormat = isNewSopFormat(cleanNum);
       const dup = checkDuplicateSopNumber(sops || [], cleanNum);
+
+      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada → ❌ Tidak boleh
+      if (isNewFormat && !dup.isDuplicate) {
+        setSubmitError(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan jenis dokumen "SPO Baru".`);
+        alert(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem.\n\nUntuk menerbitkan nomor format baru, silakan pilih jenis dokumen "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`);
+        return;
+      }
+
+      // Validasi aturan: Tidak boleh mereplace SPO yang sudah berstatus AKTIF
       if (dup.isDuplicate && dup.matchedDoc) {
         if (dup.matchedDoc.status === 'AKTIF') {
           setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}"). Dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting.`);
@@ -373,6 +382,28 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     if (documentType === 'REVIEW') {
       if (!oldSopNumber.trim()) {
         alert("Silakan isi Nomor atau Judul SPO Lama yang Diriviu terlebih dahulu.");
+        return;
+      }
+      const reviewNumber = normalizeSopNumberInput(oldSopNumber);
+      const referenced = sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      if (!referenced) {
+        alert(`SPO rujukan "${reviewNumber}" tidak ditemukan di database.`);
+        return;
+      }
+      if (referenced.status !== 'AKTIF') {
+        alert(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF.`);
+        return;
+      }
+      const pattern = matchMasterHierarchyPattern(reviewNumber);
+      const selectedDiv = String(selectedCatCode || '').trim().toUpperCase();
+      const selectedSub = String(subHierarchyCode || '').trim();
+      if (pattern.isMatch) {
+        if (String(pattern.categoryCode || '').trim().toUpperCase() !== selectedDiv || String(pattern.subHierarchyCode || '').trim() !== selectedSub) {
+          alert(`Nomor SPO rujukan tidak sesuai dengan hirarki yang dipilih. Nomor: ${pattern.categoryCode}${pattern.subHierarchyCode ? ` / ${pattern.subHierarchyCode}` : ''}; pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
+          return;
+        }
+      } else if (String(referenced.divisionCode || '').trim().toUpperCase() !== selectedDiv || String(referenced.subHierarchyCode || '').trim() !== selectedSub) {
+        alert('SPO format lama tidak sesuai dengan hirarki yang dipilih. Gunakan hirarki yang tersimpan pada SPO rujukan.');
         return;
       }
       if (!revisionNumber.trim()) {
@@ -456,10 +487,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     })();
 
     const finalSopNumber = documentType === 'LAMA'
-      ? manualLegacyNumber.trim()
-      : generated.sopNumber;
+      ? normalizeSopNumberInput(manualLegacyNumber)
+      : (documentType === 'REVIEW' ? '' : generated.sopNumber);
 
-    const finalSeqNum = documentType === 'LAMA' ? 0 : generated.sequenceNumber;
+    const finalSeqNum = documentType === 'LAMA' ? 0 : (documentType === 'REVIEW' ? 0 : generated.sequenceNumber);
     const nextReviewDate = calculateNextReviewDate();
 
     const div = (divisions || []).find((d) => d.code === selectedCatCode);
@@ -527,10 +558,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
       oldSopNumber: documentType === 'REVIEW' ? oldSopNumber.trim() : undefined,
       reviewReason: documentType === 'REVIEW' ? reviewReason.trim() : undefined,
-      oldFileName: documentType === 'LAMA' ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : selectedOldFile?.name,
-      oldFileSize: documentType === 'LAMA' ? selectedFile?.size : selectedOldFile?.size,
-      oldFileType: documentType === 'LAMA' ? selectedFile?.type : selectedOldFile?.type,
-      oldFileDataUrl: documentType === 'LAMA' ? fileDataUrl : (documentType === 'REVIEW' ? oldFileDataUrl : undefined),
+      oldFileName: documentType === 'REVIEW' ? selectedOldFile?.name : undefined,
+      oldFileSize: documentType === 'REVIEW' ? selectedOldFile?.size : undefined,
+      oldFileType: documentType === 'REVIEW' ? selectedOldFile?.type : undefined,
+      oldFileDataUrl: documentType === 'REVIEW' ? oldFileDataUrl : undefined,
       signedScanFileName: documentType === 'LAMA' ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : undefined,
       signedScanFileSize: documentType === 'LAMA' ? selectedFile?.size : undefined,
       signedScanFileType: documentType === 'LAMA' ? selectedFile?.type || 'application/pdf' : undefined,
@@ -542,8 +573,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       saveFileToLocalCache(newGeneratedId, 'file', fileDataUrl);
       saveFileToLocalCache(newGeneratedId, 'signedScan', fileDataUrl);
     }
-    if (oldFileDataUrl || (documentType === 'LAMA' && fileDataUrl)) {
-      saveFileToLocalCache(newGeneratedId, 'oldFile', (oldFileDataUrl || fileDataUrl)!);
+    if (documentType === 'REVIEW' && oldFileDataUrl) {
+      saveFileToLocalCache(newGeneratedId, 'oldFile', oldFileDataUrl);
     }
 
     // Lock synchronously immediately before the authoritative save.
@@ -859,17 +890,22 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-purple-200">
                       <div className="md:col-span-2 space-y-1">
-                        <label className="block text-xs font-bold text-purple-950">
-                          Nomor SPO yang Sudah Ada (Manual) <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <label className="block text-xs font-bold text-purple-950">
+                            Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
+                          </label>
+                          <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
+                            Input Nomor Asli
+                          </span>
+                        </div>
                         <input
                           type="text"
                           required={documentType === 'LAMA'}
                           value={manualLegacyNumber}
                           onChange={(e) => {
-                            const val = e.target.value;
+                            const val = e.target.value.toUpperCase();
                             setManualLegacyNumber(val);
-                            const clean = val.trim();
+                            const clean = normalizeSopNumberInput(val);
                             if (clean) {
                               const dup = checkDuplicateSopNumber(sops || [], clean);
                               if (dup.isDuplicate && dup.matchedDoc) {
@@ -882,40 +918,84 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                               }
                             }
                           }}
-                          placeholder="Contoh: 440/102/SPO/PEL/2023 atau PEL/1.1.3/008/2024"
+                          onBlur={() => {
+                            if (manualLegacyNumber.trim()) {
+                              setManualLegacyNumber(normalizeSopNumberInput(manualLegacyNumber));
+                            }
+                          }}
+                          placeholder="Contoh: SOEGIRI / 398 / 2025 atau 440/102/SPO/PEL/2023"
                           className="w-full text-xs sm:text-sm border border-purple-300 rounded-xl px-3.5 py-2 text-slate-900 bg-white font-mono font-bold focus:ring-2 focus:ring-purple-500 shadow-2xs"
                         />
 
                         {manualLegacyNumber.trim() && (() => {
-                          const dup = checkDuplicateSopNumber(sops || [], manualLegacyNumber.trim());
-                          if (!dup.isDuplicate || !dup.matchedDoc) return null;
-                          const status = dup.matchedDoc.status;
-                          const statusLabel =
-                            status === 'MENUNGGU_PENGESAHAN'
-                              ? 'Menunggu Pengesahan'
-                              : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
-                              ? 'Belum Upload'
-                              : status === 'AKTIF'
-                              ? 'Aktif'
-                              : status || 'Belum Aktif';
-
-                          if (status === 'AKTIF') {
-                            return (
-                              <div className="mt-1.5 p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
-                                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                <span>
-                                  <strong>Ditolak:</strong> Nomor sudah ada dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen tidak dapat diganti dan nomor tidak boleh duplikat.
-                                </span>
-                              </div>
-                            );
-                          }
+                          const normalized = normalizeSopNumberInput(manualLegacyNumber);
+                          const patternMatch = matchMasterHierarchyPattern(normalized);
+                          const isNewFormat = patternMatch.isMatch;
+                          const dup = checkDuplicateSopNumber(sops || [], normalized);
 
                           return (
-                            <div className="mt-1.5 p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
-                              <Info className="w-4 h-4 text-sky-700 shrink-0" />
-                              <span>
-                                <strong>Update/Replace:</strong> Ditemukan nomor berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan otomatis menggantikan dan mengaktifkan nomor tersebut di Library.
-                              </span>
+                            <div className="mt-2 space-y-1.5">
+                              {/* Preview Normalisasi Standar */}
+                              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-purple-100/70 border border-purple-200 text-[11px]">
+                                <span className="text-purple-900 font-medium truncate">
+                                  Standar Penulisan: <strong className="font-mono text-purple-950 font-bold">{normalized}</strong>
+                                </span>
+                                <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border shadow-2xs ${
+                                  isNewFormat
+                                    ? 'bg-purple-600 text-white border-purple-700'
+                                    : 'bg-white text-slate-700 border-slate-300'
+                                }`}>
+                                  {isNewFormat ? `Master Hirarki: ${patternMatch.categoryCode}` : 'Format Eksisting'}
+                                </span>
+                              </div>
+
+                              {dup.isDuplicate && dup.matchedDoc ? (
+                                (() => {
+                                  const status = dup.matchedDoc.status;
+                                  const statusLabel =
+                                    status === 'MENUNGGU_PENGESAHAN'
+                                      ? 'Menunggu Pengesahan'
+                                      : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
+                                      ? 'Belum Upload'
+                                      : status === 'AKTIF'
+                                      ? 'Aktif'
+                                      : status || 'Belum Aktif';
+
+                                  if (status === 'AKTIF') {
+                                    return (
+                                      <div className="p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
+                                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                        <span>
+                                          <strong>Ditolak:</strong> Nomor sudah terdaftar dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen aktif tidak dapat diganti via SPO Eksisting. Silakan gunakan alur "SPO Riviu".
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 text-emerald-950 text-[11px] font-medium flex items-center gap-1.5">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                                      <span>
+                                        <strong>Boleh Replace:</strong> Ditemukan dokumen terdaftar berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan mengaktifkan dokumen tersebut.
+                                      </span>
+                                    </div>
+                                  );
+                                })()
+                              ) : isNewFormat ? (
+                                <div className="p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
+                                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                  <span>
+                                    <strong>Pola Master Hirarki Belum Terdaftar:</strong> Nomor sesuai pola penomoran Master Hirarki ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) wajib diterbitkan melalui menu "SPO Baru" agar nomor urut terdaftar resmi.
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-4 h-4 text-sky-700 shrink-0" />
+                                  <span>
+                                    <strong>Nomor Format Eksisting Siap Diregistrasi:</strong> Nomor ini akan otomatis didaftarkan sebagai SPO Eksisting Aktif di sistem.
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}

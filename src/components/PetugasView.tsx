@@ -44,7 +44,7 @@ import {
   LibraryDocument,
   MainMenuTab
 } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -54,6 +54,7 @@ import {
   isSopAccessibleByUser,
   SoegiriCategory
 } from '../utils/soegiriStructure';
+import { flattenHierarchy, getNodeChildren } from '../utils/hierarchyTree';
 import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { Header } from './Header';
 import { SopLiveTemplate } from './SopLiveTemplate';
@@ -100,6 +101,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   onShowToast
 }) => {
   const [showIssueNumberModal, setShowIssueNumberModal] = useState(false);
+  const [issueHierarchyId, setIssueHierarchyId] = useState('');
   // Active Navigation Tab State: Menu structure Dashboard | SPO | SK | MOU | Library | Admin
   const [activeTab, setActiveTab] = useState<MainMenuTab>('dashboard');
   const [spoSubTab, setSpoSubTab] = useState<'input' | 'list'>('list');
@@ -222,6 +224,70 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     String(assignment?.hierarchyCode || [assignment?.subCode, assignment?.instCode, assignment?.poliCode, assignment?.subUnitCode].filter(Boolean).join('.'))
       .split('.').filter(Boolean);
 
+  // Terbitkan Nomor wajib menggunakan hirarki paling bawah (leaf).
+  // Parent yang masih memiliki child tidak boleh dipilih sebagai hirarki akhir.
+  const issueHierarchyOptions = useMemo(() => {
+    const rows: Array<{ id: string; label: string; divisionCode: string; subHierarchyCode: string; pathCodes: string[]; pathNames: string[] }> = [];
+    const seen = new Set<string>();
+
+    const addLeavesForAssignment = (assignment: typeof normalizedAssignments[number], category: SoegiriCategory) => {
+      const assignedPath = getAssignmentPath(assignment);
+      const categoryChildren = getNodeChildren(category).filter((child) => child.active !== false);
+
+      // Jika kategori sendiri tidak memiliki child, kategori tersebut sudah merupakan level terakhir.
+      if (!categoryChildren.length && !assignedPath.length) {
+        const key = `${category.code}|`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          rows.push({
+            id: key,
+            label: `${category.code} — ${category.name}`,
+            divisionCode: category.code,
+            subHierarchyCode: '',
+            pathCodes: [],
+            pathNames: []
+          });
+        }
+        return;
+      }
+
+      flattenHierarchy(category).filter((item) => {
+        if (item.node.active === false) return false;
+        if (assignedPath.length && !item.pathCodes.slice(0, assignedPath.length).every((code, i) => String(code) === String(assignedPath[i]))) return false;
+        return getNodeChildren(item.node).filter((child) => child.active !== false).length === 0;
+      }).forEach((leaf) => {
+        const key = `${category.code}|${leaf.code}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          id: key,
+          label: `${category.code} / ${leaf.code} — ${leaf.pathNames.join(' → ')}`,
+          divisionCode: category.code,
+          subHierarchyCode: leaf.code,
+          pathCodes: leaf.pathCodes || [],
+          pathNames: leaf.pathNames || []
+        });
+      });
+    };
+
+    effectiveAssignments.forEach((assignment) => {
+      const assignmentDivision = String(assignment.divisionCode || '').toUpperCase();
+
+      // Admin dengan marker ALL boleh menerbitkan nomor untuk seluruh master hirarki,
+      // tetapi tetap wajib memilih sampai leaf.
+      const targetCategories = assignmentDivision === 'ALL'
+        ? categoriesList.filter((c) => c.active !== false)
+        : categoriesList.filter((c) => String(c.code).toUpperCase() === assignmentDivision && c.active !== false);
+
+      targetCategories.forEach((category) => addLeavesForAssignment(
+        assignmentDivision === 'ALL' ? { ...assignment, hierarchyCode: undefined } : assignment,
+        category
+      ));
+    });
+
+    return rows;
+  }, [effectiveAssignments, categoriesList]);
+
   const assignedDivisionCode = activeAssignment?.divisionCode || '';
   const hasValidPetugasAssignment = userSession.role === 'admin' || effectiveAssignments.length > 0;
   const assignedSubCode = activeAssignment?.subCode;
@@ -288,7 +354,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestCreatedSop, setLatestCreatedSop] = useState<SopDocument | null>(null);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
-
   // Validation helper for rich text and image content
   const hasRichContent = (html: string = '') => {
     if (!html || !html.trim()) return false;
@@ -354,16 +419,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     if (!onIssueSopNumber || !hasValidPetugasAssignment) return;
     if (!title.trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Judul SPO wajib diisi.'); return; }
     if (!effectiveDate) { onShowToast?.('error', 'Data Belum Lengkap', 'Tanggal berlaku wajib diisi.'); return; }
-    if (!String(revisionNumber).trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Revisi wajib diisi.'); return; }
+    const selectedIssueHierarchy = issueHierarchyOptions.find((option) => option.id === issueHierarchyId);
+    if (!selectedIssueHierarchy) {
+      onShowToast?.('error', 'Hirarki Belum Lengkap', 'Pilih hirarki sampai tingkat unit terakhir yang tersedia.');
+      return;
+    }
     try {
       setIsIssuingNumber(true);
       setSubmitError(null);
       const issued = await onIssueSopNumber({
-        divisionCode: selectedCatCode,
-        subHierarchyCode: subHierarchyCode || undefined,
+        divisionCode: selectedIssueHierarchy.divisionCode,
+        subHierarchyCode: selectedIssueHierarchy.subHierarchyCode || undefined,
         dateStr: effectiveDate,
         title: title.trim(),
-        revisionNumber: String(revisionNumber).trim()
+        revisionNumber: '00'
       });
       setIssuedSopNumber(issued.sopNumber);
       setIssuedSopId(issued.id);
@@ -452,6 +521,32 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         return;
       }
 
+      if (isReview) {
+        const reviewNumber = normalizeSopNumberInput(oldSopNumber);
+        const referenced = (selectedExistingSopIdForReview && sops.find((s) => s.id === selectedExistingSopIdForReview))
+          || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+        if (!reviewNumber || !referenced) {
+          setSubmitError('SPO rujukan Riviu tidak ditemukan di database. Pilih SPO yang terdaftar/AKTIF.');
+          return;
+        }
+        if (referenced.status !== 'AKTIF') {
+          setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
+          return;
+        }
+        const pattern = matchMasterHierarchyPattern(reviewNumber);
+        const selectedDiv = String(selectedCatCode || '').trim().toUpperCase();
+        const selectedSub = String(subHierarchyCode || '').trim();
+        if (pattern.isMatch) {
+          if (String(pattern.categoryCode || '').trim().toUpperCase() !== selectedDiv || String(pattern.subHierarchyCode || '').trim() !== selectedSub) {
+            setSubmitError(`Nomor SPO rujukan tidak sesuai dengan hirarki yang dipilih. Nomor: ${pattern.categoryCode}${pattern.subHierarchyCode ? ` / ${pattern.subHierarchyCode}` : ''}; pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
+            return;
+          }
+        } else if (String(referenced.divisionCode || '').trim().toUpperCase() !== selectedDiv || String(referenced.subHierarchyCode || '').trim() !== selectedSub) {
+          setSubmitError('SPO format lama tidak sesuai dengan hirarki yang dipilih. Gunakan hirarki yang tersimpan pada SPO rujukan.');
+          return;
+        }
+      }
+
       if (!title.trim()) {
         setSubmitError('Judul SPO wajib diisi.');
         return;
@@ -481,7 +576,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     let detectedInfo: ReturnType<typeof detectHierarchyFromSopNumber> = null;
 
     if (isLegacy) {
-      const cleanNum = manualLegacyNumber.trim();
+      const cleanNum = normalizeSopNumberInput(manualLegacyNumber);
       if (!cleanNum) {
         setSubmitError('Nomor SPO Lama / Eksisting resmi wajib diisi.');
         return;
@@ -493,10 +588,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
       // Deteksi dokumen terdaftar yang sudah ada di sistem
       matchedExistingDoc = sops?.find((s) => 
-        (s.sopNumber && s.sopNumber.trim().toLowerCase() === cleanNum.toLowerCase()) ||
-        (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === cleanNum.toLowerCase()) ||
+        (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === cleanNum) ||
+        (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === cleanNum) ||
         (existingSopId && s.id === existingSopId)
       );
+
+      const isNewFormat = isNewSopFormat(cleanNum);
+
+      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada → ❌ Tidak boleh (wajib via SPO Baru)
+      if (isNewFormat && !matchedExistingDoc) {
+        setSubmitError(
+          `Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan alur "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`
+        );
+        return;
+      }
 
       // Aturan: SPO Eksisting TIDAK BISA menggantikan SPO yang sudah berstatus AKTIF
       if (matchedExistingDoc && matchedExistingDoc.status === 'AKTIF') {
@@ -506,7 +611,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         return;
       }
 
-      // Deteksi hirarki otomatis dari nomor SPO
+      // Deteksi hirarki otomatis dari nomor SPO sebagai pelengkap
       detectedInfo = detectHierarchyFromSopNumber(cleanNum);
 
       if (!title.trim() && !matchedExistingDoc?.title) {
@@ -518,32 +623,35 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     try {
       setIsSubmitting(true);
 
-      const cleanNum = manualLegacyNumber.trim();
+      const cleanNum = normalizeSopNumberInput(manualLegacyNumber);
+      const isNewFormat = isLegacy ? isNewSopFormat(cleanNum) : false;
 
-      // Tentukan field hirarki dan metadata
+      // Tentukan field hirarki dan metadata:
+      // - Jika menggantikan dokumen terdaftar: gunakan hirarki dokumen terdaftar (atau form jika disesuaikan)
+      // - Jika Format Lama + belum ada: MENGIKUTI HIRARKI YANG DIPILIH USER DI FORM (dengan fallback deteksi)
       const finalDivCode = isLegacy
-        ? (matchedExistingDoc?.divisionCode || detectedInfo?.divisionCode || selectedCatCode || 'PEL')
+        ? (matchedExistingDoc ? (matchedExistingDoc.divisionCode || selectedCatCode) : (selectedCatCode || detectedInfo?.divisionCode || 'PEL'))
         : selectedCatCode;
       const finalDivName = isLegacy
-        ? (matchedExistingDoc?.divisionName || (matchedExistingDoc as any)?.categoryName || detectedInfo?.divisionName || activeCategory?.name || finalDivCode)
+        ? (matchedExistingDoc ? (matchedExistingDoc.divisionName || activeCategory?.name || finalDivCode) : (activeCategory?.name || detectedInfo?.divisionName || finalDivCode))
         : (activeCategory?.name || selectedCatCode);
       const finalSubHierarchy = isLegacy
-        ? (matchedExistingDoc?.subHierarchyCode !== undefined ? matchedExistingDoc.subHierarchyCode : (detectedInfo?.subHierarchyCode !== undefined ? detectedInfo.subHierarchyCode : (subHierarchyCode || '')))
+        ? (matchedExistingDoc ? (matchedExistingDoc.subHierarchyCode !== undefined ? matchedExistingDoc.subHierarchyCode : subHierarchyCode) : (subHierarchyCode !== undefined ? subHierarchyCode : (detectedInfo?.subHierarchyCode || '')))
         : subHierarchyCode;
       const finalSubCode = isLegacy
-        ? (matchedExistingDoc?.subCode || detectedInfo?.subCode || selectedSubCode)
+        ? (matchedExistingDoc ? (matchedExistingDoc.subCode || selectedSubCode) : (selectedSubCode || detectedInfo?.subCode))
         : selectedSubCode;
       const finalInstCode = isLegacy
-        ? (matchedExistingDoc?.instalasiCode || (matchedExistingDoc as any)?.instCode || detectedInfo?.instalasiCode || selectedInstCode)
+        ? (matchedExistingDoc ? (matchedExistingDoc.instalasiCode || (matchedExistingDoc as any)?.instCode || selectedInstCode) : (selectedInstCode || detectedInfo?.instalasiCode))
         : selectedInstCode;
       const finalPoliCode = isLegacy
-        ? (matchedExistingDoc?.poliCode || detectedInfo?.poliCode || selectedPoliCode)
+        ? (matchedExistingDoc ? (matchedExistingDoc.poliCode || selectedPoliCode) : (selectedPoliCode || detectedInfo?.poliCode))
         : selectedPoliCode;
       const finalSubUnitCode = isLegacy
-        ? (matchedExistingDoc?.subUnitCode || detectedInfo?.subUnitCode || selectedSubUnitCode)
+        ? (matchedExistingDoc ? (matchedExistingDoc.subUnitCode || selectedSubUnitCode) : (selectedSubUnitCode || detectedInfo?.subUnitCode))
         : selectedSubUnitCode;
       const finalHierarchyDesc = isLegacy
-        ? (matchedExistingDoc?.hierarchyDescription || detectedInfo?.hierarchyDescription || hierarchyInfo.conclusion)
+        ? (matchedExistingDoc ? (matchedExistingDoc.hierarchyDescription || hierarchyInfo.conclusion) : (hierarchyInfo.conclusion || detectedInfo?.hierarchyDescription))
         : hierarchyInfo.conclusion;
       const finalTitle = title.trim() || matchedExistingDoc?.title || `SPO Eksisting ${cleanNum}`;
 
@@ -572,12 +680,23 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         poliCode: finalPoliCode,
         subUnitCode: finalSubUnitCode || undefined,
         hierarchyDescription: finalHierarchyDesc || undefined,
-        documentType: isLegacy ? 'LAMA' : 'BARU',
-        jenis_spo: isLegacy ? 'EKSISTING' : isReview ? 'RIVIU' : 'BARU',
-        isLegacySop: isLegacy,
-        legacySopNumber: isLegacy ? cleanNum : undefined,
+        documentType: isLegacy
+          ? (matchedExistingDoc ? (matchedExistingDoc.documentType || (isNewFormat ? 'BARU' : 'LAMA')) : (isNewFormat ? 'BARU' : 'LAMA'))
+          : isReview
+          ? 'RIVIU'
+          : 'BARU',
+        jenis_spo: isLegacy
+          ? (matchedExistingDoc ? (matchedExistingDoc.jenis_spo || (isNewFormat ? 'BARU' : 'EKSISTING')) : (isNewFormat ? 'BARU' : 'EKSISTING'))
+          : isReview
+          ? 'RIVIU'
+          : 'BARU',
+        isLegacySop: isLegacy ? (matchedExistingDoc ? Boolean(matchedExistingDoc.isLegacySop) : !isNewFormat) : false,
+        legacySopNumber: isLegacy ? (isNewFormat && matchedExistingDoc ? undefined : cleanNum) : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
-        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : isLegacy ? matchedExistingDoc?.id : undefined,
+        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
+        // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
+        // but preview must use the uploaded original PDF instead of generating the official template.
+        isExistingReplacement: isLegacy && Boolean(matchedExistingDoc),
         pengertian: pengertian.trim() || (isLegacy ? matchedExistingDoc?.pengertian : undefined) || undefined,
         tujuan: tujuan.trim() || (isLegacy ? matchedExistingDoc?.tujuan : undefined) || undefined,
         kebijakan: kebijakan.trim() || (isLegacy ? matchedExistingDoc?.kebijakan : undefined) || undefined,
@@ -606,10 +725,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
           sopData.fileSize = selectedFile.size;
           sopData.fileType = selectedFile.type || 'application/pdf';
           sopData.fileDataUrl = dataUrl;
-          sopData.oldFileName = selectedFile.name;
-          sopData.oldFileSize = selectedFile.size;
-          sopData.oldFileType = selectedFile.type || 'application/pdf';
-          sopData.oldFileDataUrl = dataUrl;
           sopData.signedScanFileName = selectedFile.name;
           sopData.signedScanFileSize = selectedFile.size;
           sopData.signedScanFileType = selectedFile.type || 'application/pdf';
@@ -698,29 +813,36 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
               <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSpoSubTab('list')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    spoSubTab === 'list'
-                      ? 'bg-white text-emerald-800 shadow-xs font-black'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  onClick={() => {
+                    setSubmitError(null);
+                    setSpoSubTab('input');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all cursor-pointer"
                 >
-                  <ListOrdered className="w-4 h-4" />
-                  <span>Daftar SPO Unit ({accessibleSops.length})</span>
+                  <PlusCircle className="w-4 h-4" />
+                  <span>+ Daftarkan SPO Baru</span>
                 </button>
 
-                {spoSubTab === 'input' && documentType === 'BARU' && (
-                  <button
+                <button
                     type="button"
-                    onClick={() => setShowIssueNumberModal(true)}
+                    onClick={() => {
+                      setSubmitError(null);
+                      setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
+                      setShowIssueNumberModal(true);
+                    }}
                     disabled={isIssuingNumber}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
                   >
                     <FileCheck2 className="w-4 h-4" />
                     <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}</span>
-                  </button>
-                )}
+                </button>
               </div>
+              {issuedSopNumber && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 shrink-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800">Nomor Terbit</div>
+                  <div className="font-mono text-sm font-black text-slate-900">{issuedSopNumber}</div>
+                </div>
+              )}
             </div>
 
             {/* SubTab List: Petugas Library Tab */}
@@ -818,21 +940,24 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     </div>
                   </section>
 
-                  {/* 2. Unit / Hierarchy — hanya untuk SPO Baru/Riviu.
-                      SPO Eksisting otomatis mengikuti unit dari nomor SPO yang sudah ada. */}
-                  {(documentType === 'BARU' || documentType === 'REVIEW') && (
+                  {/* 2. Unit / Hierarchy — untuk semua tipe dokumen.
+                      SPO Baru/Riviu: Menentukan kode penomoran & unit kerja.
+                      SPO Eksisting: Menentukan unit kerja bagi dokumen format lama yang baru didaftarkan. */}
                   <section className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
                         <Layers className="w-4 h-4 text-emerald-600" />
                         <span>2. Unit Kerja / Hierarki SPO</span>
                       </h3>
+                      {documentType === 'LAMA' && (
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">
+                          Unit Pendaftaran Format Lama
+                        </span>
+                      )}
                     </div>
 
                     {hasValidPetugasAssignment ? (
                       <>
-
-
                         <div className={effectiveAssignments.length > 1 ? 'grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)] gap-3 items-stretch' : 'grid grid-cols-1 gap-3'}>
                           {effectiveAssignments.length > 1 && (
                             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -860,7 +985,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           )}
 
                           <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 px-4 py-3 flex flex-col justify-center min-w-0">
-                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Hirarki Akun</div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Hirarki Akun Terpilih</div>
                             <div className="text-base sm:text-lg font-black text-slate-900 truncate">
                               {activeAssignment?.unitName || activeCategory?.name || selectedCatCode}
                             </div>
@@ -878,22 +1003,22 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           const safeCurrent = prefixIsValid ? currentPath : [...prefix];
 
                           const selectors: React.ReactNode[] = [];
-                          let level = prefix.length;
+                          let opsLevel = prefix.length;
 
-                          while (level < 4) {
-                            const parentPath = safeCurrent.slice(0, level);
+                          while (opsLevel < 4) {
+                            const parentPath = safeCurrent.slice(0, opsLevel);
                             const children = getHierarchyChildren(selectedCatCode, parentPath);
                             if (!children.length) break;
 
-                            const value = safeCurrent[level] || '';
-                            const levelLabel = level === 0
+                            const value = safeCurrent[opsLevel] || '';
+                            const levelLabel = opsLevel === 0
                               ? 'Pilih Sub Bagian / Unit'
-                              : level === 1
+                              : opsLevel === 1
                                 ? 'Pilih Instalasi / Unit'
-                                : level === 2
+                                : opsLevel === 2
                                   ? 'Pilih Poli / Unit'
                                   : 'Pilih Sub Unit';
-                            const selectorLevel = level;
+                            const selectorLevel = opsLevel;
 
                             selectors.push(
                               <div key={`hierarchy-level-${selectorLevel}`}>
@@ -924,7 +1049,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             );
 
                             if (!value) break;
-                            level += 1;
+                            opsLevel += 1;
                           }
 
                           if (!selectors.length) return null;
@@ -932,7 +1057,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           return (
                             <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
                               <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-                                Pilihan Turunan
+                                Pilihan Turunan Unit
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 items-end">
                                 {selectors}
@@ -948,19 +1073,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     )}
                   </section>
 
-                  )}
-
                   {/* Nomor SPO diterbitkan ditampilkan ringkas di bawah form setelah berhasil. */}
-                  {documentType === 'BARU' && issuedSopNumber && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800">Nomor SPO diterbitkan</div>
-                        <div className="font-mono text-sm font-black text-slate-900 mt-0.5">{issuedSopNumber}</div>
-                      </div>
-                      <button type="button" onClick={() => navigator.clipboard?.writeText(issuedSopNumber)} className="text-xs font-bold text-emerald-700 hover:underline">Salin Nomor</button>
-                    </div>
-                  )}
-
                   {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
                   {documentType === 'LAMA' ? (
                     <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-6 space-y-4">
@@ -1014,21 +1127,26 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Nomor SPO Lama */}
                         <div>
-                          <label className="block text-xs font-bold text-purple-950 mb-1.5">
-                            Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
-                          </label>
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
+                            <label className="block text-xs font-bold text-purple-950">
+                              Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
+                            </label>
+                            <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
+                              Input Nomor Asli
+                            </span>
+                          </div>
                           <input
                             type="text"
                             required
                             value={manualLegacyNumber}
                             onChange={(e) => {
-                              const val = e.target.value;
+                              const val = e.target.value.toUpperCase();
                               setManualLegacyNumber(val);
-                              const clean = val.trim();
-                              if (clean) {
+                              const clean道德 = normalizeSopNumberInput(val);
+                              if (clean道德) {
                                 const matched = sops?.find((s) => 
-                                  (s.sopNumber && s.sopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
-                                  (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === clean.toLowerCase())
+                                  (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === clean道德) ||
+                                  (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === clean道德)
                                 );
                                 if (matched) {
                                   setExistingSopId(matched.id);
@@ -1041,81 +1159,118 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                 }
                               }
                             }}
-                            placeholder="Contoh: 440/102/SPO/PEL/2023 atau PEL/1.1.3/008/2024"
+                            onBlur={() => {
+                              if (manualLegacyNumber.trim()) {
+                                setManualLegacyNumber(normalizeSopNumberInput(manualLegacyNumber));
+                              }
+                            }}
+                            placeholder="Contoh: SOEGIRI / 398 / 2025 atau 440/102/SPO/PEL/2023"
                             className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
                           />
 
                           {/* Informasi Deteksi Otomatis Nomor & Hirarki */}
                           {manualLegacyNumber.trim() && (() => {
-                            const clean = manualLegacyNumber.trim();
+                            const normalized = normalizeSopNumberInput(manualLegacyNumber);
+                            const patternMatch = matchMasterHierarchyPattern(normalized);
+                            const isNewFormat = patternMatch.isMatch;
                             const matched = sops?.find((s) => 
-                              (s.sopNumber && s.sopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
-                              (s.legacySopNumber && s.legacySopNumber.trim().toLowerCase() === clean.toLowerCase()) ||
+                              (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === normalized) ||
+                              (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === normalized) ||
                               (existingSopId && s.id === existingSopId)
                             );
 
-                            if (matched) {
-                              const isAktif = matched.status === 'AKTIF';
-                              const statusLabel =
-                                matched.status === 'MENUNGGU_PENGESAHAN'
-                                  ? 'Menunggu Pengesahan'
-                                  : matched.status === 'DRAFT' || matched.status === 'BELUM_UPLOAD' || matched.isNumberReservation
-                                  ? 'Belum Upload'
-                                  : matched.status === 'AKTIF'
-                                  ? 'Aktif'
-                                  : matched.status || 'Belum Aktif';
-                              const unitName = matched.hierarchyDescription || matched.divisionName || (matched as any).unitName || matched.divisionCode || 'Unit kerja terdaftar';
+                            return (
+                              <div className="mt-2 space-y-2">
+                                {/* Normalisasi Format Tag */}
+                                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-purple-100/70 border border-purple-200 text-[11px]">
+                                  <span className="text-purple-900 font-medium truncate">
+                                    Standar Penulisan: <strong className="font-mono text-purple-950 font-bold">{normalized}</strong>
+                                  </span>
+                                  <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border shadow-2xs ${
+                                    isNewFormat
+                                      ? 'bg-purple-600 text-white border-purple-700'
+                                      : 'bg-white text-slate-700 border-slate-300'
+                                  }`}>
+                                    {isNewFormat ? `Master Hirarki: ${patternMatch.categoryCode}` : 'Format Eksisting'}
+                                  </span>
+                                </div>
 
-                              if (isAktif) {
-                                return (
-                                  <div className="mt-2 rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
+                                {matched ? (
+                                  (() => {
+                                    const isAktif = matched.status === 'AKTIF';
+                                    const statusLabel持 =
+                                      matched.status === 'MENUNGGU_PENGESAHAN'
+                                        ? 'Menunggu Pengesahan'
+                                        : matched.status === 'DRAFT' || matched.status === 'BELUM_UPLOAD' || matched.isNumberReservation
+                                        ? 'Belum Upload'
+                                        : matched.status === 'AKTIF'
+                                        ? 'Aktif'
+                                        : matched.status || 'Belum Aktif';
+                                    const unitName = matched.hierarchyDescription || matched.divisionName || (matched as any).unitName || matched.divisionCode || 'Unit kerja terdaftar';
+
+                                    if (isAktif) {
+                                      return (
+                                        <div className="rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
+                                          <div className="flex items-center gap-1.5 text-xs font-black text-rose-700">
+                                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                            <span>Nomor Terdaftar Status AKTIF (Tidak Boleh Diganti)</span>
+                                          </div>
+                                          <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
+                                          <div className="text-[11px] text-rose-800">
+                                            <span className="font-semibold">Unit/Hirarki:</span> {unitName}
+                                          </div>
+                                          <div className="text-[10px] font-semibold text-rose-700">
+                                            Sesuai aturan, dokumen berstatus <strong>AKTIF</strong> tidak dapat diganti melalui SPO Eksisting. Silakan gunakan menu <strong>SPO Riviu</strong>.
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-3 space-y-1">
+                                        <div className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                          <span>{isNewFormat ? 'Pola Master Hirarki Terdaftar' : 'Nomor Eksisting Terdaftar'} ({statusLabel持})</span>
+                                        </div>
+                                        <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
+                                        <div className="text-[11px] text-emerald-800">
+                                          <span className="font-semibold">Hirarki:</span> {unitName}
+                                        </div>
+                                        <div className="text-[10px] text-emerald-700 font-medium">
+                                          ✅ Boleh replace & lengkapi berkas untuk mengaktifkan dokumen ini di sistem.
+                                        </div>
+                                      </div>
+                                    );
+                                  })()
+                                ) : isNewFormat ? (
+                                  /* Pola Master Hirarki namun belum ada di database */
+                                  <div className="rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
                                     <div className="flex items-center gap-1.5 text-xs font-black text-rose-700">
                                       <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                      <span>Nomor Terdaftar dengan Status AKTIF (Tidak Dapat Diganti)</span>
+                                      <span>❌ Pola Master Hirarki Belum Terdaftar (Wajib via SPO Baru)</span>
                                     </div>
-                                    <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
-                                    <div className="text-[11px] text-rose-800">
-                                      <span className="font-semibold">Unit/Hirarki:</span> {unitName}
+                                    <div className="text-[11px] text-rose-900 leading-relaxed">
+                                      Nomor ini sesuai <strong>Pola Penomoran Baru Master Hirarki RSUD Dr. Soegiri</strong> ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) namun belum terdaftar di sistem.
                                     </div>
-                                    <div className="text-[10px] font-semibold text-rose-700">
-                                      Sesuai aturan, SPO berstatus <strong>Aktif</strong> tidak dapat diganti melalui SPO Eksisting. Silakan gunakan alur <strong>SPO Riviu</strong> untuk memperbarui dokumen aktif.
+                                    <div className="text-[10px] font-semibold text-rose-700 bg-rose-100/70 p-1.5 rounded-lg border border-rose-200">
+                                      Silakan gunakan menu <strong>"SPO Baru"</strong> agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki unit kerja.
                                     </div>
                                   </div>
-                                );
-                              }
-
-                              return (
-                                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/90 p-3 space-y-1">
-                                  <div className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                    <span>Dokumen Terdaftar Ditemukan ({statusLabel})</span>
+                                ) : (
+                                  /* Format Lama / Bebas belum ada di database */
+                                  <div className="rounded-xl border border-blue-200 bg-blue-50/90 p-3 space-y-1.5">
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-blue-900">
+                                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                                      <span>✅ Nomor Format Eksisting Siap Diregistrasi</span>
+                                    </div>
+                                    <div className="text-[11px] text-blue-950 leading-relaxed">
+                                      Dokumen akan didaftarkan sebagai <strong>SPO Eksisting Aktif</strong> dengan nomor asli tetap dipertahankan.
+                                    </div>
+                                    <div className="text-[10px] text-blue-800 font-semibold bg-blue-100/80 px-2 py-1 rounded-md">
+                                      Hirarki: Mengikuti pilihan unit pada Bagian 2 di atas ({activeAssignment?.unitName || activeCategory?.name || selectedCatCode}).
+                                    </div>
                                   </div>
-                                  <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
-                                  <div className="text-[11px] text-emerald-800">
-                                    <span className="font-semibold">Hirarki Terdaftar:</span> {unitName}
-                                  </div>
-                                  <div className="text-[10px] text-slate-500 italic">
-                                    Unggahan berkas ini akan melengkapi dan mengaktifkan dokumen berstatus {statusLabel} ini di sistem.
-                                  </div>
-                                </div>
-                              );
-                            }
-
-                            // Jika belum terdaftar, deteksi hirarki dari string nomor
-                            const detected = detectHierarchyFromSopNumber(clean);
-                            return (
-                              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/90 p-3 space-y-1">
-                                <div className="flex items-center gap-1.5 text-xs font-black text-blue-900">
-                                  <Info className="w-4 h-4 text-blue-600 shrink-0" />
-                                  <span>Nomor SPO Belum Terdaftar (Otomatis Registrasi)</span>
-                                </div>
-                                <div className="text-[11px] text-blue-950">
-                                  <span className="font-semibold">Hirarki Terdeteksi:</span>{' '}
-                                  {detected?.hierarchyDescription || detected?.divisionName || 'Bidang Pelayanan RSUD Dr. Soegiri'}
-                                </div>
-                                <div className="text-[10px] text-slate-500 italic">
-                                  Dokumen akan otomatis didaftarkan sebagai SPO Eksisting Aktif dengan nomor ini tetap dipertahankan.
-                                </div>
+                                )}
                               </div>
                             );
                           })()}
@@ -1319,7 +1474,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           <SopLiveTemplate
                             title={title}
                             onTitleChange={setTitle}
-                            sopNumber={issuedSopNumber || (documentType === 'REVIEW' ? (oldSopNumber || 'SPO Riviu') : 'Otomatis')}
+                            sopNumber={issuedSopNumber || (documentType === 'REVIEW' ? '[Nomor Riviu Akan Terbit Otomatis]' : 'Otomatis')}
                             version={revisionNumber || (documentType === 'REVIEW' ? '01' : '00')}
                             effectiveDate={effectiveDate}
                             onEffectiveDateChange={setEffectiveDate}
@@ -1448,11 +1603,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         open={showIssueNumberModal}
         title={title}
         effectiveDate={effectiveDate}
-        revisionNumber={revisionNumber}
+        hierarchyOptions={issueHierarchyOptions}
+        selectedHierarchyId={issueHierarchyId}
         isIssuingNumber={isIssuingNumber}
         onTitleChange={setTitle}
         onEffectiveDateChange={setEffectiveDate}
-        onRevisionChange={setRevisionNumber}
+        onHierarchyChange={setIssueHierarchyId}
         onClose={() => setShowIssueNumberModal(false)}
         onSubmit={handleIssueNumber}
       />

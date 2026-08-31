@@ -21,7 +21,10 @@ import {
   checkDuplicateSopNumber,
   standardizeAllSops,
   standardizeSopDocument,
-  detectHierarchyFromSopNumber
+  detectHierarchyFromSopNumber,
+  isNewSopFormat,
+  normalizeSopNumberInput,
+  matchMasterHierarchyPattern
 } from './utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
@@ -809,17 +812,63 @@ export default function App() {
     const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop || newSopData.jenis_spo === 'EKSISTING';
     const isNewSopInput = (newSopData.jenis_spo || newSopData.documentType) === 'BARU';
     const isCompletingIssuedNumber = Boolean(
-      newSopData.id && newSopData.sopNumber && Number(newSopData.sequenceNumber) > 0
+      newSopData.id &&
+      newSopData.sopNumber &&
+      Number(newSopData.sequenceNumber) > 0 &&
+      (newSopData as any).numberReservationPurpose !== 'EXISTING_REPLACE_ONLY'
     );
 
-    const targetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
-    const dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
+    const rawTargetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
+    const targetNumber = isLegacyInput ? normalizeSopNumberInput(rawTargetNumber) : rawTargetNumber;
+    let authoritativeSopData = newSopData;
+
+    // SPO Riviu memakai nomor lama hanya sebagai rujukan. Nomor hasil selalu
+    // dialokasikan baru setelah validasi rujukan dan hirarki berhasil.
+    if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
+      const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
+      if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
+
+      const referenced = (newSopData.existingSopId ? sops.find((s) => s.id === newSopData.existingSopId) : undefined)
+        || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      if (!referenced) throw new Error(`SPO rujukan "${reviewNumber}" tidak ditemukan di database.`);
+      if (referenced.status !== 'AKTIF') throw new Error(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF untuk dapat diriviu.`);
+
+      const selectedDiv = String(newSopData.divisionCode || '').trim().toUpperCase();
+      const selectedSub = String(newSopData.subHierarchyCode || '').trim();
+      if (!selectedDiv || selectedDiv === 'ALL') throw new Error('Hirarki Riviu tidak valid.');
+
+      const newPattern = matchMasterHierarchyPattern(reviewNumber);
+      if (newPattern.isMatch) {
+        const numberDiv = String(newPattern.categoryCode || '').trim().toUpperCase();
+        const numberSub = String(newPattern.subHierarchyCode || '').trim();
+        if (numberDiv !== selectedDiv || numberSub !== selectedSub) {
+          throw new Error(`Nomor SPO "${reviewNumber}" tidak sesuai dengan hirarki yang dipilih. Hirarki nomor: ${numberDiv}${numberSub ? ` / ${numberSub}` : ''}; hirarki pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
+        }
+      } else {
+        const sameHierarchy = String(referenced.divisionCode || '').trim().toUpperCase() === selectedDiv
+          && String(referenced.subHierarchyCode || '').trim() === selectedSub;
+        if (!sameHierarchy) {
+          throw new Error(`SPO lama "${reviewNumber}" tidak sesuai dengan hirarki yang dipilih. Gunakan hirarki yang tersimpan pada SPO rujukan.`);
+        }
+      }
+    }
+
+    let dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
 
     if (isLegacyInput) {
-      // Alur SPO Eksisting:
-      // 1. Jika nomor SPO sudah terdaftar / menggantikan dokumen yang ada: gunakan data yang sudah ada dan perbarui/gantikan dokumen.
-      // 2. Jika nomor SPO belum terdaftar: otomatis register nomor tersebut ke sistem dengan format penomoran asli dipertahankan.
+      // Aturan Khusus SPO Existing:
+      // 1. Format baru + nomor belum ada → ❌ Tidak boleh (harus terbit via alur SPO Baru).
+      // 2. Format baru + nomor sudah ada (bukan AKTIF) → ✅ Boleh replace / lengkapi.
+      // 3. Format lama + nomor belum ada → ✅ Boleh register, mengikuti hirarki yang dipilih user.
       const existing = dupCheck.matchedDoc || (newSopData.id ? sops.find((s) => s.id === newSopData.id) : undefined);
+      const isNewFormat = isNewSopFormat(targetNumber);
+
+      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada -> TIDAK BOLEH
+      if (isNewFormat && !existing) {
+        throw new Error(
+          `Nomor dengan pola penomoran baru Master Hirarki ("${targetNumber}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan alur "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`
+        );
+      }
 
       // Deteksi hirarki otomatis dari nomor SPO lama jika hirarki belum diisi
       const detected = detectHierarchyFromSopNumber(targetNumber);
@@ -833,19 +882,27 @@ export default function App() {
           );
         }
 
+        // Aturan 2: Format baru (atau format lama) + nomor sudah ada (bukan aktif) -> Boleh replace
         const replacedId = existing.id;
+        const isExistingDraftOrNew =
+          existing.status === 'DRAFT' ||
+          existing.status === 'BELUM_UPLOAD' ||
+          Boolean(existing.isNumberReservation) ||
+          existing.jenis_spo === 'BARU' ||
+          existing.documentType === 'BARU';
+
         const statusPreviousName =
           existing.status === 'MENUNGGU_PENGESAHAN'
             ? 'Menunggu Pengesahan'
-            : existing.status === 'DRAFT' || existing.status === 'BELUM_UPLOAD' || existing.isNumberReservation
-            ? 'Belum Upload'
+            : isExistingDraftOrNew
+            ? 'Draft / Belum Upload'
             : existing.status || 'Tersimpan';
 
         const finalSop: SopDocument = {
           ...existing,
           ...newSopData,
           id: replacedId,
-          title: newSopData.title?.trim() || existing.title || 'SPO Eksisting',
+          title: newSopData.title?.trim() || existing.title || 'SPO',
           divisionCode: newSopData.divisionCode || existing.divisionCode || detected?.divisionCode || 'PEL',
           divisionName: newSopData.divisionName || existing.divisionName || detected?.divisionName || 'Bidang Pelayanan',
           subHierarchyCode: newSopData.subHierarchyCode !== undefined ? newSopData.subHierarchyCode : (existing.subHierarchyCode || detected?.subHierarchyCode || ''),
@@ -855,10 +912,20 @@ export default function App() {
           subUnitCode: newSopData.subUnitCode || existing.subUnitCode || detected?.subUnitCode,
           hierarchyDescription: newSopData.hierarchyDescription || existing.hierarchyDescription || detected?.hierarchyDescription,
           sopNumber: targetNumber || existing.sopNumber || '',
-          legacySopNumber: targetNumber || existing.legacySopNumber || existing.sopNumber || '',
-          documentType: 'LAMA',
-          jenis_spo: 'EKSISTING',
-          isLegacySop: true,
+          legacySopNumber: isExistingDraftOrNew ? (existing.legacySopNumber || undefined) : (targetNumber || existing.legacySopNumber || existing.sopNumber || ''),
+          
+          // Hasil replace SPO yang masih Draft / SPO Baru harus tetap berstatus SPO Baru, bukan SPO Riviu atau Lama
+          documentType: isExistingDraftOrNew ? 'BARU' : (isNewFormat ? 'BARU' : 'LAMA'),
+          jenis_spo: isExistingDraftOrNew ? 'BARU' : (isNewFormat ? 'BARU' : 'EKSISTING'),
+          isLegacySop: isExistingDraftOrNew ? false : !isNewFormat,
+          isReviewDocument: false,
+          existingSopId: undefined,
+          oldSopNumber: undefined,
+          oldFileName: undefined,
+          oldFileSize: undefined,
+          oldFileType: undefined,
+          oldFileDataUrl: undefined,
+          reviewReason: undefined,
           isNumberReservation: false,
           status: 'AKTIF',
           createdAt: existing.createdAt || now,
@@ -870,7 +937,7 @@ export default function App() {
               version: newSopData.revisionNumber || newSopData.version || existing.version || '00',
               date: newSopData.effectiveDate || existing.effectiveDate || now.split('T')[0],
               author: newSopData.creatorName || userSession?.name || 'Petugas',
-              notes: `Dokumen diperbarui melalui unggah berkas SPO Eksisting (sebelumnya berstatus ${statusPreviousName}).`
+              notes: `Dokumen dilengkapi/diaktifkan melalui unggah berkas fisik (sebelumnya berstatus ${statusPreviousName}).`
             }
           ]
         };
@@ -894,14 +961,14 @@ export default function App() {
 
         addToast(
           'success',
-          'SPO Eksisting Berhasil Diperbarui!',
-          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diperbarui dan aktif di sistem.`
+          'SPO Berhasil Dilengkapi & Diaktifkan!',
+          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diaktifkan di sistem.`
         );
 
         return finalSop;
       }
 
-      // Nomor baru yang belum ada di sistem -> otomatis register nomor tersebut
+      // Aturan 3: Format lama + nomor belum ada -> Boleh register, mengikuti hirarki yang dipilih user
       const newId = newSopData.id || `sop-${Date.now()}`;
       const finalSop: SopDocument = {
         ...newSopData,
@@ -961,7 +1028,34 @@ export default function App() {
       return finalSop;
     }
 
-    // Untuk SPO Baru dan Review: cegah nomor SPO duplikat
+    // Riviu selalu memperoleh nomor BARU. Gunakan reservation yang sama dengan
+    // menu Terbitkan Nomor agar nomor terpakai/reserved tidak pernah bentrok.
+    if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
+      const reserved = await reserveNextSopNumber({
+        config: numberingConfig,
+        divisionCode: String(newSopData.divisionCode || 'PEL').trim().toUpperCase(),
+        subHierarchyCode: String(newSopData.subHierarchyCode || '').trim() || undefined,
+        dateStr: newSopData.effectiveDate || now.split('T')[0],
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas'
+      });
+      authoritativeSopData = {
+        ...newSopData,
+        id: newSopData.id || `sop-${Date.now()}`,
+        sopNumber: reserved.sopNumber,
+        sequenceNumber: reserved.sequenceNumber,
+        divisionCode: reserved.divisionCode,
+        subHierarchyCode: reserved.subHierarchyCode || '',
+        documentType: 'RIVIU',
+        jenis_spo: 'RIVIU',
+        isReviewDocument: true,
+        isNumberReservation: false,
+        oldSopNumber: normalizeSopNumberInput(newSopData.oldSopNumber || ''),
+        existingSopId: newSopData.existingSopId
+      };
+      dupCheck = checkDuplicateSopNumber(sops, reserved.sopNumber, undefined);
+    }
+
+    // Untuk SPO Baru: cegah nomor SPO duplikat
     if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
       const existing = dupCheck.matchedDoc;
       const isCompletingSameDoc = newSopData.id && newSopData.id === existing.id;
@@ -972,7 +1066,6 @@ export default function App() {
 
     // SPO Baru: Jika nomor belum diterbitkan secara eksplisit sebelumnya,
     // otomatis alokasikan nomor urut dan nomor resmi baru sesuai standar penomoran.
-    let authoritativeSopData = newSopData;
     if (isNewSopInput && !isLegacyInput && !isCompletingIssuedNumber) {
       const divCode = (newSopData.divisionCode || 'PEL').trim().toUpperCase();
       const subCode = (newSopData.subHierarchyCode || '').trim();
@@ -994,7 +1087,7 @@ export default function App() {
       };
     }
 
-    const newId = newSopData.id || `sop-${Date.now()}`;
+    const newId = authoritativeSopData.id || newSopData.id || `sop-${Date.now()}`;
     const newSop: SopDocument = {
       ...authoritativeSopData,
       id: newId,
@@ -1085,8 +1178,7 @@ export default function App() {
     }
     if (!params.title?.trim()) throw new Error('Judul SPO wajib diisi.');
     if (!params.dateStr) throw new Error('Tanggal berlaku wajib diisi.');
-    if (!String(params.revisionNumber ?? '').trim()) throw new Error('Revisi wajib diisi.');
-    const effectiveDivision = String(params.divisionCode || '').trim().toUpperCase();
+        const effectiveDivision = String(params.divisionCode || '').trim().toUpperCase();
     if (!effectiveDivision || effectiveDivision === 'ALL') {
       throw new Error('Unit kerja yang dipilih tidak valid untuk penerbitan nomor SPO.');
     }
@@ -1119,6 +1211,7 @@ export default function App() {
       jenis_spo: 'BARU',
       isLegacySop: false,
       isNumberReservation: true,
+      numberReservationPurpose: 'EXISTING_REPLACE_ONLY',
       fileName: '',
       createdAt: now,
       updatedAt: now,

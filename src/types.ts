@@ -159,6 +159,8 @@ export interface SopDocument {
   documentType?: 'BARU' | 'EKSISTING' | 'RIVIU' | 'ARSIP' | 'LAMA' | 'REVIEW'; // Backward-compatible alias
   isReviewDocument?: boolean;
   existingSopId?: string;
+  // True when an Existing SPO replaces an existing draft/number record; it remains BARU in document type.
+  isExistingReplacement?: boolean;
   isLegacySop?: boolean;
   legacySopNumber?: string;
   oldSopNumber?: string;
@@ -188,6 +190,7 @@ export interface SopDocument {
   locationOrFolder?: string;
   // True when the register record exists only to reserve an official SPO number.
   isNumberReservation?: boolean;
+  numberReservationPurpose?: 'EXISTING_REPLACE_ONLY' | string;
 }
 
 

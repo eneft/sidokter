@@ -125,15 +125,34 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     return () => ro.disconnect();
   }, [isOpen]);
 
-  // Check if document is a legacy document (SPO Lama - specifically archived pre-2026 documents without full digital body)
-  const isReviewDoc = Boolean(sop && (sop.documentType === 'REVIEW' || sop.jenis_spo === 'RIVIU' || sop.isReviewDocument || Boolean(sop.oldSopNumber || sop.oldFileName)));
-  const isExisting = Boolean(sop && (sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop));
+  // Check if document is a review or legacy document
+  const isReviewDoc = Boolean(
+    sop && (
+      sop.jenis_spo === 'RIVIU' ||
+      sop.documentType === 'REVIEW' ||
+      sop.documentType === 'RIVIU' ||
+      sop.isReviewDocument ||
+      getStandardJenisSpo(sop) === 'RIVIU'
+    )
+  );
+  const isExisting = Boolean(
+    sop &&
+    !isReviewDoc &&
+    (
+      sop.jenis_spo === 'EKSISTING' ||
+      sop.documentType === 'LAMA' ||
+      sop.documentType === 'EKSISTING' ||
+      sop.isLegacySop ||
+      // A new-format Existing replacement keeps documentType=BARU,
+      // but must still preview the uploaded Existing PDF.
+      sop.isExistingReplacement
+    )
+  );
   const isLegacy = Boolean(
     sop &&
     !isReviewDoc &&
     (
-      sop.documentType === 'LAMA' ||
-      sop.isLegacySop ||
+      isExisting ||
       (sop.effectiveDate && new Date(sop.effectiveDate).getFullYear() < 2026)
     )
   );
