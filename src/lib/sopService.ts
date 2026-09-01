@@ -121,7 +121,8 @@ async function getSops(): Promise<SopDocument[]> {
     }
   }
 
-  return stored.map(normalizeSop);
+  // Reservation nomor bukan dokumen SPO dan tidak boleh masuk ke daftar dokumen.
+  return stored.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
 }
 
 function notifySopSubscribers(): void {
@@ -135,7 +136,7 @@ function normalizeSop(sop: SopDocument): SopDocument {
     status = 'AKTIF';
   } else if (rawStatus === 'TIDAK_AKTIF') {
     status = 'TIDAK_AKTIF';
-  } else if (rawStatus === 'DRAFT' || rawStatus === 'BELUM_UPLOAD' || (sop as any).isNumberReservation) {
+  } else if (rawStatus === 'DRAFT' || rawStatus === 'BELUM_UPLOAD') {
     status = 'DRAFT';
   } else if (rawStatus === 'MENUNGGU_PENGESAHAN') {
     status = 'MENUNGGU_PENGESAHAN';
@@ -169,6 +170,7 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
 export async function getAllSopsFromLocal(): Promise<SopDocument[]> { return getSops(); }
 
 export async function saveSopToLocal(sop: SopDocument): Promise<void> {
+  if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
   const index = all.findIndex((s) => s.id === next.id);
@@ -178,7 +180,7 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
 }
 
 export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {
-  await idbPutSops(sops.map(normalizeSop));
+  await idbPutSops(sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop));
   notifySopSubscribers();
 }
 
@@ -216,8 +218,13 @@ export interface SopNumberReservation {
   sequenceNumber: number;
   sopNumber: string;
   year: string;
+  title?: string;
+  effectiveDate?: string;
   reservedBy: string;
   reservedAt: string;
+  status: 'RESERVED' | 'USED';
+  usedAt?: string;
+  usedDocumentId?: string;
 }
 
 /**
@@ -231,6 +238,7 @@ export async function reserveNextSopNumber(params: {
   divisionCode: string;
   subHierarchyCode?: string;
   dateStr?: string;
+  title?: string;
   reservedBy: string;
 }): Promise<SopNumberReservation> {
   const { config, divisionCode, subHierarchyCode = '', dateStr, reservedBy } = params;
@@ -288,8 +296,11 @@ export async function reserveNextSopNumber(params: {
           sequenceNumber,
           sopNumber: generated.sopNumber,
           year,
+          title: params.title?.trim() || undefined,
+          effectiveDate: dateStr || `${year}-01-01`,
           reservedBy,
-          reservedAt: new Date().toISOString()
+          reservedAt: new Date().toISOString(),
+          status: 'RESERVED'
         };
         reservationStore.add(result);
       };
@@ -318,6 +329,58 @@ export async function reserveNextSopNumber(params: {
     };
   });
 }
+
+export async function getAllNumberReservations(): Promise<SopNumberReservation[]> {
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readonly');
+    const request = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE).getAll();
+    request.onsuccess = () => resolve((request.result || []).map((r: any) => ({ ...r, status: r.status === 'USED' ? 'USED' : 'RESERVED' })) as SopNumberReservation[]);
+    request.onerror = () => reject(request.error || new Error('Gagal membaca register reservation nomor SPO.'));
+    tx.oncomplete = () => db.close();
+  });
+}
+
+export async function findNumberReservationBySopNumber(sopNumber: string): Promise<SopNumberReservation | undefined> {
+  const target = String(sopNumber || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').toUpperCase();
+  if (!target) return undefined;
+  const reservations = await getAllNumberReservations();
+  return reservations.find((r) => r.status === 'RESERVED' && String(r.sopNumber || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').toUpperCase() === target);
+}
+
+export async function consumeNumberReservation(id: string, usedDocumentId?: string): Promise<void> {
+  if (!id) return;
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const current = request.result as SopNumberReservation | undefined;
+      if (!current) return;
+      store.put({ ...current, status: 'USED', usedAt: new Date().toISOString(), usedDocumentId: usedDocumentId || current.usedDocumentId });
+    };
+    request.onerror = () => reject(request.error || new Error('Gagal membaca reservation nomor SPO.'));
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal mengubah reservation menjadi nomor terpakai.')); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('Konsumsi reservation nomor dibatalkan.')); };
+  });
+}
+
+
+export async function restoreNumberReservations(reservations: SopNumberReservation[]): Promise<void> {
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
+    store.clear();
+    for (const reservation of reservations || []) store.put(reservation);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal memulihkan register reservation nomor SPO.')); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('Pemulihan reservation nomor dibatalkan.')); };
+  });
+}
+
 export async function registerSopAndNumberingToLocal(sop: SopDocument, config: NumberingConfig): Promise<void> {
   await saveSopToLocal(sop); await saveConfigToLocal(config);
 }

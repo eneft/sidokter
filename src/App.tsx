@@ -39,7 +39,9 @@ import {
   deleteAllSops,
   saveConfigToLocal,
   registerSopAndNumberingToLocal,
-  reserveNextSopNumber
+  reserveNextSopNumber,
+  findNumberReservationBySopNumber,
+  consumeNumberReservation
 } from './lib/sopService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
@@ -821,6 +823,12 @@ export default function App() {
     const rawTargetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
     const targetNumber = isLegacyInput ? normalizeSopNumberInput(rawTargetNumber) : rawTargetNumber;
     let authoritativeSopData = newSopData;
+    // Reservation adalah register nomor terpisah, bukan dokumen SPO. Untuk alur
+    // Existing, nomor reserved boleh dipakai untuk registrasi PDF fisik dan
+    // reservation dikonsumsi setelah dokumen berhasil tersimpan.
+    const reservedTarget = isLegacyInput && targetNumber
+      ? await findNumberReservationBySopNumber(targetNumber)
+      : undefined;
 
     // SPO Riviu memakai nomor lama hanya sebagai rujukan. Nomor hasil selalu
     // dialokasikan baru setelah validasi rujukan dan hirarki berhasil.
@@ -864,7 +872,7 @@ export default function App() {
       const isNewFormat = isNewSopFormat(targetNumber);
 
       // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada -> TIDAK BOLEH
-      if (isNewFormat && !existing) {
+      if (isNewFormat && !existing && !reservedTarget) {
         throw new Error(
           `Nomor dengan pola penomoran baru Master Hirarki ("${targetNumber}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan alur "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`
         );
@@ -885,11 +893,8 @@ export default function App() {
         // Aturan 2: Format baru (atau format lama) + nomor sudah ada (bukan aktif) -> Boleh replace
         const replacedId = existing.id;
         const isExistingDraftOrNew =
-          existing.status === 'DRAFT' ||
-          existing.status === 'BELUM_UPLOAD' ||
-          Boolean(existing.isNumberReservation) ||
-          existing.jenis_spo === 'BARU' ||
-          existing.documentType === 'BARU';
+          (existing.status === 'DRAFT' || existing.status === 'BELUM_UPLOAD' || existing.status === 'MENUNGGU_PENGESAHAN') &&
+          (existing.jenis_spo === 'BARU' || existing.documentType === 'BARU');
 
         const statusPreviousName =
           existing.status === 'MENUNGGU_PENGESAHAN'
@@ -966,6 +971,53 @@ export default function App() {
         );
 
         return finalSop;
+      }
+
+      // Reservation nomor bukan dokumen Draft. Jika nomor reserved ditemukan dan
+      // belum ada dokumen dengan nomor tersebut, Existing dapat menggunakannya.
+      // Reservation dikonsumsi setelah dokumen Existing berhasil disimpan.
+      if (reservedTarget && !existing) {
+        const newId = newSopData.id || `sop-${Date.now()}`;
+        const reservedFinal: SopDocument = {
+          ...newSopData,
+          id: newId,
+          title: newSopData.title?.trim() || reservedTarget.title || reservedTarget.sopNumber,
+          divisionCode: reservedTarget.divisionCode,
+          divisionName: newSopData.divisionName || reservedTarget.divisionCode,
+          categoryId: reservedTarget.divisionCode,
+          categoryName: newSopData.categoryName || reservedTarget.divisionCode,
+          subHierarchyCode: reservedTarget.subHierarchyCode || '',
+          sequenceNumber: reservedTarget.sequenceNumber,
+          sopNumber: reservedTarget.sopNumber,
+          documentType: 'BARU',
+          jenis_spo: 'BARU',
+          isLegacySop: false,
+          isExistingReplacement: false,
+          isNumberReservation: false,
+          status: 'AKTIF',
+          createdAt: now,
+          updatedAt: now,
+          revisionHistory: [
+            {
+              id: `rev-reserved-existing-${Date.now()}`,
+              version: newSopData.revisionNumber || newSopData.version || '00',
+              date: newSopData.effectiveDate || reservedTarget.year + '-01-01',
+              author: newSopData.creatorName || userSession?.name || 'Petugas',
+              notes: 'Nomor reservation digunakan untuk registrasi SPO Eksisting.'
+            }
+          ]
+        };
+        if (reservedFinal.fileDataUrl) {
+          saveFileToLocalCache(reservedFinal.id, 'file', reservedFinal.fileDataUrl);
+          saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.fileDataUrl);
+          saveFileToLocalCache(reservedFinal.id, 'oldFile', reservedFinal.fileDataUrl);
+        }
+        if (reservedFinal.signedScanDataUrl) saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.signedScanDataUrl);
+        await saveSopToLocal(reservedFinal);
+        await consumeNumberReservation(reservedTarget.id, reservedFinal.id);
+        setSops((prev) => [reservedFinal, ...prev.filter((s) => s.id !== reservedFinal.id)]);
+        addToast('success', 'SPO Eksisting Berhasil Diregistrasi!', `Nomor reserved ${reservedFinal.sopNumber} digunakan dan sekarang menjadi SPO Aktif.`);
+        return reservedFinal;
       }
 
       // Aturan 3: Format lama + nomor belum ada -> Boleh register, mengikuti hirarki yang dipilih user
@@ -1188,11 +1240,28 @@ export default function App() {
       divisionCode: effectiveDivision,
       subHierarchyCode: params.subHierarchyCode,
       dateStr: params.dateStr || new Date().toISOString().slice(0, 10),
+      title: params.title.trim(),
       reservedBy: userSession?.name || userSession?.username || 'Administrator'
     });
-    const now = new Date().toISOString();
-    const placeholder: SopDocument = {
-      id: `sop-number-${reserved.id}`,
+    // Nomor reservation disimpan di store khusus, BUKAN sebagai dokumen Draft.
+    // Nomor ini tidak boleh dipakai untuk SPO Baru; pengguna dapat menggunakannya
+    // pada alur SPO Eksisting sesuai aturan yang dikunci.
+    const updatedConfig: NumberingConfig = {
+      ...numberingConfig,
+      currentCounter: Math.max((numberingConfig?.currentCounter || 0), reserved.sequenceNumber),
+      divisionCounters: {
+        ...(numberingConfig?.divisionCounters || {}),
+        [getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '')]: Math.max((numberingConfig?.divisionCounters?.[getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '')] || 0), reserved.sequenceNumber),
+        [reserved.divisionCode]: Math.max((numberingConfig?.divisionCounters?.[reserved.divisionCode] || 0), reserved.sequenceNumber)
+      }
+    };
+    await saveConfigToLocal(updatedConfig);
+    setNumberingConfig(updatedConfig);
+
+    // Return transient metadata only for the confirmation UI. It is deliberately
+    // NOT inserted into the SPO document list.
+    return {
+      id: `reservation-${reserved.id}`,
       sopNumber: reserved.sopNumber,
       sequenceNumber: reserved.sequenceNumber,
       divisionId: reserved.divisionCode,
@@ -1206,15 +1275,15 @@ export default function App() {
       reviewPeriodMonths: 12,
       nextReviewDate: '',
       version: String(params.revisionNumber || '00').trim(),
-      revisionNumber: String(params.revisionNumber).trim(),
+      revisionNumber: String(params.revisionNumber || '00').trim(),
       documentType: 'BARU',
       jenis_spo: 'BARU',
       isLegacySop: false,
       isNumberReservation: true,
       numberReservationPurpose: 'EXISTING_REPLACE_ONLY',
       fileName: '',
-      createdAt: now,
-      updatedAt: now,
+      createdAt: reserved.reservedAt,
+      updatedAt: reserved.reservedAt,
       creatorName: userSession?.name || userSession?.username || 'Administrator',
       summary: '',
       tags: [reserved.divisionCode, reserved.subHierarchyCode].filter(Boolean),
@@ -1222,21 +1291,7 @@ export default function App() {
       revisionHistory: [],
       locationOrFolder: 'Register SPO - Nomor Terbit',
       status: 'DRAFT'
-    };
-    const unitKey = getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '');
-    const updatedConfig: NumberingConfig = {
-      ...numberingConfig,
-      currentCounter: Math.max((numberingConfig?.currentCounter || 0), reserved.sequenceNumber),
-      divisionCounters: {
-        ...(numberingConfig?.divisionCounters || {}),
-        [unitKey]: Math.max((numberingConfig?.divisionCounters?.[unitKey] || 0), reserved.sequenceNumber),
-        [reserved.divisionCode]: Math.max((numberingConfig?.divisionCounters?.[reserved.divisionCode] || 0), reserved.sequenceNumber)
-      }
-    };
-    await registerSopAndNumberingToLocal(placeholder, updatedConfig);
-    setNumberingConfig(updatedConfig);
-    setSops(prev => prev.some(s => s.id === placeholder.id) ? prev : [placeholder, ...prev]);
-    return placeholder;
+    } as SopDocument;
   };
 
   const handleSaveMaintenanceMode = async (enabled: boolean, message: string) => {
@@ -1619,6 +1674,7 @@ export default function App() {
             libraryDocuments={libraryDocuments}
             onAddSop={handleCreateSop}
             onIssueSopNumber={handleIssueSopNumber}
+            onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
             numberingConfig={numberingConfig}
             divisions={divisions}
             categories={categories}
@@ -2034,6 +2090,7 @@ export default function App() {
         numberingConfig={numberingConfig}
         sops={sops}
         userSession={userSession}
+        onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
         onViewDetail={(sop) => setSelectedSopForDetail(sop)}
       />
 

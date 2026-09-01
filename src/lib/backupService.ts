@@ -3,7 +3,7 @@
  * Service backup/restore terpusat untuk seluruh domain dokumen dan akun.
  */
 import { LibraryDocument, NumberingConfig, SopDocument, UserAccount } from '../types';
-import { getAllSopsFromLocal, restoreSopsToLocal, saveConfigToLocal } from './sopService';
+import { getAllSopsFromLocal, restoreSopsToLocal, saveConfigToLocal, getAllNumberReservations, restoreNumberReservations, SopNumberReservation } from './sopService';
 import { getAllUsersForBackup, restoreUsersFromBackup } from './accountService';
 import { restoreLibraryDocuments } from './documentLibraryService';
 import { getAllSKForBackup, getAllSKFilesForBackup } from './skService';
@@ -15,6 +15,7 @@ export const BACKUP_APPLICATION = 'SIDOKTER SOEGIRI';
 
 export interface SystemBackupData {
   sops: SopDocument[];
+  sopNumberReservations: SopNumberReservation[];
   sk: LibraryDocument[];
   mou: LibraryDocument[];
   numberingConfig?: NumberingConfig;
@@ -49,6 +50,7 @@ function addSopCachedFiles(sops: SopDocument[], cachedFiles: Record<string,strin
 export async function createSystemBackup(createdBy: string): Promise<SystemBackupFile> {
   const cachedFiles = await getAllCachedFiles();
   const localSops = await getAllSopsFromLocal();
+  const sopNumberReservations = await getAllNumberReservations();
   const sops = addSopCachedFiles(localSops, cachedFiles);
   const sk = await getAllSKForBackup();
   const mou = await getAllMOUForBackup();
@@ -60,6 +62,7 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
   const numberingConfig = numberingRaw ? JSON.parse(numberingRaw) as NumberingConfig : undefined;
 
   if (sops.length !== localSops.length) throw new Error('Verifikasi backup SPO gagal.');
+  if (sopNumberReservations.some((r) => !r.sopNumber || !r.divisionCode || !r.year || !(r.sequenceNumber > 0))) throw new Error('Verifikasi backup reservation nomor SPO gagal.');
   if (sk.length !== (await getAllSKForBackup()).length) throw new Error('Verifikasi backup SK gagal.');
   if (mou.length !== (await getAllMOUForBackup()).length) throw new Error('Verifikasi backup MOU gagal.');
 
@@ -68,7 +71,7 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
     application: BACKUP_APPLICATION,
     createdAt: new Date().toISOString(),
     createdBy,
-    data: { sops, sk, mou, numberingConfig, users, sopFiles: {}, skFiles, mouFiles },
+    data: { sops, sopNumberReservations, sk, mou, numberingConfig, users, sopFiles: {}, skFiles, mouFiles },
     notes: [
       'Backup sistem mencakup SPO, SK, MOU, akun pengguna, konfigurasi penomoran, dan lampiran PDF.',
       'Session login aktif dan status lockout sementara tidak disertakan demi keamanan.',
@@ -106,6 +109,32 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
   if (!['1.0', BACKUP_VERSION].includes(version)) throw new Error(`Versi backup ${version} tidak didukung.`);
 
   const rawSops = Array.isArray(backup.data.sops) ? backup.data.sops : [];
+  const explicitReservations: SopNumberReservation[] = Array.isArray(backup.data.sopNumberReservations) ? backup.data.sopNumberReservations : [];
+  // Backward compatibility: older backups stored reservations as placeholder
+  // SOP records. Convert those records into the dedicated reservation register.
+  const legacyReservations: SopNumberReservation[] = rawSops
+    .filter((raw: any) => raw && raw.isNumberReservation && raw.sopNumber && raw.divisionCode && Number(raw.sequenceNumber) > 0)
+    .map((raw: any) => ({
+      id: String(raw.reservationId || raw.id || `legacy-reservation-${raw.sopNumber}`),
+      divisionCode: String(raw.divisionCode),
+      subHierarchyCode: String(raw.subHierarchyCode || ''),
+      sequenceNumber: Number(raw.sequenceNumber),
+      sopNumber: String(raw.sopNumber),
+      year: String(raw.effectiveDate || raw.createdAt || '').slice(0, 4),
+      title: String(raw.title || '').trim() || undefined,
+      effectiveDate: String(raw.effectiveDate || raw.createdAt || '').slice(0, 10) || undefined,
+      reservedBy: String(raw.creatorName || 'Administrator'),
+      reservedAt: String(raw.createdAt || new Date().toISOString()),
+      status: 'RESERVED'
+    }));
+  const reservationMap = new Map<string, SopNumberReservation>();
+  [...explicitReservations, ...legacyReservations].forEach((r) => reservationMap.set(r.id, r));
+  const sopNumberReservations: SopNumberReservation[] = Array.from(reservationMap.values());
+  for (const reservation of sopNumberReservations) {
+    if (!reservation?.id || !reservation.sopNumber || !reservation.divisionCode || !(Number(reservation.sequenceNumber) > 0) || !reservation.year) {
+      throw new Error('Data reservation nomor SPO di backup tidak valid.');
+    }
+  }
   const sops: SopDocument[] = rawSops.map((raw: any, index: number) => {
     if (!raw || typeof raw !== 'object') throw new Error(`Data SPO ke-${index + 1} di backup tidak valid.`);
     const candidate = [raw.id, raw.sopId, raw.documentId, raw.localId].find((v) => typeof v === 'string' && v.trim());
@@ -125,6 +154,7 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
   const mouFiles: Record<string,string> = backup.data.mouFiles || {};
 
   await restoreSopsToLocal(sops);
+  await restoreNumberReservations(sopNumberReservations);
   if (config) await saveConfigToLocal(config);
   if (users.length) await restoreUsersFromBackup(users, preserveUsername);
   await restoreLibraryDocuments(library, { ...skFiles, ...mouFiles });
@@ -145,5 +175,5 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
     }
   }
 
-  return { sops, sk, mou, users, config, sopAttachmentCount, libraryFiles: Object.keys({ ...skFiles, ...mouFiles }).length, version };
+  return { sops, sopNumberReservations, sk, mou, users, config, sopAttachmentCount, libraryFiles: Object.keys({ ...skFiles, ...mouFiles }).length, version };
 }

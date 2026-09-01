@@ -74,6 +74,7 @@ interface PetugasViewProps {
   libraryDocuments: LibraryDocument[];
   onAddSop: (sop: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string }) => Promise<SopDocument>;
   onIssueSopNumber?: (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }) => Promise<SopDocument>;
+  onCheckReservedNumber?: (sopNumber: string) => Promise<boolean>;
   numberingConfig: NumberingConfig;
   divisions: Division[];
   categories: SopCategory[];
@@ -91,6 +92,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   libraryDocuments,
   onAddSop,
   onIssueSopNumber,
+  onCheckReservedNumber,
   numberingConfig,
   divisions,
   categories,
@@ -435,13 +437,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         revisionNumber: '00'
       });
       setIssuedSopNumber(issued.sopNumber);
-      setIssuedSopId(issued.id);
-      setIssuedSopSequence(issued.sequenceNumber);
-      setIssuedSopDivision(issued.divisionCode);
-      setIssuedSopHierarchy(issued.subHierarchyCode || '');
-      setIssuedSopDate(issued.effectiveDate);
+      // Reservation nomor bukan Draft dan tidak diikat ke form SPO Baru.
+      setIssuedSopId(null);
+      setIssuedSopSequence(null);
+      setIssuedSopDivision(null);
+      setIssuedSopHierarchy(null);
+      setIssuedSopDate(null);
       setShowIssueNumberModal(false);
-      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil diterbitkan dengan status "Belum Upload".`);
+      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil di-reserve dan siap digunakan pada alur SPO Eksisting.`);
     } catch (err: any) {
       const message = err?.message || 'Nomor SPO gagal diterbitkan.';
       setSubmitError(message);
@@ -558,19 +561,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       }
     }
 
-    let finalIssuedId = issuedSopId;
-    let finalIssuedSequence = issuedSopSequence;
-    let finalIssuedNumber = issuedSopNumber;
-
-    if (issuedSopId && documentType === 'BARU') {
-      if (issuedSopDivision !== selectedCatCode || (issuedSopHierarchy || '') !== (subHierarchyCode || '') || issuedSopDate !== effectiveDate) {
-        // Jika hirarki/tanggal berubah setelah reservasi nomor sebelumnya,
-        // alokasikan nomor urut baru secara otomatis sesuai hirarki dan tanggal aktif
-        finalIssuedId = null;
-        finalIssuedSequence = null;
-        finalIssuedNumber = null;
-      }
-    }
+    // Nomor dari menu Terbitkan Nomor adalah reservation terpisah. Nomor ini
+    // tidak boleh otomatis dipakai oleh SPO Baru. Untuk SPO Baru, nomor resmi
+    // dialokasikan oleh App saat submit melalui mekanisme penomoran terintegrasi.
+    const finalIssuedId = null;
+    const finalIssuedSequence = null;
+    const finalIssuedNumber = null;
 
     let matchedExistingDoc: SopDocument | undefined = undefined;
     let detectedInfo: ReturnType<typeof detectHierarchyFromSopNumber> = null;
@@ -595,10 +591,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
       const isNewFormat = isNewSopFormat(cleanNum);
 
-      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada → ❌ Tidak boleh (wajib via SPO Baru)
-      if (isNewFormat && !matchedExistingDoc) {
+      // Format baru tanpa dokumen hanya boleh jika nomor sudah RESERVED.
+      // Reservation bukan Draft; nomor akan dikonsumsi saat Existing berhasil diregistrasi.
+      const isReservedNumber = !matchedExistingDoc && onCheckReservedNumber
+        ? await onCheckReservedNumber(cleanNum)
+        : false;
+      if (isNewFormat && !matchedExistingDoc && !isReservedNumber) {
         setSubmitError(
-          `Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan alur "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`
+          `Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve. Gunakan menu "Terbitkan Nomor" terlebih dahulu.`
         );
         return;
       }
@@ -1474,7 +1474,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           <SopLiveTemplate
                             title={title}
                             onTitleChange={setTitle}
-                            sopNumber={issuedSopNumber || (documentType === 'REVIEW' ? '[Nomor Riviu Akan Terbit Otomatis]' : 'Otomatis')}
+                            sopNumber={documentType === 'REVIEW' ? '[Nomor Riviu Akan Terbit Otomatis]' : 'Otomatis'}
                             version={revisionNumber || (documentType === 'REVIEW' ? '01' : '00')}
                             effectiveDate={effectiveDate}
                             onEffectiveDateChange={setEffectiveDate}

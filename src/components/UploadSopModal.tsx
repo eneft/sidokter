@@ -44,6 +44,7 @@ interface UploadSopModalProps {
   sops?: SopDocument[];
   onViewDetail?: (sop: SopDocument) => void;
   userSession?: UserSession | null;
+  onCheckReservedNumber?: (sopNumber: string) => Promise<boolean>;
 }
 
 export const UploadSopModal: React.FC<UploadSopModalProps> = ({
@@ -55,7 +56,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   numberingConfig,
   sops = [],
   onViewDetail,
-  userSession
+  userSession,
+  onCheckReservedNumber
 }) => {
   const primaryAssignment = userSession?.assignments?.[0];
   const isPetugas = userSession?.role === 'petugas' && (primaryAssignment?.divisionCode || userSession?.divisionCode) !== 'ALL';
@@ -343,10 +345,15 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       const isNewFormat = isNewSopFormat(cleanNum);
       const dup = checkDuplicateSopNumber(sops || [], cleanNum);
 
-      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada → ❌ Tidak boleh
-      if (isNewFormat && !dup.isDuplicate) {
-        setSubmitError(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan jenis dokumen "SPO Baru".`);
-        alert(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar di sistem.\n\nUntuk menerbitkan nomor format baru, silakan pilih jenis dokumen "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`);
+      // Format baru yang belum menjadi dokumen boleh dipakai Existing hanya
+      // bila nomor tersebut sudah RESERVED melalui menu Terbitkan Nomor.
+      let isReservedNumber = false;
+      if (isNewFormat && !dup.isDuplicate && onCheckReservedNumber) {
+        isReservedNumber = await onCheckReservedNumber(cleanNum);
+      }
+      if (isNewFormat && !dup.isDuplicate && !isReservedNumber) {
+        setSubmitError(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve. Gunakan menu "Terbitkan Nomor" terlebih dahulu.`);
+        alert(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve.\n\nGunakan menu "Terbitkan Nomor" terlebih dahulu.`);
         return;
       }
 
