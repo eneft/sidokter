@@ -32,7 +32,8 @@ import {
   AlertTriangle,
   Info,
   LayoutList,
-  Table as TableIcon
+  Table as TableIcon,
+  Copy
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -66,6 +67,7 @@ import { FinalLibraryPage } from './FinalLibraryPage';
 import { DashboardOverviewPage } from './DashboardOverviewPage';
 import { AdminHubPage } from './AdminHubPage';
 import IssueSopNumberModal from './IssueSopNumberModal';
+import { getAllNumberReservations, SopNumberReservation } from '../lib/sopService';
 
 interface PetugasViewProps {
   userSession: UserSession;
@@ -103,6 +105,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   onShowToast
 }) => {
   const [showIssueNumberModal, setShowIssueNumberModal] = useState(false);
+  const [showIssuedNumbers, setShowIssuedNumbers] = useState(false);
+  const [issuedNumberRegister, setIssuedNumberRegister] = useState<SopNumberReservation[]>([]);
   const [issueHierarchyId, setIssueHierarchyId] = useState('');
   // Active Navigation Tab State: Menu structure Dashboard | SPO | SK | MOU | Library | Admin
   const [activeTab, setActiveTab] = useState<MainMenuTab>('dashboard');
@@ -164,6 +168,33 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   ));
 
   const [categoriesList, setCategoriesList] = useState<SoegiriCategory[]>(() => SOEGIRI_MASTER_CATEGORIES);
+
+  // Nomor Terbit adalah register nomor, bukan dokumen SPO. Hanya tampilkan
+  // nomor yang masih RESERVED/belum dipakai; nomor USED tetap tersimpan di
+  // database untuk mencegah penerbitan ulang tetapi tidak tampil di daftar ini.
+  useEffect(() => {
+    let cancelled = false;
+    const loadIssuedNumbers = async () => {
+      try {
+        const rows = await getAllNumberReservations();
+        if (cancelled) return;
+        const allowedDivisions = new Set(
+          userSession.role === 'admin'
+            ? []
+            : userDivisionCodes.map((code) => String(code).toUpperCase())
+        );
+        const visible = rows
+          .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
+          .filter((row) => userSession.role === 'admin' || allowedDivisions.has(String(row.divisionCode || '').toUpperCase()))
+          .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
+        setIssuedNumberRegister(visible);
+      } catch (error) {
+        console.error('Gagal membaca Daftar Nomor:', error);
+      }
+    };
+    loadIssuedNumbers();
+    return () => { cancelled = true; };
+  }, [sops, userSession.role, userDivisionCodes.join('|')]);
 
   useEffect(() => {
     return subscribeToHierarchyMaster((cats) => {
@@ -444,7 +475,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       setIssuedSopHierarchy(null);
       setIssuedSopDate(null);
       setShowIssueNumberModal(false);
-      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil di-reserve dan siap digunakan pada alur SPO Eksisting.`);
+      const refreshedReservations = await getAllNumberReservations();
+      setIssuedNumberRegister(refreshedReservations.filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose)).filter((row) => userSession.role === 'admin' || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase())).sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt))));
+      setShowIssuedNumbers(true);
+      onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil diterbitkan dan masuk ke Daftar Nomor.`);
     } catch (err: any) {
       const message = err?.message || 'Nomor SPO gagal diterbitkan.';
       setSubmitError(message);
@@ -665,7 +699,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         categoryId: finalDivCode,
         categoryName: finalDivName,
         version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
-        status: isLegacy ? 'AKTIF' : 'MENUNGGU_PENGESAHAN',
+        status: isLegacy ? 'AKTIF' : 'DRAFT',
         effectiveDate: effectiveDate || (isLegacy ? matchedExistingDoc?.effectiveDate : undefined) || new Date().toISOString().split('T')[0],
         reviewPeriodMonths: Number(reviewPeriodMonths) || 12,
         nextReviewDate: '',
@@ -696,7 +730,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
         // but preview must use the uploaded original PDF instead of generating the official template.
-        isExistingReplacement: isLegacy && Boolean(matchedExistingDoc),
+        isExistingReplacement: isLegacy,
         pengertian: pengertian.trim() || (isLegacy ? matchedExistingDoc?.pengertian : undefined) || undefined,
         tujuan: tujuan.trim() || (isLegacy ? matchedExistingDoc?.tujuan : undefined) || undefined,
         kebijakan: kebijakan.trim() || (isLegacy ? matchedExistingDoc?.kebijakan : undefined) || undefined,
@@ -824,25 +858,75 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                 </button>
 
                 <button
-                    type="button"
-                    onClick={() => {
-                      setSubmitError(null);
-                      setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
-                      setShowIssueNumberModal(true);
-                    }}
-                    disabled={isIssuingNumber}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
-                  >
-                    <FileCheck2 className="w-4 h-4" />
-                    <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor SPO'}</span>
+                  type="button"
+                  onClick={() => {
+                    setSubmitError(null);
+                    setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
+                    setShowIssueNumberModal(true);
+                  }}
+                  disabled={isIssuingNumber}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                >
+                  <FileCheck2 className="w-4 h-4" />
+                  <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
                 </button>
-              </div>
-              {issuedSopNumber && (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 shrink-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800">Nomor Terbit</div>
-                  <div className="font-mono text-sm font-black text-slate-900">{issuedSopNumber}</div>
+
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const rows = await getAllNumberReservations();
+                      const allowed = userSession.role === 'admin' ? true : null;
+                      setIssuedNumberRegister(rows.filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) && (allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))).sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt))));
+                      setShowIssuedNumbers((value) => !value);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                  >
+                    <ListOrdered className="w-4 h-4" />
+                    <span>Nomor Terbit</span>
+                    <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
+                  </button>
+                  {showIssuedNumbers && (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-[70] w-[min(620px,calc(100vw-32px))] rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-black text-slate-900">Nomor Terbit</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">Nomor yang sudah diterbitkan dan belum digunakan oleh SPO Eksisting.</div>
+                        </div>
+                        <button type="button" onClick={() => setShowIssuedNumbers(false)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 cursor-pointer"><X className="w-4 h-4" /></button>
+                      </div>
+                      <div className="max-h-72 overflow-auto">
+                        {issuedNumberRegister.length === 0 ? (
+                          <div className="px-4 py-8 text-center text-xs text-slate-500">Belum ada nomor yang diterbitkan dan belum digunakan.</div>
+                        ) : issuedNumberRegister.map((row) => (
+                          <div key={row.id} className="px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50 flex items-center gap-3">
+                             <div className="min-w-0 flex-1">
+                               <div className="font-mono text-xs font-black text-slate-900 break-all">{row.sopNumber}</div>
+                               <div className="mt-1 text-[11px] font-semibold text-slate-600 truncate">{row.title || '—'}</div>
+                             </div>
+                             <button
+                               type="button"
+                               onClick={async () => {
+                                 try {
+                                   await navigator.clipboard.writeText(row.sopNumber);
+                                   onShowToast?.('success', 'Nomor Disalin', row.sopNumber);
+                                 } catch {
+                                   onShowToast?.('error', 'Gagal Menyalin', 'Nomor tidak dapat disalin ke clipboard.');
+                                 }
+                               }}
+                               className="shrink-0 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors"
+                               title="Salin nomor"
+                               aria-label={`Salin nomor ${row.sopNumber}`}
+                             >
+                               <Copy className="w-4 h-4" />
+                             </button>
+                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* SubTab List: Petugas Library Tab */}
@@ -1148,15 +1232,25 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                   (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === clean道德) ||
                                   (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === clean道德)
                                 );
+                                setExistingSopId(matched?.id || '');
                                 if (matched) {
-                                  setExistingSopId(matched.id);
                                   if (!title.trim() && matched.title) {
                                     setTitle(matched.title);
                                   }
                                   if (matched.effectiveDate) {
                                     setEffectiveDate(matched.effectiveDate);
                                   }
+                                } else {
+                                  const reservation = issuedNumberRegister.find((row) =>
+                                    normalizeSopNumberInput(row.sopNumber) === clean道德
+                                  );
+                                  if (reservation) {
+                                    if (!title.trim() && reservation.title) setTitle(reservation.title);
+                                    if (reservation.effectiveDate) setEffectiveDate(reservation.effectiveDate);
+                                  }
                                 }
+                              } else {
+                                setExistingSopId('');
                               }
                             }}
                             onBlur={() => {
@@ -1178,6 +1272,9 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                               (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === normalized) ||
                               (existingSopId && s.id === existingSopId)
                             );
+                            const reserved = !matched
+                              ? issuedNumberRegister.find((row) => normalizeSopNumberInput(row.sopNumber) === normalized) || null
+                              : null;
 
                             return (
                               <div className="mt-2 space-y-2">
@@ -1199,10 +1296,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                   (() => {
                                     const isAktif = matched.status === 'AKTIF';
                                     const statusLabel持 =
-                                      matched.status === 'MENUNGGU_PENGESAHAN'
-                                        ? 'Menunggu Pengesahan'
-                                        : matched.status === 'DRAFT' || matched.status === 'BELUM_UPLOAD' || matched.isNumberReservation
-                                        ? 'Belum Upload'
+                                      matched.status === 'DRAFT'
+                                        ? 'Draft'
+                                        : matched.status === 'DRAFT' || matched.status === 'DRAFT' || matched.isNumberReservation
+                                        ? 'Draft'
                                         : matched.status === 'AKTIF'
                                         ? 'Aktif'
                                         : matched.status || 'Belum Aktif';
@@ -1242,6 +1339,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                       </div>
                                     );
                                   })()
+                                ) : reserved ? (
+                                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/95 p-3 space-y-1 text-emerald-950">
+                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-800">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                      <span>Nomor Terbit Ditemukan</span>
+                                    </div>
+                                    <div className="text-xs font-bold text-slate-900 line-clamp-1">{reserved.title || 'Nomor SPO Terbit'}</div>
+                                    <div className="text-[11px] text-emerald-800">
+                                      <span className="font-semibold">Hirarki:</span> {reserved.subHierarchyCode ? `${reserved.divisionCode} / ${reserved.subHierarchyCode}` : reserved.divisionCode}
+                                    </div>
+                                    <div className="text-[10px] text-emerald-700 font-medium">
+                                      Nomor ini sudah diterbitkan dan dapat digunakan untuk <strong>SPO Existing → Replace Draft</strong>. Sistem tidak akan membuat nomor baru.
+                                    </div>
+                                  </div>
                                 ) : isNewFormat ? (
                                   /* Pola Master Hirarki namun belum ada di database */
                                   <div className="rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">

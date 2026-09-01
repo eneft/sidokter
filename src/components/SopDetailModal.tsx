@@ -148,6 +148,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       sop.isExistingReplacement
     )
   );
+
+  // Existing documents (including new-format Draft replacements) must render
+  // the uploaded PDF, never the generated A4 template.
   const isLegacy = Boolean(
     sop &&
     !isReviewDoc &&
@@ -1450,7 +1453,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             <DirectorSignature className="h-[44px] w-auto max-w-[220px] object-contain mix-blend-multiply opacity-95" />
           </div>
         ) : (
-          <div className="h-[34px] my-0.5 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Menunggu TTD & Cap Asli)</div>
+          <div className="h-[34px] my-0.5 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Draft & Cap Asli)</div>
         )}
         <div className="mt-1 relative z-0 space-y-0.5">
           <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
@@ -2041,7 +2044,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                           </div>
                         ) : (
                           <div className="h-[36px] flex items-center justify-center text-slate-400 italic text-xs">
-                            (Menunggu Pengesahan & TTD)
+                            (Draft & TTD)
                           </div>
                         )}
                         <div className="mt-2 space-y-0.5">
@@ -2275,7 +2278,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               {userSession?.role === 'admin' ? (
                 isExisting ? (
                   <div className="text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 font-bold text-emerald-800">
-                    {sop.status === 'TIDAK_AKTIF' ? 'Tidak Aktif' : 'Aktif — SPO Eksisting'}
+                    {sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : 'Aktif — SPO Eksisting'}
                   </div>
                 ) : (
                   <select
@@ -2283,10 +2286,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     onChange={(e) => onUpdateStatus(sop.id, e.target.value as SopStatus)}
                     className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    <option value="DRAFT">Belum Upload</option>
-                    <option value="MENUNGGU_PENGESAHAN">Menunggu Pengesahan</option>
+                    <option value="DRAFT">Draft</option>
                     <option value="AKTIF">Aktif</option>
-                    <option value="TIDAK_AKTIF">Tidak Aktif</option>
+                    <option value="DIARSIPKAN">Diarsipkan</option>
                   </select>
                 )
               ) : (
@@ -2295,19 +2297,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
                       sop.status === 'AKTIF'
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : sop.status === 'MENUNGGU_PENGESAHAN'
+                        : sop.status === 'DRAFT'
                         ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                        : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                        : sop.status === 'DRAFT' || sop.isNumberReservation
                         ? 'bg-sky-100 text-sky-800 border border-sky-300'
                         : 'bg-slate-100 text-slate-700 border border-slate-300'
                     }`}
                   >
-                    {sop.status === 'MENUNGGU_PENGESAHAN'
-                      ? 'Menunggu Pengesahan'
-                      : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
-                      ? 'Belum Upload'
-                      : sop.status === 'TIDAK_AKTIF'
-                      ? 'Tidak Aktif'
+                    {sop.status === 'DRAFT'
+                      ? 'Draft'
+                      : sop.status === 'DRAFT' || sop.isNumberReservation
+                      ? 'Draft'
+                      : sop.status === 'DIARSIPKAN'
+                      ? 'Diarsipkan'
                       : 'Aktif'}
                   </span>
                 </div>
@@ -2315,7 +2317,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {userSession?.role === 'admin' && !isExisting && sop.status === 'MENUNGGU_PENGESAHAN' && onActivateSop && (
+              {userSession?.role === 'admin' && !isExisting && sop.status === 'DRAFT' && onActivateSop && (
                 <button
                   onClick={() => onActivateSop(sop)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-sm"

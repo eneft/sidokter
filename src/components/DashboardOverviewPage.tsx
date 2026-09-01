@@ -61,11 +61,11 @@ export const DashboardOverviewPage: React.FC<
   ).length;
 
   const pendingSop = sops.filter(
-    (s) => s.status === 'MENUNGGU_PENGESAHAN'
+    (s) => s.status === 'DRAFT'
   ).length;
 
   const draftSop = sops.filter(
-    (s) => s.status === 'DRAFT' || s.status === 'BELUM_UPLOAD' || s.isNumberReservation
+    (s) => s.status === 'DRAFT' || s.status === 'DRAFT' || s.isNumberReservation
   ).length;
 
   const skDocs = useMemo(
@@ -444,7 +444,7 @@ export const DashboardOverviewPage: React.FC<
               {draftSop > 0 && (
                 <span className="text-sky-700 font-bold">
                   {draftSop}{' '}
-                  Belum Upload
+                  Draft
                 </span>
               )}
             </div>
@@ -648,20 +648,20 @@ export const DashboardOverviewPage: React.FC<
                           className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
                             sop.status === 'AKTIF'
                               ? 'bg-emerald-100 text-emerald-800'
-                              : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                              : sop.status === 'DRAFT' || sop.isNumberReservation
                               ? 'bg-sky-100 text-sky-800'
-                              : sop.status === 'TIDAK_AKTIF'
+                              : sop.status === 'DIARSIPKAN'
                               ? 'bg-slate-100 text-slate-700'
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
                           {sop.status === 'AKTIF'
                             ? 'AKTIF'
-                            : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
-                            ? 'BELUM UPLOAD'
-                            : sop.status === 'TIDAK_AKTIF'
-                            ? 'TIDAK AKTIF'
-                            : 'MENUNGGU PENGESAHAN'}
+                            : sop.status === 'DRAFT' || sop.isNumberReservation
+                            ? 'DRAFT'
+                            : sop.status === 'DIARSIPKAN'
+                            ? 'DIARSIPKAN'
+                            : 'DRAFT'}
                         </span>
 
                       </div>

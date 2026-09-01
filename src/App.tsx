@@ -41,7 +41,8 @@ import {
   registerSopAndNumberingToLocal,
   reserveNextSopNumber,
   findNumberReservationBySopNumber,
-  consumeNumberReservation
+  consumeNumberReservation,
+  getAllNumberReservations
 } from './lib/sopService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
@@ -757,8 +758,8 @@ export default function App() {
 
         // Status Filter
         if (filters.status) {
-          if (filters.status === 'DRAFT' || filters.status === 'BELUM_UPLOAD') {
-            if (sop.status !== 'DRAFT' && sop.status !== 'BELUM_UPLOAD' && !sop.isNumberReservation) {
+          if (filters.status === 'DRAFT' || filters.status === 'DRAFT') {
+            if (sop.status !== 'DRAFT' && sop.status !== 'DRAFT' && !sop.isNumberReservation) {
               return false;
             }
           } else if (sop.status !== filters.status) {
@@ -823,9 +824,12 @@ export default function App() {
     const rawTargetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
     const targetNumber = isLegacyInput ? normalizeSopNumberInput(rawTargetNumber) : rawTargetNumber;
     let authoritativeSopData = newSopData;
+    let systemReservationId: string | undefined;
     // Reservation adalah register nomor terpisah, bukan dokumen SPO. Untuk alur
     // Existing, nomor reserved boleh dipakai untuk registrasi PDF fisik dan
     // reservation dikonsumsi setelah dokumen berhasil tersimpan.
+    // Existing is the only flow allowed to consume a Nomor Terbit reservation.
+    // Resolve it before any numbering logic and keep the reservation number authoritative.
     const reservedTarget = isLegacyInput && targetNumber
       ? await findNumberReservationBySopNumber(targetNumber)
       : undefined;
@@ -893,14 +897,14 @@ export default function App() {
         // Aturan 2: Format baru (atau format lama) + nomor sudah ada (bukan aktif) -> Boleh replace
         const replacedId = existing.id;
         const isExistingDraftOrNew =
-          (existing.status === 'DRAFT' || existing.status === 'BELUM_UPLOAD' || existing.status === 'MENUNGGU_PENGESAHAN') &&
+          existing.status === 'DRAFT' &&
           (existing.jenis_spo === 'BARU' || existing.documentType === 'BARU');
 
         const statusPreviousName =
-          existing.status === 'MENUNGGU_PENGESAHAN'
-            ? 'Menunggu Pengesahan'
+          existing.status === 'DRAFT'
+            ? 'Draft'
             : isExistingDraftOrNew
-            ? 'Draft / Belum Upload'
+            ? 'Draft / Draft'
             : existing.status || 'Tersimpan';
 
         const finalSop: SopDocument = {
@@ -932,6 +936,9 @@ export default function App() {
           oldFileDataUrl: undefined,
           reviewReason: undefined,
           isNumberReservation: false,
+          // Existing replacement must keep the uploaded PDF as the authoritative
+          // document preview even though its final document type remains BARU.
+          isExistingReplacement: true,
           status: 'AKTIF',
           createdAt: existing.createdAt || now,
           updatedAt: now,
@@ -977,6 +984,17 @@ export default function App() {
       // belum ada dokumen dengan nomor tersebut, Existing dapat menggunakannya.
       // Reservation dikonsumsi setelah dokumen Existing berhasil disimpan.
       if (reservedTarget && !existing) {
+        // HARD RULE: a Nomor Terbit found here is authoritative. Never run
+        // getNextSequenceNumber/generateSopNumber for this Existing submission.
+        // The final document must use exactly the reserved number.
+        const reservedDivision = String(reservedTarget.divisionCode || '').trim().toUpperCase();
+        const selectedDivision = String(newSopData.divisionCode || '').trim().toUpperCase();
+        const reservedHierarchy = String(reservedTarget.subHierarchyCode || '').trim();
+        const selectedHierarchy = String(newSopData.subHierarchyCode || '').trim();
+        if (reservedDivision !== selectedDivision || reservedHierarchy !== selectedHierarchy) {
+          throw new Error(`Nomor Terbit \"${reservedTarget.sopNumber}\" tidak sesuai dengan hirarki yang dipilih. Nomor diterbitkan untuk ${reservedDivision}${reservedHierarchy ? ` / ${reservedHierarchy}` : ''}, sedangkan pilihan Anda ${selectedDivision}${selectedHierarchy ? ` / ${selectedHierarchy}` : ''}.`);
+        }
+
         const newId = newSopData.id || `sop-${Date.now()}`;
         const reservedFinal: SopDocument = {
           ...newSopData,
@@ -992,7 +1010,9 @@ export default function App() {
           documentType: 'BARU',
           jenis_spo: 'BARU',
           isLegacySop: false,
-          isExistingReplacement: false,
+          // This document originates from the Existing upload path. Keep the
+          // original uploaded PDF as the preview source after consuming the reservation.
+          isExistingReplacement: true,
           isNumberReservation: false,
           status: 'AKTIF',
           createdAt: now,
@@ -1069,6 +1089,7 @@ export default function App() {
       }
 
       await saveSopToLocal(finalSop);
+      if (systemReservationId) await consumeNumberReservation(systemReservationId, finalSop.id);
       setSops((prev) => [finalSop, ...prev.filter((s) => s.id !== finalSop.id)]);
 
       addToast(
@@ -1088,8 +1109,10 @@ export default function App() {
         divisionCode: String(newSopData.divisionCode || 'PEL').trim().toUpperCase(),
         subHierarchyCode: String(newSopData.subHierarchyCode || '').trim() || undefined,
         dateStr: newSopData.effectiveDate || now.split('T')[0],
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas'
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas',
+        purpose: 'SYSTEM_DOCUMENT'
       });
+      systemReservationId = reserved.id;
       authoritativeSopData = {
         ...newSopData,
         id: newSopData.id || `sop-${Date.now()}`,
@@ -1127,8 +1150,10 @@ export default function App() {
         divisionCode: divCode,
         subHierarchyCode: subCode || undefined,
         dateStr,
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas'
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas',
+        purpose: 'SYSTEM_DOCUMENT'
       });
+      systemReservationId = reserved.id;
       authoritativeSopData = {
         ...newSopData,
         id: newSopData.id || `sop-${Date.now()}`,
@@ -1241,7 +1266,8 @@ export default function App() {
       subHierarchyCode: params.subHierarchyCode,
       dateStr: params.dateStr || new Date().toISOString().slice(0, 10),
       title: params.title.trim(),
-      reservedBy: userSession?.name || userSession?.username || 'Administrator'
+      reservedBy: userSession?.name || userSession?.username || 'Administrator',
+      purpose: 'EXISTING_REPLACE_ONLY'
     });
     // Nomor reservation disimpan di store khusus, BUKAN sebagai dokumen Draft.
     // Nomor ini tidak boleh dipakai untuk SPO Baru; pengguna dapat menggunakannya
@@ -1373,7 +1399,7 @@ export default function App() {
       divisionName: updatedSop.divisionName,
       categoryName: updatedSop.categoryName,
       status: isLegacy
-        ? ((updatedSop.status === 'TIDAK_AKTIF' ? 'TIDAK_AKTIF' : 'AKTIF') as SopStatus)
+        ? ((updatedSop.status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'AKTIF') as SopStatus)
         : (updatedSop.status || 'AKTIF'),
       ...(isLegacy ? { jenis_spo: 'EKSISTING' as const, documentType: 'LAMA' as const, isLegacySop: true } : {})
     };
@@ -1487,7 +1513,7 @@ export default function App() {
     setSops((prev) => prev.map((s) => s.id === id ? updated : s));
     if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
     saveSopToLocal(updated).catch((err) => console.error('Error updating status in local database:', err));
-    addToast('success', 'Status Diperbarui', `Status SPO diubah menjadi ${newStatus === 'TIDAK_AKTIF' ? 'Tidak Aktif' : 'Menunggu Pengesahan'}.`);
+    addToast('success', 'Status Diperbarui', `Status SPO diubah menjadi ${newStatus === 'DIARSIPKAN' ? 'Diarsipkan' : 'Draft'}.`);
   };
 
   const handleConfirmActivation = async (sopId: string, activationData: {
@@ -1499,8 +1525,8 @@ export default function App() {
       return;
     }
     const target = sops.find((s) => s.id === sopId);
-    if (!target || target.status !== 'MENUNGGU_PENGESAHAN') {
-      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO dengan status Menunggu Pengesahan yang dapat diaktifkan.');
+    if (!target || target.status !== 'DRAFT') {
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO dengan status Draft yang dapat diaktifkan.');
       return;
     }
     const updated: SopDocument = {
@@ -1990,7 +2016,7 @@ export default function App() {
                 {/* Statistics Cards */}
                 <DashboardStats
                   sops={sops}
-                  pendingSignatureCount={(sops || []).filter((sop) => sop.status === 'MENUNGGU_PENGESAHAN').length}
+                  pendingSignatureCount={(sops || []).filter((sop) => sop.status === 'DRAFT').length}
                   onNewSop={() => setIsUploadOpen(true)}
                   onFilterByStatus={(status) => handleFilterChange({ status })}
                   activeStatusFilter={filters.status}

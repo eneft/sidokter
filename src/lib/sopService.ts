@@ -130,18 +130,18 @@ function notifySopSubscribers(): void {
 }
 
 function normalizeSop(sop: SopDocument): SopDocument {
-  const rawStatus = String((sop as any).status || '');
-  let status: SopStatus = 'MENUNGGU_PENGESAHAN';
+  // Canonical document statuses are only DRAFT, AKTIF and DIARSIPKAN.
+  // Legacy values are normalized on read so old data remains compatible.
+  const rawStatus = String((sop as any).status || '').trim().toUpperCase();
+  let status: SopStatus;
   if (rawStatus === 'AKTIF') {
     status = 'AKTIF';
-  } else if (rawStatus === 'TIDAK_AKTIF') {
-    status = 'TIDAK_AKTIF';
-  } else if (rawStatus === 'DRAFT' || rawStatus === 'BELUM_UPLOAD') {
-    status = 'DRAFT';
-  } else if (rawStatus === 'MENUNGGU_PENGESAHAN') {
-    status = 'MENUNGGU_PENGESAHAN';
+  } else if (rawStatus === 'TIDAK_AKTIF' || rawStatus === 'DIARSIPKAN') {
+    status = 'DIARSIPKAN';
   } else {
-    status = (sop as any).isNumberReservation ? 'DRAFT' : 'MENUNGGU_PENGESAHAN';
+    // MENUNGGU_PENGESAHAN, BELUM_UPLOAD, DRAFT and unknown legacy values
+    // all mean the document has not yet been signed/activated.
+    status = 'DRAFT';
   }
   return { ...sop, status };
 }
@@ -223,6 +223,7 @@ export interface SopNumberReservation {
   reservedBy: string;
   reservedAt: string;
   status: 'RESERVED' | 'USED';
+  purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
   usedAt?: string;
   usedDocumentId?: string;
 }
@@ -240,6 +241,7 @@ export async function reserveNextSopNumber(params: {
   dateStr?: string;
   title?: string;
   reservedBy: string;
+  purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
 }): Promise<SopNumberReservation> {
   const { config, divisionCode, subHierarchyCode = '', dateStr, reservedBy } = params;
   const cleanDiv = (divisionCode || 'PEL').trim().toUpperCase();
@@ -300,7 +302,8 @@ export async function reserveNextSopNumber(params: {
           effectiveDate: dateStr || `${year}-01-01`,
           reservedBy,
           reservedAt: new Date().toISOString(),
-          status: 'RESERVED'
+          status: 'RESERVED',
+          purpose: params.purpose || 'SYSTEM_DOCUMENT'
         };
         reservationStore.add(result);
       };
@@ -345,7 +348,7 @@ export async function findNumberReservationBySopNumber(sopNumber: string): Promi
   const target = String(sopNumber || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').toUpperCase();
   if (!target) return undefined;
   const reservations = await getAllNumberReservations();
-  return reservations.find((r) => r.status === 'RESERVED' && String(r.sopNumber || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').toUpperCase() === target);
+  return reservations.find((r) => r.status === 'RESERVED' && (r.purpose === 'EXISTING_REPLACE_ONLY' || !r.purpose) && String(r.sopNumber || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').toUpperCase() === target);
 }
 
 export async function consumeNumberReservation(id: string, usedDocumentId?: string): Promise<void> {

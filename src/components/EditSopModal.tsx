@@ -637,10 +637,10 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
 
       status:
         isExisting
-          ? (status === 'TIDAK_AKTIF' ? 'TIDAK_AKTIF' : 'AKTIF')
+          ? (status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'AKTIF')
           : (isAdmin
               ? status
-              : (sop.status || 'MENUNGGU_PENGESAHAN')),
+              : (sop.status || 'DRAFT')),
 
       effectiveDate,
 
@@ -1097,7 +1097,7 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
 
                   {isExisting ? (
                     <div className="w-full text-sm font-bold border border-emerald-200 rounded-xl px-3.5 py-2.5 bg-emerald-50 text-emerald-800">
-                      {status === 'TIDAK_AKTIF' ? 'TIDAK AKTIF' : 'AKTIF — SPO EKSISTING'}
+                      {status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'AKTIF — SPO EKSISTING'}
                     </div>
                   ) : isAdmin ? (
                     <select
@@ -1105,14 +1105,13 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
                       onChange={(e) => setStatus(e.target.value as SopStatus)}
                       className="w-full text-sm border border-slate-300 rounded-xl px-3.5 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
-                      <option value="DRAFT">BELUM UPLOAD</option>
-                      <option value="MENUNGGU_PENGESAHAN">MENUNGGU PENGESAHAN</option>
+                      <option value="DRAFT">DRAFT</option>
                       <option value="AKTIF">AKTIF</option>
-                      <option value="TIDAK_AKTIF">TIDAK AKTIF</option>
+                      <option value="DIARSIPKAN">DIARSIPKAN</option>
                     </select>
                   ) : (
                     <div className="w-full text-xs font-bold border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-100 text-slate-700">
-                      {sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation ? 'BELUM UPLOAD' : sop.status === 'MENUNGGU_PENGESAHAN' ? 'MENUNGGU PENGESAHAN' : sop.status}
+                      {sop.status === 'DRAFT' || sop.isNumberReservation ? 'DRAFT' : sop.status === 'DRAFT' ? 'DRAFT' : sop.status}
                     </div>
                   )}
 

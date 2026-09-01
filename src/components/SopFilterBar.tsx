@@ -162,9 +162,8 @@ export const SopFilterBar: React.FC<SopFilterBarProps> = ({
           >
             <option value="">Semua Status</option>
             <option value="AKTIF">🟢 Aktif (Operasional)</option>
-            <option value="MENUNGGU_PENGESAHAN">🟡 Menunggu Pengesahan</option>
-            <option value="DRAFT">🔵 Belum Upload</option>
-            <option value="TIDAK_AKTIF">🔴 Tidak Aktif</option>
+            <option value="DRAFT">🔵 Draft</option>
+            <option value="DIARSIPKAN">🔴 Diarsipkan</option>
           </select>
         </div>
 
@@ -229,7 +228,7 @@ export const SopFilterBar: React.FC<SopFilterBarProps> = ({
           
           {filters.status && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-              Status: {filters.status === 'AKTIF' ? 'Aktif' : filters.status === 'MENUNGGU_PENGESAHAN' ? 'Menunggu TTD' : filters.status === 'DRAFT' || filters.status === 'BELUM_UPLOAD' ? 'Belum Upload' : 'Tidak Aktif'}
+              Status: {filters.status === 'AKTIF' ? 'Aktif' : filters.status === 'DRAFT' ? 'Draft' : filters.status === 'DRAFT' || filters.status === 'DRAFT' ? 'Draft' : 'Diarsipkan'}
               <button type="button" onClick={() => onFilterChange({ status: '' })} className="hover:text-emerald-950 cursor-pointer">
                 <X className="w-3 h-3" />
               </button>

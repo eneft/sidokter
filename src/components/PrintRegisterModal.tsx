@@ -58,9 +58,9 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
       // 2. Status Filter
       if (selectedStatus !== 'ALL') {
         if (selectedStatus === 'Aktif' && sop.status !== 'AKTIF') return false;
-        if (selectedStatus === 'Menunggu Pengesahan' && sop.status !== 'MENUNGGU_PENGESAHAN') return false;
-        if (selectedStatus === 'Belum Upload' && sop.status !== 'DRAFT' && sop.status !== 'BELUM_UPLOAD' && !sop.isNumberReservation) return false;
-        if (selectedStatus === 'Tidak Aktif' && sop.status !== 'TIDAK_AKTIF') return false;
+        if (selectedStatus === 'Draft' && sop.status !== 'DRAFT') return false;
+        if (selectedStatus === 'Draft' && sop.status !== 'DRAFT' && sop.status !== 'DRAFT' && !sop.isNumberReservation) return false;
+        if (selectedStatus === 'Diarsipkan' && sop.status !== 'DIARSIPKAN') return false;
       }
       // 3. Year Filter
       if (selectedYear !== 'ALL') {
@@ -191,9 +191,9 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
                 >
                   <option value="ALL">Semua Status</option>
                   <option value="Aktif">Status: Aktif</option>
-                  <option value="Menunggu Pengesahan">Status: Menunggu Pengesahan</option>
-                  <option value="Belum Upload">Status: Belum Upload</option>
-                  <option value="Tidak Aktif">Status: Tidak Aktif</option>
+                  <option value="Draft">Status: Draft</option>
+                  <option value="Draft">Status: Draft</option>
+                  <option value="Diarsipkan">Status: Diarsipkan</option>
                 </select>
               </div>
 

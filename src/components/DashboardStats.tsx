@@ -24,10 +24,10 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
 }) => {
   const total = sops?.length || 0;
   const activeCount = (sops || []).filter(s => s.status === 'AKTIF').length;
-  const inactiveCount = (sops || []).filter(s => s.status === 'TIDAK_AKTIF').length;
+  const inactiveCount = (sops || []).filter(s => s.status === 'DIARSIPKAN').length;
   const pendingCount = pendingSignatureCount > 0 
     ? pendingSignatureCount 
-    : (sops || []).filter(s => s.status === 'MENUNGGU_PENGESAHAN').length;
+    : (sops || []).filter(s => s.status === 'DRAFT').length;
 
   const stats = [
     {
@@ -56,26 +56,26 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
     },
     {
       id: 'pending',
-      statusKey: 'MENUNGGU_PENGESAHAN',
-      title: 'Menunggu Pengesahan',
+      statusKey: 'DRAFT',
+      title: 'Draft',
       value: pendingCount,
       subtitle: 'Proses TTD Direktur',
       icon: Clock,
       accentBg: 'bg-amber-50 text-amber-600',
       activeRing: 'ring-2 ring-amber-500 bg-amber-50/40',
-      tag: 'Menunggu TTD',
+      tag: 'Draft',
       tagColor: 'bg-amber-50 text-amber-700 border-amber-200'
     },
     {
       id: 'inactive',
-      statusKey: 'TIDAK_AKTIF',
-      title: 'Tidak Aktif',
+      statusKey: 'DIARSIPKAN',
+      title: 'Diarsipkan',
       value: inactiveCount,
       subtitle: 'Kedaluwarsa / diganti',
       icon: FileX2,
       accentBg: 'bg-rose-50 text-rose-600',
       activeRing: 'ring-2 ring-rose-500 bg-rose-50/40',
-      tag: 'Non-Aktif',
+      tag: 'Diarsipkan',
       tagColor: 'bg-rose-50 text-rose-700 border-rose-200'
     }
   ];

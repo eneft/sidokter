@@ -59,26 +59,18 @@ export const SopTable: React.FC<SopTableProps> = ({
         </span>
       );
     }
-    if (status === 'MENUNGGU_PENGESAHAN') {
+    if (status === 'DRAFT') {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
           <Clock className="w-3 h-3 text-amber-600" />
-          <span>Menunggu TTD</span>
-        </span>
-      );
-    }
-    if (status === 'DRAFT' || status === 'BELUM_UPLOAD' || isReservation) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-          <FileCheck2 className="w-3 h-3 text-sky-600" />
-          <span>Belum Upload</span>
+          <span>Draft</span>
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
         <FileX2 className="w-3 h-3 text-slate-400" />
-        <span>Tidak Aktif</span>
+        <span>Diarsipkan</span>
       </span>
     );
   };

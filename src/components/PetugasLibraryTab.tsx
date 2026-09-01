@@ -212,9 +212,9 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
             className="text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-700 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <option value="ALL">Semua Status</option>
-            <option value="MENUNGGU_PENGESAHAN">Menunggu Pengesahan</option>
+            <option value="DRAFT">Draft</option>
             <option value="AKTIF">Aktif</option>
-            <option value="TIDAK_AKTIF">Tidak Aktif</option>
+            <option value="DIARSIPKAN">Diarsipkan</option>
           </select>
 
         </div>
@@ -285,19 +285,19 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
                     className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                       sop.status === 'AKTIF'
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : sop.status === 'MENUNGGU_PENGESAHAN'
+                        : sop.status === 'DRAFT'
                         ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                        : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
+                        : sop.status === 'DRAFT' || sop.isNumberReservation
                         ? 'bg-sky-100 text-sky-800 border border-sky-200'
                         : 'bg-slate-100 text-slate-700'
                     }`}
                   >
-                    {sop.status === 'MENUNGGU_PENGESAHAN'
-                      ? 'Menunggu Pengesahan'
-                      : sop.status === 'DRAFT' || sop.status === 'BELUM_UPLOAD' || sop.isNumberReservation
-                      ? 'Belum Upload'
-                      : sop.status === 'TIDAK_AKTIF'
-                      ? 'Tidak Aktif'
+                    {sop.status === 'DRAFT'
+                      ? 'Draft'
+                      : sop.status === 'DRAFT' || sop.isNumberReservation
+                      ? 'Draft'
+                      : sop.status === 'DIARSIPKAN'
+                      ? 'Diarsipkan'
                       : 'Aktif'}
                   </span>
                 </div>

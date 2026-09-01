@@ -77,7 +77,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
   // Core Form Fields
   const [title, setTitle] = useState('');
-  const [status, setStatus] = useState<SopStatus>('MENUNGGU_PENGESAHAN');
+  const [status, setStatus] = useState<SopStatus>('DRAFT');
+  const [isCurrentNumberReserved, setIsCurrentNumberReserved] = useState(false);
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [reviewPeriodMonths, setReviewPeriodMonths] = useState(12);
   const [creatorName, setCreatorName] = useState('');
@@ -98,6 +99,24 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   // Review & Legacy Document Feature States
   const [documentType, setDocumentType] = useState<'BARU' | 'LAMA' | 'REVIEW'>('BARU');
   const [manualLegacyNumber, setManualLegacyNumber] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      if (documentType !== 'LAMA' || !manualLegacyNumber.trim() || !onCheckReservedNumber) {
+        setIsCurrentNumberReserved(false);
+        return;
+      }
+      try {
+        const reserved = await onCheckReservedNumber(normalizeSopNumberInput(manualLegacyNumber));
+        if (!cancelled) setIsCurrentNumberReserved(Boolean(reserved));
+      } catch {
+        if (!cancelled) setIsCurrentNumberReserved(false);
+      }
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [manualLegacyNumber, documentType, onCheckReservedNumber]);
   const [oldSopNumber, setOldSopNumber] = useState('');
   const [revisionNumber, setRevisionNumber] = useState('01');
   const [adminManualSequence, setAdminManualSequence] = useState('');
@@ -423,75 +442,73 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       }
     }
 
-    // Generate live SOP number & sequence number
-    const autoSequence = getNextSequenceNumber(numberingConfig, selectedCatCode, subHierarchyCode, sops, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
-    const manualSequence = userSession?.role === 'admin' && adminManualSequence.trim()
-      ? Number(adminManualSequence.trim())
-      : undefined;
+    // SPO Existing memakai nomor yang dimasukkan/terdeteksi; jangan menjalankan
+    // generator nomor sama sekali pada jalur ini. Generator hanya untuk Baru/Riviu.
+    const generated = documentType === 'LAMA'
+      ? { sopNumber: '', sequenceNumber: 0 }
+      : (() => {
+          const autoSequence = getNextSequenceNumber(numberingConfig, selectedCatCode, subHierarchyCode, sops, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
+          const manualSequence = userSession?.role === 'admin' && adminManualSequence.trim()
+            ? Number(adminManualSequence.trim())
+            : undefined;
 
-    if (manualSequence !== undefined && (!Number.isInteger(manualSequence) || manualSequence < 1)) {
-      alert('Nomor urut Admin harus berupa angka bulat minimal 1.');
-      return;
-    }
+          if (manualSequence !== undefined && (!Number.isInteger(manualSequence) || manualSequence < 1)) {
+            throw new Error('Nomor urut Admin harus berupa angka bulat minimal 1.');
+          }
 
-    if (manualSequence !== undefined) {
-      const used = getUsedSequencesForUnit(sops || [], selectedCatCode, subHierarchyCode, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
-      if (used.has(manualSequence)) {
-        alert(`Nomor urut ${String(manualSequence).padStart(3, '0')} sudah digunakan pada unit/kode ini. Silakan pilih nomor lain.`);
-        return;
-      }
-    }
+          if (manualSequence !== undefined) {
+            const used = getUsedSequencesForUnit(sops || [], selectedCatCode, subHierarchyCode, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
+            if (used.has(manualSequence)) {
+              throw new Error(`Nomor urut ${String(manualSequence).padStart(3, '0')} sudah digunakan pada unit/kode ini. Silakan pilih nomor lain.`);
+            }
+          }
 
-    const selectedSequence = manualSequence ?? autoSequence;
-    const rawGenerated = generateSopNumber({
-      config: numberingConfig,
-      divisionCode: selectedCatCode,
-      subHierarchyCode: subHierarchyCode,
-      categoryCode: selectedCatCode,
-      dateStr: effectiveDate,
-      sequenceNum: selectedSequence
-    });
+          const selectedSequence = manualSequence ?? autoSequence;
+          const rawGenerated = generateSopNumber({
+            config: numberingConfig,
+            divisionCode: selectedCatCode,
+            subHierarchyCode,
+            categoryCode: selectedCatCode,
+            dateStr: effectiveDate,
+            sequenceNum: selectedSequence
+          });
 
-    const generated = (() => {
-      try {
-        const mockDoc: SopDocument = {
-          id: 'temp-preview',
-          sopNumber: rawGenerated.sopNumber,
-          sequenceNumber: rawGenerated.sequenceNumber,
-          title: title.trim() || 'Pratinjau',
-          divisionId: selectedCatCode,
-          divisionCode: selectedCatCode,
-          divisionName: activeCategory?.name || selectedCatCode,
-          categoryId: selectedCatCode,
-          categoryName: selectedCatCode,
-          version: '00',
-          status: 'MENUNGGU_PENGESAHAN',
-          effectiveDate,
-          reviewPeriodMonths: 12,
-          nextReviewDate: '',
-          creatorName: '',
-          approverName: '',
-          summary: '',
-          tags: [],
-          subHierarchyCode,
-          subCode: selectedSubCode,
-          instalasiCode: selectedInstCode,
-          poliCode: selectedPoliCode,
-          subUnitCode: selectedSubUnitCode || undefined,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          revisionHistory: [],
-          confidentialityLevel: 'Internal'
-        };
-        const std = standardizeSopDocument(mockDoc);
-        return {
-          sopNumber: std.sopNumber,
-          sequenceNumber: std.sequenceNumber
-        };
-      } catch {
-        return rawGenerated;
-      }
-    })();
+          try {
+            const mockDoc: SopDocument = {
+              id: 'temp-preview',
+              sopNumber: rawGenerated.sopNumber,
+              sequenceNumber: rawGenerated.sequenceNumber,
+              title: title.trim() || 'Pratinjau',
+              divisionId: selectedCatCode,
+              divisionCode: selectedCatCode,
+              divisionName: activeCategory?.name || selectedCatCode,
+              categoryId: selectedCatCode,
+              categoryName: selectedCatCode,
+              version: '00',
+              status: 'DRAFT',
+              effectiveDate,
+              reviewPeriodMonths: 12,
+              nextReviewDate: '',
+              creatorName: '',
+              approverName: '',
+              summary: '',
+              tags: [],
+              subHierarchyCode,
+              subCode: selectedSubCode,
+              instalasiCode: selectedInstCode,
+              poliCode: selectedPoliCode,
+              subUnitCode: selectedSubUnitCode || undefined,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              revisionHistory: [],
+              confidentialityLevel: 'Internal'
+            };
+            const std = standardizeSopDocument(mockDoc);
+            return { sopNumber: std.sopNumber, sequenceNumber: std.sequenceNumber };
+          } catch {
+            return rawGenerated;
+          }
+        })();
 
     const finalSopNumber = documentType === 'LAMA'
       ? normalizeSopNumberInput(manualLegacyNumber)
@@ -514,7 +531,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       categoryId: cat?.id || 'cat-pelayanan',
       categoryName: cat?.name || 'Pelayanan Medis & Asuhan Pasien',
       version: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
-      status: documentType === 'LAMA' ? 'AKTIF' : 'MENUNGGU_PENGESAHAN',
+      status: documentType === 'LAMA' ? 'AKTIF' : 'DRAFT',
       effectiveDate,
       reviewPeriodMonths: Number(reviewPeriodMonths),
       nextReviewDate,
@@ -560,6 +577,11 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       // Review & Legacy Document Fields
       jenis_spo: documentType === 'LAMA' ? 'EKSISTING' : (documentType === 'REVIEW' ? 'RIVIU' : 'BARU'),
       documentType,
+      // Existing PDFs are always authoritative for preview, including when they
+      // replace a Draft/new-format record and the final type is normalized to BARU.
+      // Existing PDF is authoritative; this flag survives the final save so
+      // SopDetailModal never falls back to the generated A4 template.
+      isExistingReplacement: documentType === 'LAMA',
       isReviewDocument: documentType === 'REVIEW',
       isLegacySop: documentType === 'LAMA',
       legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
@@ -676,7 +698,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 <div className="mt-2 text-sm font-semibold text-slate-700 truncate">{latestCreatedSop.title}</div>
               </div>
 
-              {latestCreatedSop.status === 'MENUNGGU_PENGESAHAN' && (
+              {latestCreatedSop.status === 'DRAFT' && (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                   Nomor sudah resmi terdaftar. Dokumen masih <strong>BELUM AKTIF</strong> sampai proses pengesahan/tanda tangan Direktur selesai.
                 </div>
@@ -960,13 +982,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                                 (() => {
                                   const status = dup.matchedDoc.status;
                                   const statusLabel =
-                                    status === 'MENUNGGU_PENGESAHAN'
-                                      ? 'Menunggu Pengesahan'
-                                      : status === 'DRAFT' || status === 'BELUM_UPLOAD' || dup.matchedDoc.isNumberReservation
-                                      ? 'Belum Upload'
-                                      : status === 'AKTIF'
-                                      ? 'Aktif'
-                                      : status || 'Belum Aktif';
+                                    status === 'DRAFT' ? 'Draft'
+                                      : status === 'AKTIF' ? 'Aktif'
+                                      : status === 'DIARSIPKAN' ? 'Diarsipkan'
+                                      : status || 'Draft';
 
                                   if (status === 'AKTIF') {
                                     return (
@@ -988,11 +1007,16 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                                     </div>
                                   );
                                 })()
+                              ) : isCurrentNumberReserved ? (
+                                <div className="p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 text-emerald-950 text-[11px] font-medium flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                                  <span><strong>Nomor Terbit Ditemukan:</strong> Nomor ini sudah diterbitkan dan dapat digunakan untuk SPO Existing → Replace Draft. Sistem tidak akan membuat nomor baru.</span>
+                                </div>
                               ) : isNewFormat ? (
                                 <div className="p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
                                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                                   <span>
-                                    <strong>Pola Master Hirarki Belum Terdaftar:</strong> Nomor sesuai pola penomoran Master Hirarki ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) wajib diterbitkan melalui menu "SPO Baru" agar nomor urut terdaftar resmi.
+                                    <strong>Pola Master Hirarki Belum Terdaftar:</strong> Nomor sesuai pola penomoran Master Hirarki ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) wajib diterbitkan melalui menu "Terbitkan Nomor" terlebih dahulu.
                                   </span>
                                 </div>
                               ) : (
@@ -1177,7 +1201,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     onChange={(e) => setStatus(e.target.value as SopStatus)}
                     className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 bg-white"
                   >
-                    <option value="MENUNGGU_PENGESAHAN">Menunggu Pengesahan</option>
+                    <option value="DRAFT">Draft</option>
 
                   </select>
                 </div>

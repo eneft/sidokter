@@ -1,4 +1,4 @@
-export type SopStatus = 'AKTIF' | 'MENUNGGU_PENGESAHAN' | 'TIDAK_AKTIF' | 'DRAFT' | 'BELUM_UPLOAD';
+export type SopStatus = 'DRAFT' | 'AKTIF' | 'DIARSIPKAN';
 
 export type UserRole = 'admin' | 'petugas';
 
@@ -190,7 +190,9 @@ export interface SopDocument {
   locationOrFolder?: string;
   // True when the register record exists only to reserve an official SPO number.
   isNumberReservation?: boolean;
-  numberReservationPurpose?: 'EXISTING_REPLACE_ONLY' | string;
+  numberReservationPurpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
+  // ID register Nomor Terbit yang dipakai alur SPO Existing. Bukan ID dokumen.
+  numberReservationId?: string;
 }
 
 
@@ -207,7 +209,7 @@ export interface LibraryDocument {
   effectiveDate?: string;  // Tanggal terbit / mulai berlaku
   expiryDate?: string;     // Tanggal berakhir (khusus MOU/PKS)
   description?: string;    // Keterangan / ringkasan dokumen
-  status?: string;         // 'AKTIF' | 'TIDAK_AKTIF'
+  status?: string;         // 'AKTIF' | 'DIARSIPKAN'
   fileName: string;
   fileSize: number;
   fileType: string;
