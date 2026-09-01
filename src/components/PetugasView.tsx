@@ -6,7 +6,8 @@ import {
   Building2, 
   User, 
   Sparkles, 
-  CheckCircle2, 
+  CheckCircle2,
+  Copy,
   Search, 
   Calendar, 
   FileText,
@@ -32,8 +33,7 @@ import {
   AlertTriangle,
   Info,
   LayoutList,
-  Table as TableIcon,
-  Copy
+  Table as TableIcon
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -730,7 +730,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
         // but preview must use the uploaded original PDF instead of generating the official template.
-        isExistingReplacement: isLegacy,
+        isExistingReplacement: isLegacy && Boolean(matchedExistingDoc),
         pengertian: pengertian.trim() || (isLegacy ? matchedExistingDoc?.pengertian : undefined) || undefined,
         tujuan: tujuan.trim() || (isLegacy ? matchedExistingDoc?.tujuan : undefined) || undefined,
         kebijakan: kebijakan.trim() || (isLegacy ? matchedExistingDoc?.kebijakan : undefined) || undefined,
@@ -738,6 +738,30 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         unitTerkait: unitTerkait.trim() || (isLegacy ? matchedExistingDoc?.unitTerkait : undefined) || undefined,
         confidentialityLevel: 'Internal',
       };
+
+      // HARD RULE: Existing must carry the exact Nomor Terbit reservation identity
+      // through the submit boundary. A boolean-only check is not sufficient because
+      // the parent save handler must know which reservation is authoritative.
+      if (isLegacy) {
+        (sopData as any).numberReservationPurpose = 'EXISTING_REPLACE_ONLY';
+        try {
+          const reservations = await getAllNumberReservations();
+          const matchedReservation = reservations.find((row) =>
+            row.status === 'RESERVED' &&
+            (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) &&
+            normalizeSopNumberInput(row.sopNumber) === cleanNum
+          );
+          if (matchedReservation) {
+            (sopData as any).numberReservationId = matchedReservation.id;
+            // The reservation is authoritative: never let a later save path
+            // infer a different sequence from the current numbering state.
+            sopData.sopNumber = matchedReservation.sopNumber;
+            sopData.sequenceNumber = matchedReservation.sequenceNumber;
+          }
+        } catch (reservationError) {
+          console.warn('Gagal membaca identitas Nomor Terbit untuk Existing:', reservationError);
+        }
+      }
 
       // Alur is optional in the SPO standard. Keep it in the saved object when
       // present, without forcing a shared-type change in this UI-only refactor.

@@ -597,6 +597,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       signedScanDataUrl: documentType === 'LAMA' ? fileDataUrl : undefined,
     };
 
+    // Hard marker: Existing submissions may consume only an existing Draft/issued number.
+    // This marker prevents the parent from ever treating the submission as a new-number flow.
+    if (documentType === 'LAMA') {
+      (newSopDoc as any).numberReservationPurpose = 'EXISTING_REPLACE_ONLY';
+    }
+
     const newGeneratedId = `sop-${Date.now()}`;
     if (fileDataUrl) {
       saveFileToLocalCache(newGeneratedId, 'file', fileDataUrl);

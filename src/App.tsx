@@ -813,6 +813,9 @@ export default function App() {
   const handleCreateSop = async (newSopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string }): Promise<SopDocument> => {
     const now = new Date().toISOString();
     const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop || newSopData.jenis_spo === 'EKSISTING';
+    // EXISTING_REPLACE_ONLY is an authoritative Existing flow marker. Even if a UI path
+    // accidentally submits documentType=BARU, it must never enter the auto-numbering path.
+    const isExistingInput = isLegacyInput || (newSopData as any).numberReservationPurpose === 'EXISTING_REPLACE_ONLY';
     const isNewSopInput = (newSopData.jenis_spo || newSopData.documentType) === 'BARU';
     const isCompletingIssuedNumber = Boolean(
       newSopData.id &&
@@ -830,8 +833,17 @@ export default function App() {
     // reservation dikonsumsi setelah dokumen berhasil tersimpan.
     // Existing is the only flow allowed to consume a Nomor Terbit reservation.
     // Resolve it before any numbering logic and keep the reservation number authoritative.
-    const reservedTarget = isLegacyInput && targetNumber
-      ? await findNumberReservationBySopNumber(targetNumber)
+    const reservedTarget = isExistingInput && targetNumber
+      ? (
+          ((newSopData as any).numberReservationId
+            ? (await getAllNumberReservations()).find((row) =>
+                row.status === 'RESERVED' &&
+                row.id === (newSopData as any).numberReservationId &&
+                normalizeSopNumberInput(row.sopNumber) === normalizeSopNumberInput(targetNumber)
+              )
+            : undefined)
+          || (await findNumberReservationBySopNumber(targetNumber))
+        )
       : undefined;
 
     // SPO Riviu memakai nomor lama hanya sebagai rujukan. Nomor hasil selalu
@@ -867,7 +879,7 @@ export default function App() {
 
     let dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
 
-    if (isLegacyInput) {
+    if (isExistingInput) {
       // Aturan Khusus SPO Existing:
       // 1. Format baru + nomor belum ada → ❌ Tidak boleh (harus terbit via alur SPO Baru).
       // 2. Format baru + nomor sudah ada (bukan AKTIF) → ✅ Boleh replace / lengkapi.
@@ -1141,7 +1153,7 @@ export default function App() {
 
     // SPO Baru: Jika nomor belum diterbitkan secara eksplisit sebelumnya,
     // otomatis alokasikan nomor urut dan nomor resmi baru sesuai standar penomoran.
-    if (isNewSopInput && !isLegacyInput && !isCompletingIssuedNumber) {
+    if (isNewSopInput && !isExistingInput && !isCompletingIssuedNumber) {
       const divCode = (newSopData.divisionCode || 'PEL').trim().toUpperCase();
       const subCode = (newSopData.subHierarchyCode || '').trim();
       const dateStr = newSopData.effectiveDate || now.split('T')[0];
