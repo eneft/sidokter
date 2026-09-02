@@ -21,7 +21,8 @@ import {
   Layers,
   ShieldCheck,
   Building2,
-  Calendar
+  Calendar,
+  FileDown
 } from 'lucide-react';
 
 import {
@@ -35,6 +36,7 @@ import { formatBytes } from '../utils/numbering';
 import { getLibraryDocumentUrl } from '../lib/documentLibraryService';
 import { getSKDocumentUrl } from '../lib/skService';
 import { getMOUDocumentUrl } from '../lib/mouService';
+import { DocumentViewer } from './DocumentViewer';
 
 interface DashboardOverviewPageProps {
   sops: SopDocument[];
@@ -88,7 +90,14 @@ export const DashboardOverviewPage: React.FC<
   const [archiveSearch, setArchiveSearch] = useState('');
   const [archiveFilter, setArchiveFilter] = useState<'ALL' | 'SPO' | 'SK' | 'MOU'>('ALL');
   const [archiveView, setArchiveView] = useState<'LIST' | 'CARD'>('LIST');
-  const [pdfViewer, setPdfViewer] = useState<{ url: string; title: string; type: 'SK' | 'MOU' } | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<{
+    url: string;
+    title: string;
+    type: 'SK' | 'MOU';
+    fileName?: string;
+    documentNumber?: string;
+    doc?: LibraryDocument;
+  } | null>(null);
 
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
   const canAccessProtectedDocs = isAdmin || hasStructuralBadge;
@@ -131,30 +140,71 @@ export const DashboardOverviewPage: React.FC<
     MOU: canAccessProtectedDocs ? documents.filter((d) => d.type === 'MOU').length : 0,
   }), [sops, documents, canAccessProtectedDocs]);
 
-  const handleArchiveOpen = (row: typeof archiveDocs[number]) => {
+  const handleArchiveOpen = async (row: typeof archiveDocs[number]) => {
     if (row.type === 'SPO' && row.sop && onViewSop) {
       onViewSop(row.sop);
       return;
     }
-    if (row.doc && onViewLibraryDoc) {
-      onViewLibraryDoc(row.doc);
+
+    // SK/MOU from Dashboard Arsip Digital must open the uploaded PDF directly in DocumentViewer,
+    // never navigate away.
+    if ((row.type === 'SK' || row.type === 'MOU') && row.doc) {
+      try {
+        const url = row.type === 'SK'
+          ? await getSKDocumentUrl(row.doc)
+          : await getMOUDocumentUrl(row.doc);
+        if (url) {
+          setPdfViewer({
+            url,
+            title: row.doc.title || row.title,
+            type: row.type,
+            fileName: row.doc.fileName || `${row.type}_${row.doc.documentNumber || row.doc.id}.pdf`,
+            documentNumber: row.doc.documentNumber,
+            doc: row.doc
+          });
+        }
+      } catch {
+        // Keep the dashboard in place if the uploaded PDF cannot be resolved.
+      }
       return;
     }
-    if (row.type === 'SK' || row.type === 'MOU') onNavigate(row.type === 'SK' ? 'sk' : 'mou');
+
+    if (row.doc && onViewLibraryDoc) {
+      onViewLibraryDoc(row.doc);
+    }
   };
 
-  const handleArchiveDownload = async (row: typeof archiveDocs[number]) => {
+  const handleArchiveDownload = async (row: {
+    id?: string;
+    type: 'SPO' | 'SK' | 'MOU';
+    title?: string;
+    number?: string;
+    fileName?: string;
+    sop?: SopDocument;
+    doc?: LibraryDocument;
+  }) => {
     try {
       let url: string | undefined;
       let fileName = row.fileName || `${row.type}.pdf`;
       if (row.type === 'SPO' && row.sop) {
         url = row.sop.signedScanDataUrl || row.sop.fileDataUrl;
-        fileName = row.sop.signedScanFileName || row.sop.fileName || `${row.sop.sopNumber}.pdf`;
+        fileName = row.sop.signedScanFileName || row.sop.fileName || `${row.sop.sopNumber || 'SPO'}.pdf`;
       } else if (row.doc) {
-        url = await getLibraryDocumentUrl(row.doc);
-        fileName = row.doc.fileName || fileName;
+        url = await (row.type === 'SK' ? getSKDocumentUrl(row.doc) : getMOUDocumentUrl(row.doc));
+        fileName = row.doc.fileName || `${row.type}_${row.doc.documentNumber || row.doc.id}.pdf`;
       }
       if (!url) return;
+
+      if (url.startsWith('data:') || url.startsWith('blob:')) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
@@ -441,14 +491,36 @@ export const DashboardOverviewPage: React.FC<
 
                     <button
                       type="button"
-                      onClick={() =>
-                        onNavigate(
-                          doc.type === 'SK'
-                            ? 'sk'
-                            : 'mou'
-                        )
-                      }
-                      className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shrink-0"
+                      onClick={async () => {
+                        try {
+                          const url = doc.type === 'SK'
+                            ? await getSKDocumentUrl(doc)
+                            : await getMOUDocumentUrl(doc);
+                          if (url) {
+                            setPdfViewer({
+                              url,
+                              title: doc.title,
+                              type: doc.type,
+                              fileName: doc.fileName || `${doc.type}_${doc.documentNumber || doc.id}.pdf`,
+                              documentNumber: doc.documentNumber,
+                              doc
+                            });
+                          } else {
+                            onNavigate(
+                              doc.type === 'SK'
+                                ? 'sk'
+                                : 'mou'
+                            );
+                          }
+                        } catch {
+                          onNavigate(
+                            doc.type === 'SK'
+                              ? 'sk'
+                              : 'mou'
+                          );
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shrink-0 hover:bg-slate-800 transition-colors cursor-pointer"
                     >
                       Buka {doc.type}
                     </button>
@@ -690,7 +762,7 @@ export const DashboardOverviewPage: React.FC<
                   <span className="font-mono text-[11px] font-bold text-slate-700 truncate">{row.number || '—'}</span>
                   <span className={`w-fit px-2 py-1 rounded-md text-[10px] font-black ${row.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : row.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'}`}>{row.type === 'MOU' ? 'MOU / PKS' : `${row.type} Final`}</span>
                   <div className="min-w-0"><div className="text-[11px] font-semibold text-slate-600 truncate">{row.unit || 'RSUD Dr. Soegiri'}</div><div className="text-[10px] text-slate-400">{row.date ? new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div></div>
-                  <div className="flex justify-end gap-1.5"><button type="button" onClick={() => handleArchiveOpen(row)} className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100" title="Lihat"><Eye className="w-4 h-4" /></button>{(row.doc || row.sop) && <button type="button" onClick={() => handleArchiveDownload(row)} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Download"><Download className="w-4 h-4" /></button>}</div>
+                  <div className="flex justify-end gap-1.5"><button type="button" onClick={() => handleArchiveOpen(row)} className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100" title="Lihat"><Eye className="w-4 h-4" /></button>{(row.doc || row.sop) && <button type="button" onClick={() => handleArchiveDownload(row)} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title={`Download ${row.type} PDF`} aria-label={`Download ${row.type} PDF`}><Download className="w-4 h-4" /></button>}</div>
                 </div>
               ))}
             </div>
@@ -703,27 +775,82 @@ export const DashboardOverviewPage: React.FC<
                 <h3 className="mt-3 text-sm font-black text-slate-900 leading-snug line-clamp-2">{row.title}</h3>
                 <p className="mt-1 font-mono text-[10px] font-bold text-emerald-800 truncate">{row.number || 'Tanpa nomor'}</p>
                 <p className="mt-2 text-[11px] text-slate-500 truncate">{row.unit || 'RSUD Dr. Soegiri'}</p>
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end gap-2"><button type="button" onClick={() => handleArchiveOpen(row)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"><Eye className="w-3.5 h-3.5" /> Buka</button>{(row.doc || row.sop) && <button type="button" onClick={() => handleArchiveDownload(row)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"><Download className="w-3.5 h-3.5" /> PDF</button>}</div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end gap-2"><button type="button" onClick={() => handleArchiveOpen(row)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"><Eye className="w-3.5 h-3.5" /> Buka</button>{(row.doc || row.sop) && <button type="button" onClick={() => handleArchiveDownload(row)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"><Download className="w-3.5 h-3.5" /> Download PDF</button>}</div>
               </article>
             ))}
           </div>
         )}
       </section>
 
-      {pdfViewer && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
-          <div className="w-full h-full max-w-6xl bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-            <div className="h-16 shrink-0 px-5 border-b border-slate-200 flex items-center justify-between gap-3">
+      {pdfViewer && pdfViewer.url && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
+          <div className="w-full h-full max-w-6xl bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-slate-200">
+            <div className="h-16 shrink-0 px-5 sm:px-6 border-b border-slate-200 flex items-center justify-between gap-3 bg-white">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black">{pdfViewer.type}</span>
-                  <h3 className="text-sm font-black text-slate-900 truncate">{pdfViewer.title}</h3>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                    pdfViewer.type === 'SK' ? 'bg-emerald-50 text-emerald-800' : 'bg-blue-50 text-blue-800'
+                  }`}>
+                    {pdfViewer.type === 'MOU' ? 'MOU / PKS' : `${pdfViewer.type} Final`}
+                  </span>
+                  {pdfViewer.documentNumber && (
+                    <span className="text-xs font-mono font-bold text-slate-600 truncate">
+                      {pdfViewer.documentNumber}
+                    </span>
+                  )}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">Pratinjau dokumen PDF</p>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 truncate mt-0.5">
+                  {pdfViewer.title}
+                </h3>
               </div>
-              <button type="button" onClick={() => setPdfViewer(null)} className="p-2 rounded-xl text-slate-500 hover:bg-slate-100" title="Tutup"><X className="w-5 h-5" /></button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (pdfViewer.doc) {
+                      await handleArchiveDownload({
+                        id: pdfViewer.doc.id,
+                        type: pdfViewer.type,
+                        title: pdfViewer.title,
+                        number: pdfViewer.documentNumber,
+                        fileName: pdfViewer.fileName,
+                        doc: pdfViewer.doc
+                      });
+                    } else if (pdfViewer.url) {
+                      const a = document.createElement('a');
+                      a.href = pdfViewer.url;
+                      a.download = pdfViewer.fileName || `${pdfViewer.type}.pdf`;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                  title={`Download ${pdfViewer.type} PDF`}
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span className="hidden sm:inline">Download PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPdfViewer(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Tutup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <iframe src={pdfViewer.url} title={pdfViewer.title} className="flex-1 w-full bg-slate-100" />
+
+            <div className="flex-1 min-h-0 bg-slate-100">
+              <DocumentViewer
+                fileUrl={pdfViewer.url}
+                fileName={pdfViewer.fileName || `${pdfViewer.type}.pdf`}
+                heightClass="h-full w-full"
+              />
+            </div>
           </div>
         </div>
       )}
