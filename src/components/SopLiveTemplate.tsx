@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   AlertTriangle, 
-  LayoutList, 
-  Table as TableIcon, 
   CheckCircle2, 
   Building2, 
   Calendar, 
@@ -11,9 +9,26 @@ import {
   Check, 
   Sparkles,
   ChevronRight,
-  Info
+  Info,
+  Undo2,
+  Redo2,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  IndentDecrease,
+  IndentIncrease,
+  List,
+  ImagePlus,
+  Palette,
+  RotateCcw,
+  Maximize2,
+  Type
 } from 'lucide-react';
-import { RichTextEditor } from './RichTextEditor';
+import { RichTextEditor, PRESET_COLORS, compressImageToDataUrl } from './RichTextEditor';
 import { HospitalLogo } from './HospitalLogo';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 
@@ -68,32 +83,72 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   showPageHint = true,
   missingSections = [],
 }) => {
-  // Check if screen is mobile on initial mount
-  const [isMobile, setIsMobile] = useState(() => {
+  // Responsive mode is automatic: cards for mobile/tablet, official A4 table for large desktop.
+  const [isCompactViewport, setIsCompactViewport] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.innerWidth < 768;
+      return window.innerWidth < 1024;
     }
     return false;
   });
 
-  // View mode: 'cards' (optimal for mobile & touch typing) or 'table' (official hospital tabular sheet)
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < 768 ? 'cards' : 'table';
-    }
-    return 'table';
-  });
-
   const [activeSectionId, setActiveSectionId] = useState<string>('sec-pengertian');
+  const [activeTableSection, setActiveTableSection] = useState<'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait'>('pengertian');
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [activeColor, setActiveColor] = useState('#0f172a');
+  const tableFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExecCommand = (cmd: string, val: string = '') => {
+    document.execCommand(cmd, false, val);
+  };
+
+  const handleApplyColor = (color: string) => {
+    setActiveColor(color);
+    document.execCommand('foreColor', false, color);
+    setShowColorPicker(false);
+  };
+
+  const handleInsertList = (type: '1' | 'a') => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    document.execCommand('insertOrderedList');
+    if (type === 'a') {
+      const parentList = selection.anchorNode?.parentElement?.closest('ol');
+      if (parentList) {
+        parentList.type = 'a';
+        parentList.style.listStyleType = 'lower-alpha';
+      }
+    }
+  };
+
+  const handleInsertImageToActiveSection = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.type.startsWith('image/')) {
+        const dataUrl = await compressImageToDataUrl(file);
+        if (dataUrl) {
+          const figureHtml = `<figure data-align="center" data-width="80%" style="text-align: center; margin: 8px auto; max-width: 100%;"><img src="${dataUrl}" style="max-width: 100%; height: auto; border-radius: 4px;" alt="Lampiran Bagan SPO" /><figcaption style="font-size: 11px; color: #64748b; margin-top: 4px; font-family: Bookman Old Style, serif;">Gambar / Bagan Alur</figcaption></figure><p><br></p>`;
+          if (activeTableSection === 'pengertian') onPengertianChange((pengertian || '') + figureHtml);
+          else if (activeTableSection === 'tujuan') onTujuanChange((tujuan || '') + figureHtml);
+          else if (activeTableSection === 'kebijakan') onKebijakanChange((kebijakan || '') + figureHtml);
+          else if (activeTableSection === 'prosedur') onProsedurChange((prosedur || '') + figureHtml);
+          else if (activeTableSection === 'alur') onAlurChange((alur || '') + figureHtml);
+          else if (activeTableSection === 'unitTerkait') onUnitTerkaitChange((unitTerkait || '') + figureHtml);
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
+      setIsCompactViewport(window.innerWidth < 1024);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  const viewMode: 'cards' | 'table' = isCompactViewport ? 'cards' : 'table';
 
   const hasContent = (html: string = '') => {
     if (!html || !html.trim()) return false;
@@ -134,68 +189,6 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
   return (
     <div className="space-y-3.5">
-      {/* View Mode Switcher Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-2.5 sm:p-3 rounded-2xl bg-slate-100/90 border border-slate-200">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-            <FileText className="w-4 h-4" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900 leading-tight">Pengisian Batang Tubuh SPO</h4>
-            <p className="text-[10px] text-slate-500 hidden sm:block">Format standar RSUD Dr. Soegiri Lamongan</p>
-          </div>
-        </div>
-
-        {/* Mode Toggle Pills */}
-        <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-2xs self-stretch sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setViewMode('cards')}
-            className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation ${
-              viewMode === 'cards'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <LayoutList className="w-3.5 h-3.5" />
-            <span>Mode Kartu (Mobile)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('table')}
-            className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation ${
-              viewMode === 'table'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span>Mode Lembar Tabel</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Missing Sections Alert Banner */}
-      {missingSections && missingSections.length > 0 && (
-        <div className="p-3.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-900 shadow-sm flex items-start gap-2.5">
-          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-          <div className="text-xs">
-            <div className="font-bold text-rose-950">Kolom Batang Tubuh SPO Belum Terisi:</div>
-            <p className="mt-0.5 text-rose-800">
-              Bagian wajib berikut belum diisi teks maupun gambar:
-            </p>
-            <ul className="mt-1 list-disc pl-4 font-bold text-rose-900 space-y-0.5">
-              {missingSections.map((sec) => (
-                <li key={sec}>{sec}</li>
-              ))}
-            </ul>
-            <p className="mt-1.5 text-[11px] text-rose-700">
-              💡 <em>Catatan:</em> Kolom dianggap sah terisi jika memuat teks tulisan atau disisipkan gambar/diagram. Bagian ALUR bersifat opsional.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* ========================================================================= */}
       {/* 1. MODE KARTU RESPONSIF (OPTIMIZED FOR MOBILE, TOUCH & FULL-WIDTH EDITING) */}
       {/* ========================================================================= */}
@@ -446,18 +439,279 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
       {/* 2. MODE LEMBAR TABEL RESMI (OFFICIAL HOSPITAL TABLE VIEW FOR DESKTOP/PRINT) */}
       {/* ========================================================================= */}
       {viewMode === 'table' && (
-        <div className="space-y-3 animate-fadeIn">
+        <div className="space-y-2.5 animate-fadeIn">
           {showPageHint && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-900 flex items-start gap-2">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-900 flex items-start gap-2 max-w-[900px] mx-auto">
               <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <div>
                 <div className="font-semibold">Pratinjau langsung format naskah SPO resmi</div>
                 <div className="mt-0.5 text-[11px] text-indigo-700 leading-relaxed">
-                  Posisi pengisian dibuat mengikuti lembar SPO resmi RSUD Dr. Soegiri. Isi yang panjang akan mengalir ke halaman berikutnya saat dicetak secara otomatis.
+                  Posisi pengisian dibuat mengikuti lembar SPO resmi RSUD Dr. Soegiri. Gunakan Text Tool di atas kolom untuk mengatur format dan penomoran.
                 </div>
               </div>
             </div>
           )}
+
+          {/* DEDICATED TOP TEXT TOOLBAR - POSITIONED DIRECTLY ABOVE THE COLUMNS */}
+          <div className="sticky top-2 z-30 w-full max-w-[900px] mx-auto bg-white text-slate-700 rounded-xl shadow-sm border border-slate-200 px-2 py-1 flex items-center justify-between gap-1 text-xs select-none backdrop-blur-md">
+            {/* Active Column / Section Indicator & Switcher */}
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:inline">
+                Bagian:
+              </span>
+              <select
+                value={activeTableSection}
+                onChange={(e) => setActiveTableSection(e.target.value as any)}
+                title="Pilih Kolom Batang Tubuh yang Sedang Diedit"
+                className="h-6 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-0 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
+              >
+                <option value="pengertian">1. PENGERTIAN</option>
+                <option value="tujuan">2. TUJUAN</option>
+                <option value="kebijakan">3. KEBIJAKAN</option>
+                <option value="prosedur">4. PROSEDUR</option>
+                <option value="alur">5. ALUR / BAGAN</option>
+                <option value="unitTerkait">6. UNIT TERKAIT</option>
+              </select>
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+
+            {/* Undo & Redo */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('undo')}
+                title="Undo (Ctrl+Z)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('redo')}
+                title="Redo (Ctrl+Y)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+
+            {/* Font Styling (B, I, U, S) */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('bold')}
+                title="Tebal / Bold (Ctrl+B)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <Bold className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('italic')}
+                title="Miring / Italic (Ctrl+I)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <Italic className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('underline')}
+                title="Garis Bawah / Underline (Ctrl+U)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <Underline className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Font Color Picker */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowColorPicker(!showColorPicker)}
+                title="Warna Teks"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center gap-0.5"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span
+                  className="w-2 h-2 rounded-full border border-slate-500 inline-block shrink-0"
+                  style={{ backgroundColor: activeColor }}
+                />
+              </button>
+
+              {showColorPicker && (
+                <div className="absolute top-full left-0 mt-1 z-50 bg-white text-slate-900 border border-slate-200 rounded-lg shadow-xl p-2 w-44 space-y-1.5 animate-fadeIn">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Pilih Warna Teks:
+                  </span>
+                  <div className="grid grid-cols-4 gap-1">
+                    {PRESET_COLORS.map((c) => (
+                      <button
+                        key={c.color}
+                        type="button"
+                        onClick={() => handleApplyColor(c.color)}
+                        title={c.name}
+                        className="w-7 h-7 rounded border border-slate-300 hover:scale-105 transition-transform cursor-pointer flex items-center justify-center"
+                        style={{ backgroundColor: c.color }}
+                      />
+                    ))}
+                  </div>
+                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-600">Kustom:</span>
+                    <input
+                      type="color"
+                      value={activeColor}
+                      onChange={(e) => handleApplyColor(e.target.value)}
+                      className="w-5 h-5 rounded cursor-pointer border-0 p-0"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+
+            {/* Alignments */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('justifyLeft')}
+                title="Rata Kiri (Ctrl+L)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('justifyCenter')}
+                title="Rata Tengah (Ctrl+E)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('justifyRight')}
+                title="Rata Kanan (Ctrl+R)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('justifyFull')}
+                title="Rata Kiri Kanan / Justify (Ctrl+J)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <AlignJustify className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0 hidden md:block" />
+
+            {/* Indentations */}
+            <div className="hidden md:flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('outdent')}
+                title="Kurangi Indentasi (Shift+Tab)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <IndentDecrease className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('indent')}
+                title="Tambah Indentasi (Tab)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <IndentIncrease className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+
+            {/* Presets SPO Numbering */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleInsertList('1')}
+                title="Nomor Utama (1., 2., 3...)"
+                className="h-6 px-1.5 text-[10px] font-bold rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
+              >
+                1.
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleInsertList('a')}
+                title="Sub-Poin Huruf (a., b., c...)"
+                className="h-6 px-1.5 text-[10px] font-bold rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
+              >
+                a.
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('insertUnorderedList')}
+                title="Poin / Bullet List (•)"
+                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
+              >
+                <List className="w-3.5 h-3.5 text-indigo-400" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecCommand('removeFormat')}
+                title="Reset Format"
+                className="w-6 h-6 p-1 rounded hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 cursor-pointer flex items-center justify-center transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+
+            {/* Gambar / Bagan Upload Tool */}
+            <div className="flex items-center shrink-0">
+              <input
+                ref={tableFileInputRef}
+                type="file"
+                accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml"
+                multiple
+                onChange={handleInsertImageToActiveSection}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (tableFileInputRef.current) {
+                    tableFileInputRef.current.value = '';
+                    tableFileInputRef.current.click();
+                  }
+                }}
+                title="Sisipkan Gambar/Bagan ke Bagian Aktif"
+                className="h-6 px-2 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded text-[10px] font-bold transition-all cursor-pointer shadow-xs"
+              >
+                <ImagePlus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Gambar</span>
+              </button>
+            </div>
+          </div>
 
           <div className="overflow-x-auto no-scrollbar rounded-xl border border-slate-300 bg-white shadow-sm mx-auto w-full max-w-[900px]">
             <table className="w-full min-w-[620px] sm:min-w-[720px] border-collapse table-fixed font-bookman text-black" style={{ border: '1px solid #000' }}>
@@ -523,64 +777,89 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                 </tr>
 
-                <tr className={isPengertianMissing ? 'bg-rose-50/40' : ''}>
-                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] ${isPengertianMissing ? 'bg-rose-100/70 text-rose-900' : ''}`}>
+                <tr >
+                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word]`}>
                     <div className="flex flex-col gap-0.5">
                       <span>PENGERTIAN</span>
-                      {isPengertianMissing && (
-                        <span className="text-[9px] font-extrabold text-rose-700 bg-rose-200/80 px-1 py-0.5 rounded tracking-normal normal-case">
-                          ⚠️ Wajib diisi (Teks / Gambar)
-                        </span>
-                      )}
+                      
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content ${isPengertianMissing ? 'bg-rose-50/50' : ''}`}>
-                    <RichTextEditor label="" value={pengertian} onChange={onPengertianChange} placeholder="Isi pengertian..." minHeight="85px" allowImageUpload={true} />
+                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                    <RichTextEditor
+                      label=""
+                      value={pengertian}
+                      onChange={onPengertianChange}
+                      placeholder="Isi pengertian..."
+                      minHeight="85px"
+                      allowImageUpload={true}
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('pengertian')}
+                    />
                   </td>
                 </tr>
-                <tr className={isTujuanMissing ? 'bg-rose-50/40' : ''}>
-                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] ${isTujuanMissing ? 'bg-rose-100/70 text-rose-900' : ''}`}>
+                <tr >
+                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word]`}>
                     <div className="flex flex-col gap-0.5">
                       <span>TUJUAN</span>
-                      {isTujuanMissing && (
-                        <span className="text-[9px] font-extrabold text-rose-700 bg-rose-200/80 px-1 py-0.5 rounded tracking-normal normal-case">
-                          ⚠️ Wajib diisi (Teks / Gambar)
-                        </span>
-                      )}
+                      
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content ${isTujuanMissing ? 'bg-rose-50/50' : ''}`}>
-                    <RichTextEditor label="" value={tujuan} onChange={onTujuanChange} placeholder="Isi tujuan..." minHeight="85px" allowImageUpload={true} />
+                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                    <RichTextEditor
+                      label=""
+                      value={tujuan}
+                      onChange={onTujuanChange}
+                      placeholder="Isi tujuan..."
+                      minHeight="85px"
+                      allowImageUpload={true}
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('tujuan')}
+                    />
                   </td>
                 </tr>
-                <tr className={isKebijakanMissing ? 'bg-rose-50/40' : ''}>
-                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] ${isKebijakanMissing ? 'bg-rose-100/70 text-rose-900' : ''}`}>
+                <tr >
+                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word]`}>
                     <div className="flex flex-col gap-0.5">
                       <span>KEBIJAKAN</span>
-                      {isKebijakanMissing && (
-                        <span className="text-[9px] font-extrabold text-rose-700 bg-rose-200/80 px-1 py-0.5 rounded tracking-normal normal-case">
-                          ⚠️ Wajib diisi (Teks / Gambar)
-                        </span>
-                      )}
+                      
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content ${isKebijakanMissing ? 'bg-rose-50/50' : ''}`}>
-                    <RichTextEditor label="" value={kebijakan} onChange={onKebijakanChange} placeholder="Isi kebijakan / dasar hukum..." minHeight="85px" allowImageUpload={true} />
+                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                    <RichTextEditor
+                      label=""
+                      value={kebijakan}
+                      onChange={onKebijakanChange}
+                      placeholder="Isi kebijakan / dasar hukum..."
+                      minHeight="85px"
+                      allowImageUpload={true}
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('kebijakan')}
+                    />
                   </td>
                 </tr>
-                <tr className={isProsedurMissing ? 'bg-rose-50/40' : ''}>
-                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] ${isProsedurMissing ? 'bg-rose-100/70 text-rose-900' : ''}`}>
+                <tr >
+                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word]`}>
                     <div className="flex flex-col gap-0.5">
                       <span>PROSEDUR</span>
-                      {isProsedurMissing && (
-                        <span className="text-[9px] font-extrabold text-rose-700 bg-rose-200/80 px-1 py-0.5 rounded tracking-normal normal-case">
-                          ⚠️ Wajib diisi (Teks / Gambar)
-                        </span>
-                      )}
+                      
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content ${isProsedurMissing ? 'bg-rose-50/50' : ''}`}>
-                    <RichTextEditor label="" value={prosedur} onChange={onProsedurChange} placeholder={'1. Isi langkah pertama...\n2. Isi langkah berikutnya...'} minHeight="120px" allowImageUpload={true} imageUploadNote="Gambar/diagram dapat disisipkan bila diperlukan." />
+                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                    <RichTextEditor
+                      label=""
+                      value={prosedur}
+                      onChange={onProsedurChange}
+                      placeholder={'1. Isi langkah pertama...\n2. Isi langkah berikutnya...'}
+                      minHeight="120px"
+                      allowImageUpload={true}
+                      imageUploadNote="Gambar/diagram dapat disisipkan bila diperlukan."
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('prosedur')}
+                    />
                   </td>
                 </tr>
                 <tr>
@@ -592,23 +871,39 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       </span>
                     </div>
                   </td>
-                  <td colSpan={3} className="border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content">
-                    <RichTextEditor label="" value={alur} onChange={onAlurChange} placeholder="Opsional — isi bagan alir / alur kerja..." minHeight="85px" allowImageUpload={true} />
+                  <td colSpan={3} className="border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content">
+                    <RichTextEditor
+                      label=""
+                      value={alur}
+                      onChange={onAlurChange}
+                      placeholder="Opsional — isi bagan alir / alur kerja..."
+                      minHeight="85px"
+                      allowImageUpload={true}
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('alur')}
+                    />
                   </td>
                 </tr>
-                <tr className={isUnitTerkaitMissing ? 'bg-rose-50/40' : ''}>
-                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] ${isUnitTerkaitMissing ? 'bg-rose-100/70 text-rose-900' : ''}`}>
+                <tr >
+                  <td className={`border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word]`}>
                     <div className="flex flex-col gap-0.5">
                       <span>UNIT TERKAIT</span>
-                      {isUnitTerkaitMissing && (
-                        <span className="text-[9px] font-extrabold text-rose-700 bg-rose-200/80 px-1 py-0.5 rounded tracking-normal normal-case">
-                          ⚠️ Wajib diisi (Teks / Gambar)
-                        </span>
-                      )}
+                      
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1.5 sm:p-2 align-top font-bookman sop-batang-tubuh-content ${isUnitTerkaitMissing ? 'bg-rose-50/50' : ''}`}>
-                    <RichTextEditor label="" value={unitTerkait} onChange={onUnitTerkaitChange} placeholder="Isi unit terkait..." minHeight="85px" allowImageUpload={true} />
+                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                    <RichTextEditor
+                      label=""
+                      value={unitTerkait}
+                      onChange={onUnitTerkaitChange}
+                      placeholder="Sebutkan instalasi, ruangan, atau tim kerja terkait..."
+                      minHeight="85px"
+                      allowImageUpload={true}
+                      hideToolbar={true}
+                      variant="seamless"
+                      onFocus={() => setActiveTableSection('unitTerkait')}
+                    />
                   </td>
                 </tr>
               </tbody>

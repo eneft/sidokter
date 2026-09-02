@@ -23,7 +23,6 @@ import {
   AlertCircle,
   CheckCircle2,
   X,
-  ChevronDown,
   Move,
   RotateCw,
   Layers,
@@ -72,6 +71,9 @@ interface RichTextEditorProps {
   helperText?: string;
   allowImageUpload?: boolean;
   imageUploadNote?: string;
+  hideToolbar?: boolean;
+  variant?: 'default' | 'seamless';
+  onFocus?: () => void;
 }
 
 
@@ -231,7 +233,7 @@ const normalizePastedRichText = (source: string): string => {
     .trim();
 };
 
-const PRESET_COLORS = [
+export const PRESET_COLORS = [
   { name: 'Hitam Dokumen', color: '#0f172a' },
   { name: 'Abu-Abu Gelap', color: '#475569' },
   { name: 'Biru Medis', color: '#1d4ed8' },
@@ -241,7 +243,7 @@ const PRESET_COLORS = [
   { name: 'Ungu Khusus', color: '#7c3aed' },
 ];
 
-const FONT_SIZES = [
+export const FONT_SIZES = [
   { label: '10pt (Kecil)', value: '10pt' },
   { label: '12pt (Standar SPO)', value: '12pt' },
   { label: '13pt (Sedang)', value: '13pt' },
@@ -250,9 +252,9 @@ const FONT_SIZES = [
   { label: '18pt (Besar)', value: '18pt' },
 ];
 
-const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024; // Up to 20 MB allowed (will be auto-compressed to ~30-60 KB)
+export const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024; // Up to 20 MB allowed (will be auto-compressed to ~30-60 KB)
 
-async function compressImageToDataUrl(file: File): Promise<string> {
+export async function compressImageToDataUrl(file: File): Promise<string> {
   return new Promise((resolve) => {
     // 1. Try URL.createObjectURL (fastest, lowest memory overhead)
     const objectUrl = typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(file) : null;
@@ -514,6 +516,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   helperText,
   allowImageUpload = true,
   imageUploadNote,
+  hideToolbar = false,
+  variant = 'default',
+  onFocus,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -1937,7 +1942,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
       <div
         ref={containerRef}
-        className={`relative border border-slate-200 hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-400 rounded-lg bg-white transition-colors w-full overflow-hidden ${
+        className={`relative transition-colors w-full overflow-hidden ${
+          variant === 'seamless'
+            ? 'border-0 rounded-none bg-transparent'
+            : 'border border-slate-200 hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-400 rounded-lg bg-white'
+        } ${
           isFullscreen ? 'fixed inset-0 z-[100] flex flex-col bg-white overflow-hidden p-2 sm:p-4 rounded-none border-0' : ''
         }`}
       >
@@ -1968,8 +1977,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
         )}
 
-        {/* TOOLBAR (Sticky Tools - Ultra-Compact & Streamlined for Batang Tubuh) */}
-        <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar touch-pan-x text-slate-700 select-none shrink-0">
+        {/* TOOLBAR — compact editor controls without an intrusive toggle */}
+        {(!hideToolbar || isFullscreen) && (
+          <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar touch-pan-x text-slate-700 select-none shrink-0">
           {!selectedFigure ? (
             <>
               {/* Riwayat Undo/Redo */}
@@ -2402,11 +2412,13 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             </>
           )}
         </div>
+        )}
 
         {/* CONTENT EDITABLE AREA */}
         <div
           ref={editorRef}
           contentEditable
+          onFocus={onFocus}
           onInput={handleInput}
           onBlur={handleInput}
           onKeyDown={handleEditorKeyDown}

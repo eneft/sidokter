@@ -106,8 +106,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 }) => {
   const [showIssueNumberModal, setShowIssueNumberModal] = useState(false);
   const [showIssuedNumbers, setShowIssuedNumbers] = useState(false);
+  const [issuedNumberSearch, setIssuedNumberSearch] = useState('');
   const [issuedNumberRegister, setIssuedNumberRegister] = useState<SopNumberReservation[]>([]);
   const [issueHierarchyId, setIssueHierarchyId] = useState('');
+  // Terbitkan Nomor memiliki state sendiri agar tidak bocor ke form SPO.
+  const [issueTitle, setIssueTitle] = useState('');
+  const [issueEffectiveDate, setIssueEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
   // Active Navigation Tab State: Menu structure Dashboard | SPO | SK | MOU | Library | Admin
   const [activeTab, setActiveTab] = useState<MainMenuTab>('dashboard');
   const [spoSubTab, setSpoSubTab] = useState<'input' | 'list'>('list');
@@ -373,7 +377,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [existingSopId, setExistingSopId] = useState('');
   const [oldSopNumber, setOldSopNumber] = useState('');
   const [reviewReason, setReviewReason] = useState('');
+  const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
+
+  // Progressive input workflow.
+  const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1);
+  const [documentTypeChosen, setDocumentTypeChosen] = useState(false);
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -450,8 +459,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
   const handleIssueNumber = async () => {
     if (!onIssueSopNumber || !hasValidPetugasAssignment) return;
-    if (!title.trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Judul SPO wajib diisi.'); return; }
-    if (!effectiveDate) { onShowToast?.('error', 'Data Belum Lengkap', 'Tanggal berlaku wajib diisi.'); return; }
+    if (!issueTitle.trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Judul SPO wajib diisi.'); return; }
+    if (!issueEffectiveDate) { onShowToast?.('error', 'Data Belum Lengkap', 'Tanggal berlaku wajib diisi.'); return; }
     const selectedIssueHierarchy = issueHierarchyOptions.find((option) => option.id === issueHierarchyId);
     if (!selectedIssueHierarchy) {
       onShowToast?.('error', 'Hirarki Belum Lengkap', 'Pilih hirarki sampai tingkat unit terakhir yang tersedia.');
@@ -463,8 +472,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       const issued = await onIssueSopNumber({
         divisionCode: selectedIssueHierarchy.divisionCode,
         subHierarchyCode: selectedIssueHierarchy.subHierarchyCode || undefined,
-        dateStr: effectiveDate,
-        title: title.trim(),
+        dateStr: issueEffectiveDate,
+        title: issueTitle.trim(),
         revisionNumber: '00'
       });
       setIssuedSopNumber(issued.sopNumber);
@@ -474,10 +483,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       setIssuedSopDivision(null);
       setIssuedSopHierarchy(null);
       setIssuedSopDate(null);
+      // Clear only the Terbitkan Nomor workflow; never clear/reuse SPO form state.
+      setIssueTitle('');
+      setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
+      setIssueHierarchyId('');
       setShowIssueNumberModal(false);
       const refreshedReservations = await getAllNumberReservations();
       setIssuedNumberRegister(refreshedReservations.filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose)).filter((row) => userSession.role === 'admin' || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase())).sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt))));
-      setShowIssuedNumbers(true);
+      setIssuedNumberSearch('');
       onShowToast?.('success', 'Nomor SPO Diterbitkan', `Nomor ${issued.sopNumber} berhasil diterbitkan dan masuk ke Daftar Nomor.`);
     } catch (err: any) {
       const message = err?.message || 'Nomor SPO gagal diterbitkan.';
@@ -491,8 +504,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (documentType === 'LAMA' && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-        onShowToast?.('error', 'Format File Salah', 'SPO Eksisting wajib berupa file PDF asli.');
+      if ((documentType === 'LAMA' || documentType === 'REVIEW') && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        onShowToast?.('error', 'Format File Salah', documentType === 'REVIEW' ? 'SPO rujukan Riviu dari luar aplikasi wajib berupa file PDF.' : 'SPO Eksisting wajib berupa file PDF asli.');
         e.target.value = '';
         return;
       }
@@ -522,6 +535,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     setExistingSopId('');
     setOldSopNumber('');
     setReviewReason('');
+    setExternalReviewSignedConfirmed(false);
     setSelectedExistingSopIdForReview('');
     setSubmitError(null);
     setIssuedSopNumber(null);
@@ -530,7 +544,43 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
     setIssuedSopDivision(null);
     setIssuedSopHierarchy(null);
     setIssuedSopDate(null);
+    setEffectiveDate(new Date().toISOString().split('T')[0]);
+    setWorkflowStep(1);
+    setDocumentTypeChosen(false);
   };
+
+  const openSpoInput = () => {
+    resetForm();
+    setDocumentTypeChosen(false);
+    setWorkflowStep(1);
+    setSpoSubTab('input');
+  };
+
+  // Every workflow entry starts from a clean SPO form. Data is inherited only
+  // by an explicit action (for example, selecting a source SPO for Riviu).
+  const startDocumentWorkflow = (nextType: 'BARU' | 'LAMA' | 'REVIEW') => {
+    resetForm();
+    setDocumentType(nextType);
+    setDocumentTypeChosen(true);
+    setWorkflowStep(1);
+    if (nextType === 'LAMA') {
+      setEffectiveDate('2024-01-02');
+    } else if (nextType === 'REVIEW') {
+      setRevisionNumber('01');
+    }
+  };
+
+  const goBackWorkflow = () => {
+    setWorkflowStep((current) => current === 3 ? 2 : 1);
+  };
+
+  const hierarchyReady = useMemo(() => {
+    if (!documentTypeChosen || !hasValidPetugasAssignment || !activeAssignment?.divisionCode) return false;
+    const selectedPath = [selectedSubCode, selectedInstCode, selectedPoliCode, selectedSubUnitCode].filter(Boolean);
+    const assignmentPath = getAssignmentPath(activeAssignment);
+    const followsAssignment = assignmentPath.every((v, i) => selectedPath[i] === v);
+    return followsAssignment && getHierarchyChildren(selectedCatCode, selectedPath).length === 0;
+  }, [documentTypeChosen, hasValidPetugasAssignment, activeAssignment, selectedSubCode, selectedInstCode, selectedPoliCode, selectedSubUnitCode, selectedCatCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -562,25 +612,31 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         const reviewNumber = normalizeSopNumberInput(oldSopNumber);
         const referenced = (selectedExistingSopIdForReview && sops.find((s) => s.id === selectedExistingSopIdForReview))
           || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
-        if (!reviewNumber || !referenced) {
-          setSubmitError('SPO rujukan Riviu tidak ditemukan di database. Pilih SPO yang terdaftar/AKTIF.');
+        const hasExternalSignedPdf = Boolean(
+          selectedFile &&
+          (selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')) &&
+          externalReviewSignedConfirmed
+        );
+        if (!reviewNumber || (!referenced && !hasExternalSignedPdf)) {
+          setSubmitError('SPO rujukan Riviu harus berupa SPO AKTIF di aplikasi, atau PDF SPO lama yang sudah ditandatangani Direktur dan dikonfirmasi keabsahannya.');
           return;
         }
-        if (referenced.status !== 'AKTIF') {
+        if (referenced && referenced.status !== 'AKTIF') {
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
           return;
         }
+        const isNewFormat = isNewSopFormat(reviewNumber);
         const pattern = matchMasterHierarchyPattern(reviewNumber);
         const selectedDiv = String(selectedCatCode || '').trim().toUpperCase();
         const selectedSub = String(subHierarchyCode || '').trim();
-        if (pattern.isMatch) {
+        // Deteksi otomatis format nomor SPO rujukan:
+        // Format Baru -> Harus sesuai dengan hirarki yang dipilih
+        // Format Lama -> Abaikan validasi ketidaksesuaian hirarki; hirarki SPO Riviu tetap mengikuti hirarki yang dipilih
+        if (isNewFormat && pattern.isMatch) {
           if (String(pattern.categoryCode || '').trim().toUpperCase() !== selectedDiv || String(pattern.subHierarchyCode || '').trim() !== selectedSub) {
             setSubmitError(`Nomor SPO rujukan tidak sesuai dengan hirarki yang dipilih. Nomor: ${pattern.categoryCode}${pattern.subHierarchyCode ? ` / ${pattern.subHierarchyCode}` : ''}; pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
             return;
           }
-        } else if (String(referenced.divisionCode || '').trim().toUpperCase() !== selectedDiv || String(referenced.subHierarchyCode || '').trim() !== selectedSub) {
-          setSubmitError('SPO format lama tidak sesuai dengan hirarki yang dipilih. Gunakan hirarki yang tersimpan pada SPO rujukan.');
-          return;
         }
       }
 
@@ -769,6 +825,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         (sopData as any).alur = alur.trim();
       }
 
+      if (isReview) {
+        (sopData as any).externalReviewSignedConfirmed = externalReviewSignedConfirmed;
+      }
+
       if (selectedFile) {
         const reader = new FileReader();
         const dataUrlPromise = new Promise<string>((resolve, reject) => {
@@ -787,6 +847,13 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
           sopData.signedScanFileSize = selectedFile.size;
           sopData.signedScanFileType = selectedFile.type || 'application/pdf';
           sopData.signedScanDataUrl = dataUrl;
+        } else if (isReview) {
+          // For Riviu, the uploaded PDF is the OLD/SOURCE document, not the new Riviu PDF.
+          // Keep it as evidence so the generated Riviu document does not accidentally preview the old file.
+          (sopData as any).oldFileName = selectedFile.name;
+          (sopData as any).oldFileSize = selectedFile.size;
+          (sopData as any).oldFileType = selectedFile.type || 'application/pdf';
+          (sopData as any).oldFileDataUrl = dataUrl;
         } else {
           sopData.fileName = selectedFile.name;
           sopData.fileSize = selectedFile.size;
@@ -852,18 +919,14 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         {activeTab === 'spo' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Sub-header / toggle */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 px-4 sm:px-5 py-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-700">
-                  <FileText className="w-6 h-6" />
+                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700">
+                  <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                    Standar Prosedur Operasional (SPO)
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Ruang kerja penyusunan dan arsip SPO unit kerja Anda: <strong>{userSession.unitName || userSession.divisionCode}</strong>
-                  </p>
+                  <h1 className="text-lg sm:text-xl font-black text-slate-900">SPO</h1>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Standar Prosedur Operasional · {userSession.unitName || userSession.divisionCode}</p>
                 </div>
               </div>
 
@@ -872,19 +935,20 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setSubmitError(null);
-                    setSpoSubTab('input');
+                    openSpoInput();
                   }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4" />
-                  <span>+ Daftarkan SPO Baru</span>
+                  <span>+ SPO Baru</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
                     setSubmitError(null);
+                    setIssueTitle('');
+                    setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
                     setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
                     setShowIssueNumberModal(true);
                   }}
@@ -895,61 +959,25 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                   <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
                 </button>
 
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const rows = await getAllNumberReservations();
-                      const allowed = userSession.role === 'admin' ? true : null;
-                      setIssuedNumberRegister(rows.filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) && (allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))).sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt))));
-                      setShowIssuedNumbers((value) => !value);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
-                  >
-                    <ListOrdered className="w-4 h-4" />
-                    <span>Nomor Terbit</span>
-                    <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
-                  </button>
-                  {showIssuedNumbers && (
-                    <div className="absolute right-0 top-[calc(100%+8px)] z-[70] w-[min(620px,calc(100vw-32px))] rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
-                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-black text-slate-900">Nomor Terbit</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">Nomor yang sudah diterbitkan dan belum digunakan oleh SPO Eksisting.</div>
-                        </div>
-                        <button type="button" onClick={() => setShowIssuedNumbers(false)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 cursor-pointer"><X className="w-4 h-4" /></button>
-                      </div>
-                      <div className="max-h-72 overflow-auto">
-                        {issuedNumberRegister.length === 0 ? (
-                          <div className="px-4 py-8 text-center text-xs text-slate-500">Belum ada nomor yang diterbitkan dan belum digunakan.</div>
-                        ) : issuedNumberRegister.map((row) => (
-                          <div key={row.id} className="px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50 flex items-center gap-3">
-                             <div className="min-w-0 flex-1">
-                               <div className="font-mono text-xs font-black text-slate-900 break-all">{row.sopNumber}</div>
-                               <div className="mt-1 text-[11px] font-semibold text-slate-600 truncate">{row.title || '—'}</div>
-                             </div>
-                             <button
-                               type="button"
-                               onClick={async () => {
-                                 try {
-                                   await navigator.clipboard.writeText(row.sopNumber);
-                                   onShowToast?.('success', 'Nomor Disalin', row.sopNumber);
-                                 } catch {
-                                   onShowToast?.('error', 'Gagal Menyalin', 'Nomor tidak dapat disalin ke clipboard.');
-                                 }
-                               }}
-                               className="shrink-0 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors"
-                               title="Salin nomor"
-                               aria-label={`Salin nomor ${row.sopNumber}`}
-                             >
-                               <Copy className="w-4 h-4" />
-                             </button>
-                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const rows = await getAllNumberReservations();
+                    const allowed = userSession.role === 'admin' ? true : null;
+                    const visible = rows
+                      .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
+                      .filter((row) => allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))
+                      .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
+                    setIssuedNumberRegister(visible);
+                    setIssuedNumberSearch('');
+                    setShowIssuedNumbers(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                >
+                  <ListOrdered className="w-4 h-4" />
+                  <span>Nomor Terbit</span>
+                  <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
+                </button>
               </div>
             </div>
 
@@ -989,69 +1017,43 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-5">
-                  {/* 1. Jenis SPO */}
+                  {/* 1. Jenis SPO — tahap pertama, lalu otomatis menjadi summary setelah lanjut. */}
                   <section className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">1. Jenis Dokumen SPO</h3>
+                      {workflowStep >= 2 && documentTypeChosen && <span className="text-[10px] font-bold text-emerald-700">✓ Selesai</span>}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setDocumentType('BARU')}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${
-                          documentType === 'BARU'
-                            ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20 text-emerald-950'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <FileText className={`w-5 h-5 shrink-0 ${documentType === 'BARU' ? 'text-emerald-700' : 'text-slate-400'}`} />
-                        <div>
-                          <div className="text-xs font-black">SPO Baru (2026)</div>
-                          <div className="text-[10px] text-slate-400">Penomoran otomatis</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setDocumentType('LAMA')}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${
-                          documentType === 'LAMA'
-                            ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20 text-purple-950'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <BookOpen className={`w-5 h-5 shrink-0 ${documentType === 'LAMA' ? 'text-purple-700' : 'text-slate-400'}`} />
-                        <div>
-                          <div className="text-xs font-black">SPO Eksisting</div>
-                          <div className="text-[10px] text-slate-400">Scan PDF sah bertandatangan</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDocumentType('REVIEW');
-                          if (!revisionNumber || revisionNumber === '00') setRevisionNumber('01');
-                        }}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${
-                          documentType === 'REVIEW'
-                            ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/20 text-amber-950'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <RefreshCw className={`w-5 h-5 shrink-0 ${documentType === 'REVIEW' ? 'text-amber-700' : 'text-slate-400'}`} />
-                        <div>
-                          <div className="text-xs font-black">SPO Riviu</div>
-                          <div className="text-[10px] text-slate-400">Revisi berkala / tahunan</div>
-                        </div>
-                      </button>
-                    </div>
+                    {workflowStep === 1 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <button type="button" onClick={() => startDocumentWorkflow('BARU')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'BARU' ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20 text-emerald-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                          <FileText className="w-5 h-5 shrink-0 text-emerald-600" />
+                          <div><div className="text-xs font-black">SPO Baru (2026)</div><div className="text-[10px] text-slate-400">Penomoran otomatis</div></div>
+                        </button>
+                        <button type="button" onClick={() => startDocumentWorkflow('LAMA')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'LAMA' ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20 text-purple-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                          <BookOpen className="w-5 h-5 shrink-0 text-purple-600" />
+                          <div><div className="text-xs font-black">SPO Eksisting</div><div className="text-[10px] text-slate-400">Scan PDF sah bertandatangan</div></div>
+                        </button>
+                        <button type="button" onClick={() => startDocumentWorkflow('REVIEW')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'REVIEW' ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/20 text-amber-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                          <RefreshCw className="w-5 h-5 shrink-0 text-amber-600" />
+                          <div><div className="text-xs font-black">SPO Riviu</div><div className="text-[10px] text-slate-400">Revisi berkala / tahunan</div></div>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/40 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2 min-w-0"><span className="text-emerald-700 font-black">✓</span><span className="text-xs font-black text-slate-800 truncate">{documentType === 'BARU' ? 'SPO Baru (2026)' : documentType === 'LAMA' ? 'SPO Eksisting' : 'SPO Riviu'}</span></div>
+                        <span className="text-[10px] text-slate-400">Tahap selesai</span>
+                      </div>
+                    )}
+                    {workflowStep === 1 && documentTypeChosen && (
+                      <div className="flex justify-end pt-1">
+                        <button type="button" onClick={() => setWorkflowStep(2)} className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 px-1.5 py-1">Selanjutnya →</button>
+                      </div>
+                    )}
                   </section>
 
-                  {/* 2. Unit / Hierarchy — untuk semua tipe dokumen.
-                      SPO Baru/Riviu: Menentukan kode penomoran & unit kerja.
-                      SPO Eksisting: Menentukan unit kerja bagi dokumen format lama yang baru didaftarkan. */}
-                  <section className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-4">
+                  {/* 2. Unit / Hierarchy — tampil setelah jenis dipilih. */}
+                  {workflowStep >= 2 && documentTypeChosen && (
+                  <section className={`bg-slate-50 rounded-2xl border border-slate-200 space-y-3 ${workflowStep >= 3 ? 'p-3' : 'p-3.5 sm:p-4'}`}>
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
                         <Layers className="w-4 h-4 text-emerald-600" />
@@ -1064,7 +1066,12 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                       )}
                     </div>
 
-                    {hasValidPetugasAssignment ? (
+                    {workflowStep >= 3 ? (
+                      <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/40 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2 min-w-0"><span className="text-emerald-700 font-black">✓</span><span className="text-xs font-black text-slate-800 truncate">{activeAssignment?.unitName || activeCategory?.name || selectedCatCode}{subHierarchyCode ? ` · ${subHierarchyCode}` : ''}</span></div>
+                        <span className="text-[10px] text-slate-400 shrink-0">Tahap selesai</span>
+                      </div>
+                    ) : hasValidPetugasAssignment ? (
                       <>
                         <div className={effectiveAssignments.length > 1 ? 'grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)] gap-3 items-stretch' : 'grid grid-cols-1 gap-3'}>
                           {effectiveAssignments.length > 1 && (
@@ -1092,14 +1099,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             </div>
                           )}
 
-                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 px-4 py-3 flex flex-col justify-center min-w-0">
-                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Hirarki Akun Terpilih</div>
-                            <div className="text-base sm:text-lg font-black text-slate-900 truncate">
-                              {activeAssignment?.unitName || activeCategory?.name || selectedCatCode}
-                            </div>
-                            <div className="mt-2 inline-flex w-fit items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs sm:text-sm font-extrabold text-emerald-700">
-                              {selectedCatCode}{selectedHierarchyOverride ? ` ${selectedHierarchyOverride}` : ''}
-                            </div>
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 px-3 py-2.5 flex items-center gap-2 min-w-0">
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 shrink-0">Hirarki</div>
+                            <div className="text-sm font-black text-slate-900 truncate">{activeAssignment?.unitName || activeCategory?.name || selectedCatCode}</div>
+                            <div className="inline-flex w-fit items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 shrink-0">{selectedCatCode}{selectedHierarchyOverride ? ` ${selectedHierarchyOverride}` : ''}</div>
                           </div>
                         </div>
 
@@ -1163,7 +1166,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                           if (!selectors.length) return null;
 
                           return (
-                            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2.5">
                               <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
                                 Pilihan Turunan Unit
                               </div>
@@ -1179,8 +1182,19 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                         Akun Petugas belum memiliki assignment hirarki yang valid. Pengajuan SPO tidak dapat dilanjutkan.
                       </div>
                     )}
-                  </section>
 
+                    {workflowStep === 2 && (
+                      <div className="flex items-center justify-between pt-1">
+                        <button type="button" onClick={goBackWorkflow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-1.5 py-1">← Kembali</button>
+                        <button type="button" onClick={() => hierarchyReady && setWorkflowStep(3)} disabled={!hierarchyReady} className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 disabled:text-slate-300 disabled:cursor-not-allowed px-1.5 py-1">Selanjutnya →</button>
+                      </div>
+                    )}
+                  </section>
+                  )}
+
+                  {/* Tahap 3 baru dibuka setelah hirarki dikonfirmasi. */}
+                  {workflowStep >= 3 && (
+                    <>
                   {/* Nomor SPO diterbitkan ditampilkan ringkas di bawah form setelah berhasil. */}
                   {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
                   {documentType === 'LAMA' ? (
@@ -1518,7 +1532,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                                 className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
                               >
                                 <option value="">-- Pilih dari Daftar Dokumen SPO Tersedia --</option>
-                                {accessibleSops.map((s) => (
+                                {accessibleSops.filter((s) => s.status === 'AKTIF').map((s) => (
                                   <option key={s.id} value={s.id}>
                                     [{s.sopNumber || 'Tanpa No'}] {s.title} (Rev: {s.version || '00'})
                                   </option>
@@ -1585,24 +1599,6 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             </p>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3">
-                            <div className="flex items-center gap-2">
-                              <label className="text-[11px] font-bold text-slate-600">Periode Riviu:</label>
-                              <select
-                                value={reviewPeriodMonths}
-                                onChange={(e) => setReviewPeriodMonths(e.target.value)}
-                                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
-                              >
-                                <option value="12">1 Tahun (12 Bln)</option>
-                                <option value="24">2 Tahun (24 Bln)</option>
-                                <option value="36">3 Tahun (36 Bln)</option>
-                              </select>
-                            </div>
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black shrink-0 border border-emerald-200">
-                              <TableIcon className="w-3.5 h-3.5" />
-                              <span>Format Resmi A4</span>
-                            </span>
-                          </div>
                         </div>
 
                         <div className="pt-1">
@@ -1628,27 +1624,28 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             onUnitTerkaitChange={setUnitTerkait}
                             titleEditable={true}
                             dateEditable={true}
-                            showPageHint={true}
+                            showPageHint={false}
                             missingSections={missingSections}
                           />
                         </div>
                       </section>
 
-                      {/* File upload untuk SPO Baru / Riviu */}
+                      {/* Bukti dokumen hanya untuk SPO Riviu. SPO Baru tidak memiliki upload. */}
+                      {documentType === 'REVIEW' && (
                       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <div className="text-xs font-black text-slate-700">
-                              Lampiran Dokumen (Opsional)
+                              Bukti Dokumen SPO Lama (PDF)
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">PDF, Word, atau dokumen pendukung.</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">Wajib hanya jika SPO rujukan tidak berasal dari dokumen Aktif di aplikasi.</div>
                           </div>
                           <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50">
                             <Upload className="w-4 h-4" />
                             Pilih File
                             <input
                               type="file"
-                              accept="application/pdf,.pdf,.doc,.docx"
+                              accept="application/pdf,.pdf"
                               onChange={handleFileChange}
                               className="hidden"
                             />
@@ -1659,11 +1656,29 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
                           </p>
                         )}
+                        {documentType === 'REVIEW' && (
+                          <label className="flex items-start gap-2 p-3 rounded-lg border border-amber-300 bg-amber-50 text-[11px] text-amber-950 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={externalReviewSignedConfirmed}
+                              onChange={(e) => setExternalReviewSignedConfirmed(e.target.checked)}
+                              className="mt-0.5 accent-amber-600"
+                            />
+                            <span>Saya memastikan PDF SPO lama yang diunggah sudah ditandatangani Direktur. Konfirmasi ini wajib jika SPO rujukan tidak berasal dari dokumen Aktif di aplikasi.</span>
+                          </label>
+                        )}
                       </section>
+                      )}
+                    </>
+                  )}
                     </>
                   )}
 
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+                    {workflowStep >= 3 ? (
+                      <button type="button" onClick={goBackWorkflow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-1.5 py-1">← Kembali</button>
+                    ) : <span />}
+                    <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setSpoSubTab('list')}
@@ -1673,7 +1688,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                     </button>
                     <button
                       type="submit"
-                      disabled={isSubmitting || !hasValidPetugasAssignment}
+                      disabled={isSubmitting || !hasValidPetugasAssignment || workflowStep < 3}
                       className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black shadow-xs cursor-pointer"
                     >
                       {isSubmitting ? 'Menyimpan...' : (
@@ -1683,6 +1698,7 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                         </>
                       )}
                     </button>
+                    </div>
                   </div>
                 </form>
               </div>
@@ -1733,16 +1749,72 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       </main>
 
 
+      {/* Nomor Terbit Modal */}
+      {showIssuedNumbers && (
+        <div className="fixed inset-0 z-[75] bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowIssuedNumbers(false); }}>
+          <div className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base sm:text-lg font-black text-slate-900">Nomor Terbit</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">Nomor yang tersedia untuk SPO Existing.</p>
+              </div>
+              <button type="button" onClick={() => setShowIssuedNumbers(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 cursor-pointer" aria-label="Tutup">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 sm:p-5">
+              <div className="relative mb-4">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={issuedNumberSearch}
+                  onChange={(e) => setIssuedNumberSearch(e.target.value)}
+                  placeholder="Cari nomor atau judul SPO..."
+                  className="w-full text-xs pl-10 pr-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                />
+              </div>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="grid grid-cols-[minmax(180px,0.9fr)_minmax(0,1.6fr)] bg-slate-50 border-b border-slate-200 px-4 py-2.5 text-[10px] uppercase tracking-wider font-black text-slate-500">
+                  <span>Nomor</span><span>Judul SPO</span>
+                </div>
+                <div className="max-h-[55vh] overflow-auto">
+                  {issuedNumberRegister.filter((row) => {
+                    const q = issuedNumberSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return String(row.sopNumber || '').toLowerCase().includes(q) || String(row.title || '').toLowerCase().includes(q);
+                  }).length === 0 ? (
+                    <div className="px-4 py-12 text-center text-xs text-slate-500">Belum ada nomor terbit yang tersedia.</div>
+                  ) : issuedNumberRegister.filter((row) => {
+                    const q = issuedNumberSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return String(row.sopNumber || '').toLowerCase().includes(q) || String(row.title || '').toLowerCase().includes(q);
+                  }).map((row) => (
+                    <div key={row.id} className="grid grid-cols-[minmax(180px,0.9fr)_minmax(0,1.6fr)] items-center gap-4 px-4 py-3.5 border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono text-xs font-black text-slate-900 break-all">{row.sopNumber}</span>
+                        <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(row.sopNumber); onShowToast?.('success', 'Nomor Disalin', row.sopNumber); } catch { onShowToast?.('error', 'Gagal Menyalin', 'Nomor tidak dapat disalin ke clipboard.'); } }} className="shrink-0 p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 cursor-pointer" title="Salin nomor" aria-label={`Salin nomor ${row.sopNumber}`}><Copy className="w-3.5 h-3.5" /></button>
+                      </div>
+                      <div className="text-xs font-semibold text-slate-700 break-words">{row.title || '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Issue SOP Number Modal */}
       <IssueSopNumberModal
         open={showIssueNumberModal}
-        title={title}
-        effectiveDate={effectiveDate}
+        title={issueTitle}
+        effectiveDate={issueEffectiveDate}
         hierarchyOptions={issueHierarchyOptions}
         selectedHierarchyId={issueHierarchyId}
         isIssuingNumber={isIssuingNumber}
-        onTitleChange={setTitle}
-        onEffectiveDateChange={setEffectiveDate}
+        onTitleChange={setIssueTitle}
+        onEffectiveDateChange={setIssueEffectiveDate}
         onHierarchyChange={setIssueHierarchyId}
         onClose={() => setShowIssueNumberModal(false)}
         onSubmit={handleIssueNumber}
