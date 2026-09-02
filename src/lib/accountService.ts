@@ -11,7 +11,8 @@ const subscribers = new Set<() => void>();
 function readUsers(): UserAccount[] {
   try {
     const raw = localStorage.getItem(USERS_KEY);
-    return raw ? JSON.parse(raw) as UserAccount[] : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((u: any) => ({ ...u, role: String(u?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user' })) as UserAccount[] : [];
   } catch {
     return [];
   }
@@ -44,15 +45,15 @@ export const INITIAL_USERS: UserAccount[] = [
   {
     id: 'usr-petugas-pelayanan',
     username: 'pelayanan',
-    name: 'Petugas Bidang Pelayanan',
-    role: 'petugas',
+    name: 'User Bidang Pelayanan',
+    role: 'user',
     unitName: 'Bidang Pelayanan',
     divisionCode: 'PEL',
     divisionCodes: ['PEL'],
     assignments: [
       {
         id: 'assignment-PEL-1',
-        label: 'Petugas Pelayanan',
+        label: 'User Pelayanan',
         divisionCode: 'PEL',
         unitName: 'Bidang Pelayanan'
       }

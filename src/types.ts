@@ -1,6 +1,7 @@
 export type SopStatus = 'DRAFT' | 'AKTIF' | 'DIARSIPKAN';
 
-export type UserRole = 'admin' | 'petugas';
+export type UserRole = 'admin' | 'user';
+export type UserBadge = 'STRUKTURAL';
 
 export interface UserAssignment {
   id: string;
@@ -29,6 +30,7 @@ export interface UserSession {
   divisionCode?: string;      // legacy/default division code
   divisionCodes?: string[];    // legacy/backward-compatible division list
   assignments?: UserAssignment[]; // authoritative multi-hierarchy access assignments
+  badges?: UserBadge[]; // elevated document-access badges; higher precedence than hierarchy
   subCode?: string;           // e.g. "1", "2"
   instCode?: string;          // e.g. "1", "2"
   poliCode?: string;          // e.g. "3"
@@ -52,6 +54,7 @@ export interface UserAccount {
   divisionCode?: string;      // legacy/default division code
   divisionCodes?: string[];    // legacy/backward-compatible division list
   assignments?: UserAssignment[]; // authoritative multi-hierarchy access assignments
+  badges?: UserBadge[]; // elevated document-access badges; higher precedence than hierarchy
   subCode?: string;           // e.g. "1", "2"
   instCode?: string;          // e.g. "1", "2"
   poliCode?: string;          // e.g. "3"

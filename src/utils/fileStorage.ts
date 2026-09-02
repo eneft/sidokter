@@ -331,27 +331,13 @@ export function deleteFileFromLocalCache(sopId: string): void {
  * Completely clears all cached file attachments
  */
 export function clearAllFileLocalCache(): void {
-  memoryCache.clear();
-  try {
-    Object.keys(sessionStorage).forEach((k) => {
-      if (k.startsWith(FILE_CACHE_PREFIX)) sessionStorage.removeItem(k);
-    });
-  } catch {}
-  try {
-    Object.keys(localStorage).forEach((k) => {
-      if (k.startsWith(FILE_CACHE_PREFIX)) localStorage.removeItem(k);
-    });
-  } catch {}
-  getIndexedDB().then((db) => {
-    if (!db) return;
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      store.clear();
-    } catch (e) {
-      console.warn('IndexedDB clear warning:', e);
-    }
-  });
+  // IMPORTANT: official document files (SPO/SK/MOU) are persistent application
+  // data, not session data. Never purge them on logout/session expiry.
+  // Older versions used this function during logout and accidentally deleted
+  // SK/MOU binaries while leaving their metadata behind. That produced cards
+  // that existed in the database but could no longer be viewed/downloaded.
+  // Keep this function as a compatibility no-op for old callers.
+  return;
 }
 
 export async function saveNamedFileToLocalCache(keyName: string, dataUrl: string): Promise<void> {

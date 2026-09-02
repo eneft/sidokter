@@ -34,8 +34,8 @@ export const SecurityAccountPanel: React.FC<SecurityAccountPanelProps> = ({ isOp
       onShowToast?.('error', 'Gagal', 'Konfirmasi kata sandi baru tidak cocok.');
       return;
     }
-    if (newPassword.length < 12 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      onShowToast?.('error', 'Kata sandi lemah', 'Gunakan minimal 12 karakter dengan huruf besar, huruf kecil, dan angka.');
+    if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      onShowToast?.('error', 'Kata sandi lemah', 'Gunakan minimal 8 karakter dengan huruf besar, huruf kecil, dan angka.');
       return;
     }
     setBusy(true);
@@ -100,7 +100,7 @@ export const SecurityAccountPanel: React.FC<SecurityAccountPanelProps> = ({ isOp
         <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="space-y-5">
             <section className="bg-white border border-slate-200 rounded-2xl p-5">
-              <div className="flex items-center gap-3 mb-4"><KeyRound className="w-5 h-5 text-emerald-600" /><div><h3 className="font-bold text-slate-900">Ganti Kata Sandi</h3><p className="text-xs text-slate-500">Minimal 12 karakter, huruf besar, huruf kecil, dan angka.</p></div></div>
+              <div className="flex items-center gap-3 mb-4"><KeyRound className="w-5 h-5 text-emerald-600" /><div><h3 className="font-bold text-slate-900">Ganti Kata Sandi</h3><p className="text-xs text-slate-500">Minimal 8 karakter, terdiri dari huruf besar, huruf kecil, dan angka.</p></div></div>
               <form onSubmit={handlePasswordChange} className="space-y-3">
                 <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Kata sandi saat ini" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" required />
                 <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Kata sandi baru" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" required />

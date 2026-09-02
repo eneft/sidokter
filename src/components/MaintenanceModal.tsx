@@ -140,8 +140,8 @@ export const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
                   {enabled 
-                    ? 'Akses untuk Petugas/Pengguna biasa sedang DITAHAN di layar pemeliharaan. Hanya Administrator yang dapat masuk.' 
-                    : 'Sistem terbuka normal untuk seluruh Petugas dan Administrator.'}
+                    ? 'Akses untuk User/Pengguna biasa sedang DITAHAN di layar pemeliharaan. Hanya Administrator yang dapat masuk.' 
+                    : 'Sistem terbuka normal untuk seluruh User dan Administrator.'}
                 </p>
               </div>
 

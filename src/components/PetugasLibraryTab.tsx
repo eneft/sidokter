@@ -24,9 +24,6 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
   const [sortKey, setSortKey] = useState<SortKey>('number');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Access remains authoritative in the component; this UI rollback changes presentation only.
-  const accessibleSops = useMemo(() => sops.filter((sop) => isSopAccessibleByUser(sop, userSession)), [sops, userSession]);
-
   const assignedDivCodes = Array.from(new Set(
     (Array.isArray(userSession.assignments) && userSession.assignments.length
       ? userSession.assignments.map((a) => a.divisionCode)
@@ -36,14 +33,25 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
   const isRestricted = userSession.role !== 'admin' && !assignedDivCodes.includes('ALL');
   const assignedDivCode = assignedDivCodes[0] || 'PEL';
 
-  const years = useMemo(() => {
-    return Array.from(new Set(accessibleSops
-      .map((s) => String(s.effectiveDate || '').slice(0, 4))
-      .filter((year) => /^\d{4}$/.test(year))
-    )).sort((a, b) => Number(b) - Number(a));
-  }, [accessibleSops]);
+  const lockedPathLabels = useMemo(() => {
+    return assignedDivCodes
+      .map((code) => {
+        const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
+        return cat ? `${cat.name} (${code})` : code;
+      })
+      .join(', ');
+  }, [assignedDivCodes]);
 
-  const lockedPathLabels = assignedDivCodes.join(', ') || assignedDivCode;
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    sops.forEach((sop) => {
+      const yr = String(sop.effectiveDate || '').slice(0, 4);
+      if (yr && yr.length === 4 && !isNaN(Number(yr))) {
+        set.add(yr);
+      }
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [sops]);
 
   const [selectedCategory, setSelectedCategory] = useState(
     isRestricted && assignedDivCodes.length === 1 ? assignedDivCode : 'ALL'
@@ -52,6 +60,10 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
   useEffect(() => {
     setSelectedCategory(isRestricted && assignedDivCodes.length === 1 ? assignedDivCode : 'ALL');
   }, [isRestricted, assignedDivCodes.join('|'), assignedDivCode]);
+
+  const accessibleSops = useMemo(() => {
+    return sops.filter((sop) => isSopAccessibleByUser(sop, userSession));
+  }, [sops, userSession]);
 
   const filteredSops = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

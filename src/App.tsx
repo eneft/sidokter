@@ -28,7 +28,7 @@ import {
 } from './utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
-import { saveFileToLocalCache, deleteFileFromLocalCache, clearAllFileLocalCache, getAllCachedFiles } from './utils/fileStorage';
+import { saveFileToLocalCache, deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -77,7 +77,7 @@ import { PrintRegisterModal } from './components/PrintRegisterModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { LoginPage } from './components/LoginPage';
-import { PetugasView } from './components/PetugasView';
+import { UserView } from './components/UserView';
 import { UserManagementModal } from './components/UserManagementModal';
 import { SecurityAccountPanel } from './components/SecurityAccountPanel';
 import { HospitalLogo } from './components/HospitalLogo';
@@ -201,7 +201,6 @@ export default function App() {
       (reason) => {
         if (reason === 'REVOKED_ANOTHER_LOGIN') {
           resetAllViewStates();
-          clearAllFileLocalCache();
           logoutUser(userSession).catch(() => {});
           setUserSession(null);
           setInactivityNotice(
@@ -215,7 +214,7 @@ export default function App() {
         }
       },
       (updatedUser) => {
-        if (updatedUser.role !== 'petugas') return;
+        if (updatedUser.role !== 'user') return;
         const assignments = Array.isArray(updatedUser.assignments) && updatedUser.assignments.length
           ? updatedUser.assignments
           : [];
@@ -231,6 +230,7 @@ export default function App() {
             divisionCode: updatedUser.divisionCode || current.divisionCode,
             divisionCodes: Array.from(new Set(fallbackAssignments.map((a: any) => a.divisionCode).filter(Boolean))),
             assignments: fallbackAssignments as any,
+            badges: Array.isArray(updatedUser.badges) ? updatedUser.badges : [],
             subCode: updatedUser.subCode,
             instCode: updatedUser.instCode,
             poliCode: updatedUser.poliCode,
@@ -287,7 +287,6 @@ export default function App() {
 
     const triggerIdleTimeout = () => {
       resetAllViewStates();
-      clearAllFileLocalCache();
       logoutUser(userSession).catch(() => {});
       setUserSession(null);
       setInactivityNotice(
@@ -302,7 +301,6 @@ export default function App() {
 
     const triggerAbsoluteTimeout = () => {
       resetAllViewStates();
-      clearAllFileLocalCache();
       logoutUser(userSession).catch(() => {});
       setUserSession(null);
       setInactivityNotice(
@@ -627,7 +625,8 @@ export default function App() {
       }
     } catch {}
 
-    const activePetugasDivisions = userSession.role === 'petugas'
+    const hasStructuralBadge = userSession.role === 'user' && Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
+    const activeUserDivisions = userSession.role === 'user' && !hasStructuralBadge
       ? (Array.isArray(userSession.assignments) && userSession.assignments.length
           ? Array.from(new Set(userSession.assignments.map((a) => a.divisionCode).filter(Boolean)))
           : (userSession.divisionCode || 'PEL'))
@@ -660,7 +659,7 @@ export default function App() {
     }, (err) => {
       setLocalDataUnavailable(true);
       console.error('local database SOP subscription unavailable:', err);
-    }, activePetugasDivisions);
+    }, activeUserDivisions);
 
     const mergeLibraryDocuments = (type: 'SK' | 'MOU', documents: LibraryDocument[]) => {
       setLibraryDocuments((current) => {
@@ -719,7 +718,7 @@ export default function App() {
       unsubscribeConfig();
       unsubscribeUsers();
     };
-  }, [userSession?.authUid, userSession?.divisionCode, userSession?.role, userSession?.assignments]);
+  }, [userSession?.authUid, userSession?.divisionCode, userSession?.role, userSession?.assignments, userSession?.badges]);
 
   // Compute available distinct years from SOPs
   const availableYears = useMemo(() => {
@@ -851,7 +850,16 @@ export default function App() {
 
     // SPO Riviu memakai nomor lama hanya sebagai rujukan. Nomor hasil selalu
     // dialokasikan baru setelah validasi rujukan dan hirarki berhasil.
-    if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
+    // HARD WORKFLOW BOUNDARY: Existing is NEVER allowed to enter Riviu validation,
+    // even if legacy metadata/flags on the incoming document still contain review markers.
+    const isRiviuInput = !isExistingInput && (
+      newSopData.documentType === 'RIVIU' ||
+      newSopData.documentType === 'REVIEW' ||
+      newSopData.jenis_spo === 'RIVIU' ||
+      newSopData.isReviewDocument === true
+    );
+
+    if (isRiviuInput) {
       const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
       if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
 
@@ -969,7 +977,7 @@ export default function App() {
               id: `rev-replace-${Date.now()}`,
               version: newSopData.revisionNumber || newSopData.version || existing.version || '00',
               date: newSopData.effectiveDate || existing.effectiveDate || now.split('T')[0],
-              author: newSopData.creatorName || userSession?.name || 'Petugas',
+              author: newSopData.creatorName || userSession?.name || 'User',
               notes: `Dokumen dilengkapi/diaktifkan melalui unggah berkas fisik (sebelumnya berstatus ${statusPreviousName}).`
             }
           ]
@@ -1043,7 +1051,7 @@ export default function App() {
               id: `rev-reserved-existing-${Date.now()}`,
               version: newSopData.revisionNumber || newSopData.version || '00',
               date: newSopData.effectiveDate || reservedTarget.year + '-01-01',
-              author: newSopData.creatorName || userSession?.name || 'Petugas',
+              author: newSopData.creatorName || userSession?.name || 'User',
               notes: 'Nomor reservation digunakan untuk registrasi SPO Eksisting.'
             }
           ]
@@ -1130,7 +1138,7 @@ export default function App() {
         divisionCode: String(newSopData.divisionCode || 'PEL').trim().toUpperCase(),
         subHierarchyCode: String(newSopData.subHierarchyCode || '').trim() || undefined,
         dateStr: newSopData.effectiveDate || now.split('T')[0],
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas',
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
         purpose: 'SYSTEM_DOCUMENT'
       });
       systemReservationId = reserved.id;
@@ -1171,7 +1179,7 @@ export default function App() {
         divisionCode: divCode,
         subHierarchyCode: subCode || undefined,
         dateStr,
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'Petugas',
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
         purpose: 'SYSTEM_DOCUMENT'
       });
       systemReservationId = reserved.id;
@@ -1271,7 +1279,7 @@ export default function App() {
   };
 
   const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }): Promise<SopDocument> => {
-    if (userSession?.role !== 'admin' && userSession?.role !== 'petugas') {
+    if (userSession?.role !== 'admin' && userSession?.role !== 'user') {
       throw new Error('Akses penerbitan nomor SPO ditolak.');
     }
     if (!params.title?.trim()) throw new Error('Judul SPO wajib diisi.');
@@ -1358,7 +1366,7 @@ export default function App() {
       'success',
       enabled ? 'Mode Pemeliharaan Aktif' : 'Mode Pemeliharaan Dinonaktifkan',
       enabled
-        ? 'Akses pengguna/petugas dialihkan ke layar pemeliharaan secara realtime.'
+        ? 'Akses pengguna/user dialihkan ke layar pemeliharaan secara realtime.'
         : 'Akses normal telah dibuka kembali untuk semua pengguna.'
     );
   };
@@ -1373,7 +1381,6 @@ export default function App() {
       await logoutUser(userSession).catch((err) => console.error('Error logging out from server:', err));
     }
     resetAllViewStates();
-    clearAllFileLocalCache();
     setUserSession(null);
     setInactivityNotice(null);
     addToast('info', 'Sesi Berakhir', 'Anda telah keluar dari aplikasi dengan aman.');
@@ -1648,7 +1655,7 @@ export default function App() {
     }
   };
 
-  // Self password update for Petugas / logged-in user
+  // Self password update for User / logged-in user
   const handleUpdateSelfPassword = async (
     currentPass: string, 
     newPass: string
@@ -1657,8 +1664,8 @@ export default function App() {
       return { success: false, message: 'Sesi login tidak valid. Silakan login kembali.' };
     }
 
-    if (!newPass || newPass.trim().length < 4) {
-      return { success: false, message: 'Kata sandi baru minimal harus 4 karakter.' };
+    if (!newPass || newPass.trim().length < 8) {
+      return { success: false, message: 'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, dan angka.' };
     }
 
     const result = await changeUserPassword(userSession.username, currentPass, newPass);
@@ -1708,13 +1715,13 @@ export default function App() {
     );
   }
 
-  // Render Petugas View if user role is 'petugas'
-  if (userSession.role === 'petugas') {
+  // Render User View if user role is 'user'
+  if (userSession.role === 'user') {
     return (
-      <div key={`session-petugas-${sessionKey}`} className="min-h-screen bg-slate-50 flex flex-col selection:bg-emerald-500 selection:text-white">
+      <div key={`session-user-${sessionKey}`} className="min-h-screen bg-slate-50 flex flex-col selection:bg-emerald-500 selection:text-white">
         <div className={Boolean(selectedSopForDetail) ? 'no-print' : ''}>
-          <PetugasView
-            key={`view-petugas-${sessionKey}`}
+          <UserView
+            key={`view-user-${sessionKey}`}
             userSession={userSession}
             onLogout={handleLogout}
             sops={sops}
@@ -1764,368 +1771,33 @@ export default function App() {
     );
   }
 
-  // Render Admin View for 'admin' role
+  // Administrator uses the exact same UserView UI/workflow.
+  // Admin-only capabilities are exposed as additional management actions via the shared Header.
   return (
-    <div key={`session-admin-${sessionKey}`} className="min-h-screen bg-slate-50 text-slate-800 selection:bg-emerald-500 selection:text-white">
-      <div className="flex min-h-screen">
-        {/* Admin Sidebar */}
-        <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200/90 flex flex-col transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 no-print shadow-xs ${adminSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          {/* Sidebar Header */}
-          <div className="h-20 px-5 border-b border-slate-100 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <HospitalLogo size="sm" />
-              <div className="min-w-0">
-                <div className="text-xs font-black uppercase tracking-wider text-slate-900 truncate">SIDOKTER SOEGIRI</div>
-                <div className="text-[11px] text-emerald-700 font-semibold truncate">RSUD Dr. Soegiri</div>
-              </div>
-            </div>
-            <button type="button" onClick={() => setAdminSidebarOpen(false)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 text-slate-500" aria-label="Tutup menu"><X className="w-5 h-5" /></button>
-          </div>
-
-          {/* Navigation Links */}
-          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-
-            {/* NAVIGASI */}
-            <div className="px-3 pb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Navigasi
-            </div>
-
-            <button
-              type="button"
-              onClick={() => { setMainMenuTab('dashboard'); setAdminSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${mainMenuTab === 'dashboard' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold'}`}
-            >
-              <Home className={`w-4 h-4 ${mainMenuTab === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span>Dashboard</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setMainMenuTab('spo'); setAdminSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${mainMenuTab === 'spo' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold'}`}
-            >
-              <FileText className={`w-4 h-4 ${mainMenuTab === 'spo' ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span className="flex-1 text-left">Dokumen SPO</span>
-              <span className="text-[10px] font-bold text-slate-400">{sops.length}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setMainMenuTab('sk'); setAdminSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${mainMenuTab === 'sk' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold'}`}
-            >
-              <FileText className={`w-4 h-4 ${mainMenuTab === 'sk' ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span className="flex-1 text-left">Dokumen SK</span>
-              <span className="text-[10px] font-bold text-slate-400">{skCount}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setMainMenuTab('mou'); setAdminSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${mainMenuTab === 'mou' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold'}`}
-            >
-              <FileText className={`w-4 h-4 ${mainMenuTab === 'mou' ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span className="flex-1 text-left">Dokumen MOU</span>
-              <span className="text-[10px] font-bold text-slate-400">{mouCount}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setMainMenuTab('library'); setAdminSidebarOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${mainMenuTab === 'library' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold'}`}
-            >
-              <BookOpen className={`w-4 h-4 ${mainMenuTab === 'library' ? 'text-emerald-600' : 'text-slate-400'}`} />
-              <span className="flex-1 text-left">Library</span>
-              <span className="text-[10px] font-bold text-slate-400">{finalDocCount}</span>
-            </button>
-
-            {/* ADMIN & MANAJEMEN */}
-            <div className="px-3 pt-6 pb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Admin &amp; Manajemen
-            </div>
-
-            <button
-              type="button"
-              onClick={() => { setAdminSidebarOpen(false); setIsMasterDataOpen(true); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold text-xs transition-all cursor-pointer"
-            >
-              <Database className="w-4 h-4 text-slate-400" />
-              <span>Master Hirarki &amp; Unit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setAdminSidebarOpen(false); setIsUserManagementOpen(true); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold text-xs transition-all cursor-pointer"
-            >
-              <Users className="w-4 h-4 text-slate-400" />
-              <span>Manajemen Petugas</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setAdminSidebarOpen(false); setIsBackupRestoreOpen(true); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold text-xs transition-all cursor-pointer"
-            >
-              <DatabaseBackup className="w-4 h-4 text-slate-400" />
-              <span>Backup &amp; Restore Data</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setAdminSidebarOpen(false); setIsMaintenanceModalOpen(true); }}
-              disabled={isChangingMaintenanceMode}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${maintenanceMode.enabled ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} disabled:opacity-60`}
-              title={maintenanceMode.enabled ? 'Kelola mode pemeliharaan (Aktif)' : 'Kelola mode pemeliharaan (Nonaktif)'}
-            >
-              <Wrench className="w-4 h-4 text-amber-600" />
-              <span className="flex-1 text-left">Mode Pemeliharaan</span>
-              <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase ${maintenanceMode.enabled ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                {maintenanceMode.enabled ? 'Aktif' : 'Off'}
-              </span>
-            </button>
-
-          </nav>
-
-          {/* Sidebar User Footer */}
-          <div className="p-3 border-t border-slate-100">
-            <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0">
-                  {(userSession?.name || userSession?.username || 'A')[0].toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-800 truncate">{userSession?.name || 'Administrator'}</div>
-                  <div className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span>Online</span>
-                  </div>
-                </div>
-              </div>
-              <button 
-                type="button" 
-                onClick={handleLogout} 
-                className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                title="Keluar"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        {adminSidebarOpen && <button aria-label="Tutup sidebar" className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden no-print" onClick={() => setAdminSidebarOpen(false)} />}
-
-        <div className="flex-1 min-w-0">
-          <div className="lg:hidden h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between no-print sticky top-0 z-30">
-            <button type="button" onClick={() => setAdminSidebarOpen(true)} className="p-2 rounded-xl hover:bg-slate-100" aria-label="Buka menu"><Menu className="w-5 h-5" /></button>
-            <div className="font-extrabold text-sm text-slate-800">SIDOKTER SOEGIRI</div>
-          </div>
-
-          {/* Top Main Navigation Header */}
-          <Header
-            activeTab={mainMenuTab}
-            onTabChange={(tab) => {
-              setMainMenuTab(tab);
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            totalSopCount={sops.length}
-            activeSopCount={activeSopCount}
-            skCount={skCount}
-            mouCount={mouCount}
-            finalDocCount={finalDocCount}
-            onOpenUpload={() => {
-              setMainMenuTab('spo');
-              setIsUploadOpen(true);
-            }}
-            onOpenPrintAll={() => setIsPrintRegisterOpen(true)}
-            onOpenUserManagement={() => setIsUserManagementOpen(true)}
-            userSession={userSession}
-            onLogout={handleLogout}
-          />
-
-          {/* Main Container */}
-          <main className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 ${isPrintRegisterOpen || Boolean(selectedSopForDetail) ? 'no-print' : ''}`}>
-            
-            {/* 1. DASHBOARD PAGE */}
-            {mainMenuTab === 'dashboard' && (
-              <DashboardOverviewPage
-                sops={sops}
-                documents={libraryDocuments}
-                userSession={userSession}
-                onNavigate={(tab) => setMainMenuTab(tab)}
-                onOpenUploadSop={() => {
-                  setMainMenuTab('spo');
-                  setIsUploadOpen(true);
-                }}
-                onViewSop={(sop) => setSelectedSopForDetail(sop)}
-              />
-            )}
-
-            {/* 2. SPO PAGE (Admin SPO Workspace) */}
-            {mainMenuTab === 'spo' && (
-              <div className="space-y-6 animate-in fade-in duration-200">
-                {/* Maintenance Banner if Active */}
-                {maintenanceMode.enabled && (
-                  <div className="rounded-3xl border border-amber-300 bg-amber-50/90 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
-                    <div className="flex items-start gap-3.5">
-                      <div className="p-2.5 rounded-2xl bg-amber-100 text-amber-700 shrink-0">
-                        <Wrench className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-black text-amber-900 flex items-center gap-2">
-                          <span>MODE PEMELIHARAAN SISTEM AKTIF</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-extrabold uppercase border border-amber-300">Live</span>
-                        </div>
-                        <div className="text-xs text-amber-800 mt-1 leading-relaxed">
-                          {maintenanceMode.message || 'Akses pengguna dialihkan ke halaman pemeliharaan. Administrator tetap memiliki akses penuh.'}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsMaintenanceModalOpen(true)}
-                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-xs shrink-0 self-start sm:self-center cursor-pointer"
-                    >
-                      Kelola Pengaturan
-                    </button>
-                  </div>
-                )}
-
-                {/* Fresh Welcome Hero Card */}
-                <div className="bg-white rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        <Sparkles className="w-3 h-3 text-emerald-600" />
-                        <span>Workspace SPO RSUD Dr. Soegiri</span>
-                      </span>
-                      <span className="text-xs text-slate-400">•</span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                      </span>
-                    </div>
-                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                      Manajemen Standar Prosedur Operasional (SPO)
-                    </h1>
-                    <p className="text-xs sm:text-sm text-slate-500 max-w-2xl leading-relaxed">
-                      Kelola penomoran terpusat, verifikasi draf naskah, dan pengesahan SPO seluruh instalasi & unit kerja RSUD Dr. Soegiri.
-                    </p>
-                  </div>
-
-                  {/* Quick Actions in Hero */}
-                  <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setIsUploadOpen(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-200 transition-all cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Daftarkan SPO Baru</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsPrintRegisterOpen(true)}
-                      className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-200 transition-colors cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Buku Register</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Statistics Cards */}
-                <DashboardStats
-                  sops={sops}
-                  pendingSignatureCount={(sops || []).filter((sop) => sop.status === 'DRAFT').length}
-                  onNewSop={() => setIsUploadOpen(true)}
-                  onFilterByStatus={(status) => handleFilterChange({ status })}
-                  activeStatusFilter={filters.status}
-                />
-
-                {/* Filter & Search Bar */}
-                <SopFilterBar
-                  filters={filters}
-                  divisions={divisions}
-                  categories={categories}
-                  availableYears={availableYears}
-                  totalResults={filteredAndSortedSops.length}
-                  onFilterChange={handleFilterChange}
-                  onResetFilters={handleResetFilters}
-                  isAdmin={true}
-                  onStandardizeAll={handleStandardizeAllSopNumbers}
-                />
-
-                {/* Documents List */}
-                <SopTable
-                  sops={filteredAndSortedSops}
-                  viewMode={viewMode}
-                  onSelectSop={(sop) => setSelectedSopForDetail(sop)}
-                  onEditSop={(sop) => {
-                    setSelectedSopForDetail(null);
-                    setSelectedSopForEdit(sop);
-                  }}
-                  onDeleteSop={handleDeleteSop}
-                  onOpenUpload={() => setIsUploadOpen(true)}
-                  onResetCounters={handleResetCountersToZero}
-                />
-              </div>
-            )}
-
-            {/* 3. SK PAGE */}
-            {mainMenuTab === 'sk' && (
-              <SKPage 
-                documents={libraryDocuments} 
-                userSession={userSession} 
-                onBack={() => setMainMenuTab('dashboard')} 
-                onShowToast={addToast} 
-              />
-            )}
-
-            {/* 4. MOU PAGE */}
-            {mainMenuTab === 'mou' && (
-              <MOUPage 
-                documents={libraryDocuments} 
-                userSession={userSession} 
-                onBack={() => setMainMenuTab('dashboard')} 
-                onShowToast={addToast} 
-              />
-            )}
-
-            {/* 5. LIBRARY PAGE (Hanya Dokumen Final) */}
-            {mainMenuTab === 'library' && (
-              <FinalLibraryPage 
-                sops={sops} 
-                documents={libraryDocuments} 
-                userSession={userSession} 
-                onViewSop={(sop) => setSelectedSopForDetail(sop)} 
-                onShowToast={addToast}
-              />
-            )}
-
-            {/* 6. ADMIN HUB PAGE */}
-            {mainMenuTab === 'admin' && (
-              <AdminHubPage
-                userSession={userSession}
-                onLogout={handleLogout}
-                onOpenMasterData={() => setIsMasterDataOpen(true)}
-                onOpenUserManagement={() => setIsUserManagementOpen(true)}
-                onOpenSecurity={() => setIsSecurityOpen(true)}
-                onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
-                onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
-                onShowToast={addToast}
-              />
-            )}
-          </main>
-
-          <footer className="bg-white border-t border-slate-200/90 py-6 text-center text-xs text-slate-500 no-print mt-12">
-            <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-              <div><strong>{SOEGIRI_HOSPITAL_INFO.hospitalName}</strong> • {SOEGIRI_HOSPITAL_INFO.government}</div>
-              <div>SIDOKTER SOEGIRI • Sistem Dokumen Terpadu • 2026</div>
-            </div>
-          </footer>
-        </div>
-      </div>
+    <div key={`session-admin-${sessionKey}`} className="min-h-screen bg-slate-50 flex flex-col selection:bg-emerald-500 selection:text-white">
+      <UserView
+        key={`view-admin-${sessionKey}`}
+        userSession={userSession}
+        onLogout={handleLogout}
+        sops={sops}
+        libraryDocuments={libraryDocuments}
+        onAddSop={handleCreateSop}
+        onIssueSopNumber={handleIssueSopNumber}
+        onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
+        numberingConfig={numberingConfig}
+        divisions={divisions}
+        categories={categories}
+        onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+        onCopyNumber={handleCopyNumber}
+        users={users}
+        onUpdatePassword={handleUpdateSelfPassword}
+        onShowToast={addToast}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        onOpenMasterData={() => setIsMasterDataOpen(true)}
+        onOpenSecurity={() => setIsSecurityOpen(true)}
+        onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
+        onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
+      />
 
       {/* Modals */}
       <UploadSopModal

@@ -10,7 +10,7 @@ Tanggal: 27 Agustus 2026
 - MOU memiliki page sendiri.
 - SK/MOU tetap memakai viewer PDF yang sama (`DocumentViewer`).
 - Hak edit/hapus/upload SK/MOU tetap hanya Admin melalui page masing-masing.
-- Petugas tetap hanya melihat/download SK/MOU.
+- User tetap hanya melihat/download SK/MOU.
 - Navigasi Admin dipisahkan: Dashboard, Library Dokumen, Dokumen SK, Dokumen MOU.
 
 ## Pemeriksaan

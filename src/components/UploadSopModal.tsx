@@ -60,12 +60,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   onCheckReservedNumber
 }) => {
   const primaryAssignment = userSession?.assignments?.[0];
-  const isPetugas = userSession?.role === 'petugas' && (primaryAssignment?.divisionCode || userSession?.divisionCode) !== 'ALL';
-  const defaultCat = isPetugas ? (primaryAssignment?.divisionCode || userSession?.divisionCode || 'PEL') : 'PEL';
-  const defaultSub = isPetugas ? (primaryAssignment?.subCode || userSession?.subCode || (defaultCat === 'PEN' ? '1' : '1')) : '1';
-  const defaultInst = isPetugas ? (primaryAssignment?.instCode || userSession?.instCode || (defaultCat === 'PEN' ? '2' : '1')) : '1';
-  const defaultPoli = isPetugas ? (primaryAssignment?.poliCode || userSession?.poliCode || (defaultCat === 'PEN' ? '1' : '3')) : '3';
-  const defaultSubUnit = isPetugas ? (primaryAssignment?.subUnitCode || userSession?.subUnitCode || '') : '';
+  const isUser = userSession?.role === 'user' && (primaryAssignment?.divisionCode || userSession?.divisionCode) !== 'ALL';
+  const defaultCat = isUser ? (primaryAssignment?.divisionCode || userSession?.divisionCode || 'PEL') : 'PEL';
+  const defaultSub = isUser ? (primaryAssignment?.subCode || userSession?.subCode || (defaultCat === 'PEN' ? '1' : '1')) : '1';
+  const defaultInst = isUser ? (primaryAssignment?.instCode || userSession?.instCode || (defaultCat === 'PEN' ? '2' : '1')) : '1';
+  const defaultPoli = isUser ? (primaryAssignment?.poliCode || userSession?.poliCode || (defaultCat === 'PEN' ? '1' : '3')) : '3';
+  const defaultSubUnit = isUser ? (primaryAssignment?.subUnitCode || userSession?.subUnitCode || '') : '';
 
   // Cascading Selection State
   const [selectedCatCode, setSelectedCatCode] = useState<string>(defaultCat);
@@ -813,8 +813,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     const parts = v.hierarchyCode.split('.').filter(Boolean);
                     setSelectedSubCode(parts[0] || ''); setSelectedInstCode(parts[1] || ''); setSelectedPoliCode(parts[2] || ''); setSelectedSubUnitCode(parts[3] || '');
                   }}
-                  allowedDivisionCodes={isPetugas ? [defaultCat] : undefined}
-                  allowedHierarchyCodes={isPetugas && primaryAssignment?.hierarchyCode ? { [defaultCat]: primaryAssignment.hierarchyCode } : undefined}
+                  allowedDivisionCodes={isUser ? [defaultCat] : undefined}
+                  allowedHierarchyCodes={isUser && primaryAssignment?.hierarchyCode ? { [defaultCat]: primaryAssignment.hierarchyCode } : undefined}
                   disabled={false}
                   label="Pilih Unit Kerja / Hirarki"
                 />

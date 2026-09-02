@@ -74,6 +74,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const result = await authenticateUser(cleanUser, cleanPass);
 
       if (result.success && result.session) {
+        // Rotate the GEMES reminder only on a real successful login.
+        // A normal dashboard refresh restores the session and does not advance it.
+        try {
+          const key = `sidokter.gemes.loginIndex.${cleanUser}`;
+          const current = Number.parseInt(localStorage.getItem(key) || '0', 10);
+          const next = Number.isFinite(current) ? current + 1 : 1;
+          localStorage.setItem(key, String(next));
+          sessionStorage.setItem('sidokter.gemes.loginIndex', String(next));
+        } catch (storageError) {
+          console.warn('GEMES rotation state could not be persisted:', storageError);
+        }
         onLogin(result.session);
       } else {
         setErrorMsg(result.message || 'Gagal masuk ke sistem.');
@@ -633,7 +644,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </button>
 
-              {/* PETUGAS */}
+              {/* USER */}
               <button
                 type="button"
                 onClick={() => handleQuickLogin('pelayanan', 'pelayanan123')}
@@ -660,7 +671,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     flex items-center justify-between
                   "
                 >
-                  <span>Akun Petugas</span>
+                  <span>Akun User</span>
                   <span className="text-[8px] bg-indigo-100 text-indigo-800 px-1 py-0.2 rounded font-bold">1-Klik</span>
                 </div>
 

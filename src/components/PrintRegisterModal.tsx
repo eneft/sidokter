@@ -369,7 +369,7 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
 
               <div>
                 <p className="text-slate-600">Lamongan, {currentDateStr}</p>
-                <p className="font-bold text-slate-900 mt-1">Petugas Pengelola Penomoran SPO</p>
+                <p className="font-bold text-slate-900 mt-1">User Pengelola Penomoran SPO</p>
                 <div className="h-16 flex items-center justify-center text-slate-300 italic text-[11px]">
                   (Tanda Tangan)
                 </div>

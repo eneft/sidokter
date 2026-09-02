@@ -23,7 +23,7 @@ UI Nomor Terbit sebelumnya menggunakan dropdown/popover yang muncul di bawah tom
 Nomor Terbit adalah register nomor yang tersedia untuk SPO Existing, bukan dropdown informasi kecil.
 
 ## File yang diubah
-`src/components/PetugasView.tsx`
+`src/components/UserView.tsx`
 
 ## Catatan audit
 Perubahan ini hanya menyentuh UI Nomor Terbit dan mempertahankan sumber data serta filter reservation yang sudah ada.

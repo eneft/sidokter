@@ -74,6 +74,10 @@ function cors(req, res) {
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
+function normalizeRole(role) {
+  return String(role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
+}
+
 function normalizeUsername(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -119,12 +123,12 @@ function publicSession(user, sessionId, createdAt) {
     authUid: user.id,
     username: user.data.username,
     name: user.data.name,
-    role: user.data.role,
+    role: normalizeRole(user.data.role),
     sessionId,
     sessionCreatedAt: createdAt,
     lastActiveAt: createdAt,
     unitName: user.data.unitName || 'Unit Kerja RSUD Dr. Soegiri',
-    divisionCode: user.data.divisionCode || (user.data.role === 'admin' ? 'ALL' : 'PEL'),
+    divisionCode: user.data.divisionCode || (normalizeRole(user.data.role) === 'admin' ? 'ALL' : 'PEL'),
     subCode: user.data.subCode,
     instCode: user.data.instCode,
     poliCode: user.data.poliCode,
@@ -139,7 +143,7 @@ async function requireAuth(req) {
   const userRef = db.collection(USERS).doc(decoded.uid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
-  const user = snap.data();
+  const user = { ...snap.data(), role: normalizeRole(snap.data().role) };
   if (!decoded.sessionId || user.activeSessionId !== decoded.sessionId) throw new Error('SESSION_REVOKED');
   return { decoded, ref: userRef, user };
 }
@@ -246,12 +250,12 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const userId = String(incoming.id || '').trim();
       const username = normalizeUsername(incoming.username);
       const name = String(incoming.name || '').trim();
-      const role = incoming.role === 'admin' ? 'admin' : 'petugas';
+      const role = incoming.role === 'admin' ? 'admin' : 'user';
       const password = String(req.body?.password || '');
 
       if (!userId || !username || !name) return json(res, 400, { message: 'Data akun belum lengkap.' });
-      if (password && (password.length < 12 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password))) {
-        return json(res, 400, { message: 'Kata sandi minimal 12 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.' });
+      if (password && (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password))) {
+        return json(res, 400, { message: 'Kata sandi minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.' });
       }
 
       const usernameSnap = await db.collection(USERS).where('username', '==', username).limit(2).get();
@@ -262,7 +266,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const existingSnap = await ref.get();
       const existing = existingSnap.exists ? existingSnap.data() : null;
       if (!existing && !password) return json(res, 400, { message: 'Kata sandi wajib diisi untuk akun baru.' });
-      if (userId === context.decoded.uid && role !== 'admin') return json(res, 400, { message: 'Akun Administrator aktif tidak boleh diturunkan menjadi Petugas.' });
+      if (userId === context.decoded.uid && role !== 'admin') return json(res, 400, { message: 'Akun Administrator aktif tidak boleh diturunkan menjadi User.' });
 
       const allowedProfile = {
         id: userId,
@@ -329,8 +333,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     if (action === 'change-password') {
       const currentPassword = String(req.body?.currentPassword || '');
       const newPassword = String(req.body?.newPassword || '');
-      if (newPassword.length < 12 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-        return json(res, 400, { message: 'Kata sandi baru minimal 12 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.' });
+      if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return json(res, 400, { message: 'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.' });
       }
       if (!verifyPassword(currentPassword, context.user.passwordHash, context.user.passwordSalt)) {
         return json(res, 401, { message: 'Kata sandi lama yang Anda masukkan salah.' });
@@ -445,7 +449,7 @@ exports.pdfApi = onRequest({
   let browser;
   try {
     const context = await requirePdfSession(req);
-    if (!['admin', 'petugas'].includes(context.user.role)) {
+    if (!['admin', 'user'].includes(context.user.role)) {
       return json(res, 403, { message: 'Anda tidak memiliki akses untuk membuat PDF SPO.' });
     }
 

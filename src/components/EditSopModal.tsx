@@ -1301,7 +1301,7 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
                     <div>
 
                       <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Petugas Perevisi
+                        User Perevisi
                       </label>
 
                       <input

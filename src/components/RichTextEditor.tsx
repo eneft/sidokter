@@ -16,7 +16,6 @@ import {
   Redo2,
   IndentIncrease,
   IndentDecrease,
-  Strikethrough,
   Type,
   ImagePlus,
   Trash2,
@@ -526,7 +525,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [activeColor, setActiveColor] = useState('#0f172a');
-  const [selectedFontSize, setSelectedFontSize] = useState('12px');
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const isUpdatingFromPropRef = useRef(false);
@@ -542,7 +540,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     bold: boolean;
     italic: boolean;
     underline: boolean;
-    strike: boolean;
     align: 'left' | 'center' | 'right' | 'justify';
     orderedList: boolean;
     unorderedList: boolean;
@@ -550,7 +547,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     bold: false,
     italic: false,
     underline: false,
-    strike: false,
     align: 'left',
     orderedList: false,
     unorderedList: false,
@@ -562,7 +558,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       const isBold = document.queryCommandState('bold');
       const isItalic = document.queryCommandState('italic');
       const isUnderline = document.queryCommandState('underline');
-      const isStrike = document.queryCommandState('strikeThrough');
       const isOrdered = document.queryCommandState('insertOrderedList');
       const isUnordered = document.queryCommandState('insertUnorderedList');
 
@@ -576,7 +571,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         bold: isBold,
         italic: isItalic,
         underline: isUnderline,
-        strike: isStrike,
         align,
         orderedList: isOrdered,
         unorderedList: isUnordered,
@@ -1225,40 +1219,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       executeCommand('justifyRight');
       return;
     }
-  };
-
-  const handleApplyFontSize = (size: string) => {
-    setSelectedFontSize(size);
-    if (!editorRef.current) return;
-    const restored = restoreSavedSelection();
-    const selection = window.getSelection();
-    if (!restored || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
-
-    try {
-      // Use the browser command when possible, then normalize its generated
-      // font element into a predictable span.
-      document.execCommand('fontSize', false, '7');
-      const fonts = Array.from(editorRef.current.querySelectorAll('font[size="7"]')) as HTMLElement[];
-      fonts.forEach((font) => {
-        const span = document.createElement('span');
-        span.style.fontSize = size;
-        while (font.firstChild) span.appendChild(font.firstChild);
-        font.replaceWith(span);
-      });
-    } catch {
-      const range = selection.getRangeAt(0);
-      const selectedContent = range.extractContents();
-      const span = document.createElement('span');
-      span.style.fontSize = size;
-      span.appendChild(selectedContent);
-      range.insertNode(span);
-    }
-
-    const newSelection = window.getSelection();
-    if (newSelection && newSelection.rangeCount > 0) {
-      savedRangeRef.current = newSelection.getRangeAt(0).cloneRange();
-    }
-    handleInput();
   };
 
   const handleApplyColor = (color: string) => {
@@ -2006,7 +1966,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
-              {/* Gaya Huruf (B, I, U, S) */}
+              {/* Gaya Huruf (B, I, U) */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
                   type="button"
@@ -2035,34 +1995,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 >
                   <Underline className="w-3 h-3" />
                 </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('strikeThrough')}
-                  title="Coret / Strikethrough"
-                  className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center ${activeFormatting.strike ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-slate-200/80 hover:text-indigo-600 text-slate-700'}`}
-                >
-                  <Strikethrough className="w-3 h-3" />
-                </button>
               </div>
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
-
-              {/* Ukuran Font */}
-              <div className="flex items-center shrink-0">
-                <select
-                  value={selectedFontSize}
-                  onChange={(e) => handleApplyFontSize(e.target.value)}
-                  title="Pilih Ukuran Font"
-                  className="h-5.5 text-[10px] font-medium text-slate-700 bg-white border border-slate-200 rounded px-1 py-0 focus:outline-none focus:border-indigo-400 cursor-pointer"
-                >
-                  {FONT_SIZES.map((f) => (
-                    <option key={f.value} value={f.value}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               {/* Warna Teks */}
               <div className="relative shrink-0">

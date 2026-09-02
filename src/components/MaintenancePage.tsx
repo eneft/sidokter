@@ -79,7 +79,7 @@ export const MaintenancePage: React.FC<MaintenancePageProps> = ({
               <span>Informasi Administrator:</span>
             </p>
             <p className="text-slate-800">
-              {message || 'Sistem sedang dalam proses pemeliharaan rutin server dan sinkronisasi data. Akses untuk Petugas/Pengguna biasa ditangguhkan sementara.'}
+              {message || 'Sistem sedang dalam proses pemeliharaan rutin server dan sinkronisasi data. Akses untuk User/Pengguna biasa ditangguhkan sementara.'}
             </p>
           </div>
 

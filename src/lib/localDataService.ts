@@ -26,7 +26,7 @@ export async function initializeLocalData(): Promise<void> {
     modified = true;
   }
 
-  // Ensure Petugas Pelayanan account exists
+  // Ensure User Pelayanan account exists
   if (!currentUsers.some((u) => u.username?.toLowerCase() === 'pelayanan')) {
     const { hash, salt } = await hashPassword('pelayanan123');
     currentUsers.push({

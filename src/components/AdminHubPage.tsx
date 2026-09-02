@@ -20,7 +20,7 @@ import {
 import { UserSession, UserAccount } from '../types';
 import { SecurityAccountPanel } from './SecurityAccountPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
-import { PetugasPasswordTab } from './PetugasPasswordTab';
+import { UserPasswordTab } from './UserPasswordTab';
 
 interface AdminHubPageProps {
   userSession: UserSession;
@@ -28,7 +28,14 @@ interface AdminHubPageProps {
   onOpenUserManagement?: () => void;
   onOpenMasterData?: () => void;
   onOpenMaintenanceModal?: () => void;
+  onOpenMaintenance?: () => void;
   onOpenNumberingConfig?: () => void;
+  onOpenSecurity?: () => void;
+  onOpenBackupRestore?: () => void;
+  onBackup?: () => void;
+  onRestore?: () => void;
+  isRestoring?: boolean;
+  restoreProgress?: string;
   onLogout?: () => void;
   onUpdatePassword?: (newPassword: string) => Promise<void>;
   onShowToast?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
@@ -42,7 +49,14 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   onOpenUserManagement,
   onOpenMasterData,
   onOpenMaintenanceModal,
+  onOpenMaintenance,
   onOpenNumberingConfig,
+  onOpenSecurity,
+  onOpenBackupRestore,
+  onBackup,
+  onRestore,
+  isRestoring = false,
+  restoreProgress = '',
   onLogout,
   onUpdatePassword,
   onShowToast,
@@ -50,7 +64,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   const isAdmin = userSession.role === 'admin';
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(isAdmin ? 'tools' : 'password');
 
-  // If user is Petugas, show clean Petugas Security & Profile Hub
+  // If user is User, show clean User Security & Profile Hub
   if (!isAdmin) {
     return (
       <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-200">
@@ -63,7 +77,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
               <div className="flex items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900">{userSession.name}</h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
-                  Petugas Unit
+                  User Unit
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -87,7 +101,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
 
         {/* Change Password Card */}
         {onUpdatePassword && (
-          <PetugasPasswordTab
+          <UserPasswordTab
             userSession={userSession}
             onLogout={onLogout || (() => {})}
             onUpdatePassword={onUpdatePassword}
@@ -102,7 +116,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Header Banner */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-xs">
+      <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="p-3 rounded-2xl bg-slate-900 text-white shadow-xs">
@@ -114,11 +128,11 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
                   Portal Administrasi & Kontrol Sistem
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Super Admin
+                  ADMINISTRATOR
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Kelola master struktur unit RSUD Dr. Soegiri, manajemen akun petugas, keamanan sesi, pencadangan database, dan pengaturan penomoran.
+                Kelola struktur unit, akun User, keamanan, pencadangan data, dan konfigurasi dokumen SIDOKTER.
               </p>
             </div>
           </div>
@@ -130,7 +144,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
         </div>
 
         {/* Admin Navigation Sub-Tabs */}
-        <div className="mt-6 flex items-center gap-2 border-b border-slate-100 pb-3 overflow-x-auto">
+        <div className="mt-5 flex items-center gap-2 border-b border-slate-100 pb-3 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveSubTab('tools')}
@@ -211,15 +225,15 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
             </div>
           </div>
 
-          {/* Card 2: Manajemen Petugas & Akun */}
+          {/* Card 2: Manajemen User & Akun */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col justify-between shadow-2xs hover:shadow-md hover:border-indigo-300 transition-all group">
             <div>
               <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-700 w-fit mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                 <Users className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-black text-slate-900">Manajemen Petugas & Akun</h3>
+              <h3 className="text-base font-black text-slate-900">Manajemen User & Akun</h3>
               <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Tambah akun petugas, atur penugasan multi-hirarki/bidang unit, reset password, dan pantau status login pengguna.
+                Tambah akun user, atur penugasan multi-hirarki/bidang unit, reset password, dan pantau status login pengguna.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-slate-100">
@@ -228,7 +242,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
                 onClick={onOpenUserManagement}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors cursor-pointer"
               >
-                <span>Kelola Petugas ({userAccounts.length})</span>
+                <span>Kelola User ({userAccounts.length})</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -265,13 +279,13 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
               </div>
               <h3 className="text-base font-black text-slate-900">Mode Pemeliharaan (Maintenance)</h3>
               <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Aktifkan mode pemeliharaan sistem dengan pesan pengumuman real-time ke seluruh petugas yang sedang aktif.
+                Aktifkan mode pemeliharaan sistem dengan pesan pengumuman real-time ke seluruh user yang sedang aktif.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-slate-100">
               <button
                 type="button"
-                onClick={onOpenMaintenanceModal}
+                onClick={onOpenMaintenanceModal || onOpenMaintenance}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 <span>Kelola Mode Pemeliharaan</span>
@@ -331,7 +345,11 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
       {/* SubTab 2: Security & Session Guard Panel */}
       {activeSubTab === 'security' && (
         <SecurityAccountPanel
+          isOpen={true}
           userSession={userSession}
+          isAdmin={true}
+          onClose={() => setActiveSubTab('tools')}
+          onLogout={onLogout || (() => {})}
           onShowToast={onShowToast}
         />
       )}
@@ -339,14 +357,19 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
       {/* SubTab 3: Backup & Restore Panel */}
       {activeSubTab === 'backup' && (
         <BackupRestorePanel
+          inline={true}
           userSession={userSession}
+          onBackup={onBackup}
+          onRestore={onRestore}
+          isRestoring={isRestoring}
+          restoreProgress={restoreProgress}
           onShowToast={onShowToast}
         />
       )}
 
       {/* SubTab 4: Change Admin Password */}
       {activeSubTab === 'password' && onUpdatePassword && (
-        <PetugasPasswordTab
+        <UserPasswordTab
           userSession={userSession}
           onLogout={onLogout || (() => {})}
           onUpdatePassword={onUpdatePassword}

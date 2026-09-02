@@ -42,7 +42,9 @@ export const LibraryDocumentPage: React.FC<Props> = ({
   onShowToast 
 }) => {
   const isAdmin = userSession.role === 'admin';
-  const canUpload = isAdmin || userSession.role === 'petugas';
+  const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
+  const hasProtectedDocumentAccess = isAdmin || hasStructuralBadge;
+  const canUpload = hasProtectedDocumentAccess;
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [viewer, setViewer] = useState<LibraryDocument | null>(null);
@@ -182,7 +184,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
   const submitUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canUpload) {
-      onShowToast?.('error', 'Akses Ditolak', 'Hanya Admin atau Petugas yang dapat mengunggah dokumen.');
+      onShowToast?.('error', 'Akses Ditolak', `${type} hanya dapat diakses oleh User dengan badge STRUKTURAL.`);
       return;
     }
     if (!file) {
@@ -206,9 +208,9 @@ export const LibraryDocumentPage: React.FC<Props> = ({
       };
 
       if (type === 'SK') {
-        await uploadSK(file, title, userSession.name, userSession.role, metadata);
+        await uploadSK(file, title, userSession.name, userSession.role, metadata, userSession.badges);
       } else {
-        await uploadMOU(file, title, userSession.name, userSession.role, metadata);
+        await uploadMOU(file, title, userSession.name, userSession.role, metadata, userSession.badges);
       }
       setUploadOpen(false);
       setTitle('');
@@ -275,6 +277,31 @@ export const LibraryDocumentPage: React.FC<Props> = ({
     }
   };
 
+  if (!hasProtectedDocumentAccess) {
+    return (
+      <section className="min-h-[55vh] flex items-center justify-center animate-in fade-in duration-200">
+        <div className="w-full max-w-xl bg-white rounded-3xl border border-amber-200 p-8 sm:p-10 text-center shadow-xs">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg font-black text-slate-900">Akses Terbatas</h2>
+          <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+            Anda tidak punya akses ke dokumen {type}.
+          </p>
+          <div className="mt-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-black">
+            <ShieldAlert className="w-4 h-4" />
+            <span>Memerlukan badge STRUKTURAL</span>
+          </div>
+          {onBack && (
+            <button type="button" onClick={onBack} className="mt-6 text-xs font-bold text-slate-500 hover:text-slate-900">
+              ← Kembali
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-5 animate-in fade-in duration-200">
       {/* Top Banner / Header */}
@@ -311,7 +338,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Upload Trigger: Admin & Petugas */}
+          {/* Upload Trigger: Admin & User */}
           {canUpload ? (
             <button
               type="button"
@@ -324,7 +351,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
           ) : (
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium shrink-0">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Akses Petugas: Lihat & Download</span>
+              <span>Akses User: Lihat & Download</span>
             </div>
           )}
         </div>
@@ -530,7 +557,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Upload Modal (Admin & Petugas) */}
+      {/* Upload Modal (Admin & User) */}
       {uploadOpen && (
         <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">

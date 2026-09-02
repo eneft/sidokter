@@ -54,7 +54,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<UserRole>('petugas');
+  const [role, setRole] = useState<UserRole>('user');
+  const [badges, setBadges] = useState<string[]>([]);
   const [divisionCode, setDivisionCode] = useState<string>('PEL');
   const [divisionCodes, setDivisionCodes] = useState<string[]>(['PEL']);
   const [assignments, setAssignments] = useState<UserAssignment[]>([]);
@@ -84,7 +85,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     setUsername('');
     setPassword('');
     setName('');
-    setRole('petugas');
+    setRole('user');
+    setBadges([]);
     setDivisionCode('PEL');
     setDivisionCodes(['PEL']);
     setAssignments([]);
@@ -104,6 +106,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     setPassword(''); // Leave empty so admin only inputs if changing password
     setName(user.name);
     setRole(user.role);
+    setBadges(Array.isArray(user.badges) ? user.badges : []);
     const legacyDivision = user.divisionCode || (user.role === 'admin' ? 'ALL' : 'PEL');
     const legacyAssignments: UserAssignment[] = Array.isArray(user.assignments) && user.assignments.length
       ? user.assignments
@@ -165,7 +168,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     }
 
     if (!cleanName) {
-      setFormError('Nama lengkap petugas wajib diisi.');
+      setFormError('Nama lengkap user wajib diisi.');
       return;
     }
 
@@ -174,8 +177,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       return;
     }
 
-    if (cleanPassword && (cleanPassword.length < 12 || !/[A-Z]/.test(cleanPassword) || !/[a-z]/.test(cleanPassword) || !/[0-9]/.test(cleanPassword))) {
-      setFormError('Kata sandi minimal 12 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.');
+    if (cleanPassword && (cleanPassword.length < 8 || !/[A-Z]/.test(cleanPassword) || !/[a-z]/.test(cleanPassword) || !/[0-9]/.test(cleanPassword))) {
+      setFormError('Kata sandi minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.');
       return;
     }
 
@@ -217,6 +220,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         divisionCode: role === 'admin' ? 'ALL' : firstAssignment.divisionCode,
         divisionCodes: role === 'admin' ? ['ALL'] : Array.from(new Set(uniqueAssignments.map((a) => a.divisionCode))),
         assignments: role === 'admin' ? undefined : uniqueAssignments,
+        badges: role === 'admin' ? [] : badges.filter((b) => String(b).toUpperCase() === 'STRUKTURAL'),
         subCode: role === 'admin' ? undefined : (firstAssignment.subCode || undefined),
         instCode: role === 'admin' ? undefined : (firstAssignment.instCode || undefined),
         poliCode: role === 'admin' ? undefined : (firstAssignment.poliCode || undefined),
@@ -236,7 +240,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       await onSaveUser(userPayload);
       onShowToast(
         'success',
-        editingUserId ? 'Akun Diperbarui' : 'Akun Petugas Dibuat',
+        editingUserId ? 'Akun Diperbarui' : 'Akun User Dibuat',
         `Akun "${cleanUsername}" (${cleanName}) berhasil ${editingUserId ? 'diperbarui' : 'ditambahkan'}.`
       );
       setIsFormOpen(false);
@@ -260,7 +264,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
     try {
       setIsDeleting(true);
       await onDeleteUser(userToDelete.id);
-      onShowToast('success', 'Akun Dihapus', `Akun petugas "${userToDelete.username}" (${userToDelete.name}) berhasil dihapus.`);
+      onShowToast('success', 'Akun Dihapus', `Akun user "${userToDelete.username}" (${userToDelete.name}) berhasil dihapus.`);
       setUserToDelete(null);
     } catch (err) {
       onShowToast('error', 'Gagal Menghapus', 'Gagal menghapus akun dari database.');
@@ -289,9 +293,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">Kelola Akun Petugas & Pengguna</h2>
+              <h2 className="text-base font-bold text-slate-900">Kelola Akun User & Pengguna</h2>
               <p className="text-xs text-slate-500">
-                Tambah, edit, dan atur kata sandi akun petugas penginput SPO RSUD Dr. Soegiri
+                Tambah, edit, dan atur kata sandi akun user penginput SPO RSUD Dr. Soegiri
               </p>
             </div>
           </div>
@@ -325,7 +329,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-lg shadow-sm transition-all cursor-pointer"
             >
               <UserPlus className="w-4 h-4" />
-              <span>+ Buat Akun Petugas Baru</span>
+              <span>+ Buat Akun User Baru</span>
             </button>
           </div>
 
@@ -336,7 +340,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 <div className="flex items-center gap-2">
                   <UserCheck className="w-4 h-4 text-indigo-700" />
                   <h3 className="text-sm font-bold text-indigo-950">
-                    {editingUserId ? 'Edit Akun Petugas' : 'Formulir Akun Petugas Baru'}
+                    {editingUserId ? 'Edit Akun User' : 'Formulir Akun User Baru'}
                   </h3>
                 </div>
                 <button
@@ -364,7 +368,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="contoh: petugas_pelayanan"
+                      placeholder="contoh: user_pelayanan"
                       className="w-full bg-white border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required
                     />
@@ -382,7 +386,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       type="text"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder={editingUserId ? "Kosongkan jika tidak ingin diubah" : "contoh: petugas123"}
+                      placeholder={editingUserId ? "Kosongkan jika tidak ingin diubah" : "contoh: user123"}
                       className="w-full bg-white border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -391,7 +395,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nama Lengkap Petugas <span className="text-rose-500">*</span>
+                    Nama Lengkap User <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -428,9 +432,30 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     }}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
-                    <option value="petugas">Petugas (Input & Lihat SPO Bidang/Unit)</option>
+                    <option value="user">User (Input & Lihat SPO Bidang/Unit)</option>
                     <option value="admin">Admin (Akses Penuh Management)</option>
                   </select>
+                </div>
+
+                {/* Elevated Document Access Badge */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Badge Akses Dokumen
+                  </label>
+                  <label className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-3 py-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={badges.includes('STRUKTURAL')}
+                      onChange={(e) => setBadges(e.target.checked ? ['STRUKTURAL'] : [])}
+                      disabled={role === 'admin'}
+                      className="accent-emerald-600"
+                    />
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                      <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                      STRUKTURAL
+                    </span>
+                  </label>
+                  <p className="text-[10px] text-slate-500 mt-1">Badge STRUKTURAL memiliki prioritas di atas hirarki dan memberi akses ke seluruh dokumen SPO.</p>
                 </div>
 
                 {/* Cascading Hierarchy Selection (Bidang -> Sub -> Instalasi -> Unit) */}
@@ -438,10 +463,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                     <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                       <Building2 className="w-4 h-4 text-indigo-600" />
-                      Akses Spesifikasi Hierarki Unit Kerja Petugas
+                      Akses Spesifikasi Hierarki Unit Kerja User
                     </span>
                     <span className="text-[10px] text-slate-500 font-medium">
-                      Batasi bidang/instalasi/unit yang dapat diakses oleh petugas ini
+                      Batasi bidang/instalasi/unit yang dapat diakses oleh user ini
                     </span>
                   </div>
 
@@ -458,7 +483,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       disabled={role === 'admin'}
                       label="Pilih Hirarki Lengkap"
                     />
-                    <p className="mt-1 text-[10px] text-slate-500">Bisa sampai kedalaman berapa pun. Pilihan ini menjadi sumber kode penomoran Petugas.</p>
+                    <p className="mt-1 text-[10px] text-slate-500">Bisa sampai kedalaman berapa pun. Pilihan ini menjadi sumber kode penomoran User.</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -613,7 +638,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   </div>
 
                   {/* Multi-hierarchy access assignments */}
-                  {role === 'petugas' && (
+                  {role === 'user' && (
                     <div className="border-t border-slate-200 pt-3 space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
@@ -697,7 +722,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                     className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{isSubmitting ? 'Saving...' : 'Simpan Akun Petugas'}</span>
+                    <span>{isSubmitting ? 'Saving...' : 'Simpan Akun User'}</span>
                   </button>
                 </div>
               </form>
@@ -710,10 +735,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3">Username</th>
-                  <th className="px-4 py-3">Nama Petugas</th>
+                  <th className="px-4 py-3">Nama User</th>
                   <th className="px-4 py-3">Akses Bidang SPO</th>
                   <th className="px-4 py-3">Rincian Unit</th>
                   <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3">Badge</th>
                   <th className="px-4 py-3">Kata Sandi</th>
                   <th className="px-4 py-3 text-right">Aksi</th>
                 </tr>
@@ -721,8 +747,8 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-slate-400 italic">
-                      Tidak ada akun petugas yang ditemukan.
+                    <td colSpan={8} className="text-center py-8 text-slate-400 italic">
+                      Tidak ada akun user yang ditemukan.
                     </td>
                   </tr>
                 ) : (
@@ -768,8 +794,15 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                             }`}
                           >
                             {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <UserCheck className="w-3 h-3" />}
-                            <span>{u.role === 'admin' ? 'ADMINISTRATOR' : 'PETUGAS'}</span>
+                            <span>{u.role === 'admin' ? 'ADMINISTRATOR' : 'USER'}</span>
                           </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {Array.isArray(u.badges) && u.badges.includes('STRUKTURAL') ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Shield className="w-3 h-3" /> STRUKTURAL
+                            </span>
+                          ) : <span className="text-[10px] text-slate-400">-</span>}
                         </td>
                         <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">
                           {u.passwordHash ? '••••••••' : 'Belum di-hash'}
@@ -828,13 +861,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                 <Trash2 className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Hapus Akun Petugas?</h3>
+                <h3 className="text-base font-bold text-slate-900">Hapus Akun User?</h3>
                 <p className="text-xs text-slate-500">Konfirmasi Penghapusan Akses</p>
               </div>
             </div>
 
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-1">
-              <p>Apakah Anda yakin ingin menghapus akun petugas berikut?</p>
+              <p>Apakah Anda yakin ingin menghapus akun user berikut?</p>
               <p className="font-bold text-slate-900 text-sm">{userToDelete.name}</p>
               <p className="font-mono text-slate-600">Username: <span className="font-bold text-slate-900">{userToDelete.username}</span></p>
               <p className="text-slate-500">Unit: {userToDelete.unitName || '-'}</p>

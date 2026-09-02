@@ -1137,7 +1137,7 @@ ol[type="1"], [style*="list-style-type: decimal"], [style*="list-style-type:deci
 
   /* Hide main background dashboard when any printable modal is active */
   body:has(.printable-modal-active) main,
-  body:has(.printable-modal-active) .petugas-main-content,
+  body:has(.printable-modal-active) .user-main-content,
   body.modal-open main,
   .print-hide-main {
     display: none !important;
@@ -1693,9 +1693,9 @@ button, a, input, select, textarea {
   touch-action: pan-x pan-y;
 }
 
-/* Offset sticky toolbar when scrolling on page with top header (e.g. PetugasView) */
+/* Offset sticky toolbar when scrolling on page with top header (e.g. UserView) */
 main .rich-text-toolbar,
-.petugas-main-content .rich-text-toolbar {
+.user-main-content .rich-text-toolbar {
   top: 4.1rem !important;
 }
 

@@ -427,6 +427,7 @@ export function isSopAccessibleByUser(
   },
   userSession?: {
     role: string;
+    badges?: string[];
     divisionCode?: string;
     divisionCodes?: string[];
     assignments?: Array<{
@@ -448,6 +449,11 @@ export function isSopAccessibleByUser(
   if (!userSession) return false;
   if (userSession.role === 'admin') return true;
   if (sop.isExampleOnly) return false;
+
+  // Elevated badge precedence: STRUKTURAL grants document-wide access
+  // regardless of the user's assigned hierarchy. Role admin remains the
+  // highest system privilege.
+  if (Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) return true;
 
   const sopDivision = String(sop.divisionCode || '').trim().toUpperCase();
   if (!sopDivision) return false;

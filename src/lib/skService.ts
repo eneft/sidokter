@@ -7,7 +7,7 @@ import { subscribeToLibraryDocuments, uploadDocument, updateDocument, deleteDocu
 
 export const SK_TYPE = 'SK' as const;
 export function subscribeToSKDocuments(onData: (documents: LibraryDocument[]) => void, onError?: (err:any)=>void) { return subscribeToLibraryDocuments((docs) => onData(docs.filter(d => d.type === SK_TYPE)), onError); }
-export function uploadSK(file: File, title: string, uploadedBy?: string, actorRole?: UserRole, metadata?: any) { return uploadDocument(file, SK_TYPE, title, uploadedBy, actorRole, metadata); }
+export function uploadSK(file: File, title: string, uploadedBy?: string, actorRole?: UserRole, metadata?: any, actorBadges?: string[]) { return uploadDocument(file, SK_TYPE, title, uploadedBy, actorRole, metadata, actorBadges); }
 export function updateSK(id: string, updates: any, updatedBy?: string, actorRole?: UserRole) { return updateDocument(id, updates, updatedBy, actorRole); }
 export function deleteSK(document: LibraryDocument, actorRole?: UserRole) { return deleteDocument(document, actorRole); }
 export function getSKDocumentUrl(document: LibraryDocument) { return getDocumentUrl(document); }

@@ -14,7 +14,8 @@ import {
   FileDown,
   ExternalLink,
   Layers,
-  Sparkles
+  Sparkles,
+  ShieldAlert
 } from 'lucide-react';
 import { DocumentViewer } from './DocumentViewer';
 import { LibraryDocument, SopDocument, UserSession } from '../types';
@@ -39,6 +40,8 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
   onShowToast
 }) => {
   const isAdmin = userSession.role === 'admin';
+  const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
+  const canAccessProtectedDocs = isAdmin || hasStructuralBadge;
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<FinalDocTypeFilter>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
@@ -103,6 +106,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
 
   const filteredLibraryDocs = useMemo(() => {
     return documents.filter((d) => {
+      if (!canAccessProtectedDocs && (d.type === 'SK' || d.type === 'MOU')) return false;
       if (filterType !== 'ALL' && d.type !== filterType) return false;
       if (selectedYear !== 'ALL') {
         const dt = d.effectiveDate || d.createdAt;
@@ -116,7 +120,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
         (d.fileName || '').toLowerCase().includes(q)
       );
     });
-  }, [documents, filterType, selectedYear, q]);
+  }, [documents, filterType, selectedYear, q, canAccessProtectedDocs]);
 
   const totalCount = (filterType === 'ALL' || filterType === 'SPO' ? filteredSops.length : 0) + filteredLibraryDocs.length;
   const grandTotalFinalDocs = activeSops.length + documents.length;
@@ -168,6 +172,13 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
           </div>
         </div>
 
+        {!canAccessProtectedDocs && (
+          <div className="mt-4 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+            <ShieldAlert className="w-4 h-4 shrink-0" />
+            <span>Anda tidak punya akses ke dokumen SK dan MOU. Akses tersebut memerlukan badge STRUKTURAL.</span>
+          </div>
+        )}
+
         {/* Filter Bar & Search */}
         <div className="mt-5 space-y-3">
           <div className="flex flex-col md:flex-row items-center gap-3">
@@ -193,13 +204,17 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
 
             {/* Type Filter Buttons */}
             <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-              {(
-                [
-                  { id: 'ALL', label: 'Semua Dokumen', count: grandTotalFinalDocs },
-                  { id: 'SPO', label: 'SPO Final', count: activeSops.length },
-                  { id: 'SK', label: 'SK Direktur', count: skDocs.length },
-                  { id: 'MOU', label: 'MOU / PKS', count: mouDocs.length },
-                ] as const
+              {(canAccessProtectedDocs
+                ? [
+                    { id: 'ALL' as const, label: 'Semua Dokumen', count: grandTotalFinalDocs },
+                    { id: 'SPO' as const, label: 'SPO Final', count: activeSops.length },
+                    { id: 'SK' as const, label: 'SK Direktur', count: skDocs.length },
+                    { id: 'MOU' as const, label: 'MOU / PKS', count: mouDocs.length },
+                  ]
+                : [
+                    { id: 'ALL' as const, label: 'Dokumen SPO', count: activeSops.length },
+                    { id: 'SPO' as const, label: 'SPO Final', count: activeSops.length },
+                  ]
               ).map((tab) => (
                 <button
                   key={tab.id}

@@ -1,5 +1,5 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
-import { saveNamedFileToLocalCache, getNamedFileFromLocalCache, deleteNamedFileFromLocalCache } from '../utils/fileStorage';
+import { saveNamedFileToLocalCache, getNamedFileFromLocalCache, deleteNamedFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
 
 const LIBRARY_KEY = 'soegiri_offline_library_v1';
 const subscribers = new Set<() => void>();
@@ -20,9 +20,10 @@ export function subscribeToLibraryDocuments(onData: (documents: LibraryDocument[
   return () => { subscribers.delete(emit); window.removeEventListener('storage', onStorage); };
 }
 
-export async function uploadDocument(file: File, type: LibraryDocumentType, title: string, uploadedBy?: string, actorRole?: UserRole, metadata?: any): Promise<LibraryDocument> {
-  if (actorRole !== 'admin' && actorRole !== 'petugas') {
-    throw new Error('Akses ditolak. Hanya Admin atau Petugas yang dapat mengunggah dokumen.');
+export async function uploadDocument(file: File, type: LibraryDocumentType, title: string, uploadedBy?: string, actorRole?: UserRole, metadata?: any, actorBadges?: string[]): Promise<LibraryDocument> {
+  const hasStructuralBadge = Array.isArray(actorBadges) && actorBadges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
+  if (actorRole !== 'admin' && !hasStructuralBadge) {
+    throw new Error(`Akses ditolak. Dokumen ${type} hanya dapat diakses oleh User dengan badge STRUKTURAL.`);
   }
   if (!['SK','MOU'].includes(type)) throw new Error('Jenis dokumen tidak valid.');
   if (!file || file.type !== 'application/pdf') throw new Error('File harus berupa PDF.');
@@ -48,8 +49,24 @@ export async function deleteDocument(document:LibraryDocument,actorRole?:UserRol
   saveDocuments(getDocuments().filter(d=>d.id!==document.id));
 }
 export async function getDocumentUrl(document: LibraryDocument): Promise<string | null> {
+  // Remote/external URLs remain valid as-is. Local documents are resolved from
+  // the persistent named cache first, then from the legacy SPO file cache.
+  // The legacy fallback allows older SK/MOU records to survive migrations where
+  // metadata remained but the storage-key convention changed.
   if (document.downloadUrl && !document.downloadUrl.startsWith('local://')) return document.downloadUrl;
-  return getNamedFileFromLocalCache(`library_${document.id}`);
+
+  const named = await getNamedFileFromLocalCache(`library_${document.id}`);
+  if (named) return named;
+
+  const legacy = await getFileFromPersistentCacheAsync(document.id, 'file');
+  if (legacy) {
+    // Repair the document into the canonical persistent library cache so future
+    // previews/downloads do not depend on the legacy key.
+    await saveNamedFileToLocalCache(`library_${document.id}`, legacy);
+    return legacy;
+  }
+
+  return null;
 }
 
 export async function getLibraryDocumentsForBackup(type?: LibraryDocumentType): Promise<LibraryDocument[]> {

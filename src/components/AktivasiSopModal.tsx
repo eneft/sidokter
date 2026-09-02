@@ -101,7 +101,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
     }
 
     if (!adminName.trim()) {
-      alert("Harap isi nama Petugas / Admin Tata Naskah penerima.");
+      alert("Harap isi nama User / Admin Tata Naskah penerima.");
       return;
     }
 
@@ -249,7 +249,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Petugas / Admin Tata Naskah <span className="text-rose-500">*</span></span>
+                <span>User / Admin Tata Naskah <span className="text-rose-500">*</span></span>
               </label>
               <input
                 type="text"
