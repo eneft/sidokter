@@ -95,8 +95,24 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const jenis = String(sop.jenis_spo || sop.documentType || '').trim().toUpperCase();
+    const isRiviu = jenis === 'RIVIU' || jenis === 'REVIEW' || sop.isReviewDocument === true;
+    const isBaru = jenis === 'BARU';
+    const isExisting =
+      sop.jenis_spo === 'EKSISTING' ||
+      sop.documentType === 'EKSISTING' ||
+      sop.documentType === 'LAMA' ||
+      sop.isLegacySop === true;
+
+    // Existing tidak boleh masuk alur Aktivasi. TTD + stempel baru hanya
+    // diwajibkan pada SPO Baru dan SPO Riviu yang akan menjadi Aktif.
+    if (isExisting || (!isBaru && !isRiviu)) {
+      alert('SPO Existing tidak menggunakan alur Aktivasi. TTD + stempel wajib diterapkan pada SPO Baru dan SPO Riviu sebelum menjadi Aktif.');
+      return;
+    }
+
     if (!confirmedPhysicalSignature) {
-      alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah. Ketentuan ini wajib untuk SPO Baru dan SPO Riviu sebelum aktivasi.");
+      alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah. Ketentuan ini WAJIB untuk SPO Baru dan SPO Riviu sebelum aktivasi.");
       return;
     }
 

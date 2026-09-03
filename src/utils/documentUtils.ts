@@ -58,19 +58,35 @@ export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
 }
 
 /**
- * Memeriksa apakah tanda tangan & stempel Direktur berhak ditampilkan:
- * Sesuai aturan tata kelola naskah dinas RSUD Dr. Soegiri:
- * Rule baseline: setiap SPO yang sudah AKTIF wajib menampilkan TTD dan stempel.
- * Untuk SPO Existing/Legacy yang berupa PDF scan, tanda tangan/stempel berasal
- * dari berkas resmi itu sendiri sehingga sistem tidak menambahkan overlay baru.
+ * Rule TTD + stempel SPO aktif.
  *
- * Kriteria render overlay:
- * 1. Dokumen WAJIB berstatus 'AKTIF'.
- * 2. Dokumen BUKAN berbentuk file PDF/scan Existing.
+ * WAJIB untuk dua alur yang menghasilkan SPO aktif baru:
+ *   1) SPO Baru
+ *   2) SPO Riviu
+ *
+ * SPO Existing tidak mendapat overlay TTD/stempel baru karena dokumen
+ * existing harus mempertahankan naskah fisik/scan resminya.
+ *
+ * Jangan menentukan rule ini dari MIME/ekstensi file. Berkas PDF pada SPO
+ * Baru/Riviu tetap harus menampilkan TTD + stempel pada naskah final.
  */
 export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): boolean {
-  if (!sop) return false;
-  const isAktif = sop.status === 'AKTIF';
-  const isPdf = isPdfSopDocument(sop);
-  return isAktif && !isPdf;
+  if (!sop || sop.status !== 'AKTIF') return false;
+
+  const jenis = String(
+    sop.jenis_spo ||
+    sop.documentType ||
+    ''
+  ).trim().toUpperCase();
+
+  const isRiviu = jenis === 'RIVIU' || jenis === 'REVIEW' || sop.isReviewDocument === true;
+  const isExisting =
+    sop.jenis_spo === 'EKSISTING' ||
+    sop.documentType === 'EKSISTING' ||
+    sop.documentType === 'LAMA' ||
+    sop.isLegacySop === true;
+
+  if (isExisting && !isRiviu) return false;
+
+  return jenis === 'BARU' || isRiviu;
 }

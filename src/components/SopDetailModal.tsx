@@ -809,8 +809,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
                 .join('');
 
-              const makeList = (itemHtmls: string[], startIndex: number, continuation = false, continuationNumber?: number) =>
-                `<${listTag}${listAttrs}${isOl ? ` start="${continuationNumber ?? (explicitStart + startIndex)}"` : ''}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${continuationNumber ?? (explicitStart + startIndex)}"` : ''}>${itemHtmls.join('')}</${listTag}>`;
+              const makeList = (itemHtmls: string[], startIndex: number, continuation = false, continuationNumber?: number) => {
+                const number = continuationNumber ?? (explicitStart + startIndex);
+                const itemsWithContinuationMarker = continuation
+                  ? itemHtmls.map((itemHtml) => itemHtml.replace(/^<li\b/i, '<li data-sop-continuation-li="true"'))
+                  : itemHtmls;
+                return `<${listTag}${listAttrs}${isOl && !continuation ? ` start="${number}"` : ''}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${number}"` : ''}>${itemsWithContinuationMarker.join('')}</${listTag}>`;
+              };
 
               if (items.length > 0) {
                 const fullList = first.outerHTML;
@@ -1238,10 +1243,15 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
           if (tag === 'ol') {
             if (isContinuation) {
-              // Same LI continued across page break: keep the exact same number and DO NOT advance counter.
-              list.setAttribute('start', String(continuationNumber));
-              list.style.counterReset = `sop-list ${continuationNumber - 1}`;
-              list.style.setProperty('--sop-start-offset', String(continuationNumber - 1));
+              // SAME LI CONTINUES ON THE NEXT PAGE: this fragment is continuation text,
+              // not a new procedure item. Never render a second number (e.g. another "3.").
+              // The CSS selector for data-sop-continuation-li removes the marker entirely.
+              list.removeAttribute('start');
+              list.style.removeProperty('counter-reset');
+              list.style.removeProperty('--sop-start-offset');
+              items.forEach((li) => {
+                li.setAttribute('data-sop-continuation-li', 'true');
+              });
               hasContinuation = true;
               if (!listCounters.has(listGroup)) {
                 listCounters.set(listGroup, continuationNumber + 1);
@@ -1349,11 +1359,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
         >
           <div className="flex flex-col items-center justify-center">
-            <HospitalLogo
-              imgClassName="w-[80px] h-[80px]"
-              imgStyle={{ width: '80px', height: '80px' }}
-              className="mb-1"
-            />
+            <HospitalLogo imgClassName="w-[56px] h-[56px]" className="mb-1" />
             <div className="font-extrabold text-xs sm:text-sm leading-tight tracking-tight uppercase font-bookman text-black">
               <div>RSUD Dr. SOEGIRI</div>
               <div>LAMONGAN</div>

@@ -1554,9 +1554,29 @@ export default function App() {
     }
     const target = sops.find((s) => s.id === sopId);
     if (!target || target.status !== 'DRAFT') {
-      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO dengan status Draft yang dapat diaktifkan.');
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru atau SPO Riviu dengan status Draft yang dapat diaktifkan.');
       return;
     }
+
+    const targetJenis = String(target.jenis_spo || target.documentType || '').trim().toUpperCase();
+    const targetIsRiviu = targetJenis === 'RIVIU' || targetJenis === 'REVIEW' || target.isReviewDocument === true;
+    const targetIsBaru = targetJenis === 'BARU';
+    const targetIsExisting =
+      target.jenis_spo === 'EKSISTING' ||
+      target.documentType === 'EKSISTING' ||
+      target.documentType === 'LAMA' ||
+      target.isLegacySop === true;
+
+    if (targetIsExisting || (!targetIsBaru && !targetIsRiviu)) {
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru dan SPO Riviu yang dapat diaktifkan melalui proses Pengesahan/Aktivasi. SPO Existing mempertahankan dokumen sah existing.');
+      return;
+    }
+
+    if (!activationData.activationNotes || !activationData.activationNotes.trim()) {
+      addToast('error', 'Aktivasi Ditolak', 'Verifikasi TTD + stempel Direktur wajib tercatat sebelum SPO menjadi Aktif.');
+      return;
+    }
+
     const updated: SopDocument = {
       ...target, status: 'AKTIF', updatedAt: new Date().toISOString(),
       activatedAt: activationData.activatedAt, activatedBy: activationData.activatedBy,
