@@ -674,6 +674,90 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         };
 
         // Split a rich-text block to fit a specific amount of remaining A4 space.
+        /**
+         * Split an oversized rich-text element by word boundaries WITHOUT using
+         * textContent() as the source of the rendered fragment. Range.cloneContents()
+         * keeps the original inline/block markup, attributes and nested formatting.
+         * This helper is page-agnostic: it is invoked whenever the current page has
+         * insufficient capacity, regardless of whether the break happens on page 2,
+         * 3, 4, or any later page.
+         */
+        const splitElementPreservingMarkup = (
+          element: HTMLElement,
+          maxHeight: number,
+          buildWrapper: (fragment: DocumentFragment, isFirstChunk: boolean) => string,
+          template: HTMLElement | null
+        ): string[] => {
+          const textNodes: Text[] = [];
+          const ownerDocument = element.ownerDocument || document;
+          const walker = ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          let currentNode: Node | null = walker.nextNode();
+          while (currentNode) {
+            const textNode = currentNode as Text;
+            if ((textNode.textContent || '').trim()) textNodes.push(textNode);
+            currentNode = walker.nextNode();
+          }
+
+          type WordRange = { node: Text; start: number; end: number };
+          const words: WordRange[] = [];
+          textNodes.forEach((node) => {
+            const value = node.textContent || '';
+            const re = /\S+/g;
+            let match: RegExpExecArray | null;
+            while ((match = re.exec(value)) !== null) {
+              words.push({ node, start: match.index, end: match.index + match[0].length });
+            }
+          });
+
+          if (!words.length) return [element.outerHTML];
+
+          const host = createMeasureHost(template);
+          const safetyLimit = Math.max(1, maxHeight - 4);
+          const buildCandidate = (startWord: number, endWord: number): string => {
+            const range = ownerDocument.createRange();
+            range.setStart(words[startWord].node, words[startWord].start);
+            range.setEnd(words[endWord - 1].node, words[endWord - 1].end);
+            const fragment = range.cloneContents();
+            return buildWrapper(fragment, startWord === 0);
+          };
+          const fits = (candidate: string) => {
+            host.innerHTML = candidate;
+            return host.getBoundingClientRect().height <= safetyLimit;
+          };
+
+          const chunks: string[] = [];
+          let startWord = 0;
+          while (startWord < words.length) {
+            let low = startWord + 1;
+            let high = words.length;
+            let best = startWord;
+
+            while (low <= high) {
+              const mid = Math.floor((low + high) / 2);
+              const candidate = buildCandidate(startWord, mid);
+              if (fits(candidate)) {
+                best = mid;
+                low = mid + 1;
+              } else {
+                high = mid - 1;
+              }
+            }
+
+            // A single word can be wider/taller than the available area. Keep it
+            // intact rather than producing an empty fragment or dropping content.
+            if (best === startWord) best = startWord + 1;
+
+            chunks.push(buildCandidate(startWord, best));
+            startWord = best;
+          }
+
+          host.remove();
+          return chunks.length > 1 ? chunks : [element.outerHTML];
+        };
+
+        // Split a rich-text block to fit a specific amount of remaining A4 space.
+        // Page numbers are deliberately NOT referenced here. The same splitter is
+        // used for every page boundary detected by the flow paginator.
         const splitHtmlForCapacity = (
           html: string,
           maxHeight: number,
@@ -695,19 +779,20 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
             const safetyLimit = Math.max(1, maxHeight - 4);
             const host = createMeasureHost(template);
-
             const fits = (candidate: string) => {
               host.innerHTML = candidate;
               return host.getBoundingClientRect().height <= safetyLimit;
             };
 
-            // Multiple independent top-level blocks can be split cleanly without touching HTML
+            // Multiple independent top-level blocks are already safe page units.
             if (elements.length > 1 && !hasTopLevelText) {
               host.remove();
               return elements.map((el) => el.outerHTML).filter(Boolean);
             }
 
-            // Ordered/unordered lists: preserve the list structure and numbering.
+            // Ordered/unordered lists: keep the actual list structure. Only split
+            // between items or, when one item itself is too tall, inside that LI
+            // while preserving its markup via Range.cloneContents().
             if (/^(ol|ul)$/i.test(first.tagName)) {
               const isOl = first.tagName.toLowerCase() === 'ol';
               const explicitStart = isOl
@@ -717,89 +802,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 el.tagName.toLowerCase() === 'li'
               ) as HTMLElement[];
 
-              if (items.length === 1) {
-                const item = items[0];
-                const listTag = first.tagName.toLowerCase();
-                const listAttrs = Array.from(first.attributes)
-                  .filter((attr) => !(isOl && attr.name.toLowerCase() === 'start'))
-                  .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-                  .join('');
+              const listTag = first.tagName.toLowerCase();
+              const listAttrs = Array.from(first.attributes)
+                .filter((attr) => !(isOl && attr.name.toLowerCase() === 'start'))
+                .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
+                .join('');
 
-                const makeSingleItemList = (itemInnerHtml: string, startNumber: number) =>
-                  `<${listTag}${listAttrs}${isOl ? ` start="${startNumber}"` : ''}><li>${itemInnerHtml}</li></${listTag}>`;
+              const makeList = (itemHtmls: string[], startIndex: number, continuation = false, continuationNumber?: number) =>
+                `<${listTag}${listAttrs}${isOl ? ` start="${continuationNumber ?? (explicitStart + startIndex)}"` : ''}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${continuationNumber ?? (explicitStart + startIndex)}"` : ''}>${itemHtmls.join('')}</${listTag}>`;
 
-                const fullItemHtml = makeSingleItemList(item.innerHTML, explicitStart);
-                if (fits(fullItemHtml)) {
+              if (items.length > 0) {
+                const fullList = first.outerHTML;
+                if (fits(fullList)) {
                   host.remove();
                   return [source];
                 }
-
-                const innerText = (item.textContent || '').replace(/\s+/g, ' ').trim();
-                const words = innerText ? innerText.split(' ') : [];
-                if (!words.length) {
-                  host.remove();
-                  return [source];
-                }
-
-                const chunks: string[] = [];
-                let current = '';
-                const makeChunk = (content: string, startNumber: number, continuation = false) =>
-                  `<${listTag}${listAttrs}${isOl ? ` start=\"${startNumber}\"` : ''}${continuation ? ` data-sop-list-continuation=\"true\" data-sop-continuation-number=\"${startNumber}\"` : ''}><li${continuation ? ' data-sop-continuation-li=\"true\"' : ''}>${content}</li></${listTag}>`;
-
-                for (const word of words) {
-                  const candidate = current ? `${current} ${word}` : word;
-                  if (current && !fits(makeChunk(candidate, explicitStart))) {
-                    chunks.push(makeChunk(current, explicitStart, chunks.length > 0));
-                    current = word;
-                  } else {
-                    current = candidate;
-                  }
-                }
-                if (current) chunks.push(makeChunk(current, explicitStart, chunks.length > 0));
-
-                host.remove();
-                return chunks.length > 1 ? chunks : [source];
-              }
-
-              if (items.length > 1) {
-                const listTag = first.tagName.toLowerCase();
-                const listAttrs = Array.from(first.attributes)
-                  .filter((attr) => !(isOl && attr.name.toLowerCase() === 'start'))
-                  .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-                  .join('');
-
-                const makeList = (itemHtmls: string[], startIndex: number) =>
-                  `<${listTag}${listAttrs}${isOl ? ` start="${explicitStart + startIndex}"` : ''}>${itemHtmls.join('')}</${listTag}>`;
-
-                // Split ONE oversized list item without creating a new logical item.
-                // The first chunk keeps its real number; all following chunks are
-                // continuation fragments of that same LI and carry the same <ol start>.
-                const splitOversizedItem = (item: HTMLElement, itemIndex: number): string[] => {
-                  const full = makeList([item.outerHTML], itemIndex);
-                  if (fits(full)) return [full];
-
-                  const text = (item.textContent || '').replace(/\s+/g, ' ').trim();
-                  const words = text ? text.split(' ') : [];
-                  if (!words.length) return [full];
-
-                  const chunks: string[] = [];
-                  let current = '';
-                  const itemNumber = explicitStart + itemIndex;
-                  const makeContinuationChunk = (content: string, continuation: boolean) =>
-                    `<${listTag}${listAttrs}${isOl ? ` start="${itemNumber}"` : ''}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${itemNumber}"` : ''}><li${continuation ? ' data-sop-continuation-li="true"' : ''}>${content}</li></${listTag}>`;
-
-                  for (const word of words) {
-                    const candidate = current ? `${current} ${word}` : word;
-                    if (current && !fits(makeContinuationChunk(candidate, chunks.length > 0))) {
-                      chunks.push(makeContinuationChunk(current, chunks.length > 0));
-                      current = word;
-                    } else {
-                      current = candidate;
-                    }
-                  }
-                  if (current) chunks.push(makeContinuationChunk(current, chunks.length > 0));
-                  return chunks.length ? chunks : [full];
-                };
 
                 const fragments: string[] = [];
                 let currentItems: string[] = [];
@@ -823,7 +840,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   }
 
                   flush();
-
                   const singleList = makeList([candidateItem], itemIndex);
                   if (fits(singleList)) {
                     currentStartIndex = itemIndex;
@@ -831,16 +847,29 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     return;
                   }
 
-                  // This item alone is too tall. Split it by available height while
-                  // preserving its logical number across all continuation fragments.
-                  const itemParts = splitOversizedItem(item, itemIndex);
-                  itemParts.forEach((part, partIndex) => {
-                    if (partIndex === 0) {
-                      fragments.push(part);
-                    } else {
-                      fragments.push(part);
-                    }
-                  });
+                  // The individual LI is taller than the remaining page. Split
+                  // its words without flattening inline markup, nested paragraphs,
+                  // emphasis, links, etc.
+                  const itemNumber = explicitStart + itemIndex;
+                  const itemParts = splitElementPreservingMarkup(
+                    item,
+                    maxHeight,
+                    (fragment, isFirstChunk) => {
+                      const li = item.cloneNode(false) as HTMLElement;
+                      li.removeAttribute('id');
+                      li.innerHTML = '';
+                      li.appendChild(fragment);
+                      return makeList(
+                        [li.outerHTML],
+                        itemIndex,
+                        !isFirstChunk,
+                        itemNumber
+                      );
+                    },
+                    template
+                  );
+
+                  itemParts.forEach((part) => fragments.push(part));
                 });
 
                 flush();
@@ -849,34 +878,60 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               }
             }
 
-            // Fallback for long paragraphs: split by sentences / words
-            const text = (first.textContent || '').replace(/\s+/g, ' ').trim();
-            const words = text ? text.split(' ') : [];
-            if (!words.length) {
+            // A wrapper containing multiple real block elements must retain those
+            // elements. Never convert a mixed <p>/<ul>/<p> structure to plain text.
+            const nestedBlockElements = Array.from(first.children).filter((child) =>
+              /^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(child.tagName)
+            ) as HTMLElement[];
+
+            if (nestedBlockElements.length > 0) {
+              const preservedParts: string[] = [];
+              let inlineBuffer = '';
+
+              const flushInlineBuffer = () => {
+                if (inlineBuffer.trim()) preservedParts.push(`<p>${inlineBuffer}</p>`);
+                inlineBuffer = '';
+              };
+
+              Array.from(first.childNodes).forEach((child) => {
+                if (child.nodeType === Node.TEXT_NODE) {
+                  inlineBuffer += child.textContent || '';
+                  return;
+                }
+                if (child.nodeType !== Node.ELEMENT_NODE) return;
+                const childEl = child as HTMLElement;
+                if (/^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(childEl.tagName)) {
+                  flushInlineBuffer();
+                  preservedParts.push(childEl.outerHTML);
+                } else {
+                  inlineBuffer += childEl.outerHTML;
+                }
+              });
+              flushInlineBuffer();
+
               host.remove();
-              return [source];
+              return preservedParts.length > 1 ? preservedParts : (preservedParts.length === 1 ? preservedParts : [source]);
             }
 
-            const wrapperTag = first.tagName.toLowerCase();
-            const attrs = Array.from(first.attributes)
-              .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-              .join('');
-            const chunks: string[] = [];
-            let current = '';
-            const makeBlock = (content: string) => `<${wrapperTag}${attrs}>${content}</${wrapperTag}>`;
-
-            for (const word of words) {
-              const candidate = current ? `${current} ${word}` : word;
-              if (current && !fits(makeBlock(candidate))) {
-                chunks.push(makeBlock(current));
-                current = word;
-              } else {
-                current = candidate;
-              }
+            // Last-resort oversized single element. Even here, preserve the
+            // element's markup instead of rebuilding it from textContent().
+            if (!fits(source)) {
+              const wrapperTag = first.tagName.toLowerCase();
+              const attrs = Array.from(first.attributes)
+                .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
+                .join('');
+              const parts = splitElementPreservingMarkup(
+                first,
+                maxHeight,
+                (fragment) => `<${wrapperTag}${attrs}>${Array.from(fragment.childNodes).map((node) => (node as HTMLElement).outerHTML || node.textContent || '').join('')}</${wrapperTag}>`,
+                template
+              );
+              host.remove();
+              return parts;
             }
-            if (current) chunks.push(makeBlock(current));
+
             host.remove();
-            return chunks.length > 1 ? chunks : [source];
+            return [source];
           } catch (error) {
             console.warn('Gagal memecah blok SPO berdasarkan ruang A4:', error);
             return [source];
@@ -943,6 +998,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         let used = 0;
         let capacity = firstCapacity;
         let currentSection: OfficialBlock['section'] | null = null;
+        let detectedPageBreaks = 0;
+
+        // One and only one transition point for a natural A4 page break. The
+        // paginator never knows or cares whether this is page 2, 3, 4, etc.;
+        // every page uses the exact same reset rules.
+        const commitCurrentPageAndStartNext = () => {
+          if (currentPageBlocks.length) {
+            pages.push(currentPageBlocks);
+            detectedPageBreaks += 1;
+          }
+          currentPageBlocks = [];
+          used = 0;
+          capacity = normalCapacity;
+          currentSection = null;
+        };
 
         const measureFlowPart = (html: string, template: HTMLElement | null): number => {
           if (!html) return 0;
@@ -1008,12 +1078,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               }
             }
 
-            // Current A4 page is now full to capacity. Start the next page!
-            pages.push(currentPageBlocks);
-            currentPageBlocks = [];
-            used = 0;
-            capacity = normalCapacity;
-            currentSection = null;
+            // A natural page boundary has been detected. Commit the current
+            // page and apply the same reset for EVERY subsequent page.
+            commitCurrentPageAndStartNext();
             continue;
           }
 
@@ -1029,6 +1096,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
         if (currentPageBlocks.length) pages.push(currentPageBlocks);
         const nonEmptyPages = pages.filter((page) => page.length > 0);
+
+        // Invariant: every page boundary above is produced by the same flow
+        // transition. This keeps pagination page-number agnostic and prevents
+        // a fix intended for page 2 from becoming a different rule on page 3+.
+        if (detectedPageBreaks > 0 && nonEmptyPages.length !== detectedPageBreaks + 1) {
+          console.warn('Pagination SPO: jumlah boundary halaman tidak konsisten.');
+        }
 
         if (!cancelled) {
           // Final pass: numbering is based on logical document order across all sections,
@@ -1097,135 +1171,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const mergeVisibleFragments = (blocks: OfficialBlock[]): string => {
     if (blocks.length === 0) return '';
 
-    const parser = typeof DOMParser !== 'undefined' ? new DOMParser() : null;
-    if (!parser) return blocks.map((b) => b.html).join('');
-
-    try {
-      const wrapper = parser.parseFromString('<div></div>', 'text/html').body.firstElementChild as HTMLElement;
-      blocks.forEach((block) => {
-        const doc = parser.parseFromString(block.html, 'text/html');
-        Array.from(doc.body.childNodes).forEach((node) => wrapper.appendChild(node.cloneNode(true)));
-      });
-
-      // When pagination split lists into multiple fragments
-      // that are on the SAME page, merge them back into one list seamlessly.
-      const children = Array.from(wrapper.children) as HTMLElement[];
-      for (let i = 0; i < children.length - 1; i += 1) {
-        const current = children[i];
-        const next = children[i + 1];
-        const currentTag = current.tagName.toLowerCase();
-        const nextTag = next.tagName.toLowerCase();
-
-        if ((currentTag === 'ol' && nextTag === 'ol') || (currentTag === 'ul' && nextTag === 'ul')) {
-          const currentGroup = current.getAttribute('data-sop-list-group');
-          const nextGroup = next.getAttribute('data-sop-list-group');
-          const isSameGroup = Boolean(currentGroup && nextGroup && currentGroup === nextGroup);
-
-          const isCurrentContinuation =
-            current.getAttribute('data-sop-list-continuation') === 'true' ||
-            current.hasAttribute('data-sop-list-continuation');
-
-          const isNextContinuation =
-            next.getAttribute('data-sop-list-continuation') === 'true' ||
-            next.hasAttribute('data-sop-list-continuation');
-
-          // Case A: If NEXT is a continuation of CURRENT on the same page,
-          // merge next's text directly into current's last LI so it doesn't create duplicate markers.
-          if (isNextContinuation && !isCurrentContinuation) {
-            const currentItems = Array.from(current.children).filter(
-              (child) => child.tagName.toLowerCase() === 'li'
-            ) as HTMLElement[];
-            const nextItem = Array.from(next.children).find(
-              (child) => child.tagName.toLowerCase() === 'li'
-            ) as HTMLElement | undefined;
-            const lastCurrentItem = currentItems[currentItems.length - 1];
-
-            if (lastCurrentItem && nextItem) {
-              while (nextItem.firstChild) lastCurrentItem.appendChild(nextItem.firstChild);
-              next.remove();
-              children.splice(i + 1, 1);
-              i -= 1;
-              continue;
-            }
-          }
-
-          // Case B: If BOTH are continuation fragments on the same page,
-          // merge next into current.
-          if (isCurrentContinuation && isNextContinuation) {
-            const currentItem = Array.from(current.children).find(
-              (child) => child.tagName.toLowerCase() === 'li'
-            ) as HTMLElement | undefined;
-            const nextItem = Array.from(next.children).find(
-              (child) => child.tagName.toLowerCase() === 'li'
-            ) as HTMLElement | undefined;
-            if (currentItem && nextItem) {
-              while (nextItem.firstChild) currentItem.appendChild(nextItem.firstChild);
-              next.remove();
-              children.splice(i + 1, 1);
-              i -= 1;
-              continue;
-            }
-          }
-
-          // Case C: If CURRENT is a continuation fragment at the top of the page,
-          // and NEXT is a regular list (e.g. items 6, 7), DO NOT merge them into one list!
-          // Convert CURRENT to an unnumbered continuation block so NEXT can start cleanly at its own start number.
-          if (isCurrentContinuation && !isNextContinuation) {
-            const div = parser.parseFromString(
-              `<div class="sop-continuation-text font-bookman" data-sop-continuation-li="true" style="padding-left: 1.75em; margin-bottom: 0.2rem; line-height: 1.5; font-size: 12pt; color: #000000;">${current.innerHTML.replace(/<\/?li[^>]*>/gi, '')}</div>`,
-              'text/html'
-            ).body.firstElementChild as HTMLElement;
-            current.replaceWith(div);
-            children[i] = div;
-            continue;
-          }
-
-          // Case D: Standard list merge for regular lists on the same page
-          if (!isCurrentContinuation && !isNextContinuation) {
-            if (currentTag === 'ol') {
-              const currentStart = parseInt(current.getAttribute('start') || '1', 10) || 1;
-              const nextStart = parseInt(next.getAttribute('start') || '1', 10) || 1;
-              const currentCount = current.querySelectorAll(':scope > li').length;
-              if (isSameGroup || nextStart === currentStart + currentCount || !next.hasAttribute('start')) {
-                while (next.firstChild) current.appendChild(next.firstChild);
-                next.remove();
-                children.splice(i + 1, 1);
-                i -= 1;
-                continue;
-              }
-            } else {
-              while (next.firstChild) current.appendChild(next.firstChild);
-              next.remove();
-              children.splice(i + 1, 1);
-              i -= 1;
-              continue;
-            }
-          }
-        }
-      }
-
-      // Final cleanup: if any standalone continuation list remains, convert it to clean unnumbered div
-      const remainingContinuations = wrapper.querySelectorAll('ol[data-sop-list-continuation], ul[data-sop-list-continuation]');
-      remainingContinuations.forEach((contList) => {
-        const div = parser.parseFromString(
-          `<div class="sop-continuation-text font-bookman" data-sop-continuation-li="true" style="padding-left: 1.75em; margin-bottom: 0.2rem; line-height: 1.5; font-size: 12pt; color: #000000;">${contList.innerHTML.replace(/<\/?li[^>]*>/gi, '')}</div>`,
-          'text/html'
-        ).body.firstElementChild as HTMLElement;
-        contList.replaceWith(div);
-      });
-
-      // Sync counter-reset on all ol elements based on start attribute
-      const allOls = wrapper.querySelectorAll('ol');
-      allOls.forEach((ol) => {
-        const startVal = parseInt(ol.getAttribute('start') || '1', 10) || 1;
-        ol.style.counterReset = `sop-list ${startVal - 1}`;
-        ol.style.setProperty('--sop-start-offset', String(startVal - 1));
-      });
-
-      return wrapper.innerHTML;
-    } catch {
-      return blocks.map((b) => b.html).join('');
-    }
+    // IMPORTANT: the official preview must render the same rich-text structure
+    // produced by the editor. Do not parse, flatten, merge, or reconstruct the
+    // HTML here. Pagination fragments already carry their own <ol>/<ul> start
+    // and continuation metadata, so concatenating the original fragments is
+    // sufficient and preserves bullets, nested lists, paragraphs, line breaks,
+    // spacing, emphasis, tables, and inline formatting exactly as authored.
+    return blocks.map((block) => block.html || '').join('');
   };
 
   const normalizeOfficialPages = (pages: OfficialBlock[][]): OfficialBlock[][] => {
