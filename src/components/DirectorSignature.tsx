@@ -1,8 +1,6 @@
 import React from 'react';
 import { TTD_DIREKTUR_BASE64 } from '../images/ttd_direktur_base64';
 import { HospitalStamp } from './HospitalStamp';
-import { SopDocument } from '../types';
-import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 
 const ttdDirekturFallback = '/ttd_direktur.png';
 
@@ -10,25 +8,13 @@ interface DirectorSignatureProps {
   className?: string;
   showStamp?: boolean;
   stampClassName?: string;
-  sop?: Partial<SopDocument> | null;
-  showSignature?: boolean;
 }
 
 export const DirectorSignature: React.FC<DirectorSignatureProps> = ({
   className = "h-20 w-auto",
   showStamp = true,
   stampClassName,
-  sop,
-  showSignature,
 }) => {
-  // Hanya dokumen yg telah aktif saja yg ada ttd dan stamp, kecuali file berbentuk pdf
-  if (showSignature === false) {
-    return null;
-  }
-  if (sop && !shouldShowSignatureAndStamp(sop)) {
-    return null;
-  }
-
   return (
     <div className={`relative inline-flex items-center justify-center select-none ${className}`}>
       {/* Tanda Tangan Basah Asli Direktur RSUD Dr. Soegiri Lamongan */}

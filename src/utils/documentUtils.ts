@@ -39,20 +39,18 @@ export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
     (sop as any).signedScanFileName ||
     ''
   ).toLowerCase().trim();
-  if (fileName.endsWith('.pdf') || fileName.includes('.pdf')) {
+  if (fileName.endsWith('.pdf')) {
     return true;
   }
 
-  // 4. Cek payload data URL atau file URL
+  // 4. Cek payload data URL
   const fileDataUrl = String(
     sop.fileDataUrl ||
     (sop as any).oldFileDataUrl ||
     (sop as any).signedScanDataUrl ||
-    (sop as any).fileUrl ||
-    (sop as any).legacyFileUrl ||
     ''
-  ).toLowerCase();
-  if (fileDataUrl.startsWith('data:application/pdf') || fileDataUrl.includes('application/pdf') || fileDataUrl.includes('.pdf')) {
+  );
+  if (fileDataUrl.startsWith('data:application/pdf')) {
     return true;
   }
 

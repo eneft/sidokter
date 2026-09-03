@@ -26,7 +26,6 @@ import {
 import { RichTextEditor } from './RichTextEditor';
 import { SopLiveTemplate } from './SopLiveTemplate';
 import { HospitalLogo } from './HospitalLogo';
-import { shouldShowSignatureAndStamp, isPdfSopDocument } from '../utils/documentUtils';
 import {
   standardizeSopDocument,
   checkDuplicateSopNumber,
@@ -1245,9 +1244,6 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
               unitTerkait={unitTerkait}
               onUnitTerkaitChange={setUnitTerkait}
               missingSections={validationMessage}
-              showSignature={shouldShowSignatureAndStamp(sop)}
-              status={status || sop.status}
-              isPdf={isPdfSopDocument(sop)}
             />
           )}
 

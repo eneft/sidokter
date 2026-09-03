@@ -57,9 +57,6 @@ interface SopLiveTemplateProps {
   dateEditable?: boolean;
   showPageHint?: boolean;
   missingSections?: string[];
-  showSignature?: boolean;
-  status?: string;
-  isPdf?: boolean;
 }
 
 export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
@@ -86,13 +83,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   dateEditable = true,
   showPageHint = true,
   missingSections = [],
-  showSignature,
-  status = 'DRAFT',
-  isPdf = false,
 }) => {
-  const canShowSignature = typeof showSignature === 'boolean'
-    ? showSignature
-    : (status === 'AKTIF' && !isPdf);
   // Responsive mode is automatic: cards for mobile/tablet, official A4 table for large desktop.
   const [isCompactViewport, setIsCompactViewport] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -780,19 +771,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   <td colSpan={2} className="border border-black p-2 text-center align-top bg-white relative overflow-visible">
                     <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
                     <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
-                    {canShowSignature ? (
-                      <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-                        <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
-                      </div>
-                    ) : (
-                      <div className="h-[52px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">
-                        {status === 'DIARSIPKAN'
-                          ? '(Dokumen Diarsipkan)'
-                          : isPdf
-                          ? '(Dokumen Berkas PDF)'
-                          : '(Draf / Belum Ditetapkan)'}
-                      </div>
-                    )}
+                    <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+                      <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
+                    </div>
                     <div className="relative z-0 space-y-0.5">
                       <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{approverName || SOEGIRI_HOSPITAL_INFO.director.name}</div>
                       <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{SOEGIRI_HOSPITAL_INFO.director.rank}</div>

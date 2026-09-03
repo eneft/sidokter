@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword } from './passwordCrypto';
 const USERS_KEY='soegiri_offline_users_v1';
 const AUDIT_KEY='soegiri_offline_audit_v1';
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v2';
+const DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY='soegiri_default_admin_credential_repair_v1';
 export const MAX_FAILED_ATTEMPTS=5;
 export const LOCKOUT_DURATION_MS=15*60*1000;
 export const IDLE_TIMEOUT_MS=30*60*1000;
@@ -47,6 +48,19 @@ export async function bootstrapDefaultUsers():Promise<void>{
       lockoutUntil:0
     });
     changed=true;
+  }
+  // One-time repair for the bundled default Admin account.
+  // This only targets the known default account ID and runs once per browser
+  // so existing user accounts/data are left untouched. It restores the
+  // documented bootstrap credential admin / admin123 without storing plaintext.
+  if(all.some(x=>x.id==='usr-admin-default' && x.username.toLowerCase()==='admin') && !localStorage.getItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY)){
+    const i=all.findIndex(x=>x.id==='usr-admin-default' && x.username.toLowerCase()==='admin');
+    if(i>=0){
+      const {hash,salt}=await hashPassword('admin123');
+      all[i]={...all[i],username:'admin',role:'admin',divisionCode:'ALL',divisionCodes:['ALL'],passwordHash:hash,passwordSalt:salt,password:undefined,failedLoginAttempts:0,lockoutUntil:0,activeSessionId:undefined,sessionCreatedAt:undefined,updatedAt:new Date().toISOString()};
+      changed=true;
+    }
+    localStorage.setItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY,'1');
   }
   if(!all.some(x=>x.username.toLowerCase()==='pelayanan')){
     const {hash,salt}=await hashPassword('pelayanan123');
