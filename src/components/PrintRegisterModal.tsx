@@ -11,7 +11,6 @@ import {
 import { SopDocument, getStandardJenisSpo } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
-import { DirectorSignature } from './DirectorSignature';
 
 interface PrintRegisterModalProps {
   isOpen: boolean;
@@ -356,17 +355,10 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
 
             {/* Official Signature Blocks */}
             <div className="pt-8 border-t border-slate-300 grid grid-cols-2 gap-8 text-xs text-center">
-              <div className="flex flex-col items-center">
-                <p className="text-slate-600">Mengetahui / Mengesahkan,</p>
-                <p className="font-bold text-slate-900 mt-1 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</p>
-                <div className="relative -my-5 sm:-my-6 flex items-center justify-center z-10 pointer-events-none">
-                  <DirectorSignature className="h-24 sm:h-28 w-auto max-w-[240px] object-contain mix-blend-multiply opacity-95" />
-                </div>
-                <div className="relative z-0">
-                  <p className="font-bold text-slate-900 underline">{SOEGIRI_HOSPITAL_INFO.director.name}</p>
-                  <p className="text-slate-600 text-[11px]">{SOEGIRI_HOSPITAL_INFO.director.rank}</p>
-                  <p className="text-slate-600 text-[11px] font-mono">NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}</p>
-                </div>
+              <div className="flex flex-col items-center justify-center text-center">
+                <p className="text-slate-600">Register Dokumen SPO</p>
+                <p className="font-bold text-slate-900 mt-1">RSUD Dr. Soegiri Lamongan</p>
+                <p className="text-slate-500 text-[11px] mt-1">Pengesahan dilakukan pada dokumen SPO yang berstatus AKTIF.</p>
               </div>
 
               <div>

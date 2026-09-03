@@ -40,6 +40,7 @@ import { DirectorSignature } from './DirectorSignature';
 import { triggerFileDownload, openDocumentPreview, getFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
 import { getPersistedClientSession } from '../lib/authService';
+import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 
 interface SopDetailModalProps {
@@ -1128,6 +1129,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
   // Enforce access control for non-admin users
   const isAccessible = !userSession || userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession);
+  const showSignatureAndStamp = shouldShowSignatureAndStamp(sop);
 
   if (!isAccessible) {
     return (
@@ -1400,7 +1402,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       <td colSpan={2} className="p-1.5 text-center align-top bg-white relative overflow-visible" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
         <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
-        {sop.status !== 'DIARSIPKAN' ? (
+        {showSignatureAndStamp ? (
           <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
             <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
           </div>
@@ -1990,7 +1992,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       </div>
 
                       <div className="py-2 flex flex-col items-center justify-center">
-                        {sop.status !== 'DIARSIPKAN' ? (
+                        {showSignatureAndStamp ? (
                           <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
                             <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
                           </div>

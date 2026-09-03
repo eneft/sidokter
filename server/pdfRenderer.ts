@@ -103,6 +103,27 @@ async function resolveExecutable(): Promise<string> {
 
 let cachedBookmanCss: string | null = null;
 
+/**
+ * PDF-only font normalization. Stored rich-text may contain inline font-family
+ * declarations (including !important) from pasted Word/browser content. Those
+ * inline declarations can outrank the PDF stylesheet and cause mixed fonts.
+ * Remove explicit source font declarations before rendering, then the PDF
+ * stylesheet below becomes the single authority: Bookman Old Style.
+ */
+function normalizePdfFonts(html: string, css: string): { html: string; css: string } {
+  const normalizedHtml = html
+    .replace(/font-family\s*:[^;"}]+;?/gi, '')
+    .replace(/\s+face\s*=\s*["'][^"']*["']/gi, '');
+
+  const normalizedCss = css.replace(
+    /font-family\s*:[^;}{]+;?/gi,
+    'font-family: "Bookman Old Style", "URW Bookman", serif !important;'
+  );
+
+  return { html: normalizedHtml, css: normalizedCss };
+}
+
+
 function getBookmanFontFaceCss(): string {
   if (cachedBookmanCss) return cachedBookmanCss;
   try {
@@ -140,8 +161,11 @@ function getBookmanFontFaceCss(): string {
 }
 
 export async function generatePdf(body: any) {
-  const documentHtml = String(body?.html || '');
-  const css = String(body?.css || '');
+  const rawDocumentHtml = String(body?.html || '');
+  const rawCss = String(body?.css || '');
+  const normalizedPdf = normalizePdfFonts(rawDocumentHtml, rawCss);
+  const documentHtml = normalizedPdf.html;
+  const css = normalizedPdf.css;
   if (!documentHtml) throw new Error('Dokumen SPO untuk PDF belum tersedia.');
   if (documentHtml.length > 12 * 1024 * 1024 || css.length > 8 * 1024 * 1024) {
     throw new Error('Ukuran dokumen terlalu besar untuk dibuat PDF.');
