@@ -494,7 +494,7 @@ exports.pdfApi = onRequest({
     const filename = safePdfFilename(body.filename || body.sopNumber);
 
     if (!documentHtml) return json(res, 400, { message: 'Dokumen SPO untuk PDF belum tersedia.' });
-    if (documentHtml.length > 8 * 1024 * 1024 || css.length > 8 * 1024 * 1024) {
+    if (documentHtml.length > 15 * 1024 * 1024 || css.length > 8 * 1024 * 1024) {
       return json(res, 413, { message: 'Ukuran dokumen terlalu besar untuk dibuat PDF.' });
     }
 

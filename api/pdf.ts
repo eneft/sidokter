@@ -221,7 +221,7 @@ async function generatePdf(body: any) {
   }
 
   if (
-    documentHtml.length > 12 * 1024 * 1024 ||
+    documentHtml.length > 15 * 1024 * 1024 ||
     css.length > 8 * 1024 * 1024
   ) {
     throw new Error(

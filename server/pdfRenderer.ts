@@ -143,7 +143,7 @@ export async function generatePdf(body: any) {
   const documentHtml = String(body?.html || '');
   const css = String(body?.css || '');
   if (!documentHtml) throw new Error('Dokumen SPO untuk PDF belum tersedia.');
-  if (documentHtml.length > 12 * 1024 * 1024 || css.length > 8 * 1024 * 1024) {
+  if (documentHtml.length > 15 * 1024 * 1024 || css.length > 8 * 1024 * 1024) {
     throw new Error('Ukuran dokumen terlalu besar untuk dibuat PDF.');
   }
 

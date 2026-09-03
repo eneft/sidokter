@@ -1,8 +1,7 @@
 import React from 'react';
-import { TTD_DIREKTUR_BASE64 } from '../images/ttd_direktur_base64';
 import { HospitalStamp } from './HospitalStamp';
 
-const ttdDirekturFallback = '/ttd_direktur.png';
+const ttdDirekturAsset = '/ttd_direktur.png';
 
 interface DirectorSignatureProps {
   className?: string;
@@ -19,7 +18,7 @@ export const DirectorSignature: React.FC<DirectorSignatureProps> = ({
     <div className={`relative inline-flex items-center justify-center select-none ${className}`}>
       {/* Tanda Tangan Basah Asli Direktur RSUD Dr. Soegiri Lamongan */}
       <img
-        src={TTD_DIREKTUR_BASE64 || ttdDirekturFallback}
+        src={ttdDirekturAsset}
         alt="Tanda Tangan Direktur RSUD Dr. Soegiri"
         className="w-auto h-full max-h-full object-contain pointer-events-none mix-blend-multiply relative z-10"
         style={{ backgroundColor: 'transparent' }}

@@ -1512,31 +1512,22 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       clonedRoot.querySelectorAll('.no-print').forEach(node => node.remove());
 
-      // Make the PDF payload self-contained. local/Chromium must not depend
-      // on Vite/local asset routing for logos or signatures. Convert every
-      // same-origin image in the cloned document to a data URL before upload.
+      // Keep public image assets as normal URLs. Do NOT inline them as base64:
+      // the official director signature/stamp can be large enough to push the
+      // JSON request over the server/proxy 413 limit. The PDF renderer already
+      // receives a baseUrl and Chromium can resolve these public assets directly.
+      // Existing data/blob URLs are intentionally preserved.
       const exportImages = Array.from(clonedRoot.querySelectorAll<HTMLImageElement>('img'));
-      await Promise.all(exportImages.map(async (img) => {
+      exportImages.forEach((img) => {
         const src = img.getAttribute('src');
         if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
         try {
-          const absoluteUrl = new URL(src, window.location.href).href;
-          const response = await fetch(absoluteUrl, { credentials: 'same-origin' });
-          if (!response.ok) return;
-          const blob = await response.blob();
-          await new Promise<void>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              if (typeof reader.result === 'string') img.setAttribute('src', reader.result);
-              resolve();
-            };
-            reader.onerror = () => resolve();
-            reader.readAsDataURL(blob);
-          });
-        } catch (error) {
-          console.warn('[PDF] Could not inline image asset:', src, error);
+          img.setAttribute('src', new URL(src, window.location.href).href);
+        } catch {
+          // Leave the original source untouched; Chromium may still resolve it
+          // through the document base URL.
         }
-      }));
+      });
 
       // PDF MUST use the real A4 page nodes, never the responsive screen-scale
       // wrappers used by the preview. Those wrappers can contain an inline
