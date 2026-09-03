@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from './passwordCrypto';
 const USERS_KEY='soegiri_offline_users_v1';
 const AUDIT_KEY='soegiri_offline_audit_v1';
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v2';
-const DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY='soegiri_default_admin_credential_repair_v1';
+const DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY='soegiri_default_admin_credential_repair_v3';
 export const MAX_FAILED_ATTEMPTS=5;
 export const LOCKOUT_DURATION_MS=15*60*1000;
 export const IDLE_TIMEOUT_MS=30*60*1000;
@@ -49,15 +49,15 @@ export async function bootstrapDefaultUsers():Promise<void>{
     });
     changed=true;
   }
-  // One-time repair for the bundled default Admin account.
-  // This only targets the known default account ID and runs once per browser
-  // so existing user accounts/data are left untouched. It restores the
-  // documented bootstrap credential admin / admin123 without storing plaintext.
-  if(all.some(x=>x.id==='usr-admin-default' && x.username.toLowerCase()==='admin') && !localStorage.getItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY)){
-    const i=all.findIndex(x=>x.id==='usr-admin-default' && x.username.toLowerCase()==='admin');
+  // One-time credential repair for the bundled Administrator account.
+  // Versioned so an older repair marker cannot leave the documented default
+  // credential unusable after a previous build changed the stored hash.
+  // Only the account named `admin` is repaired, and plaintext is never stored.
+  if(!localStorage.getItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY)){
+    const i=all.findIndex(x=>String(x.username||'').trim().toLowerCase()==='admin');
     if(i>=0){
       const {hash,salt}=await hashPassword('admin123');
-      all[i]={...all[i],username:'admin',role:'admin',divisionCode:'ALL',divisionCodes:['ALL'],passwordHash:hash,passwordSalt:salt,password:undefined,failedLoginAttempts:0,lockoutUntil:0,activeSessionId:undefined,sessionCreatedAt:undefined,updatedAt:new Date().toISOString()};
+      all[i]={...all[i],id:all[i].id||'usr-admin-default',username:'admin',name:all[i].name||'Administrator Tata Naskah',role:'admin',divisionCode:'ALL',divisionCodes:['ALL'],assignments:Array.isArray(all[i].assignments)&&all[i].assignments.length?all[i].assignments:[{id:'assignment-ALL-1',label:'Akses Global Administrator',divisionCode:'ALL',unitName:all[i].unitName||'Tim Manajemen & Sekretariat SPO'}],passwordHash:hash,passwordSalt:salt,password:undefined,failedLoginAttempts:0,lockoutUntil:0,activeSessionId:undefined,sessionCreatedAt:undefined,updatedAt:new Date().toISOString()};
       changed=true;
     }
     localStorage.setItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY,'1');

@@ -96,7 +96,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
     e.preventDefault();
 
     if (!confirmedPhysicalSignature) {
-      alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah.");
+      alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah. Ketentuan ini wajib untuk SPO Baru dan SPO Riviu sebelum aktivasi.");
       return;
     }
 

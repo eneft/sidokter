@@ -5,7 +5,7 @@
 .font-bookman *,
 #printable-sop-official-document,
 #printable-sop-official-document * {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 
 @theme {
@@ -172,7 +172,7 @@
 .font-bookman *,
 #printable-sop-official-document,
 #printable-sop-official-document * {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 
 /* Official SPO Table: Exactly 1px solid uniform black border across top-level cells */
@@ -206,12 +206,61 @@ table.sop-official-table th,
 /* Standard Batang Tubuh Typography: Standard Universal Serif 12 pt */
 .sop-batang-tubuh-title,
 #printable-sop-official-document .sop-batang-tubuh-title {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   font-weight: bold !important;
   line-height: 1.4 !important;
   color: #000000 !important;
   text-transform: uppercase !important;
+}
+
+/* Official SPO document type label: same 12 pt Bookman Old Style size as batang tubuh. */
+.sop-document-type-label,
+#printable-sop-official-document .sop-document-type-label {
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
+  font-size: 12pt !important;
+  font-weight: bold !important;
+  line-height: 1.4 !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  text-transform: uppercase !important;
+  color: #000000 !important;
+}
+
+
+/* FINAL: override the global official-table cell top alignment for this
+   specific label. The approval cell determines the row height, so the label
+   must be vertically centered against that full row. */
+table.sop-official-table td.sop-document-type-label,
+#printable-sop-official-document table.sop-official-table td.sop-document-type-label {
+  vertical-align: middle !important;
+}
+
+/* The document-type label must be geometrically centered inside the full
+   approval/header row, not merely centered by text alignment. */
+.sop-document-type-label {
+  /* Keep the table-cell layout intact so vertical-align can use the
+     actual height of the approval/header row. */
+  position: static !important;
+  vertical-align: middle !important;
+  padding: 0 !important;
+}
+.sop-document-type-label-inner,
+#printable-sop-official-document .sop-document-type-label-inner {
+  /* Deliberately stay in normal table flow. An absolutely positioned child
+     has no height contribution and makes vertical centering visually wrong. */
+  position: static !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  height: auto !important;
+  display: block !important;
+  text-align: center !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
+  font-size: 12pt !important;
+  font-weight: bold !important;
+  line-height: 1.4 !important;
+  color: #000000 !important;
+  box-sizing: border-box !important;
 }
 
 .sop-batang-tubuh-content,
@@ -220,7 +269,7 @@ table.sop-official-table th,
 #printable-sop-official-document .sop-batang-tubuh-content *,
 #printable-sop-official-document .rich-text-output,
 #printable-sop-official-document .rich-text-output * {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   line-height: 1.5 !important;
   color: #000000 !important;
@@ -257,7 +306,7 @@ table.sop-official-table th,
    Inline text-align/style authored by the editor remains authoritative. */
 .rich-text-document-content,
 .rich-text-editor-content {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   line-height: 1.5 !important;
   color: #000000 !important;
@@ -715,7 +764,7 @@ ul > li[data-sop-continuation-li] {
   text-indent: 0 !important;
   box-sizing: border-box !important;
   line-height: 1.5 !important;
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   color: #000000 !important;
   margin-top: 0 !important;
@@ -1223,7 +1272,7 @@ ol[type="1"], [style*="list-style-type: decimal"], [style*="list-style-type:deci
   .printable-paper.font-bookman,
   .font-bookman,
   .font-bookman * {
-    font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+    font-family: "Bookman Old Style", "URW Bookman", serif !important;
   }
 
   .printable-paper .border-slate-900,
@@ -1629,7 +1678,7 @@ button, a, input, select, textarea {
   hyphens: none !important;
   -webkit-hyphens: none !important;
   -ms-hyphens: none !important;
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   line-height: 1.5 !important;
 }

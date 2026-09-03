@@ -762,7 +762,13 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   <td className="border border-black p-2 text-center align-top bg-white"><div className="font-bold text-[10px] uppercase font-bookman">HALAMAN</div><div className="text-xs font-bold mt-1 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Otomatis</div></td>
                 </tr>
                 <tr>
-                  <td className="border border-black p-2.5 text-center font-extrabold text-[11px] leading-tight uppercase align-middle bg-white whitespace-normal [word-break:normal] [overflow-wrap:break-word]">STANDAR<br/>PROSEDUR<br/>OPERASIONAL</td>
+                  <td className="border border-black p-0 text-center font-extrabold uppercase align-middle bg-white whitespace-normal [word-break:normal] [overflow-wrap:break-word] sop-document-type-label">
+                    <div className="sop-document-type-label-inner">
+                      <div>STANDAR</div>
+                      <div>PROSEDUR</div>
+                      <div>OPERASIONAL</div>
+                    </div>
+                  </td>
                   <td className="border border-black p-2 text-center align-top bg-white">
                     <div className="text-[10px] font-bookman">Tanggal terbit</div>
                     {dateEditable ? (

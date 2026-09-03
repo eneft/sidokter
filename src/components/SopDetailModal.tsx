@@ -1349,7 +1349,11 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
         >
           <div className="flex flex-col items-center justify-center">
-            <HospitalLogo imgClassName="w-[56px] h-[56px]" className="mb-1" />
+            <HospitalLogo
+              imgClassName="w-[80px] h-[80px]"
+              imgStyle={{ width: '80px', height: '80px' }}
+              className="mb-1"
+            />
             <div className="font-extrabold text-xs sm:text-sm leading-tight tracking-tight uppercase font-bookman text-black">
               <div>RSUD Dr. SOEGIRI</div>
               <div>LAMONGAN</div>
@@ -1390,7 +1394,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const renderPublicationRow = () => (
     <tr className="sop-first-page-only">
       <td
-        className="p-1.5 text-center align-middle font-extrabold text-xs sm:text-[13px] leading-tight uppercase font-bookman text-black bg-white"
+        className="p-1.5 text-center align-middle font-extrabold uppercase font-bookman text-black bg-white sop-document-type-label"
         style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
       >
         <div>STANDAR</div><div>PROSEDUR</div><div>OPERASIONAL</div>

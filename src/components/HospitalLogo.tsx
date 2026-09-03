@@ -7,13 +7,15 @@ interface HospitalLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showText?: boolean;
   imgClassName?: string;
+  imgStyle?: React.CSSProperties;
 }
 
 export const HospitalLogo: React.FC<HospitalLogoProps> = ({
   className = '',
   size = 'md',
   showText = false,
-  imgClassName
+  imgClassName,
+  imgStyle
 }) => {
   const [imgError, setImgError] = useState(false);
 
@@ -33,11 +35,12 @@ export const HospitalLogo: React.FC<HospitalLogoProps> = ({
           src={logoImg}
           alt="Logo RSUD Dr. Soegiri Lamongan"
           className={`${dimensionClass} object-contain select-none`}
+          style={imgStyle}
           loading="eager"
           onError={() => setImgError(true)}
         />
       ) : (
-        <div className={`${dimensionClass} rounded-full bg-emerald-50 border border-emerald-600/40 flex flex-col items-center justify-center p-1 text-emerald-800 shrink-0 select-none`}>
+        <div style={imgStyle} className={`${dimensionClass} rounded-full bg-emerald-50 border border-emerald-600/40 flex flex-col items-center justify-center p-1 text-emerald-800 shrink-0 select-none`}>
           <svg viewBox="0 0 24 24" className="w-full h-full fill-current" stroke="none">
             <path d="M19 10.5h-5.5V5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5H5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5h5.5V19c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5.5H19c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/>
           </svg>

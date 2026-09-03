@@ -126,27 +126,6 @@ async function resolveExecutable(): Promise<string> {
 
 let cachedBookmanCss: string | null = null;
 
-/**
- * PDF-only font normalization. Stored rich-text may contain inline font-family
- * declarations (including !important) from pasted Word/browser content. Those
- * inline declarations can outrank the PDF stylesheet and cause mixed fonts.
- * Remove explicit source font declarations before rendering, then the PDF
- * stylesheet below becomes the single authority: Bookman Old Style.
- */
-function normalizePdfFonts(html: string, css: string): { html: string; css: string } {
-  const normalizedHtml = html
-    .replace(/font-family\s*:[^;"}]+;?/gi, '')
-    .replace(/\s+face\s*=\s*["'][^"']*["']/gi, '');
-
-  const normalizedCss = css.replace(
-    /font-family\s*:[^;}{]+;?/gi,
-    'font-family: "Bookman Old Style", "URW Bookman", serif !important;'
-  );
-
-  return { html: normalizedHtml, css: normalizedCss };
-}
-
-
 function getBookmanFontFaceCss(): string {
   if (cachedBookmanCss) return cachedBookmanCss;
   try {
@@ -232,11 +211,8 @@ function getBookmanFontFaceCss(): string {
 }
 
 async function generatePdf(body: any) {
-  const rawDocumentHtml = String(body?.html || '');
-  const rawCss = String(body?.css || '');
-  const normalizedPdf = normalizePdfFonts(rawDocumentHtml, rawCss);
-  const documentHtml = normalizedPdf.html;
-  const css = normalizedPdf.css;
+  const documentHtml = String(body?.html || '');
+  const css = String(body?.css || '');
 
   if (!documentHtml) {
     throw new Error(
@@ -373,6 +349,14 @@ table.sop-official-table {
 .pdf-export-document
 .sop-official-table > tbody {
   display: table-row-group !important;
+}
+
+/* FINAL: the STANDAR PROSEDUR OPERASIONAL cell must override the
+   generic table-cell top alignment and center against the full header row. */
+#printable-sop-official-document .pdf-export-document .sop-official-table td.sop-document-type-label,
+#printable-sop-official-document .sop-official-table td.sop-document-type-label,
+table.sop-official-table td.sop-document-type-label {
+  vertical-align: middle !important;
 }
 
 #printable-sop-official-document

@@ -12,6 +12,41 @@ if (!process.env.AWS_EXECUTION_ENV) {
 
 let chromiumModulePromise = null;
 let cachedStandardCss = null;
+let cachedBookmanCss = null;
+
+function getBookmanFontFaceCss() {
+  if (cachedBookmanCss) return cachedBookmanCss;
+
+  const fontsDir = path.join(__dirname, 'fonts');
+  const readFont = (filename) => {
+    const file = path.join(fontsDir, filename);
+    if (!fs.existsSync(file)) {
+      throw new Error(`PDF_BOOKMAN_FONT_MISSING:${filename}`);
+    }
+    return `data:font/otf;base64,${fs.readFileSync(file).toString('base64')}`;
+  };
+
+  cachedBookmanCss = `
+@font-face{font-family:"Bookman Old Style";src:url("${readFont('URWBookman-Light.otf')}") format("opentype");font-style:normal;font-weight:400;font-display:block;}
+@font-face{font-family:"Bookman Old Style";src:url("${readFont('URWBookman-Demi.otf')}") format("opentype");font-style:normal;font-weight:700;font-display:block;}
+@font-face{font-family:"Bookman Old Style";src:url("${readFont('URWBookman-LightItalic.otf')}") format("opentype");font-style:italic;font-weight:400;font-display:block;}
+@font-face{font-family:"Bookman Old Style";src:url("${readFont('URWBookman-DemiItalic.otf')}") format("opentype");font-style:italic;font-weight:700;font-display:block;}
+`;
+  return cachedBookmanCss;
+}
+
+// PDF-only normalization: remove editor inline font-family declarations so
+// imported/rich-text content cannot override the official Bookman contract.
+function normalizePdfFontStyles(html) {
+  return String(html || '').replace(/(style\s*=\s*["'])(.*?)(["'])/gis, (full, open, styles, close) => {
+    const cleaned = styles
+      .replace(/(?:^|;)\s*font-family\s*:[^;]*;?/gi, ';')
+      .replace(/;;+/g, ';')
+      .replace(/^\s*;|;\s*$/g, '')
+      .trim();
+    return `${open}${cleaned}${close}`;
+  });
+}
 
 async function getServerlessChromium() {
   if (!chromiumModulePromise) {
@@ -454,7 +489,7 @@ exports.pdfApi = onRequest({
     }
 
     const body = req.body || {};
-    const documentHtml = String(body.html || '');
+    const documentHtml = normalizePdfFontStyles(String(body.html || ''));
     const css = String(body.css || '');
     const filename = safePdfFilename(body.filename || body.sopNumber);
 
@@ -474,6 +509,7 @@ exports.pdfApi = onRequest({
 <meta name="viewport" content="width=210mm, initial-scale=1">
 <base href="${baseHref.replace(/"/g, '&quot;')}/">
 <style>
+${getBookmanFontFaceCss()}
 ${css}
 
 /* Direct PDF contract: fixed A4, independent of the caller's device. */
@@ -485,10 +521,10 @@ html, body {
   color: #000 !important;
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 #printable-sop-official-document, #printable-sop-official-document *, .font-bookman, .font-bookman *, .sop-batang-tubuh-title, .sop-batang-tubuh-content, .sop-batang-tubuh-content *, .rich-text-output, .rich-text-output *, .rich-text-document-content, .rich-text-document-content * {
-  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", Georgia, serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 @page {
   size: A4 portrait;

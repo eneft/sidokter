@@ -60,11 +60,13 @@ export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
 /**
  * Memeriksa apakah tanda tangan & stempel Direktur berhak ditampilkan:
  * Sesuai aturan tata kelola naskah dinas RSUD Dr. Soegiri:
- * "Hanya dokumen yg telah aktif saja yg ada ttd dan stamp, kecuali file berbentuk pdf. tidak perlu ada ttd stamp"
- * 
- * Kriteria:
- * 1. Dokumen WAJIB berstatus 'AKTIF'
- * 2. Dokumen BUKAN berbentuk file PDF
+ * Rule baseline: setiap SPO yang sudah AKTIF wajib menampilkan TTD dan stempel.
+ * Untuk SPO Existing/Legacy yang berupa PDF scan, tanda tangan/stempel berasal
+ * dari berkas resmi itu sendiri sehingga sistem tidak menambahkan overlay baru.
+ *
+ * Kriteria render overlay:
+ * 1. Dokumen WAJIB berstatus 'AKTIF'.
+ * 2. Dokumen BUKAN berbentuk file PDF/scan Existing.
  */
 export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): boolean {
   if (!sop) return false;
