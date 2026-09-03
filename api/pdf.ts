@@ -166,23 +166,44 @@ content="width=210mm, initial-scale=1">
 
 ${css}
 
-html,
-body {
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Light.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Demi.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-LightItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-DemiItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 700;
+  font-display: block;
+}
+
+html, body {
   margin: 0 !important;
   padding: 0 !important;
   width: 210mm !important;
   background: #fff !important;
   color: #000 !important;
-
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
-
-  font-family:
-    "Times New Roman",
-    Times,
-    "Liberation Serif",
-    Georgia,
-    serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 
 #printable-sop-official-document,
@@ -196,12 +217,7 @@ body {
 .rich-text-output *,
 .rich-text-document-content,
 .rich-text-document-content * {
-  font-family:
-    "Times New Roman",
-    Times,
-    "Liberation Serif",
-    Georgia,
-    serif !important;
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
 }
 
 @page {
@@ -400,9 +416,18 @@ ${documentHtml}
                 (resolve) =>
                   setTimeout(
                     resolve,
-                    2000
+                    3000
                   )
               ),
+            ]);
+          }
+
+          if (document.fonts?.load) {
+            await Promise.all([
+              document.fonts.load('400 12px "Bookman Old Style"'),
+              document.fonts.load('700 12px "Bookman Old Style"'),
+              document.fonts.load('italic 400 12px "Bookman Old Style"'),
+              document.fonts.load('italic 700 12px "Bookman Old Style"')
             ]);
           }
 

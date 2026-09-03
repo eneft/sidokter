@@ -1397,17 +1397,17 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         <div className="text-[11px] font-bookman text-black">Tanggal terbit</div>
         <div className="font-bold text-xs sm:text-sm font-bookman text-black mt-1 break-words">{sop.effectiveDate || '…………….2026'}</div>
       </td>
-      <td colSpan={2} className="p-1.5 text-center align-top bg-white relative" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
+      <td colSpan={2} className="p-1.5 text-center align-top bg-white relative overflow-visible" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-        <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5">Direktur RSUD Dr. Soegiri Lamongan</div>
-        {sop.status === 'AKTIF' ? (
-          <div className="relative my-0.5 flex items-center justify-center w-full max-w-[220px] mx-auto z-10 pointer-events-none">
-            <DirectorSignature className="h-[44px] w-auto max-w-[220px] object-contain mix-blend-multiply opacity-95" />
+        <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
+        {sop.status !== 'DIARSIPKAN' ? (
+          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
           </div>
         ) : (
-          <div className="h-[34px] my-0.5 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Draft & Cap Asli)</div>
+          <div className="h-[38px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Dokumen Diarsipkan)</div>
         )}
-        <div className="mt-1 relative z-0 space-y-0.5">
+        <div className="relative z-0 space-y-0.5">
           <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
           <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">
             {(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}
@@ -1985,21 +1985,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
                     {/* Official Approval & Director Signature Card */}
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 text-center space-y-3">
-                      <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      <div className="text-xs font-bold text-slate-700 uppercase tracking-wider relative z-0">
                         Ditetapkan oleh: Direktur {SOEGIRI_HOSPITAL_INFO.hospitalName}
                       </div>
 
                       <div className="py-2 flex flex-col items-center justify-center">
-                        {sop.status === 'AKTIF' ? (
-                          <div className="relative flex items-center justify-center w-full max-w-[200px] mx-auto pointer-events-none">
-                            <DirectorSignature className="h-[48px] w-auto max-w-[200px] object-contain mix-blend-multiply opacity-95" />
+                        {sop.status !== 'DIARSIPKAN' ? (
+                          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+                            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
                           </div>
                         ) : (
-                          <div className="h-[36px] flex items-center justify-center text-slate-400 italic text-xs">
-                            (Draft & TTD)
+                          <div className="h-[44px] flex items-center justify-center text-slate-400 italic text-xs">
+                            (Dokumen Diarsipkan)
                           </div>
                         )}
-                        <div className="mt-2 space-y-0.5">
+                        <div className="relative z-0 space-y-0.5">
                           <div className="font-bold text-sm underline text-slate-900">
                             {sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}
                           </div>

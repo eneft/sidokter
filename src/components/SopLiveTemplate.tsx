@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { RichTextEditor, PRESET_COLORS, compressImageToDataUrl } from './RichTextEditor';
 import { HospitalLogo } from './HospitalLogo';
+import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 
 interface SopLiveTemplateProps {
@@ -767,13 +768,17 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       <div className="mt-1 text-xs font-bold">{effectiveDate || '……………'}</div>
                     )}
                   </td>
-                  <td colSpan={2} className="border border-black p-2 text-center align-top bg-white">
+                  <td colSpan={2} className="border border-black p-2 text-center align-top bg-white relative overflow-visible">
                     <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-                    <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
-                    <div className="h-6 sm:h-7" />
-                    <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{approverName || SOEGIRI_HOSPITAL_INFO.director.name}</div>
-                    <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{SOEGIRI_HOSPITAL_INFO.director.rank}</div>
-                    <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}</div>
+                    <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
+                    <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+                      <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
+                    </div>
+                    <div className="relative z-0 space-y-0.5">
+                      <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{approverName || SOEGIRI_HOSPITAL_INFO.director.name}</div>
+                      <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{SOEGIRI_HOSPITAL_INFO.director.rank}</div>
+                      <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}</div>
+                    </div>
                   </td>
                 </tr>
 

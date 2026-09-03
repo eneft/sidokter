@@ -358,13 +358,15 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
             <div className="pt-8 border-t border-slate-300 grid grid-cols-2 gap-8 text-xs text-center">
               <div className="flex flex-col items-center">
                 <p className="text-slate-600">Mengetahui / Mengesahkan,</p>
-                <p className="font-bold text-slate-900 mt-1">Direktur RSUD Dr. Soegiri Lamongan</p>
-                <div className="h-16 flex items-center justify-center py-1">
-                  <DirectorSignature className="h-14 w-auto max-w-[140px] object-contain" />
+                <p className="font-bold text-slate-900 mt-1 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</p>
+                <div className="relative -my-5 sm:-my-6 flex items-center justify-center z-10 pointer-events-none">
+                  <DirectorSignature className="h-24 sm:h-28 w-auto max-w-[240px] object-contain mix-blend-multiply opacity-95" />
                 </div>
-                <p className="font-bold text-slate-900 underline">{SOEGIRI_HOSPITAL_INFO.director.name}</p>
-                <p className="text-slate-600 text-[11px]">{SOEGIRI_HOSPITAL_INFO.director.rank}</p>
-                <p className="text-slate-600 text-[11px] font-mono">NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}</p>
+                <div className="relative z-0">
+                  <p className="font-bold text-slate-900 underline">{SOEGIRI_HOSPITAL_INFO.director.name}</p>
+                  <p className="text-slate-600 text-[11px]">{SOEGIRI_HOSPITAL_INFO.director.rank}</p>
+                  <p className="text-slate-600 text-[11px] font-mono">NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}</p>
+                </div>
               </div>
 
               <div>
