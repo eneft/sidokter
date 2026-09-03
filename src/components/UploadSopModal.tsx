@@ -1275,6 +1275,9 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 unitTerkait={unitTerkait}
                 onUnitTerkaitChange={setUnitTerkait}
                 missingSections={missingSections}
+                showSignature={false}
+                status="DRAFT"
+                isPdf={false}
               />
             )}
 

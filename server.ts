@@ -17,6 +17,7 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.static(path.resolve(process.cwd(), 'public')));
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SOEGIRI_DOCS', pdf: 'native' }));
 

@@ -41,6 +41,7 @@ import { triggerFileDownload, openDocumentPreview, getFileFromLocalCache, getFil
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
 import { getPersistedClientSession } from '../lib/authService';
 import { DocumentViewer } from './DocumentViewer';
+import { shouldShowSignatureAndStamp, isPdfSopDocument } from '../utils/documentUtils';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -1400,12 +1401,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       <td colSpan={2} className="p-1.5 text-center align-top bg-white relative overflow-visible" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
         <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
-        {sop.status !== 'DIARSIPKAN' ? (
+        {shouldShowSignatureAndStamp(sop) ? (
           <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
             <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
           </div>
         ) : (
-          <div className="h-[38px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Dokumen Diarsipkan)</div>
+          <div className="h-[46px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">
+            {sop.status === 'DIARSIPKAN'
+              ? '(Dokumen Diarsipkan)'
+              : isPdfSopDocument(sop)
+              ? '(Dokumen Berkas PDF)'
+              : '(Draf / Belum Ditetapkan)'}
+          </div>
         )}
         <div className="relative z-0 space-y-0.5">
           <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
@@ -1990,13 +1997,17 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       </div>
 
                       <div className="py-2 flex flex-col items-center justify-center">
-                        {sop.status !== 'DIARSIPKAN' ? (
+                        {shouldShowSignatureAndStamp(sop) ? (
                           <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
                             <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
                           </div>
                         ) : (
                           <div className="h-[44px] flex items-center justify-center text-slate-400 italic text-xs">
-                            (Dokumen Diarsipkan)
+                            {sop.status === 'DIARSIPKAN'
+                              ? '(Dokumen Diarsipkan)'
+                              : isPdfSopDocument(sop)
+                              ? '(Dokumen Berkas PDF)'
+                              : '(Draf / Belum Ditetapkan)'}
                           </div>
                         )}
                         <div className="relative z-0 space-y-0.5">

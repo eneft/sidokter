@@ -1706,6 +1706,8 @@ export const UserView: React.FC<UserViewProps> = ({
                             dateEditable={true}
                             showPageHint={false}
                             missingSections={missingSections}
+                            showSignature={false}
+                            status="DRAFT"
                           />
                         </div>
                       </section>

@@ -101,6 +101,44 @@ async function resolveExecutable(): Promise<string> {
   return '';
 }
 
+let cachedBookmanCss: string | null = null;
+
+function getBookmanFontFaceCss(): string {
+  if (cachedBookmanCss) return cachedBookmanCss;
+  try {
+    const fontsDir = path.resolve(process.cwd(), 'public', 'fonts');
+    const readBase64 = (filename: string) => {
+      const fullPath = path.join(fontsDir, filename);
+      if (fs.existsSync(fullPath)) {
+        const buf = fs.readFileSync(fullPath);
+        return `data:font/otf;base64,${buf.toString('base64')}`;
+      }
+      return `/fonts/${filename}`;
+    };
+
+    const light = readBase64('URWBookman-Light.otf');
+    const demi = readBase64('URWBookman-Demi.otf');
+    const lightItalic = readBase64('URWBookman-LightItalic.otf');
+    const demiItalic = readBase64('URWBookman-DemiItalic.otf');
+
+    cachedBookmanCss = `
+@font-face{font-family:"Bookman Old Style";src:url("${light}") format("opentype");font-style:normal;font-weight:400;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("${demi}") format("opentype");font-style:normal;font-weight:700;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("${lightItalic}") format("opentype");font-style:italic;font-weight:400;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("${demiItalic}") format("opentype");font-style:italic;font-weight:700;font-display:swap;}
+`;
+  } catch (err) {
+    console.warn('[PDF] Could not read local font files as base64, falling back to URL:', err);
+    cachedBookmanCss = `
+@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-Light.otf") format("opentype");font-style:normal;font-weight:400;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-Demi.otf") format("opentype");font-style:normal;font-weight:700;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-LightItalic.otf") format("opentype");font-style:italic;font-weight:400;font-display:swap;}
+@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-DemiItalic.otf") format("opentype");font-style:italic;font-weight:700;font-display:swap;}
+`;
+  }
+  return cachedBookmanCss;
+}
+
 export async function generatePdf(body: any) {
   const documentHtml = String(body?.html || '');
   const css = String(body?.css || '');
@@ -112,12 +150,10 @@ export async function generatePdf(body: any) {
   const baseUrl = String(body?.baseUrl || '').replace(/\/$/, '');
   if (!baseUrl) throw new Error('Alamat aplikasi untuk aset dokumen tidak tersedia.');
 
+  const bookmanCss = getBookmanFontFaceCss();
   const html = `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=210mm, initial-scale=1"><base href="${baseUrl.replace(/"/g, '&quot;')}/"><style>
+${bookmanCss}
 ${css}
-@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-Light.otf") format("opentype");font-style:normal;font-weight:400;font-display:block;}
-@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-Demi.otf") format("opentype");font-style:normal;font-weight:700;font-display:block;}
-@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-LightItalic.otf") format("opentype");font-style:italic;font-weight:400;font-display:block;}
-@font-face{font-family:"Bookman Old Style";src:url("/fonts/URWBookman-DemiItalic.otf") format("opentype");font-style:italic;font-weight:700;font-display:block;}
 html,body{margin:0!important;padding:0!important;width:210mm!important;background:#fff!important;color:#000!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;font-family:"Bookman Old Style","URW Bookman",serif!important;}
 #printable-sop-official-document,#printable-sop-official-document *,.font-bookman,.font-bookman *,.sop-batang-tubuh-title,.sop-batang-tubuh-content,.sop-batang-tubuh-content *,.rich-text-output,.rich-text-output *,.rich-text-document-content,.rich-text-document-content *{font-family:"Bookman Old Style","URW Bookman",serif!important;}
 
@@ -173,15 +209,19 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
           await Promise.race([
             document.fonts.ready,
             new Promise((resolve) => setTimeout(resolve, 3000))
-          ]);
+          ]).catch(() => undefined);
         }
         if (document.fonts?.load) {
-          await Promise.all([
-            document.fonts.load('400 12px "Bookman Old Style"'),
-            document.fonts.load('700 12px "Bookman Old Style"'),
-            document.fonts.load('italic 400 12px "Bookman Old Style"'),
-            document.fonts.load('italic 700 12px "Bookman Old Style"')
-          ]);
+          try {
+            await Promise.allSettled([
+              document.fonts.load('400 12px "Bookman Old Style"'),
+              document.fonts.load('700 12px "Bookman Old Style"'),
+              document.fonts.load('italic 400 12px "Bookman Old Style"'),
+              document.fonts.load('italic 700 12px "Bookman Old Style"')
+            ]);
+          } catch {
+            // Non-fatal font load fallback
+          }
         }
         const probe = document.querySelector('#printable-sop-official-document') as HTMLElement | null;
         if (probe) console.log('[PDF] Resolved font:', getComputedStyle(probe).fontFamily);
@@ -194,7 +234,7 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
             setTimeout(resolve, 1500); // 1.5s max wait per image
           });
         });
-        await Promise.all(imgPromises);
+        await Promise.allSettled(imgPromises);
       });
     } catch (evalErr) {
       console.warn('[PDF] Non-fatal evaluate warning:', evalErr);

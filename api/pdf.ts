@@ -124,6 +124,92 @@ async function resolveExecutable(): Promise<string> {
   );
 }
 
+let cachedBookmanCss: string | null = null;
+
+function getBookmanFontFaceCss(): string {
+  if (cachedBookmanCss) return cachedBookmanCss;
+  try {
+    const fontsDir = path.resolve(process.cwd(), 'public', 'fonts');
+    const readBase64 = (filename: string) => {
+      const fullPath = path.join(fontsDir, filename);
+      if (fs.existsSync(fullPath)) {
+        const buf = fs.readFileSync(fullPath);
+        return `data:font/otf;base64,${buf.toString('base64')}`;
+      }
+      return `/fonts/${filename}`;
+    };
+
+    const light = readBase64('URWBookman-Light.otf');
+    const demi = readBase64('URWBookman-Demi.otf');
+    const lightItalic = readBase64('URWBookman-LightItalic.otf');
+    const demiItalic = readBase64('URWBookman-DemiItalic.otf');
+
+    cachedBookmanCss = `
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("${light}") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("${demi}") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("${lightItalic}") format("opentype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("${demiItalic}") format("opentype");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+`;
+  } catch (err) {
+    console.warn('[PDF] Could not read local font files as base64, falling back to URL:', err);
+    cachedBookmanCss = `
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Light.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Demi.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-LightItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-DemiItalic.otf") format("opentype");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+`;
+  }
+  return cachedBookmanCss;
+}
+
 async function generatePdf(body: any) {
   const documentHtml = String(body?.html || '');
   const css = String(body?.css || '');
@@ -153,6 +239,7 @@ async function generatePdf(body: any) {
     );
   }
 
+  const bookmanCss = getBookmanFontFaceCss();
   const html = `<!doctype html>
 <html lang="id">
 <head>
@@ -164,36 +251,8 @@ content="width=210mm, initial-scale=1">
 
 <style>
 
+${bookmanCss}
 ${css}
-
-@font-face {
-  font-family: "Bookman Old Style";
-  src: url("/fonts/URWBookman-Light.otf") format("opentype");
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-}
-@font-face {
-  font-family: "Bookman Old Style";
-  src: url("/fonts/URWBookman-Demi.otf") format("opentype");
-  font-style: normal;
-  font-weight: 700;
-  font-display: block;
-}
-@font-face {
-  font-family: "Bookman Old Style";
-  src: url("/fonts/URWBookman-LightItalic.otf") format("opentype");
-  font-style: italic;
-  font-weight: 400;
-  font-display: block;
-}
-@font-face {
-  font-family: "Bookman Old Style";
-  src: url("/fonts/URWBookman-DemiItalic.otf") format("opentype");
-  font-style: italic;
-  font-weight: 700;
-  font-display: block;
-}
 
 html, body {
   margin: 0 !important;
@@ -411,7 +470,6 @@ ${documentHtml}
           if (document.fonts?.ready) {
             await Promise.race([
               document.fonts.ready,
-
               new Promise(
                 (resolve) =>
                   setTimeout(
@@ -419,16 +477,20 @@ ${documentHtml}
                     3000
                   )
               ),
-            ]);
+            ]).catch(() => undefined);
           }
 
           if (document.fonts?.load) {
-            await Promise.all([
-              document.fonts.load('400 12px "Bookman Old Style"'),
-              document.fonts.load('700 12px "Bookman Old Style"'),
-              document.fonts.load('italic 400 12px "Bookman Old Style"'),
-              document.fonts.load('italic 700 12px "Bookman Old Style"')
-            ]);
+            try {
+              await Promise.allSettled([
+                document.fonts.load('400 12px "Bookman Old Style"'),
+                document.fonts.load('700 12px "Bookman Old Style"'),
+                document.fonts.load('italic 400 12px "Bookman Old Style"'),
+                document.fonts.load('italic 700 12px "Bookman Old Style"')
+              ]);
+            } catch {
+              // Non-fatal font load fallback
+            }
           }
 
           const imgPromises =
@@ -461,7 +523,7 @@ ${documentHtml}
               );
             });
 
-          await Promise.all(
+          await Promise.allSettled(
             imgPromises
           );
         }

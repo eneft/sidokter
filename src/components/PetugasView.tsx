@@ -1726,6 +1726,8 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             dateEditable={true}
                             showPageHint={true}
                             missingSections={missingSections}
+                            showSignature={false}
+                            status="DRAFT"
                           />
                         </div>
                       </section>
