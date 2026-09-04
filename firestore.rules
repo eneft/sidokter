@@ -1,27 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // SOP documents
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.role == 'admin';
+    }
+
     match /sops/{sopId} {
-      allow read, write: if true;
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Library documents
     match /library_documents/{documentId} {
-      allow read, write: if true;
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
-    // User profiles
     match /users/{userId} {
-      allow read, write: if true;
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create, update, delete: if isAdmin();
     }
 
-    // Security: user_credentials is strictly server-only
+    // Credentials are server-only. The browser must never read or write them.
     match /user_credentials/{userId} {
       allow read, write: if false;
     }
 
-    // Security: session_states is strictly server-only
+    // Sessions are server-authoritative. The browser must never read or write them.
     match /session_states/{userId} {
       allow read, write: if false;
       match /sessions/{sessionId} {
@@ -29,19 +37,20 @@ service cloud.firestore {
       }
     }
 
-    // System configuration & numbering
     match /system_config/{configId} {
-      allow read, write: if true;
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Audit logs
+    // Operational audit logs are not trusted when written directly by a browser.
     match /audit_logs/{logId} {
-      allow read, write: if true;
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
+    // Authentication audit logs are server-only.
     match /auth_logs/{logId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
-

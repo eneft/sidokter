@@ -377,6 +377,10 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         failedLoginAttempts: 0,
         lockoutUntil: 0
       });
+
+      // SIDOKTER policy: one account may have only one active browser session.
+      // Revoke all previous sessions before issuing the new one.
+      await revokeAllSessions(id);
       await createSession(id, sessionId, sessionCreatedAt, {
         userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
         ip: requestIp(req)

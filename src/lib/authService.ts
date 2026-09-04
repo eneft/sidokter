@@ -1,6 +1,6 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
 import { auth, authPersistenceReady, firebaseConfig } from './firebase';
-import { signInWithCustomToken, signInAnonymously, signOut } from 'firebase/auth';
+import { signInWithCustomToken, signOut } from 'firebase/auth';
 
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
@@ -170,13 +170,16 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
     if(!result?.success||!result?.customToken) return {success:false,message:result?.message||'Login gagal.'};
     await authPersistenceReady;
     try {
-      if (result.customToken && typeof result.customToken === 'string' && result.customToken.split('.').length === 3) {
-        await signInWithCustomToken(auth, result.customToken);
-      } else {
-        await signInAnonymously(auth);
+      if (!result.customToken || typeof result.customToken !== 'string') {
+        throw new Error('AUTH_CUSTOM_TOKEN_MISSING');
       }
-    } catch {
-      try { await signInAnonymously(auth); } catch {}
+      await signInWithCustomToken(auth, result.customToken);
+    } catch (tokenErr) {
+      try { await signOut(auth); } catch {}
+      const err:any = new Error('Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
+      err.status = 502;
+      err.cause = tokenErr;
+      throw err;
     }
     const session=buildSession(result.session);
     persistClientSession(session);
