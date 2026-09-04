@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // SOP documents
+    match /sops/{sopId} {
+      allow read, write: if true;
+    }
+
+    // Library documents
+    match /library_documents/{documentId} {
+      allow read, write: if true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Security: user_credentials is strictly server-only
+    match /user_credentials/{userId} {
+      allow read, write: if false;
+    }
+
+    // Security: session_states is strictly server-only
+    match /session_states/{userId} {
+      allow read, write: if false;
+      match /sessions/{sessionId} {
+        allow read, write: if false;
+      }
+    }
+
+    // System configuration & numbering
+    match /system_config/{configId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /auth_logs/{logId} {
+      allow read, write: if true;
+    }
+  }
+}
+

@@ -1,106 +1,322 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
-import { hashPassword, verifyPassword } from './passwordCrypto';
+import { auth, authPersistenceReady } from './firebase';
+import { signInWithCustomToken, signOut } from 'firebase/auth';
 
-const USERS_KEY='soegiri_offline_users_v1';
+const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
-const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v2';
-const DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY='soegiri_default_admin_credential_repair_v3';
 export const MAX_FAILED_ATTEMPTS=5;
 export const LOCKOUT_DURATION_MS=15*60*1000;
 export const IDLE_TIMEOUT_MS=30*60*1000;
 export const ABSOLUTE_TIMEOUT_MS=12*60*60*1000;
 
-// Legacy role compatibility: every non-admin stored role is treated as current User.
 export function normalizeRole(role: unknown): UserAccount['role'] {
   return String(role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
 }
 
-function users():UserAccount[]{try{const raw=JSON.parse(localStorage.getItem(USERS_KEY)||'[]');return Array.isArray(raw)?raw.map((u:any)=>({...u,role:normalizeRole(u?.role)})):[]}catch{return[]}}
-function saveUsers(value:UserAccount[]){localStorage.setItem(USERS_KEY,JSON.stringify(value)); window.dispatchEvent(new StorageEvent('storage',{key:USERS_KEY}));}
-function normalizeAssignments(user:UserAccount):UserAssignment[]{
- const raw=(Array.isArray(user.assignments)&&user.assignments.length)?user.assignments:(Array.isArray(user.divisionCodes)&&user.divisionCodes.length?user.divisionCodes.map((code,index)=>({id:`assignment-${code}-${index+1}`,label:code==='ALL'?'Akses Global':`User ${code}`,divisionCode:code,unitName:user.unitName,subCode:index===0?user.subCode:undefined,instCode:index===0?user.instCode:undefined,poliCode:index===0?user.poliCode:undefined,subUnitCode:index===0?user.subUnitCode:undefined})):[{id:`assignment-${user.divisionCode||'PEL'}-1`,label:user.divisionCode==='ALL'?'Akses Global':`User ${user.divisionCode||'PEL'}`,divisionCode:user.divisionCode||(user.role==='admin'?'ALL':'PEL'),unitName:user.unitName,subCode:user.subCode,instCode:user.instCode,poliCode:user.poliCode,subUnitCode:user.subUnitCode}]);
- return raw.map(a=>({...a,hierarchyCode:a.hierarchyCode||[a.subCode,a.instCode,a.poliCode,a.subUnitCode].filter(Boolean).join('.')||undefined}));
+function normalizeAssignments(user: Partial<UserAccount>):UserAssignment[]{
+  const raw=(Array.isArray(user.assignments)&&user.assignments.length)?user.assignments:
+    (Array.isArray(user.divisionCodes)&&user.divisionCodes.length
+      ? user.divisionCodes.map((code,index)=>({id:`assignment-${code}-${index+1}`,label:code==='ALL'?'Akses Global':`User ${code}`,divisionCode:code,unitName:user.unitName,subCode:index===0?user.subCode:undefined,instCode:index===0?user.instCode:undefined,poliCode:index===0?user.poliCode:undefined,subUnitCode:index===0?user.subUnitCode:undefined}))
+      : [{id:`assignment-${user.divisionCode||'PEL'}-1`,label:user.divisionCode==='ALL'?'Akses Global':`User ${user.divisionCode||'PEL'}`,divisionCode:user.divisionCode||(normalizeRole(user.role)==='admin'?'ALL':'PEL'),unitName:user.unitName,subCode:user.subCode,instCode:user.instCode,poliCode:user.poliCode,subUnitCode:user.subUnitCode}]);
+  return raw.map((a:any)=>({...a,hierarchyCode:a.hierarchyCode||[a.subCode,a.instCode,a.poliCode,a.subUnitCode].filter(Boolean).join('.')||undefined}));
 }
-export function persistClientSession(session:UserSession){try{sessionStorage.setItem(CLIENT_SESSION_STORAGE_KEY,JSON.stringify(session));}catch{}}
-export function getPersistedClientSession():UserSession|null{try{const x=sessionStorage.getItem(CLIENT_SESSION_STORAGE_KEY);if(!x)return null;const s=JSON.parse(x);return s?{...s,role:normalizeRole(s.role)}:null}catch{return null}}
+
+export function persistClientSession(session:UserSession){
+  try { sessionStorage.setItem(CLIENT_SESSION_STORAGE_KEY,JSON.stringify(session)); } catch {}
+}
+export function getPersistedClientSession():UserSession|null{
+  try {
+    const x=sessionStorage.getItem(CLIENT_SESSION_STORAGE_KEY);
+    if(!x)return null;
+    const s=JSON.parse(x);
+    return s ? {...s,role:normalizeRole(s.role)} : null;
+  } catch { return null; }
+}
 export function clearPersistedClientSession(){try{sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)}catch{}}
-export async function validatePersistedClientSession(session:UserSession){const u=users().find(x=>x.id===session.authUid||x.username===session.username);return !!u && (!u.activeSessionId||u.activeSessionId===session.sessionId)}
-export async function refreshUserSessionProfile(session:UserSession):Promise<UserSession|null>{const u=users().find(x=>x.id===session.authUid||x.username===session.username);if(!u)return null; if(u.activeSessionId&&u.activeSessionId!==session.sessionId)return null;const a=normalizeAssignments(u);const p=a[0];const s={...session,name:u.name||session.name,role:u.role||session.role,unitName:u.unitName||p?.unitName||session.unitName,divisionCode:u.divisionCode||p?.divisionCode||session.divisionCode,divisionCodes:Array.from(new Set(a.map(x=>x.divisionCode).filter(Boolean))),assignments:a,badges:Array.isArray(u.badges)?u.badges:[],subCode:u.subCode||p?.subCode,instCode:u.instCode||p?.instCode,poliCode:u.poliCode||p?.poliCode,subUnitCode:u.subUnitCode||p?.subUnitCode};persistClientSession(s);return s;}
-export async function recordAuditLog(data:Omit<LoginAuditLog,'id'|'timestamp'>&{timestamp?:string}){try{const all=JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');all.unshift({...data,id:`log-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,timestamp:data.timestamp||new Date().toISOString()});localStorage.setItem(AUDIT_KEY,JSON.stringify(all.slice(0,500)));}catch{}}
-export async function bootstrapDefaultUsers():Promise<void>{
-  let all=users();
-  let changed=false;
-  if(!all.some(x=>x.username.toLowerCase()==='admin')){
-    const {hash,salt}=await hashPassword('admin123');
-    all.push({
-      id:'usr-admin-default',
-      username:'admin',
-      name:'Administrator Tata Naskah',
-      role:'admin',
-      unitName:'Tim Manajemen & Sekretariat SPO',
-      divisionCode:'ALL',
-      divisionCodes:['ALL'],
-      assignments:[{id:'assignment-ALL-1',label:'Akses Global Administrator',divisionCode:'ALL',unitName:'Tim Manajemen & Sekretariat SPO'}],
-      createdAt:new Date().toISOString(),
-      passwordHash:hash,
-      passwordSalt:salt,
-      failedLoginAttempts:0,
-      lockoutUntil:0
-    });
-    changed=true;
-  }
-  // One-time credential repair for the bundled Administrator account.
-  // Versioned so an older repair marker cannot leave the documented default
-  // credential unusable after a previous build changed the stored hash.
-  // Only the account named `admin` is repaired, and plaintext is never stored.
-  if(!localStorage.getItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY)){
-    const i=all.findIndex(x=>String(x.username||'').trim().toLowerCase()==='admin');
-    if(i>=0){
-      const {hash,salt}=await hashPassword('admin123');
-      all[i]={...all[i],id:all[i].id||'usr-admin-default',username:'admin',name:all[i].name||'Administrator Tata Naskah',role:'admin',divisionCode:'ALL',divisionCodes:['ALL'],assignments:Array.isArray(all[i].assignments)&&all[i].assignments.length?all[i].assignments:[{id:'assignment-ALL-1',label:'Akses Global Administrator',divisionCode:'ALL',unitName:all[i].unitName||'Tim Manajemen & Sekretariat SPO'}],passwordHash:hash,passwordSalt:salt,password:undefined,failedLoginAttempts:0,lockoutUntil:0,activeSessionId:undefined,sessionCreatedAt:undefined,updatedAt:new Date().toISOString()};
-      changed=true;
+
+// Keep the browser on a same-origin API path. Firebase Hosting and Vercel
+// rewrite this path to the trusted Firebase Function in production; localhost
+// is handled by the Express development server.
+const defaultAuthApiUrl = '/api/auth';
+const AUTH_API_URL = String(
+  (import.meta as any).env?.VITE_AUTH_API_URL || defaultAuthApiUrl
+).replace(/\/$/,'');
+
+async function getIdToken(forceRefresh=false):Promise<string|null>{
+  try {
+    await authPersistenceReady;
+    if (auth.currentUser) {
+      const token = await auth.currentUser.getIdToken(forceRefresh);
+      if (token) return token;
     }
-    localStorage.setItem(DEFAULT_ADMIN_CREDENTIAL_REPAIR_KEY,'1');
-  }
-  if(!all.some(x=>x.username.toLowerCase()==='pelayanan')){
-    const {hash,salt}=await hashPassword('pelayanan123');
-    all.push({
-      id:'usr-petugas-pelayanan',
-      username:'pelayanan',
-      name:'User Bidang Pelayanan',
-      role:'user',
-      unitName:'Bidang Pelayanan',
-      divisionCode:'PEL',
-      divisionCodes:['PEL'],
-      assignments:[{id:'assignment-PEL-1',label:'User Pelayanan',divisionCode:'PEL',unitName:'Bidang Pelayanan'}],
-      createdAt:new Date().toISOString(),
-      passwordHash:hash,
-      passwordSalt:salt,
-      failedLoginAttempts:0,
-      lockoutUntil:0
-    });
-    changed=true;
-  }
-  if(changed){
-    saveUsers(all);
+    const s = getPersistedClientSession();
+    return s?.sessionId || null;
+  } catch {
+    const s = getPersistedClientSession();
+    return s?.sessionId || null;
   }
 }
-export async function bootstrapDefaultAdmin():Promise<UserAccount>{await bootstrapDefaultUsers();return users().find(x=>x.username==='admin')!;}
-export async function bootstrapKetuaPokjaAccounts(){return;}
-export async function resetDefaultAdminPassword(){const {hash,salt}=await hashPassword('admin123');let all=users();const i=all.findIndex(x=>x.username==='admin');if(i<0)return{success:false,message:'Akun Admin tidak ditemukan.'};all[i]={...all[i],passwordHash:hash,passwordSalt:salt,password:undefined,failedLoginAttempts:0,lockoutUntil:0,activeSessionId:undefined};saveUsers(all);return{success:true,message:'Akun Admin berhasil di-reset ke username "admin" dan password "admin123".'};}
-export async function authenticateUser(usernameInput:string,passwordInput:string){
-  const username=usernameInput.trim().toLowerCase(),password=passwordInput.trim();
-  if(!username||!password)return{success:false,message:'Nama pengguna dan kata sandi wajib diisi.'};
-  let all=users();
-  let u=all.find(x=>x.username.toLowerCase()===username);
-  if(!u&&(username==='admin'||username==='pelayanan')){
-    await bootstrapDefaultUsers();
-    all=users();
-    u=all.find(x=>x.username.toLowerCase()===username);
+
+async function callAuthApi(action:string, body:Record<string,any>={}, token?:string|null){
+  const bearer = token === undefined ? await getIdToken() : token;
+  const headers:Record<string,string>={'Content-Type':'application/json','Accept':'application/json'};
+  if (bearer) {
+    headers.Authorization=`Bearer ${bearer}`;
   }
-  if(!u)return{success:false,message:'Nama pengguna atau kata sandi tidak valid.'};const now=Date.now();if((u.lockoutUntil||0)>now){const m=Math.ceil(((u.lockoutUntil||0)-now)/60000);return{success:false,message:`Akun terkunci sementara. Coba lagi dalam sekitar ${m} menit.`,lockedOut:true,remainingMinutes:m};}let valid=false;if(u.passwordHash&&u.passwordSalt)valid=await verifyPassword(password,u.passwordHash,u.passwordSalt);else if((u as any).password)valid=(u as any).password===password;if(!valid){const attempts=(u.failedLoginAttempts||0)+1;const locked=attempts>=MAX_FAILED_ATTEMPTS;const i=all.findIndex(x=>x.id===u.id);all[i]={...u,failedLoginAttempts:locked?0:attempts,lockoutUntil:locked?now+LOCKOUT_DURATION_MS:0};saveUsers(all);return{success:false,message:locked?'Akun Anda dikunci sementara selama 15 menit karena terlalu banyak percobaan login gagal.':`Kata sandi salah. Sisa kesempatan: ${MAX_FAILED_ATTEMPTS-attempts} kali.`,lockedOut:locked,remainingMinutes:locked?15:undefined};}const sessionId=crypto.randomUUID();const sessionCreatedAt=now;const i=all.findIndex(x=>x.id===u.id);all[i]={...u,activeSessionId:sessionId,sessionCreatedAt,lastLoginAt:new Date().toISOString(),failedLoginAttempts:0,lockoutUntil:0};saveUsers(all);const a=normalizeAssignments(all[i]);const session:UserSession={id:u.id,authUid:u.id,username:u.username,name:u.name,role:normalizeRole(u.role),sessionId,sessionCreatedAt,lastActiveAt:now,unitName:u.unitName||'Unit Kerja RSUD Dr. Soegiri',divisionCode:u.divisionCode||(u.role==='admin'?'ALL':'PEL'),divisionCodes:Array.from(new Set(a.map(x=>x.divisionCode))),assignments:a,badges:Array.isArray(u.badges)?u.badges:[],subCode:u.subCode,instCode:u.instCode,poliCode:u.poliCode,subUnitCode:u.subUnitCode};persistClientSession(session);await recordAuditLog({username:u.username,name:u.name,role:u.role,event:'LOGIN_SUCCESS',sessionId,details:'Login offline berhasil.'});return{success:true,session,message:'Login berhasil.'};}
-export function subscribeToUserSessionGuard(username:string,currentSessionId:string,onSessionRevoked:(reason:'REVOKED_ANOTHER_LOGIN'|'USER_DELETED')=>void,onProfileUpdated?:(profile:UserAccount)=>void){const check=()=>{const u=users().find(x=>x.username.toLowerCase()===username.toLowerCase());if(!u){onSessionRevoked('USER_DELETED');return;}if(u.activeSessionId&&u.activeSessionId!==currentSessionId){onSessionRevoked('REVOKED_ANOTHER_LOGIN');return;}onProfileUpdated?.(u);};check();window.addEventListener('storage',check);const timer=window.setInterval(check,5000);return()=>{window.removeEventListener('storage',check);window.clearInterval(timer);};}
-export async function logoutUser(userSession?:UserSession|null){clearPersistedClientSession();if(!userSession)return;const all=users();const i=all.findIndex(x=>x.id===userSession.authUid||x.username===userSession.username);if(i>=0){all[i]={...all[i],activeSessionId:undefined,sessionCreatedAt:undefined};saveUsers(all);}await recordAuditLog({username:userSession.username,name:userSession.name,role:userSession.role,sessionId:userSession.sessionId,event:'LOGOUT',details:'Pengguna keluar dari aplikasi.'});}
-export async function changeUserPassword(username:string,oldPassword:string,newPassword:string){if(newPassword.trim().length<8||!/[A-Z]/.test(newPassword)||!/[a-z]/.test(newPassword)||!/[0-9]/.test(newPassword))return{success:false,message:'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, dan angka.'};const all=users();const i=all.findIndex(x=>x.username.toLowerCase()===username.trim().toLowerCase());if(i<0)return{success:false,message:'Akun tidak ditemukan.'};const u=all[i];let valid=u.passwordHash&&u.passwordSalt?await verifyPassword(oldPassword,u.passwordHash,u.passwordSalt):(u as any).password===oldPassword;if(!valid)return{success:false,message:'Kata sandi saat ini tidak sesuai.'};const {hash,salt}=await hashPassword(newPassword.trim());all[i]={...u,passwordHash:hash,passwordSalt:salt,password:undefined,activeSessionId:undefined,updatedAt:new Date().toISOString()};saveUsers(all);return{success:true,message:'Kata sandi berhasil diperbarui.'};}
-export async function revokeAllUserSessions(usernameOrId:string){const all=users();const i=all.findIndex(x=>x.id===usernameOrId||x.username.toLowerCase()===usernameOrId.toLowerCase());if(i<0)return{success:false,message:'Akun tidak ditemukan.'};all[i]={...all[i],activeSessionId:undefined,sessionCreatedAt:undefined};saveUsers(all);return{success:true,message:'Seluruh sesi aktif akun telah berhasil dicabut.'};}
+  let response: Response;
+  try {
+    response = await fetch(AUTH_API_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action, ...body }),
+      cache: 'no-store'
+    });
+  } catch (netErr: any) {
+    console.warn(`[authService] Network error calling ${AUTH_API_URL}:`, netErr);
+    if (AUTH_API_URL !== '/api/auth') {
+      try {
+        response = await fetch('/api/auth', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action, ...body }),
+          cache: 'no-store'
+        });
+      } catch {
+        const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
+        err.status = 503;
+        throw err;
+      }
+    } else {
+      const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
+      err.status = 503;
+      throw err;
+    }
+  }
+
+  let payload:any={};
+  try { payload=await response.json(); } catch {}
+  if(!response.ok){
+    const err:any=new Error(payload?.message||`Layanan autentikasi gagal (HTTP ${response.status}).`);
+    err.status=response.status;
+    err.lockedOut=payload?.lockedOut;
+    err.remainingMinutes=payload?.remainingMinutes;
+    throw err;
+  }
+  return payload;
+}
+
+function buildSession(raw:any):UserSession{
+  const role=normalizeRole(raw?.role);
+  const a=normalizeAssignments(raw||{});
+  return {
+    id:raw?.authUid,
+    authUid:raw?.authUid,
+    username:String(raw?.username||'').toLowerCase(),
+    name:raw?.name||raw?.username||'Pengguna',
+    role,
+    sessionId:String(raw?.sessionId||''),
+    sessionCreatedAt:Number(raw?.sessionCreatedAt||Date.now()),
+    lastActiveAt:Number(raw?.lastActiveAt||Date.now()),
+    unitName:raw?.unitName,
+    divisionCode:raw?.divisionCode||(role==='admin'?'ALL':'PEL'),
+    divisionCodes:Array.from(new Set((Array.isArray(raw?.divisionCodes)?raw.divisionCodes:[]).filter(Boolean))),
+    assignments:a,
+    badges:Array.isArray(raw?.badges)?raw.badges:[],
+    subCode:raw?.subCode,
+    instCode:raw?.instCode,
+    poliCode:raw?.poliCode,
+    subUnitCode:raw?.subUnitCode
+  };
+}
+
+/** Server-authoritative session validation. Browser storage is only a cache. */
+export async function validatePersistedClientSession(_session:UserSession){
+  try {
+    await authPersistenceReady;
+    const payload=await callAuthApi('session');
+    return !!payload?.success && !!payload?.session;
+  } catch { return false; }
+}
+
+export async function refreshUserSessionProfile(_session:UserSession):Promise<UserSession|null>{
+  try {
+    const payload=await callAuthApi('session');
+    if(!payload?.success||!payload?.session)return null;
+    const session=buildSession(payload.session);
+    persistClientSession(session);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCurrentAuthToken(forceRefresh=false){
+  return getIdToken(forceRefresh);
+}
+
+/** Fetch helper for protected server resources. Always attaches the current session/token. */
+export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const token = await getIdToken();
+  if (!token) {
+    const err: any = new Error('Sesi login tidak valid. Silakan login kembali.');
+    err.status = 401;
+    throw err;
+  }
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${token}`);
+  return fetch(input, { ...init, headers, cache: init.cache || 'no-store' });
+}
+
+/** Login is performed only by the trusted Firebase Function. */
+export async function provisionInitialAdmin(password:string){
+  const pass=String(password||'');
+  if(!pass) return {success:false,message:'Password Admin wajib diisi.'};
+  try { return await callAuthApi('bootstrap-admin',{password:pass},null); }
+  catch(err:any){ return {success:false,message:err?.message||'Provisioning Admin gagal.',status:err?.status}; }
+}
+
+export async function authenticateUser(usernameInput:string,passwordInput:string){
+  const username=usernameInput.trim().toLowerCase();
+  const password=passwordInput;
+  if(!username||!password)return{success:false,message:'Nama pengguna dan kata sandi wajib diisi.'};
+
+  try {
+    const result=await callAuthApi('login',{username,password},null);
+    if(!result?.success||!result?.customToken) return {success:false,message:result?.message||'Login gagal.'};
+    await authPersistenceReady;
+    // Firebase Functions returns a real Firebase custom token. The local Express
+    // development server returns a session id; do not silently downgrade to
+    // anonymous authentication because that creates a second identity.
+    if (result.customToken && typeof result.customToken === 'string' && result.customToken.split('.').length === 3) {
+      await signInWithCustomToken(auth, result.customToken);
+    }
+    const session=buildSession(result.session);
+    persistClientSession(session);
+    await recordAuditLog({username:session.username,name:session.name,role:session.role,event:'LOGIN_SUCCESS',sessionId:session.sessionId,details:'Login melalui trusted server authentication.'});
+    return{success:true,session,message:result.message||'Login berhasil.'};
+  } catch(err:any) {
+    return {
+      success:false,
+      message:err?.message||'Nama pengguna atau kata sandi tidak valid.',
+      lockedOut:!!err?.lockedOut,
+      remainingMinutes:err?.remainingMinutes
+    };
+  }
+}
+
+// Kept only as compatibility exports. No account is created or repaired in the public browser.
+export async function bootstrapDefaultUsers():Promise<void>{ return; }
+export async function bootstrapDefaultAdmin():Promise<UserAccount>{ throw new Error('BOOTSTRAP_DISABLED'); }
+export async function bootstrapKetuaPokjaAccounts(){ return; }
+
+// Public emergency reset was a critical security vulnerability. Recovery must be
+// performed by an authenticated Administrator through the secured account-management flow.
+export async function emergencyResetAdminAccount(){
+  return {success:false,message:'Pemulihan akun Admin dari halaman login dinonaktifkan demi keamanan. Gunakan prosedur pemulihan akun resmi Administrator.'};
+}
+export async function resetDefaultAdminPassword(){ return emergencyResetAdminAccount(); }
+
+export function subscribeToUserSessionGuard(
+  username:string,
+  currentSessionId:string,
+  onSessionRevoked:(reason:'REVOKED_ANOTHER_LOGIN'|'USER_DELETED')=>void,
+  onProfileUpdated?:(profile:UserAccount)=>void
+){
+  let stopped=false;
+  const check=async()=>{
+    if(stopped)return;
+    try{
+      const payload=await callAuthApi('session');
+      if(!payload?.success||!payload?.session){
+        onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+        return;
+      }
+      const s=buildSession(payload.session);
+      if(s.username!==username.toLowerCase() || s.sessionId!==currentSessionId){
+        onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+        return;
+      }
+      onProfileUpdated?.({
+        id:s.authUid||'',username:s.username,name:s.name,role:s.role,unitName:s.unitName,
+        divisionCode:s.divisionCode,divisionCodes:s.divisionCodes,assignments:s.assignments,badges:s.badges||[],createdAt:''
+      });
+    }catch(err:any){
+      if(err?.status===401) onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+    }
+  };
+  void check();
+  const timer=window.setInterval(check,10000);
+  return()=>{stopped=true;window.clearInterval(timer);};
+}
+
+export async function logoutUser(userSession?:UserSession|null){
+  const token=await getIdToken();
+  try { if(token) await callAuthApi('logout',{sessionId:userSession?.sessionId||''},token); } catch {}
+  clearPersistedClientSession();
+  try { await signOut(auth); } catch {}
+  if(userSession){
+    await recordAuditLog({username:userSession.username,name:userSession.name,role:userSession.role,event:'LOGOUT',sessionId:userSession.sessionId,details:'Pengguna keluar dari aplikasi.'});
+  }
+}
+
+export async function changeUserPassword(_username:string,oldPassword:string,newPassword:string){
+  if(newPassword.trim().length<8||!/[A-Z]/.test(newPassword)||!/[a-z]/.test(newPassword)||!/[0-9]/.test(newPassword)) {
+    return{success:false,message:'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, dan angka.'};
+  }
+  try { return await callAuthApi('change-password',{currentPassword:oldPassword,newPassword:newPassword.trim()}); }
+  catch(err:any){ return{success:false,message:err?.message||'Gagal mengganti kata sandi.'}; }
+}
+
+export async function revokeAllUserSessions(_usernameOrId:string){
+  try { return await callAuthApi('revoke-all'); }
+  catch(err:any){ return{success:false,message:err?.message||'Gagal mencabut sesi.'}; }
+}
+
+/** Administrator-only account management. Credentials are sent only to the trusted backend. */
+export async function fetchManagedUsers():Promise<UserAccount[]> {
+  const payload=await callAuthApi('user-list');
+  return Array.isArray(payload?.users) ? payload.users.map((u:any)=>({
+    id:String(u.id||''), username:String(u.username||'').toLowerCase(), name:u.name||u.username||'',
+    role:normalizeRole(u.role), unitName:u.unitName, divisionCode:u.divisionCode,
+    divisionCodes:u.divisionCodes, assignments:u.assignments, badges:u.badges,
+    subCode:u.subCode, instCode:u.instCode, poliCode:u.poliCode, subUnitCode:u.subUnitCode,
+    createdAt:u.createdAt||'', updatedAt:u.updatedAt, credentialStatus:u.credentialStatus
+  })) : [];
+}
+
+export async function saveManagedUser(user:UserAccount):Promise<{success:boolean;message:string}> {
+  const password = String((user as any).password || '');
+  const profile:any = { ...user };
+  delete profile.password;
+  delete profile.passwordHash;
+  delete profile.passwordSalt;
+  try {
+    return await callAuthApi('user-save', { user: profile, password });
+  } catch(err:any) {
+    throw err;
+  }
+}
+
+export async function deleteManagedUser(userId:string):Promise<{success:boolean;message:string}> {
+  try { return await callAuthApi('user-delete', { userId }); }
+  catch(err:any) { throw err; }
+}
+
+export async function restoreManagedUserProfile(user:UserAccount):Promise<{success:boolean;message:string}> {
+  const profile:any = { ...user };
+  delete profile.password;
+  delete profile.passwordHash;
+  delete profile.passwordSalt;
+  try { return await callAuthApi('user-restore-profile', { user: profile }); }
+  catch(err:any) { throw err; }
+}
+
+export async function recordAuditLog(data:Omit<LoginAuditLog,'id'|'timestamp'>&{timestamp?:string}){
+  // Operational audit UI cache only. Security-critical auth events are written server-side.
+  try{
+    const all=JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');
+    all.unshift({...data,id:`log-${Date.now()}-${crypto.randomUUID?.()||Math.random().toString(36).slice(2,7)}`,timestamp:data.timestamp||new Date().toISOString()});
+    localStorage.setItem(AUDIT_KEY,JSON.stringify(all.slice(0,500)));
+  }catch{}
+}
 export async function fetchRecentAuditLogs(limitCount=50){try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]').slice(0,limitCount) as LoginAuditLog[]}catch{return[]}}

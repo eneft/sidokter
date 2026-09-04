@@ -252,8 +252,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   };
 
   const handleDeleteClick = (user: UserAccount) => {
-    if (user.username === 'admin') {
-      onShowToast('error', 'Akses Ditolak', 'Akun Administrator utama tidak dapat dihapus.');
+    if (user.username === 'admin' || user.id === 'usr-admin-default') {
+      onShowToast('error', 'Akses Ditolak', 'Akun Administrator utama tidak dapat dihapus demi keamanan sistem.');
+      return;
+    }
+    const adminCount = users.filter((u) => u.role === 'admin').length;
+    if (user.role === 'admin' && adminCount <= 1) {
+      onShowToast('error', 'Akses Ditolak', 'Tidak dapat menghapus Administrator terakhir. Sistem wajib memiliki minimal satu Administrator aktif.');
       return;
     }
     setUserToDelete(user);
@@ -409,11 +414,19 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                 {/* Role / Hak Akses */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Role / Hak Akses
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Role / Hak Akses
+                    </label>
+                    {(editingUserId === 'usr-admin-default' || username.trim().toLowerCase() === 'admin') && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        Admin Utama (Terkunci)
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={role}
+                    disabled={editingUserId === 'usr-admin-default' || username.trim().toLowerCase() === 'admin'}
                     onChange={(e) => {
                       const newRole = e.target.value as UserRole;
                       setRole(newRole);
@@ -424,17 +437,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         setPoliCode('');
                       } else if (divisionCode === 'ALL') {
                         setDivisionCode('PEL');
-                                            setSubCode('');
+                        setSubCode('');
                         setInstCode('');
                         setPoliCode('');
                         setUnitName('Bidang Pelayanan');
                       }
                     }}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   >
                     <option value="user">User (Input & Lihat SPO Bidang/Unit)</option>
                     <option value="admin">Admin (Akses Penuh Management)</option>
                   </select>
+                  {(editingUserId === 'usr-admin-default' || username.trim().toLowerCase() === 'admin') && (
+                    <p className="text-[10px] text-slate-400 mt-1">Akun Administrator master terlindungi agar sistem selalu memiliki akses manajemen.</p>
+                  )}
                 </div>
 
                 {/* Elevated Document Access Badge */}
@@ -805,7 +821,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           ) : <span className="text-[10px] text-slate-400">-</span>}
                         </td>
                         <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">
-                          {u.passwordHash ? '••••••••' : 'Belum di-hash'}
+                          {u.credentialStatus === 'ACTIVE' ? 'Aktif' : 'Password belum ditetapkan'}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">

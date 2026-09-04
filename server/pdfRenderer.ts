@@ -103,6 +103,58 @@ async function resolveExecutable(): Promise<string> {
 
 let cachedBookmanCss: string | null = null;
 
+
+function inlineLocalPdfImages(documentHtml: string): string {
+  // Chromium used by the PDF endpoint runs outside the browser session.
+  // Public image URLs can therefore fail (auth/proxy/base-url issues), even
+  // though the same images are visible in the web preview. Resolve the
+  // official document assets from the deployed filesystem and inline ONLY
+  // those small, known local assets server-side. This keeps the POST payload
+  // small and avoids the previous 413 problem caused by client-side base64.
+  const publicDir = path.resolve(process.cwd(), 'public');
+  const allowedAssets = new Set([
+    '/logo_soegiri_transparent.png',
+    '/logo_soegiri_stamp.png',
+    '/ttd_direktur.png',
+  ]);
+
+  return documentHtml.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'][^>]*>)/gi, (_m, prefix, src, suffix) => {
+    const rawSrc = String(src || '').trim();
+    if (!rawSrc || rawSrc.startsWith('data:') || rawSrc.startsWith('blob:')) {
+      return `${prefix}${rawSrc}${suffix}`;
+    }
+
+    let pathname = rawSrc;
+    try {
+      pathname = new URL(rawSrc, 'http://pdf.local').pathname;
+    } catch {
+      // Keep the original source if it is not a valid URL.
+    }
+
+    if (!allowedAssets.has(pathname)) return `${prefix}${rawSrc}${suffix}`;
+
+    const assetPath = path.join(publicDir, pathname.slice(1));
+    try {
+      if (!fs.existsSync(assetPath)) {
+        console.warn('[PDF] Local image asset not found:', assetPath);
+        return `${prefix}${rawSrc}${suffix}`;
+      }
+
+      const ext = path.extname(assetPath).toLowerCase();
+      const mime = ext === '.jpg' || ext === '.jpeg'
+        ? 'image/jpeg'
+        : ext === '.webp'
+          ? 'image/webp'
+          : 'image/png';
+      const dataUri = `data:${mime};base64,${fs.readFileSync(assetPath).toString('base64')}`;
+      return `${prefix}${dataUri}${suffix}`;
+    } catch (err) {
+      console.warn('[PDF] Failed to inline local image asset:', pathname, err);
+      return `${prefix}${rawSrc}${suffix}`;
+    }
+  });
+}
+
 function getBookmanFontFaceCss(): string {
   if (cachedBookmanCss) return cachedBookmanCss;
   try {
@@ -151,6 +203,7 @@ export async function generatePdf(body: any) {
   if (!baseUrl) throw new Error('Alamat aplikasi untuk aset dokumen tidak tersedia.');
 
   const bookmanCss = getBookmanFontFaceCss();
+  const pdfDocumentHtml = inlineLocalPdfImages(documentHtml);
   const html = `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=210mm, initial-scale=1"><base href="${baseUrl.replace(/"/g, '&quot;')}/"><style>
 ${bookmanCss}
 ${css}
@@ -166,7 +219,7 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
 #printable-sop-official-document.pdf-export-document .sop-official-table>tbody{display:table-row-group!important}
 #printable-sop-official-document.pdf-export-document .sop-official-table td,#printable-sop-official-document.pdf-export-document .sop-official-table th{display:table-cell!important;border:1px solid #000!important;box-sizing:border-box!important;vertical-align:top!important;word-break:normal!important;overflow-wrap:break-word!important;word-wrap:break-word!important;hyphens:none!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 .no-print{display:none!important}
-</style></head><body>${documentHtml}</body></html>`;
+</style></head><body>${pdfDocumentHtml}</body></html>`;
 
   let browser: any;
   try {
