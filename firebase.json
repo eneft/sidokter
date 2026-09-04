@@ -21,7 +21,14 @@
     ],
     "rewrites": [
       {
-        "source": "/api/auth{,/**}",
+        "source": "/api/auth",
+        "function": {
+          "functionId": "authApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "/api/auth/**",
         "function": {
           "functionId": "authApi",
           "region": "asia-southeast2"

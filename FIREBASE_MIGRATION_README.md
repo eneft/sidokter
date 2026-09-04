@@ -32,3 +32,7 @@ Hash + salt PBKDF2 dari `data/auth_db.json` dipertahankan. Password plaintext ti
 `server.ts` dan `server/authHandler.ts` sengaja tidak dihapus pada patch ini agar mode Local tetap tersedia sebagai fallback/development sampai deployment Firebase dinyatakan lulus uji.
 
 Firebase Hosting saat ini menangani `/api/auth` dan `/api/pdf`. Endpoint `/api/storage/*` masih merupakan endpoint server Express lama dan belum dipindahkan ke Firebase Function dalam patch autentikasi ini.
+
+
+## Penting: Endpoint Auth
+Frontend sekarang menggunakan direct Firebase Function URL sebagai default, sehingga login tidak bergantung pada rewrite Hosting. Jika ingin memakai `/api/auth`, deploy Firebase Hosting dengan `firebase.json` yang disertakan.

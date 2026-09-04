@@ -34,8 +34,9 @@ export function getPersistedClientSession():UserSession|null{
 }
 export function clearPersistedClientSession(){try{sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)}catch{}}
 
+const DEFAULT_AUTH_API_URL = `https://asia-southeast2-${firebaseConfig.projectId}.cloudfunctions.net/authApi`;
 const AUTH_API_URL = String(
-  (import.meta as any).env?.VITE_AUTH_API_URL || '/api/auth'
+  (import.meta as any).env?.VITE_AUTH_API_URL || DEFAULT_AUTH_API_URL
 ).replace(/\/$/,'');
 
 async function getIdToken(forceRefresh=false):Promise<string|null>{
