@@ -350,7 +350,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   try {
-    const action = req.path.replace(/^\/+/, '').split('/').pop() || req.body?.action;
+    const pathAction = req.path.replace(/^\/+/, '').split('/').filter(Boolean).pop() || '';
+    const action = (pathAction === 'authApi' || pathAction === 'auth' ? '' : pathAction) || req.body?.action;
 
     if (action === 'bootstrap-admin') {
       return await bootstrapInitialAdmin(req, res);
