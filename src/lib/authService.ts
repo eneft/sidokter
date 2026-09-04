@@ -37,7 +37,7 @@ export function clearPersistedClientSession(){try{sessionStorage.removeItem(CLIE
 // Keep the browser on a same-origin API path. Firebase Hosting and Vercel
 // rewrite this path to the trusted Firebase Function in production; localhost
 // is handled by the Express development server.
-const defaultAuthApiUrl = '/api/auth';
+const defaultAuthApiUrl = 'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/authApi';
 const AUTH_API_URL = String(
   (import.meta as any).env?.VITE_AUTH_API_URL || defaultAuthApiUrl
 ).replace(/\/$/,'');
@@ -73,24 +73,9 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
     });
   } catch (netErr: any) {
     console.warn(`[authService] Network error calling ${AUTH_API_URL}:`, netErr);
-    if (AUTH_API_URL !== '/api/auth') {
-      try {
-        response = await fetch('/api/auth', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ action, ...body }),
-          cache: 'no-store'
-        });
-      } catch {
-        const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
-        err.status = 503;
-        throw err;
-      }
-    } else {
-      const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
-      err.status = 503;
-      throw err;
-    }
+    const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
+    err.status = 503;
+    throw err;
   }
 
   let payload:any={};

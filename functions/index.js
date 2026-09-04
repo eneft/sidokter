@@ -111,10 +111,10 @@ function cors(req, res) {
     .split(',').map(v => v.trim()).filter(Boolean);
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
   const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const vercel = /^https:\/\/([a-z0-9-]+\.)*vercel\.app$/i;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || vercel.test(origin) || local.test(origin))) {
     res.set('Access-Control-Allow-Origin', origin);
-    res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
