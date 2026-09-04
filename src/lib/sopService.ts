@@ -4,10 +4,6 @@
  */
 import { SopDocument, NumberingConfig, SopStatus } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
-import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
-import { uploadFileToCloudStorage } from './cloudStorageService';
-import { collection, doc, getDocs, runTransaction, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
 
 const KEYS = {
   sops: 'soegiri_offline_sops_v1',
@@ -20,7 +16,6 @@ const IDB_SOPS_STORE = 'sops';
 const IDB_NUMBER_RESERVATIONS_STORE = 'sopNumberReservations';
 
 const subscribers = new Map<string, Set<() => void>>();
-let firestoreSopSyncInitialized = false;
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -152,61 +147,7 @@ function normalizeSop(sop: SopDocument): SopDocument {
 }
 
 
-function initFirestoreSopSync() {
-  if (firestoreSopSyncInitialized) return;
-  firestoreSopSyncInitialized = true;
-
-  // Initial fetch from Firestore
-  void fetchSopsFromFirestore().then(async (cloudSops) => {
-    if (!cloudSops || !cloudSops.length) return;
-    const local = await idbGetAllSops();
-    const map = new Map<string, SopDocument>();
-    local.forEach((s) => map.set(s.id, s));
-    cloudSops.forEach((s) => {
-      const exist = map.get(s.id);
-      const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      }
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      }
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      }
-      map.set(s.id, merged);
-    });
-    await idbPutSops(Array.from(map.values()));
-    notifySopSubscribers();
-  });
-
-  // Real-time Firestore listener
-  subscribeToFirestoreSops(async (cloudSops) => {
-    if (!cloudSops || !cloudSops.length) return;
-    const local = await idbGetAllSops();
-    const map = new Map<string, SopDocument>();
-    local.forEach((s) => map.set(s.id, s));
-    cloudSops.forEach((s) => {
-      const exist = map.get(s.id);
-      const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      }
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      }
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      }
-      map.set(s.id, merged);
-    });
-    await idbPutSops(Array.from(map.values()));
-    notifySopSubscribers();
-  });
-}
-
 export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?: (err: any) => void, divisionCodes?: string | string[]) {
-  initFirestoreSopSync();
   const emit = async () => {
     try {
       const normalized = Array.from(new Set((Array.isArray(divisionCodes) ? divisionCodes : [divisionCodes]).filter(Boolean).map(String)));
@@ -232,44 +173,20 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
-
-  // Auto-upload binary attachments to cloud storage so they are accessible from all devices
-  if (next.fileDataUrl && next.fileDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`).then((res) => {
-      next.fileUrl = res.url;
-    }).catch(() => {});
-  }
-  if (next.signedScanDataUrl && next.signedScanDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`).then((res) => {
-      next.signedScanUrl = res.url;
-    }).catch(() => {});
-  }
-  if (next.oldFileDataUrl && next.oldFileDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`).then((res) => {
-      next.oldFileUrl = res.url;
-    }).catch(() => {});
-  }
-
   const index = all.findIndex((s) => s.id === next.id);
   if (index >= 0) all[index] = next; else all.push(next);
   await idbPutSops(all);
   notifySopSubscribers();
-  void saveSopToFirestore(next);
 }
 
 export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {
-  const normalized = sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
-  await idbPutSops(normalized);
+  await idbPutSops(sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop));
   notifySopSubscribers();
-  for (const item of normalized) {
-    void saveSopToFirestore(item);
-  }
 }
 
 export async function deleteSopFromLocal(id: string): Promise<void> {
   await idbDeleteSop(id);
   notifySopSubscribers();
-  void deleteSopFromFirestore(id);
 }
 
 export async function deleteAllSops(): Promise<number> {
@@ -292,10 +209,7 @@ export function subscribeToNumberingConfig(onData: (config: NumberingConfig) => 
   const emit = () => { try { onData(read(KEYS.config, DEFAULT_NUMBERING_CONFIG)); } catch (e) { onError?.(e); } };
   emit(); return watch(KEYS.config, emit);
 }
-export async function saveConfigToLocal(config: NumberingConfig): Promise<void> {
-  write(KEYS.config, config);
-  void saveSystemConfigToFirestore('numbering', config);
-}
+export async function saveConfigToLocal(config: NumberingConfig): Promise<void> { write(KEYS.config, config); }
 
 export interface SopNumberReservation {
   id: string;
@@ -329,136 +243,104 @@ export async function reserveNextSopNumber(params: {
   reservedBy: string;
   purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
 }): Promise<SopNumberReservation> {
-  const { config, divisionCode, subHierarchyCode = '', dateStr, reservedBy, title, purpose } = params;
+  const { config, divisionCode, subHierarchyCode = '', dateStr, reservedBy } = params;
   const cleanDiv = (divisionCode || 'PEL').trim().toUpperCase();
   const cleanSub = (subHierarchyCode || '').trim();
   const year = dateStr ? new Date(dateStr).getFullYear().toString() : new Date().getFullYear().toString();
-  const counterId = `sop-number-counter-${year}-${cleanDiv}-${cleanSub || 'ROOT'}`.replace(/[^A-Za-z0-9_-]/g, '_');
 
-  // Read the current cloud documents once so an existing installation with
-  // historical numbers can safely seed the counter. The atomic transaction
-  // below is the final authority for concurrent devices.
-  let existingMax = 0;
-  try {
-    const snap = await getDocs(collection(db, 'sops'));
-    snap.forEach((d) => {
-      const sop: any = d.data();
-      if (sop?.isNumberReservation || sop?.isLegacySop) return;
-      if (String(sop?.divisionCode || '').trim().toUpperCase() !== cleanDiv) return;
-      if (String(sop?.subHierarchyCode || '').trim() !== cleanSub) return;
-      const sopYear = String(sop?.sopNumber || '').match(/\/(\d{4})\s*$/)?.[1] || String(sop?.effectiveDate || '').slice(0, 4);
-      if (sopYear !== year) return;
-      const seq = Number(sop?.sequenceNumber || parseInt(String(sop?.sopNumber || '').match(/(?:^|\/)\s*(\d{1,4})\s*\/\s*\d{4}$/)?.[1] || '0', 10));
-      if (Number.isFinite(seq) && seq > existingMax) existingMax = seq;
-    });
-  } catch (error) {
-    console.warn('Cloud SOP numbering reconciliation warning:', error);
-  }
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([IDB_SOPS_STORE, IDB_NUMBER_RESERVATIONS_STORE], 'readwrite');
+    const sopStore = tx.objectStore(IDB_SOPS_STORE);
+    const reservationStore = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
 
-  const counterRef = doc(db, 'system_config', 'sop_number_counters', 'counters', counterId);
-  const reservationId = await runTransaction(db, async (tx) => {
-    const counterSnap = await tx.get(counterRef);
-    const currentNext = counterSnap.exists() ? Number(counterSnap.data()?.nextSequence || 1) : 1;
-    let sequenceNumber = Math.max(1, currentNext, existingMax + 1);
-    let finalId = '';
-    let finalRef: any;
-    for (let attempt = 0; attempt < 1000; attempt += 1) {
-      finalId = `sop-number-${year}-${cleanDiv}-${cleanSub || 'ROOT'}-${sequenceNumber}`.replace(/[^A-Za-z0-9_-]/g, '_');
-      finalRef = doc(db, 'sop_number_reservations', finalId);
-      const reservationSnap = await tx.get(finalRef);
-      if (!reservationSnap.exists()) break;
-      sequenceNumber += 1;
-      if (attempt === 999) throw new Error('NUMBER_RESERVATION_CONFLICT');
-    }
+    let sops: SopDocument[] = [];
+    let reservations: SopNumberReservation[] = [];
+    let result: SopNumberReservation | null = null;
 
-    tx.set(counterRef, {
-      nextSequence: sequenceNumber + 1,
-      updatedAt: new Date().toISOString(),
-      updatedBy: reservedBy || 'User'
-    }, { merge: true });
-    tx.set(finalRef, {
-      id: finalId,
-      divisionCode: cleanDiv,
-      subHierarchyCode: cleanSub,
-      sequenceNumber,
-      year,
-      reservedBy: reservedBy || 'User',
-      reservedAt: new Date().toISOString(),
-      status: 'RESERVED',
-      purpose: purpose || 'SYSTEM_DOCUMENT',
-      title: title || ''
-    });
-    return finalId;
+    const sopRequest = sopStore.getAll();
+    sopRequest.onsuccess = () => {
+      sops = (sopRequest.result || []) as SopDocument[];
+      const reservationRequest = reservationStore.getAll();
+      reservationRequest.onsuccess = () => {
+        reservations = (reservationRequest.result || []) as SopNumberReservation[];
+
+        const used = new Set<number>();
+        for (const sop of sops) {
+          if (sop.isLegacySop || sop.documentType === 'LAMA') continue;
+          const sopYear = sop.sopNumber ? String(sop.sopNumber).match(/\/(\d{4})\s*$/)?.[1] : undefined;
+          const effectiveYear = sopYear || (sop.effectiveDate || '').slice(0, 4);
+          if (String(sop.divisionCode || '').trim().toUpperCase() !== cleanDiv || effectiveYear !== year) continue;
+          if (String(sop.subHierarchyCode || '').trim() !== cleanSub) continue;
+          if (typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0) used.add(sop.sequenceNumber);
+        }
+        for (const reservation of reservations) {
+          if (reservation.divisionCode === cleanDiv && reservation.subHierarchyCode === cleanSub && reservation.year === year) {
+            used.add(reservation.sequenceNumber);
+          }
+        }
+
+        let sequenceNumber = 1;
+        while (used.has(sequenceNumber)) sequenceNumber++;
+
+        const generated = generateSopNumber({
+          config,
+          divisionCode: cleanDiv,
+          subHierarchyCode: cleanSub || undefined,
+          dateStr: dateStr || `${year}-01-01`,
+          sequenceNum: sequenceNumber
+        });
+
+        result = {
+          id: `sop-number-${year}-${cleanDiv}-${cleanSub || 'ROOT'}-${sequenceNumber}`,
+          divisionCode: cleanDiv,
+          subHierarchyCode: cleanSub,
+          sequenceNumber,
+          sopNumber: generated.sopNumber,
+          year,
+          title: params.title?.trim() || undefined,
+          effectiveDate: dateStr || `${year}-01-01`,
+          reservedBy,
+          reservedAt: new Date().toISOString(),
+          status: 'RESERVED',
+          purpose: params.purpose || 'SYSTEM_DOCUMENT'
+        };
+        reservationStore.add(result);
+      };
+      reservationRequest.onerror = () => {
+        try { db.close(); } catch {}
+        reject(reservationRequest.error || new Error('Gagal membaca register nomor SPO.'));
+      };
+    };
+    sopRequest.onerror = () => {
+      try { db.close(); } catch {}
+      reject(sopRequest.error || new Error('Gagal membaca data SPO.'));
+    };
+
+    tx.oncomplete = () => {
+      try { db.close(); } catch {}
+      if (result) resolve(result);
+      else reject(new Error('Nomor SPO gagal dialokasikan.'));
+    };
+    tx.onerror = () => {
+      try { db.close(); } catch {}
+      reject(tx.error || new Error('Gagal menyimpan nomor SPO.'));
+    };
+    tx.onabort = () => {
+      try { db.close(); } catch {}
+      reject(tx.error || new Error('Penerbitan nomor SPO dibatalkan.'));
+    };
   });
-
-  const sequenceNumber = Number(reservationId.split('-').pop());
-  const generatedNumber = generateSopNumber({
-    config,
-    divisionCode: cleanDiv,
-    subHierarchyCode: cleanSub || undefined,
-    dateStr: dateStr || `${year}-01-01`,
-    sequenceNum: sequenceNumber
-  });
-  const sopNumber = generatedNumber.sopNumber;
-
-  const result: SopNumberReservation = {
-    id: reservationId,
-    divisionCode: cleanDiv,
-    subHierarchyCode: cleanSub,
-    sequenceNumber,
-    sopNumber,
-    year,
-    title,
-    reservedBy: reservedBy || 'User',
-    reservedAt: new Date().toISOString(),
-    status: 'RESERVED',
-    purpose: purpose || 'SYSTEM_DOCUMENT'
-  };
-
-  // Keep a local read cache for the existing UI/backup flows, but cloud is authoritative.
-  const localDb = await openSopDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = localDb.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
-    tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE).put(result);
-    tx.oncomplete = () => { localDb.close(); resolve(); };
-    tx.onerror = () => { localDb.close(); reject(tx.error || new Error('Gagal menyimpan cache reservation nomor SPO.')); };
-  });
-  return result;
 }
 
 export async function getAllNumberReservations(): Promise<SopNumberReservation[]> {
-  try {
-    const snap = await getDocs(collection(db, 'sop_number_reservations'));
-    if (!snap.empty) {
-      const cloud = snap.docs.map((d) => ({ ...d.data(), id: d.id })) as SopNumberReservation[];
-      const dbLocal = await openSopDb();
-      await new Promise<void>((resolve) => {
-        const tx = dbLocal.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
-        const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
-        cloud.forEach((r) => store.put(r));
-        tx.oncomplete = () => { dbLocal.close(); resolve(); };
-        tx.onerror = () => { dbLocal.close(); resolve(); };
-      });
-      return cloud;
-    }
-  } catch (error) {
-    console.warn('Cloud reservation read warning:', error);
-  }
-
-  const dbLocal = await openSopDb();
+  const db = await openSopDb();
   return new Promise((resolve, reject) => {
-    const tx = dbLocal.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readonly');
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readonly');
     const request = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE).getAll();
-    request.onsuccess = async () => {
-      const local = (request.result || []) as SopNumberReservation[];
-      try {
-        const batchWrites = local.map((r) => setDoc(doc(db, 'sop_number_reservations', r.id), r, { merge: true }));
-        await Promise.all(batchWrites);
-      } catch {}
-      resolve(local.map((r: any) => ({ ...r, status: r.status === 'USED' ? 'USED' : 'RESERVED' })));
-    };
+    request.onsuccess = () => resolve((request.result || []).map((r: any) => ({ ...r, status: r.status === 'USED' ? 'USED' : 'RESERVED' })) as SopNumberReservation[]);
     request.onerror = () => reject(request.error || new Error('Gagal membaca register reservation nomor SPO.'));
-    tx.oncomplete = () => dbLocal.close();
+    tx.oncomplete = () => db.close();
   });
 }
 
@@ -471,47 +353,35 @@ export async function findNumberReservationBySopNumber(sopNumber: string): Promi
 
 export async function consumeNumberReservation(id: string, usedDocumentId?: string): Promise<void> {
   if (!id) return;
-  try {
-    await setDoc(doc(db, 'sop_number_reservations', id), {
-      status: 'USED',
-      usedAt: new Date().toISOString(),
-      usedDocumentId: usedDocumentId || ''
-    }, { merge: true });
-  } catch (error) {
-    console.warn('Cloud reservation consume warning:', error);
-  }
-  const dbLocal = await openSopDb();
+  const db = await openSopDb();
   return new Promise((resolve, reject) => {
-    const tx = dbLocal.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
     const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
     const request = store.get(id);
     request.onsuccess = () => {
       const current = request.result as SopNumberReservation | undefined;
-      if (current) store.put({ ...current, status: 'USED', usedAt: new Date().toISOString(), usedDocumentId: usedDocumentId || current.usedDocumentId });
+      if (!current) return;
+      store.put({ ...current, status: 'USED', usedAt: new Date().toISOString(), usedDocumentId: usedDocumentId || current.usedDocumentId });
     };
     request.onerror = () => reject(request.error || new Error('Gagal membaca reservation nomor SPO.'));
-    tx.oncomplete = () => { dbLocal.close(); resolve(); };
-    tx.onerror = () => { dbLocal.close(); reject(tx.error || new Error('Gagal mengubah reservation menjadi nomor terpakai.')); };
-    tx.onabort = () => { dbLocal.close(); reject(tx.error || new Error('Konsumsi reservation nomor dibatalkan.')); };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal mengubah reservation menjadi nomor terpakai.')); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('Konsumsi reservation nomor dibatalkan.')); };
   });
 }
 
+
 export async function restoreNumberReservations(reservations: SopNumberReservation[]): Promise<void> {
-  const dbLocal = await openSopDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = dbLocal.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
     const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
     store.clear();
     for (const reservation of reservations || []) store.put(reservation);
-    tx.oncomplete = () => { dbLocal.close(); resolve(); };
-    tx.onerror = () => { dbLocal.close(); reject(tx.error || new Error('Gagal memulihkan register reservation nomor SPO.')); };
-    tx.onabort = () => { dbLocal.close(); reject(tx.error || new Error('Pemulihan reservation nomor dibatalkan.')); };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal memulihkan register reservation nomor SPO.')); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('Pemulihan reservation nomor dibatalkan.')); };
   });
-  try {
-    await Promise.all((reservations || []).map((r) => setDoc(doc(db, 'sop_number_reservations', r.id), r, { merge: true })));
-  } catch (error) {
-    console.warn('Cloud reservation restore warning:', error);
-  }
 }
 
 export async function registerSopAndNumberingToLocal(sop: SopDocument, config: NumberingConfig): Promise<void> {

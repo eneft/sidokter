@@ -3,7 +3,6 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
-const { getFirestore } = require('firebase-admin/firestore');
 const { onRequest } = require('firebase-functions/v2/https');
 const puppeteer = require('puppeteer-core');
 
@@ -87,37 +86,26 @@ async function getServerlessChromium() {
 }
 
 admin.initializeApp();
-// SIDOKTER uses the named Firestore database configured in firebase.json.
-// The client already targets this database; Functions must use the same one.
-const SIDOKTER_FIRESTORE_DATABASE = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
-const db = getFirestore(SIDOKTER_FIRESTORE_DATABASE);
+const db = admin.firestore();
 const USERS = 'users';
-const USER_CREDENTIALS = 'user_credentials';
 const AUTH_LOGS = 'auth_logs';
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const PBKDF2_ITERATIONS = 100000;
-const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_RATE_MAX = 12;
-const loginRate = new Map();
 
 function json(res, status, payload) {
   res.status(status).set('Cache-Control', 'no-store').json(payload);
 }
 
 function cors(req, res) {
-  const origin = String(req.headers.origin || '');
-  const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
-    .split(',').map(v => v.trim()).filter(Boolean);
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
-  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
-  const vercel = /^https:\/\/([a-z0-9-]+\.)*vercel\.app$/i;
-  const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || vercel.test(origin) || local.test(origin))) {
+  const origin = req.headers.origin;
+  const allowed = process.env.AUTH_ALLOWED_ORIGIN;
+  if (origin && allowed && origin === allowed) {
     res.set('Access-Control-Allow-Origin', origin);
+    res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Soegiri-Auth-Uid, X-Soegiri-Session-Id, X-Soegiri-Username');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
@@ -152,38 +140,6 @@ async function findUser(username) {
   return { id: d.id, data: d.data() };
 }
 
-async function getCredential(userId, legacyUserData = null) {
-  const ref = db.collection(USER_CREDENTIALS).doc(userId);
-  const snap = await ref.get();
-  if (snap.exists) return { ref, data: snap.data() };
-
-  // Secure one-time migration for installations that still have credentials
-  // embedded in the legacy users document. The browser never receives them.
-  if (legacyUserData?.passwordHash && legacyUserData?.passwordSalt) {
-    const data = { passwordHash: legacyUserData.passwordHash, passwordSalt: legacyUserData.passwordSalt, updatedAt: new Date().toISOString() };
-    await ref.set(data, { merge: true });
-    await db.collection(USERS).doc(userId).update({
-      passwordHash: admin.firestore.FieldValue.delete(),
-      passwordSalt: admin.firestore.FieldValue.delete(),
-      password: admin.firestore.FieldValue.delete()
-    });
-    return { ref, data };
-  }
-  if (typeof legacyUserData?.password === 'string' && legacyUserData.password) {
-    const salt = crypto.randomBytes(16);
-    const hash = crypto.pbkdf2Sync(legacyUserData.password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
-    const data = { passwordHash: hash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() };
-    await ref.set(data, { merge: true });
-    await db.collection(USERS).doc(userId).update({
-      passwordHash: admin.firestore.FieldValue.delete(),
-      passwordSalt: admin.firestore.FieldValue.delete(),
-      password: admin.firestore.FieldValue.delete()
-    });
-    return { ref, data };
-  }
-  return { ref, data: null };
-}
-
 async function audit(data) {
   try {
     const id = `log-${Date.now()}-${crypto.randomBytes(5).toString('hex')}`;
@@ -211,37 +167,8 @@ function publicSession(user, sessionId, createdAt) {
     subCode: user.data.subCode,
     instCode: user.data.instCode,
     poliCode: user.data.poliCode,
-    subUnitCode: user.data.subUnitCode,
-    divisionCodes: Array.isArray(user.data.divisionCodes) ? user.data.divisionCodes : undefined,
-    assignments: Array.isArray(user.data.assignments) ? user.data.assignments : undefined,
-    badges: Array.isArray(user.data.badges) ? user.data.badges : []
+    subUnitCode: user.data.subUnitCode
   };
-}
-
-async function createSession(uid, sessionId, createdAt, metadata = {}) {
-  await db.collection('session_states').doc(uid).collection('sessions').doc(sessionId).set({
-    sessionId, createdAt, lastActiveAt: createdAt, revoked: false, ...metadata
-  });
-}
-
-async function getActiveSession(uid, sessionId) {
-  if (!sessionId) return null;
-  const snap = await db.collection('session_states').doc(uid).collection('sessions').doc(sessionId).get();
-  return snap.exists && snap.data()?.revoked !== true ? snap.data() : null;
-}
-
-async function revokeAllSessions(uid) {
-  const ref = db.collection('session_states').doc(uid).collection('sessions');
-  const snap = await ref.get();
-  if (snap.empty) return;
-  const batch = db.batch();
-  snap.docs.forEach(d => batch.update(d.ref, { revoked: true, revokedAt: new Date().toISOString() }));
-  await batch.commit();
-}
-
-async function revokeSession(uid, sessionId) {
-  if (!sessionId) return;
-  await db.collection('session_states').doc(uid).collection('sessions').doc(sessionId).set({ revoked: true, revokedAt: new Date().toISOString() }, { merge: true });
 }
 
 async function requireAuth(req) {
@@ -252,96 +179,8 @@ async function requireAuth(req) {
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
   const user = { ...snap.data(), role: normalizeRole(snap.data().role) };
-  const active = await getActiveSession(decoded.uid, decoded.sessionId);
-  if (!active) throw new Error('SESSION_REVOKED');
-  return { decoded, ref: userRef, user, session: active };
-}
-
-function requestIp(req) {
-  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return forwarded || String(req.ip || 'unknown');
-}
-
-async function countAdmins() {
-  const snap = await db.collection(USERS).limit(500).get();
-  return snap.docs.some(d => normalizeRole(d.data()?.role) === 'admin');
-}
-
-function validStrongPassword(password) {
-  return typeof password === 'string' && password.length >= 12 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password);
-}
-
-async function bootstrapInitialAdmin(req, res) {
-  // First-admin bootstrap intentionally does NOT require a separate secret.
-  // It is available only while no administrator exists; once the first admin
-  // is created, this route is permanently locked by the admin-exists check.
-  const password = String(req.body?.password || '');
-  if (!validStrongPassword(password)) {
-    return json(res, 400, { message: 'Password Admin minimal 12 karakter dan wajib mengandung huruf besar, huruf kecil, angka, serta simbol.' });
-  }
-
-  const username = 'admin';
-  const uid = `admin-${crypto.randomUUID()}`;
-  const salt = crypto.randomBytes(16);
-  const passwordHash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
-  const now = new Date().toISOString();
-
-  // Claim the bootstrap slot atomically, or update existing admin password
-  const claimRef = db.collection('system_config').doc('initial_admin_bootstrap');
-  try {
-    const adminSnap = await db.collection(USERS).where('role', '==', 'admin').limit(1).get();
-    if (!adminSnap.empty) {
-      const existingDoc = adminSnap.docs[0];
-      const targetUid = existingDoc.id;
-      await db.collection(USERS).doc(targetUid).update({
-        updatedAt: now,
-        credentialStatus: 'ACTIVE',
-        failedLoginAttempts: 0,
-        lockoutUntil: 0
-      });
-      await db.collection(USER_CREDENTIALS).doc(targetUid).set({ passwordHash, passwordSalt: salt.toString('hex'), updatedAt: now }, { merge: true });
-      await audit({ username, name: 'Administrator SIDOKTER', role: 'admin', event: 'ADMIN_BOOTSTRAPPED', details: 'Password Administrator diperbarui via Admin Setup.' });
-      return json(res, 200, { success: true, message: 'Password Administrator berhasil diperbarui. Silakan login.', username });
-    }
-
-    await db.runTransaction(async tx => {
-      const claimSnap = await tx.get(claimRef);
-      if (claimSnap.exists) {
-        throw new Error('BOOTSTRAP_LOCKED');
-      }
-      tx.set(claimRef, { locked: true, adminUid: uid, createdAt: now });
-      tx.set(db.collection(USERS).doc(uid), {
-        id: uid, username, name: 'Administrator SIDOKTER', role: 'admin', divisionCode: 'ALL', divisionCodes: ['ALL'], assignments: [], badges: [],
-        unitName: 'RSUD Dr. Soegiri Lamongan', createdAt: now, updatedAt: now, credentialStatus: 'ACTIVE',
-        failedLoginAttempts: 0, lockoutUntil: 0
-      });
-      tx.set(db.collection(USER_CREDENTIALS).doc(uid), { passwordHash, passwordSalt: salt.toString('hex'), updatedAt: now });
-    });
-  } catch (err) {
-    if (err?.message === 'BOOTSTRAP_LOCKED') {
-      return json(res, 409, { message: 'Akun Administrator sudah tersedia. Setup Administrator Pertama telah dikunci.' });
-    }
-    console.error('initial admin bootstrap failed', err);
-    return json(res, 500, { message: 'Gagal membuat Administrator pertama.' });
-  }
-
-  await audit({ username, name: 'Administrator SIDOKTER', role: 'admin', event: 'ADMIN_BOOTSTRAPPED', details: 'Administrator pertama berhasil dibuat tanpa bootstrap secret; endpoint terkunci setelah admin pertama dibuat.' });
-  return json(res, 201, { success: true, message: 'Administrator pertama berhasil dibuat. Silakan login.', username });
-}
-
-function checkLoginRate(req, username) {
-  const key = `${requestIp(req)}:${username}`;
-  const now = Date.now();
-  const current = loginRate.get(key);
-  if (!current || current.resetAt <= now) {
-    loginRate.set(key, { count: 1, resetAt: now + LOGIN_RATE_WINDOW_MS });
-    return { allowed: true };
-  }
-  if (current.count >= LOGIN_RATE_MAX) {
-    return { allowed: false, retryAfter: Math.ceil((current.resetAt - now) / 60000) };
-  }
-  current.count += 1;
-  return { allowed: true };
+  if (!decoded.sessionId || user.activeSessionId !== decoded.sessionId) throw new Error('SESSION_REVOKED');
+  return { decoded, ref: userRef, user };
 }
 
 exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
@@ -350,20 +189,12 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   try {
-    const pathAction = req.path.replace(/^\/+/, '').split('/').filter(Boolean).pop() || '';
-    const action = (pathAction === 'authApi' || pathAction === 'auth' ? '' : pathAction) || req.body?.action;
-
-    if (action === 'bootstrap-admin') {
-      return await bootstrapInitialAdmin(req, res);
-    }
+    const action = req.path.replace(/^\/+/, '').split('/').pop() || req.body?.action;
 
     if (action === 'login') {
       const username = normalizeUsername(req.body?.username);
       const password = String(req.body?.password || '');
       if (!username || !password) return json(res, 400, { message: 'Nama pengguna dan kata sandi wajib diisi.' });
-
-      const rate = checkLoginRate(req, username);
-      if (!rate.allowed) return json(res, 429, { message: `Terlalu banyak percobaan login. Coba lagi dalam sekitar ${rate.retryAfter} menit.`, lockedOut: true, remainingMinutes: rate.retryAfter });
 
       const found = await findUser(username);
       if (!found) {
@@ -378,23 +209,18 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         return json(res, 429, { message: `Akun terkunci sementara. Silakan coba lagi dalam ${remainingMinutes} menit.`, lockedOut: true, remainingMinutes });
       }
 
-      const credential = await getCredential(id, user);
-      const credentialData = credential.data;
-      if (!credentialData?.passwordHash || !credentialData?.passwordSalt) {
-        await audit({ username, name: user.name, role: user.role, event: 'LOGIN_FAILED', details: 'Akun belum memiliki credential aktif. Password harus ditetapkan oleh Administrator.' });
-        return json(res, 403, { message: 'Akun belum diaktifkan. Hubungi Administrator untuk menetapkan kata sandi.' });
-      }
       let valid = false;
-      if (credentialData?.passwordHash && credentialData?.passwordSalt) {
-        valid = verifyPassword(password, credentialData.passwordHash, credentialData.passwordSalt);
-      }
-      if (!valid && username === 'admin') {
-        if (password === 'AdminSoegiri@2026!' || password === 'AdminSoegiri@2025!') {
-          valid = true;
-          const salt = crypto.randomBytes(16);
-          const passwordHash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
-          await db.collection(USER_CREDENTIALS).doc(id).set({ passwordHash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() }, { merge: true });
-        }
+      if (user.passwordHash && user.passwordSalt) {
+        valid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+      } else if (typeof user.password === 'string' && user.password === password) {
+        // One-time server-side migration for old accounts. Plaintext is never
+        // returned to the browser and is deleted immediately after hashing.
+        const salt = crypto.randomBytes(16);
+        const hash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
+        await db.collection(USERS).doc(id).update({ passwordHash: hash, passwordSalt: salt.toString('hex'), password: admin.firestore.FieldValue.delete() });
+        user.passwordHash = hash;
+        user.passwordSalt = salt.toString('hex');
+        valid = true;
       }
       if (!valid) {
         const attempts = (user.failedLoginAttempts || 0) + 1;
@@ -412,13 +238,15 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const sessionId = crypto.randomUUID();
       const sessionCreatedAt = now;
       await db.collection(USERS).doc(id).update({
+        activeSessionId: sessionId,
+        sessionCreatedAt,
         lastLoginAt: new Date().toISOString(),
         failedLoginAttempts: 0,
         lockoutUntil: 0
       });
-      await createSession(id, sessionId, sessionCreatedAt, {
-        userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
-        ip: requestIp(req)
+      await db.collection('session_states').doc(id).set({
+        activeSessionId: sessionId,
+        updatedAt: new Date().toISOString()
       });
 
       await audit({ username, name: user.name, role: user.role, sessionId, event: 'LOGIN_SUCCESS', details: 'Login berhasil melalui trusted authentication service.' });
@@ -433,50 +261,21 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
     const context = await requireAuth(req);
 
-    if (action === 'session') {
-      const session = publicSession(
-        { id: context.decoded.uid, data: context.user },
-        context.decoded.sessionId,
-        Number(context.user.sessionCreatedAt || Date.now())
-      );
-      return json(res, 200, { success: true, session });
-    }
-
     if (action === 'logout') {
-      const sessionId = String(req.body?.sessionId || context.decoded.sessionId || '');
-      if (sessionId !== context.decoded.sessionId) return json(res, 403, { message: 'Tidak dapat mencabut sesi perangkat lain melalui endpoint logout.' });
-      if (sessionId) await revokeSession(context.decoded.uid, sessionId);
+      const sessionId = String(req.body?.sessionId || '');
+      if (sessionId && sessionId === context.user.activeSessionId) {
+        await context.ref.update({ activeSessionId: null, sessionCreatedAt: null });
+        await db.collection('session_states').doc(context.decoded.uid).delete();
+      }
       await audit({ username: context.user.username, name: context.user.name, role: context.user.role, sessionId, event: 'LOGOUT', details: 'Logout manual.' });
       return json(res, 200, { success: true, message: 'Logout berhasil.' });
     }
 
     if (action === 'revoke-all') {
-      await revokeAllSessions(context.decoded.uid);
-      await context.ref.update({ updatedAt: new Date().toISOString() });
+      await context.ref.update({ activeSessionId: null, sessionCreatedAt: null, updatedAt: new Date().toISOString() });
+      await db.collection('session_states').doc(context.decoded.uid).delete();
       await audit({ username: context.user.username, name: context.user.name, role: context.user.role, event: 'SESSION_REVOKED', details: 'Seluruh sesi aktif dicabut.' });
       return json(res, 200, { success: true, message: 'Seluruh sesi aktif akun telah dicabut.' });
-    }
-
-    if (action === 'user-list') {
-      if (context.user.role !== 'admin') return json(res, 403, { message: 'Hanya Administrator yang dapat melihat daftar akun.' });
-      const snap = await db.collection(USERS).get();
-      const users = [];
-      for (const d of snap.docs) {
-        const data = d.data();
-        if (!data?.username || String(data.username).toLowerCase() === 'guest') continue;
-        // Migrate any legacy credential material out of users/ before returning data.
-        await getCredential(d.id, data);
-        const fresh = (await d.ref.get()).data() || {};
-        users.push({
-          id: d.id, username: fresh.username, name: fresh.name || fresh.username,
-          role: normalizeRole(fresh.role), unitName: fresh.unitName,
-          divisionCode: fresh.divisionCode, divisionCodes: fresh.divisionCodes,
-          assignments: fresh.assignments, badges: fresh.badges,
-          subCode: fresh.subCode, instCode: fresh.instCode, poliCode: fresh.poliCode, subUnitCode: fresh.subUnitCode,
-          createdAt: fresh.createdAt || '', updatedAt: fresh.updatedAt, credentialStatus: fresh.credentialStatus || ((await db.collection(USER_CREDENTIALS).doc(d.id).get()).exists ? 'ACTIVE' : 'PASSWORD_REQUIRED')
-        });
-      }
-      return json(res, 200, { success: true, users });
     }
 
     if (action === 'user-save') {
@@ -501,7 +300,6 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const ref = db.collection(USERS).doc(userId);
       const existingSnap = await ref.get();
       const existing = existingSnap.exists ? existingSnap.data() : null;
-      const existingCredential = existing ? await getCredential(userId, existing) : { data: null };
       if (!existing && !password) return json(res, 400, { message: 'Kata sandi wajib diisi untuk akun baru.' });
       if (userId === context.decoded.uid && role !== 'admin') return json(res, 400, { message: 'Akun Administrator aktif tidak boleh diturunkan menjadi User.' });
 
@@ -510,10 +308,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         username,
         name,
         role,
-        divisionCode: role === 'admin' ? 'ALL' : incoming.divisionCode,
-        divisionCodes: role === 'admin' ? ['ALL'] : (Array.isArray(incoming.divisionCodes) ? incoming.divisionCodes : undefined),
-        assignments: role === 'admin' ? [] : (Array.isArray(incoming.assignments) ? incoming.assignments : []),
-        badges: role === 'admin' ? [] : (Array.isArray(incoming.badges) ? incoming.badges : []),
+        divisionCode: role === 'admin' ? (incoming.divisionCode || 'ALL') : incoming.divisionCode,
         subCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.subCode || null),
         instCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.instCode || null),
         poliCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.poliCode || null),
@@ -525,26 +320,17 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
       const update = { ...allowedProfile };
       if (password) {
-        // Credentials are stored in a backend-only collection, never in users/.
         const salt = crypto.randomBytes(16);
-        const passwordHash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
-        await db.collection(USER_CREDENTIALS).doc(userId).set({
-          passwordHash,
-          passwordSalt: salt.toString('hex'),
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-        update.credentialStatus = 'ACTIVE';
+        update.passwordHash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
+        update.passwordSalt = salt.toString('hex');
+        update.password = admin.firestore.FieldValue.delete();
+        // A password reset invalidates the existing session.
+        update.activeSessionId = null;
+        update.sessionCreatedAt = null;
       }
 
-      // Strip any legacy credential fields if they exist on the profile.
-      update.passwordHash = admin.firestore.FieldValue.delete();
-      update.passwordSalt = admin.firestore.FieldValue.delete();
-      update.password = admin.firestore.FieldValue.delete();
-      if (!password && existing?.credentialStatus === undefined) {
-        update.credentialStatus = existingCredential.data ? 'ACTIVE' : 'PASSWORD_REQUIRED';
-      }
       await ref.set(update, { merge: true });
-      if (password) await revokeAllSessions(userId);
+      if (password) await db.collection('session_states').doc(userId).delete();
       await audit({
         username,
         name,
@@ -554,41 +340,6 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         details: password ? 'Profil akun diperbarui dan kredensial diperbarui.' : 'Profil akun diperbarui.'
       });
       return json(res, 200, { success: true, message: existing ? 'Akun berhasil diperbarui.' : 'Akun berhasil dibuat.' });
-    }
-
-    if (action === 'user-restore-profile') {
-      if (context.user.role !== 'admin') return json(res, 403, { message: 'Hanya Administrator yang dapat memulihkan profil akun.' });
-      const incoming = req.body?.user || {};
-      const userId = String(incoming.id || '').trim();
-      const username = normalizeUsername(incoming.username);
-      const name = String(incoming.name || '').trim();
-      const role = incoming.role === 'admin' ? 'admin' : 'user';
-      if (!userId || !username || !name) return json(res, 400, { message: 'Data profil akun belum lengkap.' });
-      const dup = await db.collection(USERS).where('username', '==', username).limit(2).get();
-      if (dup.docs.some(d => d.id !== userId)) return json(res, 409, { message: 'Username tersebut sudah digunakan.' });
-      const ref = db.collection(USERS).doc(userId);
-      const existingSnap = await ref.get();
-      const existing = existingSnap.exists ? existingSnap.data() : null;
-      const profile = {
-        id: userId, username, name, role,
-        divisionCode: role === 'admin' ? 'ALL' : incoming.divisionCode,
-        divisionCodes: role === 'admin' ? ['ALL'] : (Array.isArray(incoming.divisionCodes) ? incoming.divisionCodes : undefined),
-        assignments: role === 'admin' ? undefined : (Array.isArray(incoming.assignments) ? incoming.assignments : undefined),
-        badges: role === 'admin' ? [] : (Array.isArray(incoming.badges) ? incoming.badges : []),
-        unitName: String(incoming.unitName || 'Unit Kerja RSUD Dr. Soegiri'),
-        subCode: role === 'admin' ? null : (incoming.subCode || null),
-        instCode: role === 'admin' ? null : (incoming.instCode || null),
-        poliCode: role === 'admin' ? null : (incoming.poliCode || null),
-        subUnitCode: role === 'admin' ? null : (incoming.subUnitCode || null),
-        createdAt: existing?.createdAt || incoming.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        credentialStatus: 'PASSWORD_REQUIRED'
-      };
-      await ref.set(profile, { merge: true });
-      await db.collection(USER_CREDENTIALS).doc(userId).delete();
-      await revokeAllSessions(userId);
-      await audit({ username, name, role, actorUid: context.decoded.uid, event: 'USER_RESTORED_PROFILE', details: 'Profil akun dipulihkan tanpa memulihkan credential. Password harus ditetapkan ulang oleh Administrator.' });
-      return json(res, 200, { success: true, message: 'Profil akun dipulihkan. Password harus ditetapkan ulang sebelum akun dapat digunakan.' });
     }
 
     if (action === 'user-delete') {
@@ -602,8 +353,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       if (!snap.exists) return json(res, 404, { message: 'Akun tidak ditemukan.' });
       const target = snap.data();
       await ref.delete();
-      await db.collection(USER_CREDENTIALS).doc(userId).delete();
-      await revokeAllSessions(userId);
+      await db.collection('session_states').doc(userId).delete();
       await audit({
         username: target.username,
         name: target.name,
@@ -618,20 +368,17 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     if (action === 'change-password') {
       const currentPassword = String(req.body?.currentPassword || '');
       const newPassword = String(req.body?.newPassword || '');
-      if (newPassword.length < 12 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
-        return json(res, 400, { message: 'Kata sandi baru minimal 12 karakter dan harus mengandung huruf besar, huruf kecil, angka, serta simbol.' });
+      if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return json(res, 400, { message: 'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, serta angka.' });
       }
-      const credential = await getCredential(context.decoded.uid, context.user);
-      if (!credential.data?.passwordHash || !credential.data?.passwordSalt || !verifyPassword(currentPassword, credential.data.passwordHash, credential.data.passwordSalt)) {
+      if (!verifyPassword(currentPassword, context.user.passwordHash, context.user.passwordSalt)) {
         return json(res, 401, { message: 'Kata sandi lama yang Anda masukkan salah.' });
       }
       const salt = crypto.randomBytes(16);
       const hash = crypto.pbkdf2Sync(newPassword, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
-      await credential.ref.set({ passwordHash: hash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() }, { merge: true });
-      await context.ref.update({ updatedAt: new Date().toISOString(), passwordHash: admin.firestore.FieldValue.delete(), passwordSalt: admin.firestore.FieldValue.delete(), password: admin.firestore.FieldValue.delete() });
-      await revokeAllSessions(context.decoded.uid);
+      await context.ref.update({ passwordHash: hash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() });
       await audit({ username: context.user.username, name: context.user.name, role: context.user.role, event: 'PASSWORD_CHANGED', details: 'Kata sandi berhasil diganti.' });
-      return json(res, 200, { success: true, message: 'Kata sandi Anda berhasil diperbarui. Semua sesi aktif telah dicabut; silakan login kembali.' });
+      return json(res, 200, { success: true, message: 'Kata sandi Anda berhasil diperbarui.' });
     }
 
     return json(res, 404, { message: 'Endpoint autentikasi tidak ditemukan.' });
@@ -686,31 +433,32 @@ async function resolvePuppeteerExecutable() {
 }
 
 function pdfCors(req, res) {
-  const origin = String(req.headers.origin || '');
-  const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
-    .split(',').map(v => v.trim()).filter(Boolean);
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
-  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
-  const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+  const origin = req.headers.origin;
+  const allowed = process.env.AUTH_ALLOWED_ORIGIN;
+  if (origin && allowed && origin === allowed) {
     res.set('Access-Control-Allow-Origin', origin);
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Soegiri-Auth-Uid, X-Soegiri-Session-Id, X-Soegiri-Username');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
 async function requirePdfSession(req) {
-  const header = String(req.headers.authorization || '');
-  if (!header.startsWith('Bearer ')) throw new Error('UNAUTHENTICATED');
-  const decoded = await admin.auth().verifyIdToken(header.slice(7), true);
-  const userRef = db.collection(USERS).doc(decoded.uid);
+  const authUid = String(req.headers['x-soegiri-auth-uid'] || '').trim();
+  const sessionId = String(req.headers['x-soegiri-session-id'] || '').trim();
+  const username = normalizeUsername(req.headers['x-soegiri-username'] || '');
+
+  if (!authUid || !sessionId || !username) throw new Error('UNAUTHENTICATED');
+
+  const userRef = db.collection(USERS).doc(authUid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
+
   const user = snap.data();
-  const active = await getActiveSession(decoded.uid, decoded.sessionId); if (!active) throw new Error('SESSION_REVOKED');
-  const username = normalizeUsername(user.username);
-  return { authUid: decoded.uid, sessionId: decoded.sessionId, username, ref: userRef, user };
+  if (normalizeUsername(user.username) !== username) throw new Error('UNAUTHENTICATED');
+  if (!user.activeSessionId || user.activeSessionId !== sessionId) throw new Error('SESSION_REVOKED');
+
+  return { authUid, sessionId, username, ref: userRef, user };
 }
 
 /**

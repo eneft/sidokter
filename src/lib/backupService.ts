@@ -75,8 +75,8 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
     notes: [
       'Backup sistem mencakup SPO, SK, MOU, akun pengguna, konfigurasi penomoran, dan lampiran PDF.',
       'Session login aktif dan status lockout sementara tidak disertakan demi keamanan.',
-      'Backup akun hanya menyimpan profil; password, passwordHash, passwordSalt, session, dan lockout tidak pernah dimasukkan.',
-      'Backup dokumen berasal dari penyimpanan lokal SIDOKTER SOEGIRI; credential akun dikelola terpisah oleh server.'
+      'Password akun dicadangkan sebagai passwordHash dan passwordSalt, bukan password plaintext.',
+      'Backup dibuat dari penyimpanan lokal SIDOKTER SOEGIRI.'
     ]
   };
 }

@@ -1,13 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   ShieldCheck, LogOut, FileText, FileCheck, Handshake,
-  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Bell
+  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench
 } from 'lucide-react';
 import { UserSession, MainMenuTab } from '../types';
 import { HospitalLogo } from './HospitalLogo';
-import { subscribeToFirebaseStatus, FirebaseConnectionStatus } from '../lib/firestoreService';
-import { subscribeToNotifications, AppNotification } from '../lib/notificationService';
-import { NotificationModal } from './NotificationModal';
 
 interface HeaderProps {
   activeTab: MainMenuTab;
@@ -26,38 +23,14 @@ interface HeaderProps {
   onOpenSecurity?: () => void;
   onOpenBackupRestore?: () => void;
   onOpenMaintenance?: () => void;
-  onSelectDocument?: (docId: string, docNumber?: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab, onTabChange, totalSopCount, activeSopCount, skCount = 0, mouCount = 0,
-  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onSelectDocument
+  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [fbStatus, setFbStatus] = useState<FirebaseConnectionStatus>({
-    isConnected: false,
-    isSyncing: false,
-    lastSync: null,
-    error: null
-  });
   const isAdmin = userSession?.role === 'admin';
-
-  useEffect(() => {
-    const unsubFb = subscribeToFirebaseStatus((status) => {
-      setFbStatus(status);
-    });
-    const unsubNotif = subscribeToNotifications((notifs) => {
-      setNotifications(notifs);
-    });
-    return () => {
-      unsubFb();
-      unsubNotif();
-    };
-  }, []);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
 
     const userItems: Array<{ id: MainMenuTab; label: string; icon: React.ComponentType<{className?: string}>; count?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -79,28 +52,12 @@ export const Header: React.FC<HeaderProps> = ({
       <>
         <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200/90 shadow-sm flex-col no-print select-none">
           {/* Brand Header */}
-          <div className="h-20 px-5 flex items-center justify-between border-b border-slate-100">
-            <div className="flex items-center gap-3.5 min-w-0">
-              <HospitalLogo size="md" />
-              <div className="min-w-0">
-                <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
-                <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
-              </div>
+          <div className="h-20 px-5 flex items-center gap-3.5 border-b border-slate-100">
+            <HospitalLogo size="md" />
+            <div className="min-w-0">
+              <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
+              <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsNotificationOpen(true)}
-              className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-              title="Pemberitahuan Sistem"
-              aria-label="Pemberitahuan Sistem"
-            >
-              <Bell className="w-4.5 h-4.5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
           </div>
 
           {/* Navigation Menu */}
@@ -141,20 +98,6 @@ export const Header: React.FC<HeaderProps> = ({
             })}
           </nav>
 
-          {/* Firebase Cloud Sync Status */}
-          <div className="px-3.5 pb-1">
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-emerald-50/60 border border-emerald-100 text-[10px]">
-              <span className="flex items-center gap-1.5 font-bold text-slate-700">
-                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                Firebase Cloud
-              </span>
-              <span className="flex items-center gap-1 font-semibold text-emerald-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {fbStatus.isSyncing ? 'Sinkronisasi...' : 'Terhubung'}
-              </span>
-            </div>
-          </div>
-
           {/* User Profile Card & Logout at Bottom */}
           <div className="p-3.5 border-t border-slate-100">
             <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100/80">
@@ -192,30 +135,14 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-[10px] text-slate-500 font-medium truncate block">RSUD Dr. Soegiri Lamongan</span>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setIsNotificationOpen(true)}
-                className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-                title="Pemberitahuan Sistem"
-                aria-label="Pemberitahuan Sistem"
-              >
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 px-1 py-0.2 min-w-3.5 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-xs">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(v => !v)}
-                className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-                aria-label="Buka Menu"
-              >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(v => !v)}
+              className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
+              aria-label="Buka Menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
+            </button>
           </div>
           {mobileMenuOpen && (
             <nav className="p-3 border-t border-slate-100 space-y-1.5 bg-white shadow-xl animate-in slide-in-from-top-2 duration-150">
@@ -261,13 +188,6 @@ export const Header: React.FC<HeaderProps> = ({
             </nav>
           )}
         </div>
-
-        <NotificationModal
-          isOpen={isNotificationOpen}
-          onClose={() => setIsNotificationOpen(false)}
-          notifications={notifications}
-          onSelectDocument={onSelectDocument}
-        />
       </>
     );
   }
@@ -283,28 +203,12 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200/90 shadow-sm flex-col no-print select-none">
-        <div className="h-20 px-5 flex items-center justify-between border-b border-slate-100">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <HospitalLogo size="md" />
-            <div className="min-w-0">
-              <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
-              <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
-            </div>
+        <div className="h-20 px-5 flex items-center gap-3.5 border-b border-slate-100">
+          <HospitalLogo size="md" />
+          <div className="min-w-0">
+            <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
+            <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsNotificationOpen(true)}
-            className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-            title="Pemberitahuan Sistem"
-            aria-label="Pemberitahuan Sistem"
-          >
-            <Bell className="w-4.5 h-4.5" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
         </div>
 
         <nav className="flex-1 p-3.5 space-y-1.5 overflow-y-auto">
@@ -343,20 +247,6 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </nav>
 
-        {/* Firebase Cloud Sync Status */}
-        <div className="px-3.5 pb-1">
-          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-emerald-50/60 border border-emerald-100 text-[10px]">
-            <span className="flex items-center gap-1.5 font-bold text-slate-700">
-              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-              Firebase Cloud
-            </span>
-            <span className="flex items-center gap-1 font-semibold text-emerald-700">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {fbStatus.isSyncing ? 'Sinkronisasi...' : 'Terhubung'}
-            </span>
-          </div>
-        </div>
-
         <div className="p-3.5 border-t border-slate-100">
           <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100/80">
             <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0">{(userSession?.name || userSession?.username || 'A')[0].toUpperCase()}</div>
@@ -371,37 +261,8 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="lg:hidden sticky top-0 z-50 bg-white border-b border-slate-200 no-print">
         <div className="h-16 px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <HospitalLogo size="sm" />
-            <div>
-              <span className="font-black text-xs text-slate-900 block leading-tight">SIDOKTER SOEGIRI</span>
-              <span className="text-[10px] text-slate-500 font-medium truncate block">RSUD Dr. Soegiri Lamongan</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setIsNotificationOpen(true)}
-              className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-              title="Pemberitahuan Sistem"
-              aria-label="Pemberitahuan Sistem"
-            >
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 px-1 py-0.2 min-w-3.5 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-xs">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(v => !v)}
-              className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-              aria-label="Buka Menu"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
-            </button>
-          </div>
+          <div className="flex items-center gap-2.5 min-w-0"><HospitalLogo size="sm" /><div><span className="font-black text-xs text-slate-900 block leading-tight">SIDOKTER SOEGIRI</span><span className="text-[10px] text-slate-500 font-medium truncate block">RSUD Dr. Soegiri Lamongan</span></div></div>
+          <button type="button" onClick={() => setMobileMenuOpen(v => !v)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer" aria-label="Buka Menu">{mobileMenuOpen ? <X className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}</button>
         </div>
         {mobileMenuOpen && (
           <nav className="p-3 border-t border-slate-100 space-y-1.5 bg-white shadow-xl">
@@ -420,13 +281,6 @@ export const Header: React.FC<HeaderProps> = ({
           </nav>
         )}
       </div>
-
-      <NotificationModal
-        isOpen={isNotificationOpen}
-        onClose={() => setIsNotificationOpen(false)}
-        notifications={notifications}
-        onSelectDocument={onSelectDocument}
-      />
     </>
   );
 

@@ -39,7 +39,7 @@ import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { triggerFileDownload, openDocumentPreview, getFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
-import { getPersistedClientSession, getCurrentAuthToken, authenticatedFetch } from '../lib/authService';
+import { getPersistedClientSession } from '../lib/authService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 
@@ -214,32 +214,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           setIsLoadingLegacyFile(false);
           return;
         }
-
-        // Check if cloud file URL is available on the document
-        const cloudUrl = (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl;
-        if (cloudUrl && !isCancelled) {
-          setResolvedLegacyFileUrl(cloudUrl);
-          setIsLoadingLegacyFile(false);
-          return;
-        }
-
-        // Check if server storage has file by ID
-        const serverUrls = [
-          `/api/storage/files/${sop.id}_file`,
-          `/api/storage/files/${sop.id}_signedScan`,
-          `/api/storage/files/${sop.id}_oldFile`,
-          `/api/storage/files/${sop.id}`
-        ];
-        for (const sUrl of serverUrls) {
-          try {
-            const head = await authenticatedFetch(sUrl, { method: 'HEAD' });
-            if (head.ok && !isCancelled) {
-              setResolvedLegacyFileUrl(sUrl);
-              setIsLoadingLegacyFile(false);
-              return;
-            }
-          } catch {}
-        }
       } catch (err) {
         console.warn('Could not load persistent cache for SOP file:', err);
       }
@@ -256,11 +230,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     };
   }, [sop?.id, sop?.fileDataUrl, sop?.signedScanDataUrl, sop?.oldFileDataUrl, isOpen]);
 
-  const legacyFileUrl = resolvedLegacyFileUrl || (sop ? (
-    (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl ||
-    sop.signedScanDataUrl || sop.fileDataUrl || sop.oldFileDataUrl ||
-    getFileFromLocalCache(sop.id, 'file') || getFileFromLocalCache(sop.id, 'signedScan') || getFileFromLocalCache(sop.id, 'oldFile')
-  ) : null);
+  const legacyFileUrl = resolvedLegacyFileUrl || (sop ? (sop.signedScanDataUrl || sop.fileDataUrl || sop.oldFileDataUrl || getFileFromLocalCache(sop.id, 'file') || getFileFromLocalCache(sop.id, 'signedScan') || getFileFromLocalCache(sop.id, 'oldFile')) : null);
   const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
 
@@ -1544,8 +1514,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // Keep public image assets as normal URLs. Do NOT inline them as base64:
       // the official director signature/stamp can be large enough to push the
-      // JSON request over the server/proxy 413 limit. The trusted PDF renderer
-      // resolves the official local assets server-side.
+      // JSON request over the server/proxy 413 limit. The PDF renderer already
+      // receives a baseUrl and Chromium can resolve these public assets directly.
       // Existing data/blob URLs are intentionally preserved.
       const exportImages = Array.from(clonedRoot.querySelectorAll<HTMLImageElement>('img'));
       exportImages.forEach((img) => {
@@ -1590,11 +1560,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         headers: {
           'Accept': 'application/pdf',
           'Content-Type': 'application/json',
-          ...(await (async () => {
-            const token = await getCurrentAuthToken();
-            if (!token) throw new Error('Sesi login tidak valid. Silakan login kembali.');
-            return { Authorization: `Bearer ${token}` };
-          })())
+          'X-Soegiri-Auth-Uid': authUid,
+          'X-Soegiri-Session-Id': sessionId,
+          'X-Soegiri-Username': username
         },
         body: JSON.stringify({
           html: clonedRoot.outerHTML,

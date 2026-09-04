@@ -76,12 +76,6 @@ import { AktivasiSopModal } from './components/AktivasiSopModal';
 import { PrintRegisterModal } from './components/PrintRegisterModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
-import { 
-  setupDocumentRealtimeWatcher, 
-  scanDocumentsForPeriodicReviews, 
-  dispatchDocumentEvent, 
-  evaluatePeriodicReview 
-} from './lib/notificationService';
 import { LoginPage } from './components/LoginPage';
 import { UserView } from './components/UserView';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -164,7 +158,7 @@ export default function App() {
 
   // Restore the login session after a normal browser refresh.
   // sessionStorage is tab-scoped, so this does not turn the session into a
-  // cross-device persistent login. Server-side session registry remains authoritative; each device/tab gets its own session.
+  // cross-device persistent login. local database activeSessionId remains authoritative.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -196,7 +190,7 @@ export default function App() {
   }, []);
 
 
-  // 1. Current Session Real-Time Guard
+  // 1. Single Active Session Real-Time Guard
   // Disconnects / Logs out immediately if the same account signs in on another browser or device
   useEffect(() => {
     if (!userSession || !userSession.username || !userSession.sessionId) return;
@@ -477,78 +471,17 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
 
-  const addToast = (
-    type: 'success' | 'error' | 'info' | 'warning' | 'assignment' | 'review',
-    title: string,
-    message?: string,
-    options?: {
-      document?: SopDocument;
-      divisionCode?: string;
-      dueDate?: string;
-      isOverdue?: boolean;
-      actionLabel?: string;
-      onAction?: () => void;
-      duration?: number;
-    }
-  ) => {
+  const addToast = (type: 'success' | 'error' | 'info', title: string, message?: string) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-    setToasts((prev) => [
-      ...prev,
-      {
-        id,
-        type,
-        title,
-        message,
-        divisionCode: options?.divisionCode || options?.document?.divisionCode,
-        dueDate: options?.dueDate || options?.document?.nextReviewDate,
-        isOverdue: options?.isOverdue,
-        actionLabel: options?.actionLabel,
-        onAction: options?.onAction,
-        duration: options?.duration
-      }
-    ]);
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, 4000);
   };
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
-
-  // Real-time document assignment & review watcher
-  useEffect(() => {
-    if (!userSession) return;
-
-    const cleanupWatcher = setupDocumentRealtimeWatcher({
-      userSession,
-      onToast: (type, title, message, opts) => {
-        addToast(type, title, message, opts);
-      },
-      onSelectDocument: (sop) => {
-        setSelectedSopForDetail(sop);
-      }
-    });
-
-    return cleanupWatcher;
-  }, [userSession]);
-
-  // Periodic review scanning on session start / data load
-  useEffect(() => {
-    if (!userSession || !sops || sops.length === 0) return;
-
-    const timer = setTimeout(() => {
-      scanDocumentsForPeriodicReviews(
-        sops,
-        userSession,
-        (type, title, message, opts) => {
-          addToast(type, title, message, opts);
-        },
-        (sop) => {
-          setSelectedSopForDetail(sop);
-        }
-      );
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [userSession, sops.length]);
 
   const skCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'SK').length, [libraryDocuments]);
   const mouCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'MOU').length, [libraryDocuments]);
@@ -1342,13 +1275,6 @@ export default function App() {
       `Nomor resmi ${finalSop.sopNumber} telah dialokasikan untuk "${finalSop.title}".`
     );
 
-    // Dispatch real-time assignment event
-    dispatchDocumentEvent(
-      'assignment',
-      finalSop,
-      `Dokumen baru "${finalSop.title}" (${finalSop.sopNumber}) telah diterbitkan dan dialokasikan untuk divisi ${finalSop.divisionCode}.`
-    );
-
     return finalSop;
   };
 
@@ -1527,11 +1453,6 @@ export default function App() {
     }
 
     addToast('success', 'Perubahan Disimpan', `Dokumen ${finalUpdatedSop.sopNumber} berhasil diperbarui.`);
-
-    const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);
-    if (reviewStatus.isDue) {
-      dispatchDocumentEvent('review', finalUpdatedSop, `Dokumen ${finalUpdatedSop.sopNumber}: ${reviewStatus.reason}`);
-    }
   };
 
   // Delete SOP Handler (Opens Custom Confirm Modal)
@@ -1729,18 +1650,14 @@ export default function App() {
   const handleSaveUser = async (userAcc: UserAccount) => {
     try {
       await saveUserToLocal(userAcc);
-      const safeUser = { ...userAcc };
-      delete (safeUser as any).password;
-      delete (safeUser as any).passwordHash;
-      delete (safeUser as any).passwordSalt;
       setUsers((prev) => {
-        const idx = prev.findIndex((u) => u.id === safeUser.id);
+        const idx = prev.findIndex((u) => u.id === userAcc.id);
         if (idx >= 0) {
           const updated = [...prev];
-          updated[idx] = safeUser;
+          updated[idx] = userAcc;
           return updated;
         }
-        return [...prev, safeUser];
+        return [...prev, userAcc];
       });
     } catch (e) {
       console.error('Failed to save user account:', e);

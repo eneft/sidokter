@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import {
+import { 
   FileText,
   AlertCircle,
   Loader2,
@@ -14,7 +14,6 @@ import {
   ZoomOut,
   Maximize2
 } from 'lucide-react';
-import { authenticatedFetch } from '../lib/authService';
 import { dataUrlToBlob, triggerFileDownload } from '../utils/fileStorage';
 
 // Configure pdfjs worker using bundled worker
@@ -225,20 +224,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         if (fileUrl.startsWith('data:')) {
           blob = dataUrlToBlob(fileUrl);
           arrayBuffer = await blob.arrayBuffer();
-        } else if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http') || fileUrl.startsWith('/')) {
-          const res = fileUrl.startsWith('/api/storage/') ? await authenticatedFetch(fileUrl) : await fetch(fileUrl);
-          if (!res.ok) {
-            throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
-          }
-          blob = await res.blob();
-          arrayBuffer = await blob.arrayBuffer();
-        } else if (fileUrl.startsWith('local://')) {
-          const id = fileUrl.replace('local://', '');
-          const fallbackServerUrl = `/api/storage/files/${id}`;
-          const res = await authenticatedFetch(fallbackServerUrl);
-          if (!res.ok) {
-            throw new Error('File tidak ditemukan di penyimpanan server.');
-          }
+        } else if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http')) {
+          const res = await fetch(fileUrl);
           blob = await res.blob();
           arrayBuffer = await blob.arrayBuffer();
         } else {

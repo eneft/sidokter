@@ -21,7 +21,6 @@ import { DocumentViewer } from './DocumentViewer';
 import { LibraryDocument, SopDocument, UserSession } from '../types';
 import { formatBytes } from '../utils/numbering';
 import { getLibraryDocumentUrl } from '../lib/documentLibraryService';
-import { authenticatedFetch } from '../lib/authService';
 
 interface FinalLibraryPageProps {
   sops: SopDocument[];
@@ -138,14 +137,6 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
   const handleDownloadLibraryDoc = async (doc: LibraryDocument) => {
     const url = await getLibraryDocumentUrl(doc);
     if (!url) return;
-    if (url.startsWith('/api/storage/')) {
-      const response = await authenticatedFetch(url);
-      if (!response.ok) throw new Error(`Gagal mengunduh file (HTTP ${response.status}).`);
-      const blobUrl = URL.createObjectURL(await response.blob());
-      const a = document.createElement('a'); a.href = blobUrl; a.download = doc.fileName; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
-      return;
-    }
     const a = document.createElement('a'); a.href = url; a.download = doc.fileName; a.click();
   };
 

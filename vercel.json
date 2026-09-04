@@ -2,19 +2,5 @@
   "version": 2,
   "buildCommand": "npm run build",
   "installCommand": "npm install",
-  "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/api/auth",
-      "destination": "https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/authApi"
-    },
-    {
-      "source": "/api/auth/:path*",
-      "destination": "https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/authApi"
-    },
-    {
-      "source": "/api/pdf",
-      "destination": "https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/pdfApi"
-    }
-  ]
+  "outputDirectory": "dist"
 }

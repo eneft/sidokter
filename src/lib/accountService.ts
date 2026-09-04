@@ -1,153 +1,128 @@
 /**
- * ACCOUNT PROFILE SERVICE
- *
- * Browser cache contains profile data only. Passwords, password hashes/salts,
- * lock state and active sessions are backend-only security data.
+ * ACCOUNT SERVICE
+ * Service khusus akun pengguna dan data kredensial lokal.
  */
 import { UserAccount } from '../types';
-import { saveManagedUser, deleteManagedUser, restoreManagedUserProfile, fetchManagedUsers } from './authService';
-import { fetchUsersFromFirestore, subscribeToFirestoreUsers, saveUserToFirestore, deleteUserFromFirestore } from './firestoreService';
+import { hashPassword } from './passwordCrypto';
 
-const USERS_PROFILE_CACHE_KEY = 'soegiri_user_profiles_cache_v2';
+const USERS_KEY = 'soegiri_offline_users_v1';
 const subscribers = new Set<() => void>();
 
-function sanitizeProfile(data:any, id?:string):UserAccount|null {
-  if (!data || !(data.id || id) || !data.username) return null;
-  return {
-    id: data.id || id!,
-    username: String(data.username).trim().toLowerCase(),
-    name: data.name || data.username,
-    role: String(data.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user',
-    unitName: data.unitName,
-    divisionCode: data.divisionCode,
-    divisionCodes: data.divisionCodes || (data.divisionCode ? [data.divisionCode] : undefined),
-    assignments: data.assignments,
-    badges: data.badges,
-    subCode: data.subCode,
-    instCode: data.instCode,
-    poliCode: data.poliCode,
-    subUnitCode: data.subUnitCode,
-    createdAt: data.createdAt || '',
-    updatedAt: data.updatedAt,
-    credentialStatus: data.credentialStatus
-  } as UserAccount;
-}
-
-function readCache():UserAccount[] {
+function readUsers(): UserAccount[] {
   try {
-    const raw = localStorage.getItem(USERS_PROFILE_CACHE_KEY);
+    const raw = localStorage.getItem(USERS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map((u:any)=>sanitizeProfile(u)).filter(Boolean) as UserAccount[] : [];
-  } catch { return []; }
-}
-
-function writeCache(users:UserAccount[]) {
-  try { localStorage.setItem(USERS_PROFILE_CACHE_KEY, JSON.stringify(users.map(u => sanitizeProfile(u)).filter(Boolean))); } catch {}
-  subscribers.forEach(fn=>fn());
-}
-
-export function readUsers():UserAccount[] { return readCache(); }
-export function writeUsers(users:UserAccount[]):void { writeCache(users); }
-
-export const INITIAL_USERS: UserAccount[] = [];
-
-export async function syncUsersWithFirestore():Promise<UserAccount[]> {
-  try {
-    const backendUsers = await fetchManagedUsers().catch(() => []);
-    const firestoreUsers = await fetchUsersFromFirestore().catch(() => []);
-    
-    const map = new Map<string, UserAccount>();
-    firestoreUsers.forEach(u => {
-      if (u && u.username) map.set(u.id || u.username, u);
-    });
-    backendUsers.forEach(u => {
-      if (u && u.username) {
-        const existing = map.get(u.id || u.username);
-        map.set(u.id || u.username, { ...existing, ...u });
-      }
-    });
-
-    const merged = Array.from(map.values());
-    if (merged.length > 0) {
-      writeCache(merged);
-      return merged;
-    }
-    return readCache();
-  } catch(e) {
-    console.warn('syncUsersWithFirestore error:',e);
-    return readCache();
+    return Array.isArray(parsed) ? parsed.map((u: any) => ({ ...u, role: String(u?.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user' })) as UserAccount[] : [];
+  } catch {
+    return [];
   }
 }
 
-export function subscribeToUsers(onData:(users:UserAccount[])=>void,onError?:(err:any)=>void) {
-  let stopped=false;
-  const emit=()=>{ if(!stopped) onData(readCache().filter(u=>u.username!=='guest').sort((a,b)=>a.username.localeCompare(b.username))); };
+function writeUsers(users: UserAccount[]): void {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  subscribers.forEach((fn) => fn());
+}
+
+export const INITIAL_USERS: UserAccount[] = [
+  {
+    id: 'usr-admin-default',
+    username: 'admin',
+    name: 'Administrator Tata Naskah',
+    role: 'admin',
+    unitName: 'Tim Manajemen & Sekretariat SPO',
+    divisionCode: 'ALL',
+    divisionCodes: ['ALL'],
+    assignments: [
+      {
+        id: 'assignment-ALL-1',
+        label: 'Akses Global Administrator',
+        divisionCode: 'ALL',
+        unitName: 'Tim Manajemen & Sekretariat SPO'
+      }
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'usr-petugas-pelayanan',
+    username: 'pelayanan',
+    name: 'User Bidang Pelayanan',
+    role: 'user',
+    unitName: 'Bidang Pelayanan',
+    divisionCode: 'PEL',
+    divisionCodes: ['PEL'],
+    assignments: [
+      {
+        id: 'assignment-PEL-1',
+        label: 'User Pelayanan',
+        divisionCode: 'PEL',
+        unitName: 'Bidang Pelayanan'
+      }
+    ],
+    createdAt: new Date().toISOString()
+  }
+];
+
+export function subscribeToUsers(onData: (users: UserAccount[]) => void, onError?: (err: any) => void) {
+  const emit = () => {
+    try {
+      const users = readUsers()
+        .filter((u) => u.username !== 'guest')
+        .sort((a, b) => a.username.localeCompare(b.username))
+        .map(({ passwordHash, passwordSalt, password, ...u }) => u as UserAccount);
+      onData(users);
+    } catch (e) {
+      onError?.(e);
+    }
+  };
   emit();
   subscribers.add(emit);
-
-  // Realtime Firestore subscription
-  const unsubscribeFirestore = subscribeToFirestoreUsers((firestoreUsers) => {
-    if (stopped) return;
-    if (firestoreUsers && firestoreUsers.length > 0) {
-      const current = readCache();
-      const map = new Map<string, UserAccount>();
-      firestoreUsers.forEach(u => map.set(u.id || u.username, u));
-      current.forEach(u => {
-        if (!map.has(u.id || u.username)) map.set(u.id || u.username, u);
-      });
-      writeCache(Array.from(map.values()));
-    }
-  });
-
-  const refresh=async()=>{
-    try {
-      const users=await fetchManagedUsers();
-      if(!stopped && users && users.length > 0) {
-        const current = readCache();
-        const map = new Map<string, UserAccount>();
-        current.forEach(u => map.set(u.id || u.username, u));
-        users.forEach(u => map.set(u.id || u.username, { ...map.get(u.id || u.username), ...u }));
-        writeCache(Array.from(map.values()));
-      }
-    } catch(err) { if(!stopped) onError?.(err); }
-  };
-  void refresh();
-  const timer=window.setInterval(refresh,15000);
-  return ()=>{ 
-    stopped=true; 
-    subscribers.delete(emit); 
-    unsubscribeFirestore();
-    window.clearInterval(timer); 
-  };
+  const onStorage = (e: StorageEvent) => { if (e.key === USERS_KEY) emit(); };
+  window.addEventListener('storage', onStorage);
+  return () => { subscribers.delete(emit); window.removeEventListener('storage', onStorage); };
 }
 
-/**
- * Save via trusted auth backend and synchronize with Firestore.
- */
-export async function saveUserToLocal(user:UserAccount):Promise<void> {
-  const result=await saveManagedUser(user);
-  if(!result?.success) throw new Error(result?.message || 'Gagal menyimpan akun.');
-  await saveUserToFirestore(user);
-  await syncUsersWithFirestore();
-}
-
-export async function deleteUserFromLocal(userId:string):Promise<void> {
-  const result=await deleteManagedUser(userId);
-  if(!result?.success) throw new Error(result?.message || 'Gagal menghapus akun.');
-  await deleteUserFromFirestore(userId);
-  await syncUsersWithFirestore();
-}
-
-/** Backup contains profiles only. Credential hashes/salts are intentionally excluded. */
-export function getAllUsersForBackup():UserAccount[] {
-  return readUsers().filter(u=>u.username!=='guest').map(u=>sanitizeProfile(u)!).filter(Boolean);
-}
-
-/** Restore profile only. Passwords must be explicitly re-established by an Administrator. */
-export async function restoreUsersFromBackup(users:UserAccount[], preserveUsername?:string):Promise<void> {
-  const valid=users.filter(u=>u && u.username && u.username!=='guest').map(u=>sanitizeProfile(u)!).filter(Boolean);
-  for(const user of valid) {
-    await restoreManagedUserProfile(user);
+export async function saveUserToLocal(user: UserAccount): Promise<void> {
+  const all = readUsers();
+  const existing = all.find((u) => u.id === user.id);
+  const { password, ...profile } = user as UserAccount & { password?: string };
+  const payload: UserAccount = { ...(existing || {} as UserAccount), ...profile, updatedAt: new Date().toISOString() };
+  if (password?.trim()) {
+    const h = await hashPassword(password.trim());
+    payload.passwordHash = h.hash;
+    payload.passwordSalt = h.salt;
+    delete (payload as any).password;
   }
-  await syncUsersWithFirestore();
+  const index = all.findIndex((u) => u.id === user.id);
+  if (index >= 0) all[index] = payload; else all.push(payload);
+  writeUsers(all);
+}
+
+export async function deleteUserFromLocal(userId: string): Promise<void> {
+  writeUsers(readUsers().filter((u) => u.id !== userId));
+}
+
+/** Full account records for system backup. Active session and temporary lock state are excluded. */
+export function getAllUsersForBackup(): UserAccount[] {
+  return readUsers().filter((u) => u.username !== 'guest').map((u) => {
+    const { activeSessionId, sessionCreatedAt, failedLoginAttempts, lockoutUntil, password, ...safe } = u as UserAccount & { password?: string };
+    return safe;
+  });
+}
+
+/** Restore account profiles and password hashes without restoring active sessions. */
+export async function restoreUsersFromBackup(users: UserAccount[], preserveUsername?: string): Promise<void> {
+  const current = readUsers();
+  const currentByUsername = new Map(current.map((u) => [u.username.toLowerCase(), u]));
+  const restored = users.filter((u) => u && u.username && u.username !== 'guest').map((u) => {
+    const existing = currentByUsername.get(u.username.toLowerCase());
+    return {
+      ...u,
+      activeSessionId: existing?.activeSessionId,
+      sessionCreatedAt: existing?.sessionCreatedAt,
+      failedLoginAttempts: 0,
+      lockoutUntil: 0,
+      ...(preserveUsername && u.username.toLowerCase() === preserveUsername.toLowerCase() ? { lastLoginAt: existing?.lastLoginAt } : {})
+    };
+  });
+  writeUsers(restored);
 }

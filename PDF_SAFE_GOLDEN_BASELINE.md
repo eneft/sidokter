@@ -21,8 +21,3 @@ PDF baseline:
 Important:
 The renderer was restored to the known-working baseline rather than adding experimental
 Chromium lifecycle changes. The rest of the project is kept from Final versin.zip.
-
-Asset reliability patch (2026-09-04):
-- Official PDF images (hospital logo, director signature, and hospital stamp) are resolved server-side from `public/` and inlined only during Chromium rendering.
-- The browser POST still sends normal image URLs, so the previous client-side base64 expansion / HTTP 413 risk is avoided.
-- The patch is applied to both `server/pdfRenderer.ts` and `api/pdf.ts` so local/server and API PDF paths use the same asset-safe behavior.

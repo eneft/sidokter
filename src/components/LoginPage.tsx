@@ -1,25 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   Lock,
   LogIn,
   Eye,
   EyeOff,
-  ShieldAlert,
-  Clock,
-  Loader2,
-  FileText,
   KeyRound,
+  Clock,
+  ShieldAlert,
+  Loader2,
   Wrench,
+  CheckCircle2,
+  ShieldCheck,
+  FileText,
   Building2,
-  Award,
   Sparkles,
-  ShieldCheck
+  ArrowRight,
+  Award
 } from 'lucide-react';
 import { UserSession } from '../types';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
-import { authenticateUser } from '../lib/authService';
+import { authenticateUser, bootstrapDefaultUsers } from '../lib/authService';
+import { initializeLocalData } from '../lib/localDataService';
 
 interface LoginPageProps {
   onLogin: (session: UserSession) => void;
@@ -42,6 +45,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLockedOut, setIsLockedOut] = useState(false);
 
+  // Bootstrap accounts on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        await initializeLocalData();
+        await bootstrapDefaultUsers();
+      } catch (err) {
+        console.error('Failed to bootstrap accounts:', err);
+      }
+    })();
+  }, []);
+
   const performLogin = async (userToAuth: string, passToAuth: string) => {
     if (isSubmitting) return;
 
@@ -58,6 +73,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       setIsSubmitting(true);
+      await initializeLocalData();
+      await bootstrapDefaultUsers();
+
       const result = await authenticateUser(cleanUser, cleanPass);
 
       if (result.success && result.session) {
@@ -93,6 +111,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     performLogin(username, password);
+  };
+
+  const handleQuickLogin = async (user: string, pass: string) => {
+    setUsername(user);
+    setPassword(pass);
+    await performLogin(user, pass);
   };
 
   return (
@@ -161,72 +185,66 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             id="login-showcase-hero-heading"
             className="text-2xl xl:text-3xl font-extrabold text-white tracking-tight leading-snug mb-4 font-sans"
           >
-            Tata Kelola Naskah Dinas & Dokumen Resmi Rumah Sakit yang Terintegrasi
+            Tata Kelola Dokumen Standar Pelayanan & Regulasi Rumah Sakit yang Presisi
           </h1>
 
           <p className="text-sm text-slate-300 leading-relaxed mb-8">
-            Platform terpadu RSUD Dr. Soegiri Lamongan untuk penyusunan, penomoran,
-            pengesahan, pelacakan, dan pengarsipan naskah dinas serta dokumen resmi secara tertib dan akuntabel.
+            Platform sentralisasi naskah dinas RSUD Dr. Soegiri Lamongan untuk penyusunan,
+            penomoran terstandar, serta pengesahan berkas resmi yang akuntabel dan transparan.
           </p>
 
           {/* Core Capability Cards */}
-          <div id="login-showcase-features-list" className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div id="login-showcase-features-list" className="space-y-3">
             <div
-              id="login-showcase-feature-tatanaskah"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
+              id="login-showcase-feature-spo"
+              className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
             >
               <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-300 mt-0.5">
                 <FileText className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Tata Naskah Dinas</h3>
+                <h3 className="text-xs font-bold text-white mb-0.5">
+                  Standar Prosedur Operasional (SPO)
+                </h3>
                 <p className="text-[11px] text-slate-300 leading-normal">
-                  Surat, nota dinas, undangan, surat tugas, disposisi, berita acara, dan naskah kedinasan lainnya.
+                  Penyusunan format buku pedoman baku, penomoran otomatis 25 unit/instalasi,
+                  serta verifikasi pengesahan resmi Direktur.
                 </p>
               </div>
             </div>
 
             <div
-              id="login-showcase-feature-regulasi"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
+              id="login-showcase-feature-sk"
+              className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
             >
               <div className="w-9 h-9 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center shrink-0 text-indigo-300 mt-0.5">
                 <Building2 className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Dokumen Regulasi</h3>
+                <h3 className="text-xs font-bold text-white mb-0.5">
+                  Surat Keputusan (SK) & Nota Kesepahaman (MoU)
+                </h3>
                 <p className="text-[11px] text-slate-300 leading-normal">
-                  SPO, SK, kebijakan, pedoman, keputusan, dan dokumen standar rumah sakit dalam satu sistem.
+                  Repositori naskah hukum & kerja sama eksternal terintegrasi dengan pemantauan
+                  masa kedaluwarsa dokumen aktif.
                 </p>
               </div>
             </div>
 
             <div
-              id="login-showcase-feature-kerjasama"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
+              id="login-showcase-feature-security"
+              className="flex items-start gap-3.5 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
             >
-              <div className="w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0 text-sky-300 mt-0.5">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-400/30 flex items-center justify-center shrink-0 text-amber-300 mt-0.5">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Kerja Sama & Dokumen Resmi</h3>
+                <h3 className="text-xs font-bold text-white mb-0.5">
+                  Autentikasi & Keamanan Sesi Tunggal
+                </h3>
                 <p className="text-[11px] text-slate-300 leading-normal">
-                  MOU, perjanjian, dokumen eksternal, serta berkas resmi dengan pengelolaan masa berlaku yang terpantau.
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="login-showcase-feature-control"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
-            >
-              <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-400/30 flex items-center justify-center shrink-0 text-amber-300 mt-0.5">
-                <Award className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Pengesahan, Tracking & Arsip</h3>
-                <p className="text-[11px] text-slate-300 leading-normal">
-                  Penomoran, paraf, TTD, stempel, status, riwayat perubahan, pelacakan, dan arsip dokumen terintegrasi.
+                  Perlindungan sesi aktif tunggal berbasis enkripsi lokal tanpa kebocoran data
+                  pada perangkat bersama di lingkungan rumah sakit.
                 </p>
               </div>
             </div>
@@ -343,56 +361,181 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 {isLockedOut ? (
                   <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 ) : (
-                  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-rose-200/80 text-rose-700 font-bold text-[10px] shrink-0 mt-0.5">!
+                  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-rose-200/80 text-rose-700 font-bold text-[10px] shrink-0 mt-0.5">
+                    !
                   </span>
                 )}
-                <span className="leading-snug text-[11px] font-medium">{errorMsg}</span>
+                <span className="leading-snug text-[11px] font-medium">
+                  {errorMsg}
+                </span>
               </div>
             )}
 
             {/* LOGIN FORM */}
             <form id="login-form" onSubmit={handleSubmit} className="space-y-4">
+              {/* USERNAME FIELD */}
               <div>
-                <label htmlFor="login-username-input" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label
+                  htmlFor="login-username-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1.5"
+                >
                   Nama Pengguna <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-emerald-600 transition-colors">
                     <User className="w-4 h-4" />
                   </div>
-                  <input id="login-username-input" name="username" type="text" autoComplete="username" value={username}
-                    disabled={isSubmitting} onChange={(e) => { setUsername(e.target.value); if (errorMsg) setErrorMsg(''); }}
-                    placeholder="Masukkan nama pengguna" className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100" autoFocus />
+                  <input
+                    id="login-username-input"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    disabled={isSubmitting}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      if (errorMsg) setErrorMsg('');
+                    }}
+                    placeholder="Contoh: admin atau pelayanan"
+                    className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100"
+                    autoFocus
+                  />
                 </div>
               </div>
 
+              {/* PASSWORD FIELD */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="login-password-input" className="block text-xs font-semibold text-slate-700">
+                  <label
+                    htmlFor="login-password-input"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
                     Kata Sandi <span className="text-rose-500">*</span>
                   </label>
-                  <span className="text-[10px] text-slate-400">Sensitif Huruf Besar/Kecil</span>
+                  <span className="text-[10px] text-slate-400">
+                    Sensitif Huruf Besar/Kecil
+                  </span>
                 </div>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-emerald-600 transition-colors">
                     <Lock className="w-4 h-4" />
                   </div>
-                  <input id="login-password-input" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password"
-                    value={password} disabled={isSubmitting} onChange={(e) => { setPassword(e.target.value); if (errorMsg) setErrorMsg(''); }}
-                    placeholder="Masukkan kata sandi Anda" className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-11 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100" />
-                  <button id="login-password-toggle-btn" type="button" onClick={() => setShowPassword(!showPassword)} disabled={isSubmitting}
+                  <input
+                    id="login-password-input"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={password}
+                    disabled={isSubmitting}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errorMsg) setErrorMsg('');
+                    }}
+                    placeholder="Masukkan kata sandi Anda"
+                    className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-11 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100"
+                  />
+                  <button
+                    id="login-password-toggle-btn"
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isSubmitting}
                     className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    title={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'} aria-label={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}>
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    title={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}
+                    aria-label={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
 
-              <button id="login-submit-btn" type="submit" disabled={isSubmitting}
-                className="w-full h-11 px-4 mt-2 rounded-xl font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
-                {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin text-white" /><span>Memvalidasi Kredensial...</span></> : <><LogIn className="w-4 h-4" /><span>Masuk ke Sistem</span></>}
+              {/* SUBMIT BUTTON */}
+              <button
+                id="login-submit-btn"
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full h-11 px-4 mt-2 rounded-xl font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 shadow-md shadow-emerald-600/25 hover:shadow-lg hover:shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Memvalidasi Kredensial...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-4 h-4" />
+                    <span>Masuk ke Sistem</span>
+                  </>
+                )}
               </button>
             </form>
+
+            {/* QUICK ACCESS / PENGUJIAN AKUN (1-KLIK) */}
+            <div id="login-quick-access-section" className="mt-6 pt-5 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Akses Cepat Pengujian
+                </span>
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-medium border border-emerald-200/60">
+                  1-Klik Masuk
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* ADMIN ACCOUNT BUTTON */}
+                <button
+                  id="login-quick-admin-btn"
+                  type="button"
+                  onClick={() => handleQuickLogin('admin', 'admin123')}
+                  disabled={isSubmitting}
+                  className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-emerald-50/80 hover:border-emerald-300 transition-all text-left group cursor-pointer disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-900 transition-colors">
+                      Akun Admin
+                    </span>
+                    <span className="text-[9px] font-semibold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                      Penuh
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight mb-1">
+                    Administrator Tata Naskah
+                  </p>
+                  <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                    <span>admin / admin123</span>
+                    <ArrowRight className="w-3 h-3 text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+
+                {/* USER ACCOUNT BUTTON */}
+                <button
+                  id="login-quick-user-btn"
+                  type="button"
+                  onClick={() => handleQuickLogin('pelayanan', 'pelayanan123')}
+                  disabled={isSubmitting}
+                  className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50/80 hover:border-indigo-300 transition-all text-left group cursor-pointer disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-slate-800 group-hover:text-indigo-900 transition-colors">
+                      Akun User
+                    </span>
+                    <span className="text-[9px] font-semibold bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded">
+                      Unit
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight mb-1">
+                    Bidang / Unit Pelayanan
+                  </p>
+                  <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                    <span>pelayanan / ...</span>
+                    <ArrowRight className="w-3 h-3 text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* FOOTER METADATA */}
@@ -404,7 +547,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               © 2026 {SOEGIRI_HOSPITAL_INFO.shortName}
             </p>
             <p className="text-[10px] text-slate-400/80">
-              Sistem Terproteksi • Multi-Device Session • Hak Cipta Dilindungi
+              Sistem Terproteksi Enkripsi Sesi Tunggal • Hak Cipta Dilindungi
             </p>
           </div>
         </div>
