@@ -40,10 +40,9 @@ export interface UserSession {
 export interface UserAccount {
   id: string;
   username: string;
-  password?: string;          // Plaintext during creation/update, converted to passwordHash
-  passwordHash?: string;      // PBKDF2-SHA256 salted hash
-  passwordSalt?: string;      // Random cryptographic salt hex
-  activeSessionId?: string;   // Current active session ID for Single Active Session enforcement
+  password?: string;          // Ephemeral only: sent to trusted auth API during account create/update
+  // passwordHash/passwordSalt intentionally removed from the browser model.
+  activeSessionId?: string;   // Legacy compatibility field; server now supports multiple active sessions per account
   lastLoginAt?: string;       // ISO timestamp of last successful login
   sessionCreatedAt?: number;  // Timestamp ms when current active session started
   failedLoginAttempts?: number; // Failed login counter for rate-limiting
@@ -61,6 +60,7 @@ export interface UserAccount {
   subUnitCode?: string;       // e.g. "1"
   createdAt: string;
   updatedAt?: string;
+  credentialStatus?: 'PASSWORD_REQUIRED' | 'ACTIVE';
 }
 
 export interface LoginAuditLog {
@@ -156,6 +156,7 @@ export interface SopDocument {
   fileSize?: number; // in bytes
   fileType?: string;
   fileDataUrl?: string; // for uploaded file preview (Dokumen Baru / Hasil Review)
+  fileUrl?: string; // Permanent cloud/server storage URL
 
   // Jenis input SPO: Baru, Eksisting (lama tetapi masih berlaku), dan Riviu
   jenis_spo?: 'BARU' | 'EKSISTING' | 'RIVIU';
@@ -171,6 +172,7 @@ export interface SopDocument {
   oldFileSize?: number;
   oldFileType?: string;
   oldFileDataUrl?: string;
+  oldFileUrl?: string; // Permanent cloud/server storage URL for review evidence
   reviewReason?: string;
   externalReviewSignedConfirmed?: boolean;
   isExampleOnly?: boolean; // Flag to indicate master template/example SOP visible only to Admin
@@ -188,6 +190,7 @@ export interface SopDocument {
   signedScanFileSize?: number;
   signedScanFileType?: string;
   signedScanDataUrl?: string; // File pindaian/scan dokumen fisik yang sudah bertandatangan Direktur
+  signedScanUrl?: string; // Permanent cloud/server storage URL for signed scan
   
   // Custom metadata
   confidentialityLevel: 'Publik' | 'Internal' | 'Rahasia';

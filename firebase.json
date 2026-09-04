@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3",
+      "rules": "firestore.rules"
+    }
+  ]
+}

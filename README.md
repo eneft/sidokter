@@ -15,8 +15,7 @@ npm run dev
 Buka `http://localhost:3000`.
 
 ## Akun awal
-- Username: `admin`
-- Password: `admin123`
+Akun awal tidak menggunakan credential default yang ditanam di aplikasi. Administrator harus diprovision melalui prosedur server-side yang aman.
 
 ## Catatan prototype
 Data tersimpan di browser/perangkat yang digunakan. Backup/restore aplikasi tetap diperlukan sebelum membersihkan data browser. Versi ini belum menyediakan sinkronisasi antar-PC.

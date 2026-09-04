@@ -224,8 +224,20 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         if (fileUrl.startsWith('data:')) {
           blob = dataUrlToBlob(fileUrl);
           arrayBuffer = await blob.arrayBuffer();
-        } else if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http')) {
+        } else if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http') || fileUrl.startsWith('/')) {
           const res = await fetch(fileUrl);
+          if (!res.ok) {
+            throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
+          }
+          blob = await res.blob();
+          arrayBuffer = await blob.arrayBuffer();
+        } else if (fileUrl.startsWith('local://')) {
+          const id = fileUrl.replace('local://', '');
+          const fallbackServerUrl = `/api/storage/files/${id}`;
+          const res = await fetch(fallbackServerUrl);
+          if (!res.ok) {
+            throw new Error('File tidak ditemukan di penyimpanan server.');
+          }
           blob = await res.blob();
           arrayBuffer = await blob.arrayBuffer();
         } else {

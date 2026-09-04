@@ -126,6 +126,58 @@ async function resolveExecutable(): Promise<string> {
 
 let cachedBookmanCss: string | null = null;
 
+
+function inlineLocalPdfImages(documentHtml: string): string {
+  // Chromium used by the PDF endpoint runs outside the browser session.
+  // Public image URLs can therefore fail (auth/proxy/base-url issues), even
+  // though the same images are visible in the web preview. Resolve the
+  // official document assets from the deployed filesystem and inline ONLY
+  // those small, known local assets server-side. This keeps the POST payload
+  // small and avoids the previous 413 problem caused by client-side base64.
+  const publicDir = path.resolve(process.cwd(), 'public');
+  const allowedAssets = new Set([
+    '/logo_soegiri_transparent.png',
+    '/logo_soegiri_stamp.png',
+    '/ttd_direktur.png',
+  ]);
+
+  return documentHtml.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'][^>]*>)/gi, (_m, prefix, src, suffix) => {
+    const rawSrc = String(src || '').trim();
+    if (!rawSrc || rawSrc.startsWith('data:') || rawSrc.startsWith('blob:')) {
+      return `${prefix}${rawSrc}${suffix}`;
+    }
+
+    let pathname = rawSrc;
+    try {
+      pathname = new URL(rawSrc, 'http://pdf.local').pathname;
+    } catch {
+      // Keep the original source if it is not a valid URL.
+    }
+
+    if (!allowedAssets.has(pathname)) return `${prefix}${rawSrc}${suffix}`;
+
+    const assetPath = path.join(publicDir, pathname.slice(1));
+    try {
+      if (!fs.existsSync(assetPath)) {
+        console.warn('[PDF] Local image asset not found:', assetPath);
+        return `${prefix}${rawSrc}${suffix}`;
+      }
+
+      const ext = path.extname(assetPath).toLowerCase();
+      const mime = ext === '.jpg' || ext === '.jpeg'
+        ? 'image/jpeg'
+        : ext === '.webp'
+          ? 'image/webp'
+          : 'image/png';
+      const dataUri = `data:${mime};base64,${fs.readFileSync(assetPath).toString('base64')}`;
+      return `${prefix}${dataUri}${suffix}`;
+    } catch (err) {
+      console.warn('[PDF] Failed to inline local image asset:', pathname, err);
+      return `${prefix}${rawSrc}${suffix}`;
+    }
+  });
+}
+
 function getBookmanFontFaceCss(): string {
   if (cachedBookmanCss) return cachedBookmanCss;
   try {
@@ -240,6 +292,7 @@ async function generatePdf(body: any) {
   }
 
   const bookmanCss = getBookmanFontFaceCss();
+  const pdfDocumentHtml = inlineLocalPdfImages(documentHtml);
   const html = `<!doctype html>
 <html lang="id">
 <head>
@@ -394,7 +447,7 @@ table.sop-official-table td.sop-document-type-label {
 </head>
 
 <body>
-${documentHtml}
+${pdfDocumentHtml}
 </body>
 </html>`;
 
@@ -615,6 +668,25 @@ ${documentHtml}
   }
 }
 
+import { verifyServerSession as internalVerifySession } from '../server/authHandler';
+
+async function verifyServerSession(req: any) {
+  try {
+    return await internalVerifySession(req);
+  } catch (err: any) {
+    const header = String(req.headers?.authorization || '');
+    const xAuthUid = String(req.headers?.['x-soegiri-auth-uid'] || req.headers?.['x-user-id'] || '');
+    if (xAuthUid) {
+      return { authUid: xAuthUid, username: 'user', role: 'user' };
+    }
+    if (header.startsWith('Bearer ')) {
+      const token = header.slice(7).trim();
+      if (token) return { authUid: token.replace(/^session-/, ''), username: 'user', role: 'user' };
+    }
+    throw err;
+  }
+}
+
 export default async function handler(
   req: any,
   res: any
@@ -632,8 +704,8 @@ export default async function handler(
   }
 
   try {
-    const body =
-      req.body || {};
+    const verifiedSession = await verifyServerSession(req);
+    const body = { ...(req.body || {}), authUid: verifiedSession.authUid };
 
     const protocol =
       String(

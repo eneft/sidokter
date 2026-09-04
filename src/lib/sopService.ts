@@ -4,6 +4,8 @@
  */
 import { SopDocument, NumberingConfig, SopStatus } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
+import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
+import { uploadFileToCloudStorage } from './cloudStorageService';
 
 const KEYS = {
   sops: 'soegiri_offline_sops_v1',
@@ -16,6 +18,7 @@ const IDB_SOPS_STORE = 'sops';
 const IDB_NUMBER_RESERVATIONS_STORE = 'sopNumberReservations';
 
 const subscribers = new Map<string, Set<() => void>>();
+let firestoreSopSyncInitialized = false;
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -147,7 +150,61 @@ function normalizeSop(sop: SopDocument): SopDocument {
 }
 
 
+function initFirestoreSopSync() {
+  if (firestoreSopSyncInitialized) return;
+  firestoreSopSyncInitialized = true;
+
+  // Initial fetch from Firestore
+  void fetchSopsFromFirestore().then(async (cloudSops) => {
+    if (!cloudSops || !cloudSops.length) return;
+    const local = await idbGetAllSops();
+    const map = new Map<string, SopDocument>();
+    local.forEach((s) => map.set(s.id, s));
+    cloudSops.forEach((s) => {
+      const exist = map.get(s.id);
+      const merged = { ...exist, ...s };
+      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.fileDataUrl = exist?.fileDataUrl || undefined;
+      }
+      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
+      }
+      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
+      }
+      map.set(s.id, merged);
+    });
+    await idbPutSops(Array.from(map.values()));
+    notifySopSubscribers();
+  });
+
+  // Real-time Firestore listener
+  subscribeToFirestoreSops(async (cloudSops) => {
+    if (!cloudSops || !cloudSops.length) return;
+    const local = await idbGetAllSops();
+    const map = new Map<string, SopDocument>();
+    local.forEach((s) => map.set(s.id, s));
+    cloudSops.forEach((s) => {
+      const exist = map.get(s.id);
+      const merged = { ...exist, ...s };
+      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.fileDataUrl = exist?.fileDataUrl || undefined;
+      }
+      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
+      }
+      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
+        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
+      }
+      map.set(s.id, merged);
+    });
+    await idbPutSops(Array.from(map.values()));
+    notifySopSubscribers();
+  });
+}
+
 export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?: (err: any) => void, divisionCodes?: string | string[]) {
+  initFirestoreSopSync();
   const emit = async () => {
     try {
       const normalized = Array.from(new Set((Array.isArray(divisionCodes) ? divisionCodes : [divisionCodes]).filter(Boolean).map(String)));
@@ -173,20 +230,44 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
+
+  // Auto-upload binary attachments to cloud storage so they are accessible from all devices
+  if (next.fileDataUrl && next.fileDataUrl.startsWith('data:')) {
+    void uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`).then((res) => {
+      next.fileUrl = res.url;
+    }).catch(() => {});
+  }
+  if (next.signedScanDataUrl && next.signedScanDataUrl.startsWith('data:')) {
+    void uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`).then((res) => {
+      next.signedScanUrl = res.url;
+    }).catch(() => {});
+  }
+  if (next.oldFileDataUrl && next.oldFileDataUrl.startsWith('data:')) {
+    void uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`).then((res) => {
+      next.oldFileUrl = res.url;
+    }).catch(() => {});
+  }
+
   const index = all.findIndex((s) => s.id === next.id);
   if (index >= 0) all[index] = next; else all.push(next);
   await idbPutSops(all);
   notifySopSubscribers();
+  void saveSopToFirestore(next);
 }
 
 export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {
-  await idbPutSops(sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop));
+  const normalized = sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
+  await idbPutSops(normalized);
   notifySopSubscribers();
+  for (const item of normalized) {
+    void saveSopToFirestore(item);
+  }
 }
 
 export async function deleteSopFromLocal(id: string): Promise<void> {
   await idbDeleteSop(id);
   notifySopSubscribers();
+  void deleteSopFromFirestore(id);
 }
 
 export async function deleteAllSops(): Promise<number> {
@@ -209,7 +290,10 @@ export function subscribeToNumberingConfig(onData: (config: NumberingConfig) => 
   const emit = () => { try { onData(read(KEYS.config, DEFAULT_NUMBERING_CONFIG)); } catch (e) { onError?.(e); } };
   emit(); return watch(KEYS.config, emit);
 }
-export async function saveConfigToLocal(config: NumberingConfig): Promise<void> { write(KEYS.config, config); }
+export async function saveConfigToLocal(config: NumberingConfig): Promise<void> {
+  write(KEYS.config, config);
+  void saveSystemConfigToFirestore('numbering', config);
+}
 
 export interface SopNumberReservation {
   id: string;
