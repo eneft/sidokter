@@ -1,60 +1,45 @@
-/* One-time migration: copy the existing Local SIDOKTER admin profile + PBKDF2 credential to Firestore.
- * Run from the project root after installing functions dependencies and authenticating with Google ADC.
- * Example: GOOGLE_APPLICATION_CREDENTIALS=/path/service-account.json node scripts/migrate-local-admin.cjs
- */
 const fs = require('fs');
 const path = require('path');
-const admin = require('../functions/node_modules/firebase-admin');
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
-const sourcePath = path.resolve(__dirname, '..', 'data', 'auth_db.json');
-const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-const user = source.users?.['admin-root'];
-const credential = source.credentials?.['admin-root'];
-
-if (!user || !credential?.passwordHash || !credential?.passwordSalt) {
-  throw new Error('Akun admin-root atau credential PBKDF2 tidak ditemukan di data/auth_db.json');
-}
-
-admin.initializeApp();
-const db = admin.firestore();
+// Run from the project root after `firebase login` and with
+// GOOGLE_APPLICATION_CREDENTIALS set to a service-account JSON, OR from a
+// Google-authenticated environment that provides Application Default Credentials.
+initializeApp();
+// SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
+const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
+const db = getFirestore(FIRESTORE_DATABASE_ID);
 
 (async () => {
-  const ref = db.collection('users').doc('admin-root');
-  const existing = await ref.get();
+  const file = path.join(__dirname, '..', 'data', 'auth_db.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const user = data.users?.['admin-root'];
+  const credential = data.credentials?.['admin-root'];
+  if (!user || !credential) throw new Error('Data admin-root tidak lengkap di data/auth_db.json');
+
+  const userRef = db.collection('users').doc('admin-root');
+  const credRef = db.collection('user_credentials').doc('admin-root');
+  const existing = await userRef.get();
   if (existing.exists && String(existing.data()?.role || '').toLowerCase() !== 'admin') {
-    throw new Error('Firestore users/admin-root sudah ada tetapi bukan role admin. Migrasi dihentikan.');
+    throw new Error('Dokumen users/admin-root sudah ada tetapi bukan role admin. Migrasi dibatalkan.');
   }
 
-  const now = new Date().toISOString();
-  const profile = {
-    id: 'admin-root',
-    username: String(user.username).trim().toLowerCase(),
-    name: user.name || 'Administrator SIDOKTER',
-    role: 'admin',
-    divisionCode: 'ALL',
-    divisionCodes: ['ALL'],
-    assignments: [],
-    badges: [],
-    unitName: user.unitName || 'RSUD Dr. Soegiri Lamongan',
-    createdAt: user.createdAt || now,
-    updatedAt: now,
-    credentialStatus: 'ACTIVE',
-    failedLoginAttempts: 0,
-    lockoutUntil: 0
-  };
+  const profile = { ...user, id: 'admin-root', username: 'admin', role: 'admin', updatedAt: new Date().toISOString() };
+  delete profile.password;
+  delete profile.passwordHash;
+  delete profile.passwordSalt;
 
-  await ref.set(profile, { merge: true });
-  await db.collection('user_credentials').doc('admin-root').set({
-    passwordHash: credential.passwordHash,
-    passwordSalt: credential.passwordSalt,
-    updatedAt: now
+  await userRef.set(profile, { merge: true });
+  await credRef.set({
+    passwordHash: String(credential.passwordHash),
+    passwordSalt: String(credential.passwordSalt),
+    failedLoginAttempts: 0,
+    lockoutUntil: 0,
+    updatedAt: new Date().toISOString()
   }, { merge: true });
 
-  // Existing Local sessions are intentionally not migrated.
-  console.log('Migrasi Admin selesai: users/admin-root + user_credentials/admin-root');
-  console.log('Session Local TIDAK dimigrasikan; login berikutnya akan membuat session Firebase baru.');
+  console.log('Migrasi berhasil: users/admin-root + user_credentials/admin-root');
+  console.log('Password lama tetap digunakan; plaintext password tidak disimpan.');
   process.exit(0);
-})().catch((err) => {
-  console.error('Migrasi gagal:', err.message || err);
-  process.exit(1);
-});
+})().catch(err => { console.error('Migrasi gagal:', err.message); process.exit(1); });

@@ -1,0 +1,15 @@
+SIDOKTER Firebase Auth Deploy Fix V3
+
+Perbaikan utama:
+- puppeteer-core tidak lagi di-load saat Firebase membaca backend specification.
+- puppeteer-core hanya di-load saat pdfApi benar-benar dipanggil.
+- authApi tetap berada di asia-southeast2.
+
+Deploy auth saja:
+  firebase deploy --only functions:authApi
+
+Jika authApi berhasil muncul di Firebase Console, deploy hosting:
+  npm run build
+  firebase deploy --only hosting
+
+Jangan deploy functions:pdfApi dulu sampai authApi sudah berhasil.

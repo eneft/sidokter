@@ -36,3 +36,8 @@ Firebase Hosting saat ini menangani `/api/auth` dan `/api/pdf`. Endpoint `/api/s
 
 ## Penting: Endpoint Auth
 Frontend sekarang menggunakan direct Firebase Function URL sebagai default, sehingga login tidak bergantung pada rewrite Hosting. Jika ingin memakai `/api/auth`, deploy Firebase Hosting dengan `firebase.json` yang disertakan.
+
+
+## V4
+- authApi returns 401 for missing/invalid authentication instead of generic 500.
+- Run `node scripts/migrate-local-admin.cjs` only after configuring Application Default Credentials/service account access to Firestore.

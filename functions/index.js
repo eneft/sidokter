@@ -2,9 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const admin = require('firebase-admin');
+const { initializeApp } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { onRequest } = require('firebase-functions/v2/https');
-const puppeteer = require('puppeteer-core');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -85,8 +86,10 @@ async function getServerlessChromium() {
   return chromiumModulePromise;
 }
 
-admin.initializeApp();
-const db = admin.firestore();
+initializeApp();
+// SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
+const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
+const db = getFirestore(FIRESTORE_DATABASE_ID);
 const USERS = 'users';
 const USER_CREDENTIALS = 'user_credentials';
 const AUTH_LOGS = 'auth_logs';
@@ -159,9 +162,9 @@ async function getCredential(userId, legacyUserData = null) {
     const data = { passwordHash: legacyUserData.passwordHash, passwordSalt: legacyUserData.passwordSalt, updatedAt: new Date().toISOString() };
     await ref.set(data, { merge: true });
     await db.collection(USERS).doc(userId).update({
-      passwordHash: admin.firestore.FieldValue.delete(),
-      passwordSalt: admin.firestore.FieldValue.delete(),
-      password: admin.firestore.FieldValue.delete()
+      passwordHash: FieldValue.delete(),
+      passwordSalt: FieldValue.delete(),
+      password: FieldValue.delete()
     });
     return { ref, data };
   }
@@ -171,9 +174,9 @@ async function getCredential(userId, legacyUserData = null) {
     const data = { passwordHash: hash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() };
     await ref.set(data, { merge: true });
     await db.collection(USERS).doc(userId).update({
-      passwordHash: admin.firestore.FieldValue.delete(),
-      passwordSalt: admin.firestore.FieldValue.delete(),
-      password: admin.firestore.FieldValue.delete()
+      passwordHash: FieldValue.delete(),
+      passwordSalt: FieldValue.delete(),
+      password: FieldValue.delete()
     });
     return { ref, data };
   }
@@ -243,7 +246,7 @@ async function revokeSession(uid, sessionId) {
 async function requireAuth(req) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) throw new Error('UNAUTHENTICATED');
-  const decoded = await admin.auth().verifyIdToken(header.slice(7), true);
+  const decoded = await getAuth().verifyIdToken(header.slice(7), true);
   const userRef = db.collection(USERS).doc(decoded.uid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
@@ -387,7 +390,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       });
 
       await audit({ username, name: user.name, role: user.role, sessionId, event: 'LOGIN_SUCCESS', details: 'Login berhasil melalui trusted authentication service.' });
-      const customToken = await admin.auth().createCustomToken(id, {
+      const customToken = await getAuth().createCustomToken(id, {
         role: user.role,
         username: user.username,
         sessionId
@@ -478,10 +481,10 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         divisionCodes: role === 'admin' ? ['ALL'] : (Array.isArray(incoming.divisionCodes) ? incoming.divisionCodes : undefined),
         assignments: role === 'admin' ? [] : (Array.isArray(incoming.assignments) ? incoming.assignments : []),
         badges: role === 'admin' ? [] : (Array.isArray(incoming.badges) ? incoming.badges : []),
-        subCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.subCode || null),
-        instCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.instCode || null),
-        poliCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.poliCode || null),
-        subUnitCode: role === 'admin' ? admin.firestore.FieldValue.delete() : (incoming.subUnitCode || null),
+        subCode: role === 'admin' ? FieldValue.delete() : (incoming.subCode || null),
+        instCode: role === 'admin' ? FieldValue.delete() : (incoming.instCode || null),
+        poliCode: role === 'admin' ? FieldValue.delete() : (incoming.poliCode || null),
+        subUnitCode: role === 'admin' ? FieldValue.delete() : (incoming.subUnitCode || null),
         unitName: String(incoming.unitName || 'Unit Kerja RSUD Dr. Soegiri'),
         createdAt: existing?.createdAt || incoming.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -501,9 +504,9 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       }
 
       // Strip any legacy credential fields if they exist on the profile.
-      update.passwordHash = admin.firestore.FieldValue.delete();
-      update.passwordSalt = admin.firestore.FieldValue.delete();
-      update.password = admin.firestore.FieldValue.delete();
+      update.passwordHash = FieldValue.delete();
+      update.passwordSalt = FieldValue.delete();
+      update.password = FieldValue.delete();
       if (!password && existing?.credentialStatus === undefined) {
         update.credentialStatus = existingCredential.data ? 'ACTIVE' : 'PASSWORD_REQUIRED';
       }
@@ -592,7 +595,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const salt = crypto.randomBytes(16);
       const hash = crypto.pbkdf2Sync(newPassword, salt, PBKDF2_ITERATIONS, 32, 'sha256').toString('hex');
       await credential.ref.set({ passwordHash: hash, passwordSalt: salt.toString('hex'), updatedAt: new Date().toISOString() }, { merge: true });
-      await context.ref.update({ updatedAt: new Date().toISOString(), passwordHash: admin.firestore.FieldValue.delete(), passwordSalt: admin.firestore.FieldValue.delete(), password: admin.firestore.FieldValue.delete() });
+      await context.ref.update({ updatedAt: new Date().toISOString(), passwordHash: FieldValue.delete(), passwordSalt: FieldValue.delete(), password: FieldValue.delete() });
       await audit({ username: context.user.username, name: context.user.name, role: context.user.role, event: 'PASSWORD_CHANGED', details: 'Kata sandi berhasil diganti.' });
       return json(res, 200, { success: true, message: 'Kata sandi Anda berhasil diperbarui.' });
     }
@@ -600,8 +603,15 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     return json(res, 404, { message: 'Endpoint autentikasi tidak ditemukan.' });
   } catch (error) {
     console.error('authApi error', error);
-    const message = error?.message === 'SESSION_REVOKED' ? 'Sesi Anda sudah dicabut. Silakan login kembali.' : 'Layanan autentikasi gagal memproses permintaan.';
-    return json(res, error?.message === 'SESSION_REVOKED' ? 401 : 500, { message });
+    const code = String(error?.message || error?.code || 'AUTH_INTERNAL_ERROR');
+    const authErrors = new Set(['UNAUTHENTICATED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token']);
+    const status = authErrors.has(code) ? 401 : 500;
+    const message = code === 'SESSION_REVOKED'
+      ? 'Sesi Anda sudah dicabut. Silakan login kembali.'
+      : authErrors.has(code)
+        ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.'
+        : 'Layanan autentikasi gagal memproses permintaan.';
+    return json(res, status, { message, code: authErrors.has(code) ? code : 'AUTH_INTERNAL_ERROR' });
   }
 });
 
@@ -666,7 +676,7 @@ function pdfCors(req, res) {
 async function requirePdfSession(req) {
   const header = String(req.headers.authorization || '');
   if (!header.startsWith('Bearer ')) throw new Error('UNAUTHENTICATED');
-  const decoded = await admin.auth().verifyIdToken(header.slice(7), true);
+  const decoded = await getAuth().verifyIdToken(header.slice(7), true);
   const userRef = db.collection(USERS).doc(decoded.uid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
@@ -819,6 +829,7 @@ ${documentHtml}
       (arg) => typeof arg === 'string' && !arg.includes('single-process')
     );
 
+    const puppeteer = require('puppeteer-core');
     browser = await puppeteer.launch({
       headless: 'shell',
       executablePath,
