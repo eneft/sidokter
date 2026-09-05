@@ -53,9 +53,22 @@ export const INITIAL_USERS: UserAccount[] = [];
 
 export async function syncUsersWithFirestore():Promise<UserAccount[]> {
   try {
+    const firestoreUsers = await fetchUsersFromFirestore();
+    if (Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
+      writeCache(firestoreUsers);
+      return firestoreUsers;
+    }
+  } catch (err) {
+    console.warn('[accountService] Direct Firestore users read notice:', err);
+  }
+
+  try {
     const users=await fetchManagedUsers();
-    writeCache(users);
-    return users;
+    if (Array.isArray(users) && users.length > 0) {
+      writeCache(users);
+      return users;
+    }
+    return readCache();
   } catch(e) {
     console.warn('syncUsersWithFirestore error:',e);
     return readCache();
@@ -64,38 +77,39 @@ export async function syncUsersWithFirestore():Promise<UserAccount[]> {
 
 export function subscribeToUsers(onData:(users:UserAccount[])=>void,onError?:(err:any)=>void) {
   let stopped=false;
+  let isRefreshing=false;
   const emit=()=>{ if(!stopped) onData(readCache().filter(u=>u.username!=='guest').sort((a,b)=>a.username.localeCompare(b.username))); };
   emit();
   subscribers.add(emit);
   const refresh=async()=>{
+    if (stopped || isRefreshing) return;
+    isRefreshing = true;
     try {
-      const users=await fetchManagedUsers();
-      if(!stopped && Array.isArray(users) && users.length > 0) {
-        writeCache(users);
+      const firestoreUsers = await fetchUsersFromFirestore();
+      if(!stopped && Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
+        writeCache(firestoreUsers);
         return;
       }
-    } catch(err) {
-      // 1. Try Firestore direct read as fallback
+    } catch {
       try {
-        const firestoreUsers = await fetchUsersFromFirestore();
-        if(!stopped && Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
-          writeCache(firestoreUsers);
+        const users=await fetchManagedUsers();
+        if(!stopped && Array.isArray(users) && users.length > 0) {
+          writeCache(users);
           return;
         }
-      } catch {}
-
-      // 2. If cached profiles exist, keep emitting without interrupting the UI
-      const cached = readCache();
-      if (cached && cached.length > 0) {
-        console.warn('[accountService] Backend user sync notice, serving cached profiles:', err);
-        return;
+      } catch(err) {
+        const cached = readCache();
+        if (cached && cached.length > 0) {
+          return;
+        }
+        if(!stopped) onError?.(err);
       }
-
-      if(!stopped) onError?.(err);
+    } finally {
+      isRefreshing = false;
     }
   };
   void refresh();
-  const timer=window.setInterval(refresh,15000);
+  const timer=window.setInterval(refresh,60000);
   return ()=>{ stopped=true; subscribers.delete(emit); window.clearInterval(timer); };
 }
 

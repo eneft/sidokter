@@ -112,6 +112,7 @@ export async function handleVercelAuthProxy(req: any, res: any) {
 
     // 3. Try upstream endpoints with fallback
     let lastError: any = null;
+    const timeoutMs = action === 'user-list' ? 45000 : 25000;
     for (const upstreamBase of UPSTREAM_URLS) {
       const targetUrl = action
         ? `${upstreamBase.replace(/\/$/, '')}/${action}`
@@ -123,7 +124,7 @@ export async function handleVercelAuthProxy(req: any, res: any) {
           headers: forwardHeaders,
           body: bodyString,
           cache: 'no-store',
-          signal: AbortSignal.timeout(15000)
+          signal: AbortSignal.timeout(timeoutMs)
         });
 
         const text = await response.text();

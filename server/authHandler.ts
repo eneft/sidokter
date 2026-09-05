@@ -21,7 +21,9 @@ try {
   }
 } catch {}
 
-const DEFAULT_CLOUD_AUTH_API_URL = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
+const PRIMARY_CLOUD_AUTH_API_URL = 'https://authapi-n7zygxitla-et.a.run.app';
+const SECONDARY_CLOUD_AUTH_API_URL = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
+
 const CLOUD_AUTH_API_URL =
   (process.env.UPSTREAM_AUTH_API_URL && process.env.UPSTREAM_AUTH_API_URL.startsWith('http'))
     ? process.env.UPSTREAM_AUTH_API_URL
@@ -29,7 +31,7 @@ const CLOUD_AUTH_API_URL =
         ? process.env.AUTH_API_URL
         : ((process.env.VITE_AUTH_API_URL && process.env.VITE_AUTH_API_URL.startsWith('http'))
             ? process.env.VITE_AUTH_API_URL
-            : DEFAULT_CLOUD_AUTH_API_URL));
+            : PRIMARY_CLOUD_AUTH_API_URL));
 
 interface UserRecord {
   id: string;
@@ -421,16 +423,73 @@ export async function handleAuthApi(req: Request, res: Response) {
           forwardHeaders['User-Agent'] = String(req.headers['user-agent']);
         }
 
-        const cloudRes = await fetch(CLOUD_AUTH_API_URL, {
-          method: 'POST',
-          headers: forwardHeaders,
-          body: JSON.stringify({ action, ...req.body }),
-          signal: AbortSignal.timeout(12000)
-        });
+        const timeoutMs = action === 'user-list' ? 45000 : 25000;
+        const candidateUrls = [CLOUD_AUTH_API_URL];
+        if (SECONDARY_CLOUD_AUTH_API_URL && !candidateUrls.includes(SECONDARY_CLOUD_AUTH_API_URL)) {
+          candidateUrls.push(SECONDARY_CLOUD_AUTH_API_URL);
+        }
+
+        let cloudRes: globalThis.Response | null = null;
+        let lastError: any = null;
+
+        for (const candidateUrl of candidateUrls) {
+          try {
+            cloudRes = await fetch(candidateUrl, {
+              method: 'POST',
+              headers: forwardHeaders,
+              body: JSON.stringify({ action, ...req.body }),
+              signal: AbortSignal.timeout(timeoutMs)
+            });
+            if (cloudRes) break;
+          } catch (err: any) {
+            lastError = err;
+            console.warn(`[authHandler] Candidate upstream ${candidateUrl} notice:`, err?.message);
+          }
+        }
+
+        if (!cloudRes) {
+          throw lastError || new Error('No upstream response');
+        }
 
         const contentType = cloudRes.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           const data = await cloudRes.json();
+          // If login succeeded, cache session in memory for local /api/pdf authentication
+          if (cloudRes.ok && data?.success && data?.session) {
+            try {
+              authDb = ensureDbLoaded();
+              const sessionUser = data.session;
+              const userId = sessionUser.authUid || sessionUser.id || 'admin-root';
+              authDb.users[userId] = {
+                id: userId,
+                username: sessionUser.username,
+                name: sessionUser.name || sessionUser.username,
+                role: sessionUser.role || 'user',
+                divisionCode: sessionUser.divisionCode || 'ALL',
+                divisionCodes: sessionUser.divisionCodes || ['ALL'],
+                assignments: sessionUser.assignments || [],
+                badges: sessionUser.badges || [],
+                unitName: sessionUser.unitName || 'RSUD Dr. Soegiri Lamongan',
+                createdAt: new Date(sessionUser.sessionCreatedAt || Date.now()).toISOString(),
+                updatedAt: new Date().toISOString(),
+                credentialStatus: 'ACTIVE'
+              };
+              if (sessionUser.sessionId) {
+                authDb.sessions[sessionUser.sessionId] = {
+                  sessionId: sessionUser.sessionId,
+                  authUid: userId,
+                  username: sessionUser.username,
+                  createdAt: sessionUser.sessionCreatedAt || Date.now(),
+                  lastActiveAt: sessionUser.lastActiveAt || Date.now(),
+                  revoked: false,
+                  userAgent: String(req.headers['user-agent'] || 'client')
+                };
+              }
+            } catch (cacheErr) {
+              console.warn('[authHandler] Non-fatal session cache warning:', cacheErr);
+            }
+          }
+
           // If upstream succeeded, return immediately
           if (cloudRes.ok && data?.success) {
             return res.status(cloudRes.status).json(data);
