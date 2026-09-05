@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
+import * as mammoth from 'mammoth';
 import { 
   X, 
   FilePlus, 
@@ -96,6 +97,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileDataUrl, setFileDataUrl] = useState<string | undefined>(undefined);
+  const [isParsingDocx, setIsParsingDocx] = useState(false);
+  const [docxImportMessage, setDocxImportMessage] = useState('');
 
   // Review & Legacy Document Feature States
   const [documentType, setDocumentType] = useState<'BARU' | 'LAMA' | 'REVIEW'>('BARU');
@@ -228,10 +231,132 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   };
 
   // File Handlers
+  const cleanImportedText = (value: string) =>
+    (value || '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
+  const normalizeImportedLabel = (value: string) =>
+    cleanImportedText(value).toUpperCase().replace(/[:.\-–—]+$/, '').trim();
+
+  const importedSectionKey = (value: string): 'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait' | null => {
+    const label = normalizeImportedLabel(value);
+    if (/^(I\.?\s*)?PENGERTIAN$/.test(label) || label === 'DEFINISI' || label === 'PENGERTIAN / DEFINISI') return 'pengertian';
+    if (/^(II\.?\s*)?TUJUAN$/.test(label)) return 'tujuan';
+    if (/^(III\.?\s*)?KEBIJAKAN$/.test(label)) return 'kebijakan';
+    if (/^(IV\.?\s*)?PROSEDUR$/.test(label) || label === 'LANGKAH-LANGKAH' || label === 'LANGKAH LANGKAH') return 'prosedur';
+    if (/^(V\.?\s*)?ALUR$/.test(label) || label === 'ALUR PELAKSANAAN' || label === 'BAGAN ALUR') return 'alur';
+    if (/^(VI\.?\s*)?UNIT TERKAIT$/.test(label) || label === 'UNIT TERKAIT / INSTALASI TERKAIT' || label === 'UNIT KERJA TERKAIT') return 'unitTerkait';
+    return null;
+  };
+
+  const parseIndonesianDate = (value: string): string | null => {
+    const source = cleanImportedText(value).toLowerCase();
+    const monthMap: Record<string, string> = {
+      januari: '01', jan: '01', februari: '02', feb: '02', maret: '03', mar: '03', april: '04', apr: '04',
+      mei: '05', may: '05', juni: '06', jun: '06', juli: '07', jul: '07', agustus: '08', agu: '08', agt: '08',
+      september: '09', sep: '09', oktober: '10', okt: '10', november: '11', nov: '11', desember: '12', des: '12'
+    };
+    let m = source.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    m = source.match(/\b(\d{1,2})\s+(januari|jan|februari|feb|maret|mar|april|apr|mei|may|juni|jun|juli|jul|agustus|agu|agt|september|sep|oktober|okt|november|nov|desember|des)\s+(\d{4})\b/);
+    if (m && monthMap[m[2]]) return `${m[3]}-${monthMap[m[2]]}-${m[1].padStart(2, '0')}`;
+    return null;
+  };
+
+  const importDocxToForm = async (file: File) => {
+    setIsParsingDocx(true);
+    setDocxImportMessage('Membaca Word dan mendeteksi Judul, Tanggal, serta Batang Tubuh SPO…');
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer }, {
+        includeDefaultStyleMap: true,
+        styleMap: [
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh"
+        ]
+      });
+      const html = result.value || '';
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const blocks = Array.from(doc.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th'))
+        .map((el) => ({ el, text: cleanImportedText(el.textContent || ''), html: el.outerHTML }))
+        .filter((b) => b.text);
+
+      if (!blocks.length) throw new Error('Dokumen Word tidak berisi teks yang dapat dibaca.');
+
+      // Deteksi judul: label JUDUL/TITLE lebih diprioritaskan, lalu heading pertama, lalu paragraf substantif pertama.
+      const explicitTitle = blocks.find((b) => /^(JUDUL|JUDUL SPO|TITLE)\s*[:\-]/i.test(b.text));
+      let importedTitle = explicitTitle?.text.replace(/^(JUDUL|JUDUL SPO|TITLE)\s*[:\-]\s*/i, '').trim() || '';
+      if (!importedTitle) {
+        const heading = blocks.find((b) => /^H[1-6]$/i.test(b.el.tagName) && !importedSectionKey(b.text));
+        importedTitle = heading?.text || '';
+      }
+      if (!importedTitle) {
+        const firstSubstantive = blocks.find((b) => b.text.length >= 8 && !importedSectionKey(b.text) && !/^(nomor|no\.?|tanggal|tgl|berlaku|revisi|halaman)\b/i.test(b.text));
+        importedTitle = firstSubstantive?.text || '';
+      }
+
+      // Deteksi tanggal dari baris berlabel tanggal efektif/terbit/berlaku, kemudian fallback ke tanggal pertama.
+      const dateCandidates = blocks.map((b) => b.text);
+      const priorityDate = dateCandidates.find((t) => /\b(tanggal efektif|tanggal terbit|tgl terbit|berlaku mulai|tanggal berlaku)\b/i.test(t));
+      let importedDate = priorityDate ? parseIndonesianDate(priorityDate) : null;
+      if (!importedDate) {
+        for (const text of dateCandidates) {
+          const parsed = parseIndonesianDate(text);
+          if (parsed) { importedDate = parsed; break; }
+        }
+      }
+
+      // Pecah batang tubuh berdasarkan heading/label. Jika heading Word tidak dikenali, label uppercase tetap dikenali.
+      const sections: Record<'pengertian'|'tujuan'|'kebijakan'|'prosedur'|'alur'|'unitTerkait', string[]> = { pengertian: [], tujuan: [], kebijakan: [], prosedur: [], alur: [], unitTerkait: [] };
+      let current: keyof typeof sections | null = null;
+      for (const block of blocks) {
+        const key = importedSectionKey(block.text);
+        if (key) { current = key; continue; }
+        if (!current) continue;
+        sections[current].push(block.html);
+      }
+
+      const hasSections = Object.values(sections).some((items) => items.length > 0);
+      if (importedTitle) setTitle(importedTitle);
+      if (importedDate) setEffectiveDate(importedDate);
+      if (hasSections) {
+        setPengertian(sections.pengertian.join('\n'));
+        setTujuan(sections.tujuan.join('\n'));
+        setKebijakan(sections.kebijakan.join('\n'));
+        setProsedur(sections.prosedur.join('\n'));
+        setAlur(sections.alur.join('\n'));
+        setUnitTerkait(sections.unitTerkait.join('\n'));
+      }
+
+      const found: string[] = [];
+      if (importedTitle) found.push('judul');
+      if (importedDate) found.push('tanggal');
+      if (sections.pengertian.length) found.push('pengertian');
+      if (sections.tujuan.length) found.push('tujuan');
+      if (sections.kebijakan.length) found.push('kebijakan');
+      if (sections.prosedur.length) found.push('prosedur');
+      if (sections.alur.length) found.push('alur');
+      if (sections.unitTerkait.length) found.push('unit terkait');
+
+      if (!hasSections) {
+        setDocxImportMessage('Word terbaca, tetapi heading Batang Tubuh SPO tidak dikenali. Judul/tanggal yang terdeteksi tetap dimasukkan.');
+      } else {
+        setDocxImportMessage(`Import Word berhasil: ${found.join(', ') || 'teks dokumen'}. Periksa hasilnya sebelum diterbitkan.`);
+        setActiveTab('konten');
+      }
+    } catch (error) {
+      console.error('DOCX import failed', error);
+      setDocxImportMessage('Gagal membaca DOCX. Pastikan file .docx tidak rusak dan berisi teks SPO.');
+    } finally {
+      setIsParsingDocx(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setSelectedFile(file);
+      setDocxImportMessage('');
       if (!title) {
         const cleanName = file.name
           .replace(/\.[^/.]+$/, '')
@@ -241,11 +366,13 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       }
       const reader = new FileReader();
       reader.onload = (event) => {
-        if (event.target?.result) {
-          setFileDataUrl(event.target.result as string);
-        }
+        if (event.target?.result) setFileDataUrl(event.target.result as string);
       };
       reader.readAsDataURL(file);
+
+      if (documentType === 'BARU' && file.name.toLowerCase().endsWith('.docx')) {
+        void importDocxToForm(file);
+      }
     }
   };
 
@@ -304,6 +431,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     setMissingSections([]);
     setLatestCreatedSop(null);
     setIsSuccessModalOpen(false);
+    setIsParsingDocx(false);
+    setDocxImportMessage('');
   };
 
   const handleClose = () => {
@@ -928,6 +1057,37 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     </div>
                   </button>
                 </div>
+
+                {documentType === 'BARU' && (
+                  <div className="mt-3 p-4 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/60 space-y-2.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                      <Upload className="w-4 h-4 text-indigo-600" />
+                      <span>Import SPO dari Microsoft Word (.DOCX)</span>
+                      <span className="text-[10px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">OTOMATIS</span>
+                    </div>
+                    <p className="text-[11px] text-indigo-900 leading-relaxed">
+                      Upload file Word SPO. Sistem akan mencoba mendeteksi <strong>Judul</strong>, <strong>Tanggal</strong>, dan bagian <strong>Pengertian, Tujuan, Kebijakan, Prosedur, Alur, Unit Terkait</strong>, lalu mengisinya ke form untuk diperiksa sebelum diterbitkan.
+                    </p>
+                    <input
+                      id="admin-upload-docx-import"
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={handleFileChange}
+                      disabled={isParsingDocx}
+                      className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer disabled:opacity-60"
+                    />
+                    {isParsingDocx && (
+                      <div className="flex items-center gap-2 text-[11px] font-semibold text-indigo-800">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Memproses file Word…
+                      </div>
+                    )}
+                    {docxImportMessage && (
+                      <div className="text-[11px] font-semibold text-indigo-900 bg-white border border-indigo-200 rounded-lg px-3 py-2">
+                        {docxImportMessage}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Input Detail SPO Lama jika mode LAMA */}
                 {documentType === 'LAMA' && (
