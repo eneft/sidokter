@@ -1,0 +1,63 @@
+{
+  "users": {
+    "admin-root": {
+      "id": "admin-root",
+      "username": "admin",
+      "name": "Administrator SIDOKTER",
+      "role": "admin",
+      "divisionCode": "ALL",
+      "divisionCodes": [
+        "ALL"
+      ],
+      "assignments": [],
+      "badges": [],
+      "unitName": "RSUD Dr. Soegiri Lamongan",
+      "createdAt": "2026-09-04T09:27:54.092Z",
+      "updatedAt": "2026-09-04T09:28:47.754Z",
+      "credentialStatus": "ACTIVE",
+      "failedLoginAttempts": 0,
+      "lockoutUntil": 0,
+      "lastLoginAt": "2026-09-04T09:36:57.924Z"
+    }
+  },
+  "credentials": {
+    "admin-root": {
+      "passwordHash": "94f44437530e11b08c75fecbaea70b1e510d22642fb5c7a9c89be9b3a306eb46",
+      "passwordSalt": "47f9d1cf7626b8ec31677ad248cbc14e",
+      "updatedAt": "2026-09-04T09:28:47.754Z"
+    }
+  },
+  "sessions": {
+    "sess_1788514115742_23bc80dafbed344b": {
+      "sessionId": "sess_1788514115742_23bc80dafbed344b",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788514115722,
+      "lastActiveAt": 1788514124627,
+      "revoked": false,
+      "userAgent": "curl/7.88.1",
+      "ip": "127.0.0.1"
+    },
+    "sess_1788514187798_8c986c8da661d263": {
+      "sessionId": "sess_1788514187798_8c986c8da661d263",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788514187776,
+      "lastActiveAt": 1788514187776,
+      "revoked": false,
+      "userAgent": "curl/7.88.1",
+      "ip": "127.0.0.1"
+    },
+    "sess_1788514617925_7f0e576bb3bda374": {
+      "sessionId": "sess_1788514617925_7f0e576bb3bda374",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788514617906,
+      "lastActiveAt": 1788514759156,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "ip": "114.8.225.131"
+    }
+  },
+  "auditLogs": []
+}

@@ -1,0 +1,8 @@
+{
+  "name": "SIDOKTER SOEGIRI",
+  "description": "Sistem Dokumen Terpadu Soegiri",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

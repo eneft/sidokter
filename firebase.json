@@ -1,0 +1,50 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3",
+      "rules": "firestore.rules"
+    }
+  ],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22"
+    }
+  ],
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/auth",
+        "function": {
+          "functionId": "authApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "/api/auth/**",
+        "function": {
+          "functionId": "authApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "/api/pdf",
+        "function": {
+          "functionId": "pdfApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

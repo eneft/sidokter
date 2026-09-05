@@ -1,0 +1,2011 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  SopDocument, 
+  Division, 
+  SopCategory, 
+  NumberingConfig, 
+  FilterOptions, 
+  SopStatus,
+  UserSession,
+  UserAccount,
+  LibraryDocument,
+  MainMenuTab
+} from './types';
+import { MASTER_DIVISIONS, MASTER_CATEGORIES } from './utils/masterData';
+import { 
+  DEFAULT_NUMBERING_CONFIG, 
+  getNextSequenceNumber,
+  getUnitKey,
+  getPaddedNumber,
+  getUsedSequencesForUnit,
+  checkDuplicateSopNumber,
+  standardizeAllSops,
+  standardizeSopDocument,
+  detectHierarchyFromSopNumber,
+  isNewSopFormat,
+  normalizeSopNumberInput,
+  matchMasterHierarchyPattern
+} from './utils/numbering';
+import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
+import { subscribeToHierarchyMaster } from './lib/hierarchyService';
+import { saveFileToLocalCache, deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
+import {
+  subscribeToSops,
+  getAllSopsFromLocal,
+  subscribeToNumberingConfig,
+  saveSopToLocal,
+  restoreSopsToLocal,
+  deleteSopFromLocal,
+  deleteAllSops,
+  saveConfigToLocal,
+  registerSopAndNumberingToLocal,
+  reserveNextSopNumber,
+  findNumberReservationBySopNumber,
+  consumeNumberReservation,
+  getAllNumberReservations
+} from './lib/sopService';
+import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
+import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
+import { subscribeToSKDocuments } from './lib/skService';
+import { subscribeToMOUDocuments } from './lib/mouService';
+import { initializeLocalData } from './lib/localDataService';
+import { createSystemBackup, restoreSystemBackup, downloadSystemBackup } from './lib/backupService';
+import {
+  subscribeToUserSessionGuard,
+  logoutUser,
+  persistClientSession,
+  getPersistedClientSession,
+  validatePersistedClientSession,
+  refreshUserSessionProfile,
+  clearPersistedClientSession,
+  changeUserPassword,
+  recordAuditLog,
+  IDLE_TIMEOUT_MS,
+  ABSOLUTE_TIMEOUT_MS
+} from './lib/authService';
+
+// Components
+import { Header } from './components/Header';
+import { DashboardStats } from './components/DashboardStats';
+import { SopFilterBar } from './components/SopFilterBar';
+import { SopTable } from './components/SopTable';
+import { UploadSopModal } from './components/UploadSopModal';
+import { SopDetailModal } from './components/SopDetailModal';
+import { EditSopModal } from './components/EditSopModal';
+import { AktivasiSopModal } from './components/AktivasiSopModal';
+import { PrintRegisterModal } from './components/PrintRegisterModal';
+import { DeleteConfirmModal } from './components/DeleteConfirmModal';
+import { ToastContainer, ToastMessage } from './components/Toast';
+import { 
+  setupDocumentRealtimeWatcher, 
+  scanDocumentsForPeriodicReviews, 
+  dispatchDocumentEvent, 
+  evaluatePeriodicReview 
+} from './lib/notificationService';
+import { LoginPage } from './components/LoginPage';
+import { UserView } from './components/UserView';
+import { UserManagementModal } from './components/UserManagementModal';
+import { SecurityAccountPanel } from './components/SecurityAccountPanel';
+import { HospitalLogo } from './components/HospitalLogo';
+import { MasterDataModal } from './components/MasterDataModal';
+import { BackupRestorePanel } from './components/BackupRestorePanel';
+import { MaintenancePage } from './components/MaintenancePage';
+import { MaintenanceModal } from './components/MaintenanceModal';
+import { SKPage } from './components/SKPage';
+import { MOUPage } from './components/MOUPage';
+import { AdminLibraryPage } from './components/AdminLibraryPage';
+import { DashboardOverviewPage } from './components/DashboardOverviewPage';
+import { FinalLibraryPage } from './components/FinalLibraryPage';
+import { AdminHubPage } from './components/AdminHubPage';
+import { 
+  Home, 
+  FileText, 
+  Plus, 
+  Users, 
+  ShieldCheck, 
+  LogOut, 
+  Menu, 
+  X, 
+  Database, 
+  DatabaseBackup, 
+  Wrench,
+  Printer,
+  Calendar,
+  Sparkles,
+  Layers,
+  BookOpen
+} from 'lucide-react';
+
+export default function App() {
+  // Auth & Session State with Cryptographic Single Active Session
+  const [userSession, setUserSession] = useState<UserSession | null>(null);
+  const [isSessionRestoring, setIsSessionRestoring] = useState(true);
+
+  const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
+  const [sessionKey, setSessionKey] = useState<number>(() => Date.now());
+  const [, setHierarchyVersion] = useState(0);
+
+  useEffect(() => {
+    initializeLocalData().catch((e) => console.error('Local data initialization failed:', e));
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToHierarchyMaster(() => setHierarchyVersion((v) => v + 1));
+    return () => unsubscribe();
+  }, []);
+  const lastActivityRef = React.useRef<number>(Date.now());
+
+  const resetAllViewStates = () => {
+    setSelectedSopForDetail(null);
+    setSelectedSopForEdit(null);
+    setSelectedSopForActivation(null);
+    setIsUploadOpen(false);
+    setIsPrintRegisterOpen(false);
+    setIsUserManagementOpen(false);
+    setIsSecurityOpen(false);
+    setIsBackupRestoreOpen(false);
+    setIsMaintenanceModalOpen(false);
+    setSopToDelete(null);
+    setFilters({
+      searchQuery: '',
+      division: '',
+      category: '',
+      status: '',
+      year: '',
+      sortBy: 'sopNumber',
+      sortOrder: 'desc'
+    });
+    setViewMode('table');
+    // Reset navigation so a fresh login/session always starts at Dashboard.
+    setMainMenuTab('dashboard');
+    setAdminSidebarOpen(false);
+  };
+
+
+  // Restore the login session after a normal browser refresh.
+  // sessionStorage is tab-scoped, so this does not turn the session into a
+  // cross-device persistent login. Server-side session registry remains authoritative; each device/tab gets its own session.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const persisted = getPersistedClientSession();
+      if (!persisted) {
+        if (!cancelled) setIsSessionRestoring(false);
+        return;
+      }
+
+      const valid = await validatePersistedClientSession(persisted);
+      if (cancelled) return;
+
+      if (valid) {
+        const refreshed = await refreshUserSessionProfile(persisted);
+        if (cancelled) return;
+        if (refreshed) {
+          setSessionKey(Date.now());
+          setUserSession(refreshed);
+        } else {
+          clearPersistedClientSession();
+        }
+      } else {
+        clearPersistedClientSession();
+      }
+      setIsSessionRestoring(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
+
+  // 1. Single Active Session Real-Time Guard
+  // Disconnects / Logs out immediately if the same account signs in on another browser or device
+  useEffect(() => {
+    if (!userSession || !userSession.username || !userSession.sessionId) return;
+
+    const unsubscribeGuard = subscribeToUserSessionGuard(
+      userSession.username,
+      userSession.sessionId,
+      (reason) => {
+        if (reason === 'REVOKED_ANOTHER_LOGIN') {
+          resetAllViewStates();
+          logoutUser(userSession).catch(() => {});
+          setUserSession(null);
+          setInactivityNotice(
+            'Sesi Dihentikan (Single Active Session): Akun Anda telah login di perangkat atau browser lain. Sesi pada perangkat ini telah dihentikan secara otomatis demi keamanan.'
+          );
+          addToast(
+            'error',
+            'Sesi Dihentikan di Perangkat Lain',
+            'Akun Anda aktif di sesi login baru. Sesi pada perangkat ini telah di-revoke secara otomatis.'
+          );
+        }
+      },
+      (updatedUser) => {
+        if (updatedUser.role !== 'user') return;
+        const assignments = Array.isArray(updatedUser.assignments) && updatedUser.assignments.length
+          ? updatedUser.assignments
+          : [];
+        setUserSession((current) => {
+          if (!current || current.sessionId !== userSession.sessionId) return current;
+          const fallbackAssignments = assignments.length
+            ? assignments
+            : [{ id: `legacy-${updatedUser.divisionCode || current.divisionCode || 'PEL'}`, divisionCode: updatedUser.divisionCode || current.divisionCode || 'PEL' }];
+          const next: UserSession = {
+            ...current,
+            name: updatedUser.name || current.name,
+            unitName: updatedUser.unitName || current.unitName,
+            divisionCode: updatedUser.divisionCode || current.divisionCode,
+            divisionCodes: Array.from(new Set(fallbackAssignments.map((a: any) => a.divisionCode).filter(Boolean))),
+            assignments: fallbackAssignments as any,
+            badges: Array.isArray(updatedUser.badges) ? updatedUser.badges : [],
+            subCode: updatedUser.subCode,
+            instCode: updatedUser.instCode,
+            poliCode: updatedUser.poliCode,
+            subUnitCode: updatedUser.subUnitCode,
+          };
+          persistClientSession(next);
+          return next;
+        });
+      }
+    );
+
+    return () => {
+      unsubscribeGuard();
+    };
+  }, [userSession?.username, userSession?.sessionId]);
+
+  // Central maintenance-mode listener.
+  // This subscription is active globally across all devices and sessions in real time.
+  useEffect(() => {
+    let active = true;
+
+    getMaintenanceMode()
+      .then((mode) => {
+        if (!active) return;
+        setMaintenanceModeState(mode);
+      })
+      .catch((error) => {
+        console.error('Initial maintenance mode read failed:', error);
+      });
+
+    const unsubscribe = subscribeToMaintenanceMode(
+      (mode) => {
+        if (active) setMaintenanceModeState(mode);
+      },
+      (error) => {
+        console.error('Maintenance mode realtime listener failed:', error);
+      }
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // 2. Dual-Layer Session Timeout:
+
+  // - Layer A: Idle Timeout (30 Menit tidak ada interaksi)
+  // - Layer B: Absolute Timeout (Masa aktif sesi maksimal 12 Jam)
+  useEffect(() => {
+    if (!userSession) return;
+
+    lastActivityRef.current = Date.now();
+
+    const triggerIdleTimeout = () => {
+      resetAllViewStates();
+      logoutUser(userSession).catch(() => {});
+      setUserSession(null);
+      setInactivityNotice(
+        'Sesi Anda telah berakhir secara otomatis karena tidak ada aktivitas selama 30 menit demi menjaga keamanan data penomoran SPO.'
+      );
+      addToast(
+        'error',
+        'Sesi Kedaluwarsa (Idle Timeout)',
+        'Sistem telah mengeluarkan Anda secara otomatis karena tidak ada aktivitas selama 30 menit.'
+      );
+    };
+
+    const triggerAbsoluteTimeout = () => {
+      resetAllViewStates();
+      logoutUser(userSession).catch(() => {});
+      setUserSession(null);
+      setInactivityNotice(
+        'Masa aktif sesi Anda telah mencapai batas maksimal (12 jam). Silakan login kembali untuk melanjutkan.'
+      );
+      addToast(
+        'error',
+        'Sesi Berakhir (Batas Maksimal 12 Jam)',
+        'Masa aktif sesi 12 jam telah habis demi kepatuhan audit keamanan.'
+      );
+    };
+
+    const updateActivity = () => {
+      const now = Date.now();
+      const elapsedIdle = now - lastActivityRef.current;
+      
+      // Check absolute timeout
+      const sessionCreated = userSession.sessionCreatedAt || now;
+      if (now - sessionCreated >= ABSOLUTE_TIMEOUT_MS) {
+        triggerAbsoluteTimeout();
+        return;
+      }
+
+      // Check idle timeout
+      if (elapsedIdle >= IDLE_TIMEOUT_MS) {
+        triggerIdleTimeout();
+        return;
+      }
+
+      lastActivityRef.current = now;
+    };
+
+    // When user switches tabs, minimizes window, or returns back
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        const sessionCreated = userSession.sessionCreatedAt || now;
+        if (now - sessionCreated >= ABSOLUTE_TIMEOUT_MS) {
+          triggerAbsoluteTimeout();
+          return;
+        }
+
+        const elapsedIdle = now - lastActivityRef.current;
+        if (elapsedIdle >= IDLE_TIMEOUT_MS) {
+          triggerIdleTimeout();
+        }
+      }
+    };
+
+    // Listen to user activity events
+    const activityEvents = [
+      'mousemove',
+      'mousedown',
+      'mouseup',
+      'keydown',
+      'keyup',
+      'touchstart',
+      'touchend',
+      'touchmove',
+      'scroll',
+      'wheel',
+      'click',
+      'input'
+    ];
+
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, updateActivity, { passive: true });
+      document.addEventListener(evt, updateActivity, { passive: true });
+    });
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    const checkInterval = setInterval(() => {
+      const now = Date.now();
+      
+      // Absolute timeout check
+      const sessionCreated = userSession.sessionCreatedAt || now;
+      if (now - sessionCreated >= ABSOLUTE_TIMEOUT_MS) {
+        triggerAbsoluteTimeout();
+        return;
+      }
+
+      // Idle timeout check
+      const elapsedIdle = now - lastActivityRef.current;
+      if (elapsedIdle >= IDLE_TIMEOUT_MS) {
+        triggerIdleTimeout();
+      }
+    }, 2000); // Check every 2 seconds
+
+    return () => {
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, updateActivity);
+        document.removeEventListener(evt, updateActivity);
+      });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+      clearInterval(checkInterval);
+    };
+  }, [userSession?.sessionId, userSession?.sessionCreatedAt]);
+  // 1. Application data is loaded from authenticated local database only.
+  // Do not hydrate SOPs, users, or numbering rules from browser storage.
+  const [sops, setSops] = useState<SopDocument[]>([]);
+  const [libraryDocuments, setLibraryDocuments] = useState<LibraryDocument[]>([]);
+  const [mainMenuTab, setMainMenuTab] = useState<MainMenuTab>('dashboard');
+  // Tracks local database connectivity/quota failures without crashing the app.
+  const [localDataUnavailable, setLocalDataUnavailable] = useState(false);
+
+  // Central maintenance mode. Stored in local database so it applies to every
+  // browser/device and updates in real time.
+  const [maintenanceMode, setMaintenanceModeState] = useState<{
+    enabled: boolean;
+    message: string;
+    updatedAt?: string;
+    updatedBy?: string;
+  }>({
+    enabled: false,
+    message: 'Sistem sedang dalam pemeliharaan. Silakan coba kembali beberapa saat lagi.'
+  });
+  const [isChangingMaintenanceMode, setIsChangingMaintenanceMode] = useState(false);
+
+  const [numberingConfig, setNumberingConfig] = useState<NumberingConfig>({
+    ...DEFAULT_NUMBERING_CONFIG,
+    currentCounter: 0,
+    divisionCounters: {}
+  });
+
+  const [users, setUsers] = useState<UserAccount[]>([]);
+
+  const divisions = MASTER_DIVISIONS;
+  const categories = MASTER_CATEGORIES;
+
+  // 2. Filter & View States
+  const [filters, setFilters] = useState<FilterOptions>({
+    searchQuery: '',
+    division: '',
+    category: '',
+    status: '',
+    year: '',
+    sortBy: 'sopNumber',
+    sortOrder: 'desc'
+  });
+
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+
+  // 3. Modal Controls
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedSopForDetail, setSelectedSopForDetail] = useState<SopDocument | null>(null);
+  const [selectedSopForEdit, setSelectedSopForEdit] = useState<SopDocument | null>(null);
+  const [selectedSopForActivation, setSelectedSopForActivation] = useState<SopDocument | null>(null);
+  const [sopToDelete, setSopToDelete] = useState<{ id: string; title: string; sopNumber: string } | null>(null);
+  const [isPrintRegisterOpen, setIsPrintRegisterOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isSecurityOpen, setIsSecurityOpen] = useState(false);
+  const [isMasterDataOpen, setIsMasterDataOpen] = useState(false);
+  const [isBackupRestoreOpen, setIsBackupRestoreOpen] = useState(false);
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState('');
+  const isRestoringRef = useRef(false);
+  // Prevent a stale local database realtime snapshot from overwriting a just-restored
+  // authoritative local snapshot.
+  const awaitingRestoredSnapshotRef = useRef(false);
+  const expectedRestoredIdsRef = useRef<Set<string>>(new Set());
+
+  // 4. Toast Notifications
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
+
+  const addToast = (
+    type: 'success' | 'error' | 'info' | 'warning' | 'assignment' | 'review',
+    title: string,
+    message?: string,
+    options?: {
+      document?: SopDocument;
+      divisionCode?: string;
+      dueDate?: string;
+      isOverdue?: boolean;
+      actionLabel?: string;
+      onAction?: () => void;
+      duration?: number;
+    }
+  ) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    setToasts((prev) => [
+      ...prev,
+      {
+        id,
+        type,
+        title,
+        message,
+        divisionCode: options?.divisionCode || options?.document?.divisionCode,
+        dueDate: options?.dueDate || options?.document?.nextReviewDate,
+        isOverdue: options?.isOverdue,
+        actionLabel: options?.actionLabel,
+        onAction: options?.onAction,
+        duration: options?.duration
+      }
+    ]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Real-time document assignment & review watcher
+  useEffect(() => {
+    if (!userSession) return;
+
+    const cleanupWatcher = setupDocumentRealtimeWatcher({
+      userSession,
+      onToast: (type, title, message, opts) => {
+        addToast(type, title, message, opts);
+      },
+      onSelectDocument: (sop) => {
+        setSelectedSopForDetail(sop);
+      }
+    });
+
+    return cleanupWatcher;
+  }, [userSession]);
+
+  // Periodic review scanning on session start / data load
+  useEffect(() => {
+    if (!userSession || !sops || sops.length === 0) return;
+
+    const timer = setTimeout(() => {
+      scanDocumentsForPeriodicReviews(
+        sops,
+        userSession,
+        (type, title, message, opts) => {
+          addToast(type, title, message, opts);
+        },
+        (sop) => {
+          setSelectedSopForDetail(sop);
+        }
+      );
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [userSession, sops.length]);
+
+  const skCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'SK').length, [libraryDocuments]);
+  const mouCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'MOU').length, [libraryDocuments]);
+  const activeSopCount = useMemo(() => sops.filter((s) => s.status === 'AKTIF').length, [sops]);
+  const finalDocCount = activeSopCount + libraryDocuments.length;
+
+  // Sync to localStorage as backup
+
+
+
+  const handleAdminBackup = async () => {
+    if (userSession?.role !== 'admin' || isBackingUp) return;
+
+    setIsBackingUp(true);
+    try {
+      const backup = await createSystemBackup(userSession.username);
+      const filename = downloadSystemBackup(backup);
+      const { sops, sk, mou, users } = backup.data;
+
+      addToast(
+        'success',
+        'Backup Berhasil',
+        `${sops.length} SPO, ${sk.length} SK, ${mou.length} MOU, dan ${users.length} akun berhasil dicadangkan.`
+      );
+
+      await recordAuditLog({
+        username: userSession.username,
+        name: userSession.name,
+        role: userSession.role,
+        sessionId: userSession.sessionId,
+        event: 'BACKUP_EXPORT',
+        details: `Backup sistem berhasil dibuat: ${filename} (${sops.length} SPO, ${sk.length} SK, ${mou.length} MOU, ${users.length} akun).`
+      });
+    } catch (error) {
+      console.error('Admin backup failed:', error);
+      addToast(
+        'error',
+        'Backup Gagal',
+        error instanceof Error ? error.message : 'Data belum berhasil dicadangkan. Silakan coba lagi.'
+      );
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleAdminRestore = async () => {
+    if (userSession?.role !== 'admin' || isRestoring) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json,text/json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    const cleanupInput = () => {
+      input.onchange = null;
+      input.remove();
+    };
+
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      cleanupInput();
+      if (!file) {
+        addToast('info', 'Restore Dibatalkan', 'Tidak ada file backup yang dipilih.');
+        return;
+      }
+
+      setIsRestoring(true);
+      setRestoreProgress('Memvalidasi dan memulihkan seluruh data sistem...');
+      isRestoringRef.current = true;
+
+      try {
+        const result = await restoreSystemBackup(file, userSession.username);
+        const restoredSops = await getAllSopsFromLocal();
+
+        setSops(restoredSops);
+        setFilters({
+          searchQuery: '',
+          division: '',
+          category: '',
+          status: '',
+          year: '',
+          sortBy: 'sopNumber',
+          sortOrder: 'desc'
+        });
+        if (result.config) setNumberingConfig(result.config);
+        if (result.users.length) setUsers(result.users.filter((u) => u.username !== 'guest'));
+
+        const restoredLibrary = [...result.sk, ...result.mou];
+        setLibraryDocuments(restoredLibrary);
+        expectedRestoredIdsRef.current = new Set(restoredSops.map((s) => s.id));
+        awaitingRestoredSnapshotRef.current = true;
+
+        setRestoreProgress('');
+        addToast(
+          'success',
+          'Restore Berhasil',
+          `${result.sops.length} SPO, ${result.sk.length} SK, ${result.mou.length} MOU, dan ${result.users.length} akun berhasil dipulihkan. ${result.sopAttachmentCount} lampiran SPO serta ${result.libraryFiles} file SK/MOU dipulihkan.`
+        );
+
+        await recordAuditLog({
+          username: userSession.username,
+          name: userSession.name,
+          role: userSession.role,
+          sessionId: userSession.sessionId,
+          event: 'RESTORE_EXECUTE',
+          details: `Restore sistem berhasil: ${result.sops.length} SPO, ${result.sk.length} SK, ${result.mou.length} MOU, ${result.users.length} akun.`
+        });
+      } catch (error) {
+        console.error('Admin restore failed:', error);
+        awaitingRestoredSnapshotRef.current = false;
+        expectedRestoredIdsRef.current = new Set();
+        setRestoreProgress('');
+        addToast(
+          'error',
+          'Restore Gagal',
+          error instanceof Error ? error.message : 'File backup tidak dapat dipulihkan.'
+        );
+      } finally {
+        isRestoringRef.current = false;
+        setIsRestoring(false);
+      }
+    };
+
+    input.click();
+  };
+
+  // Local browser data subscriptions
+  useEffect(() => {
+    // Never open application data listeners before Offline Authentication has
+    // established a trusted session.
+    if (!userSession) return;
+
+    // Offline/quota fallback: keep the last successfully synchronized SOP list visible.
+    // This never writes anything to local database and never treats cache as authoritative.
+    try {
+      const cachedSops = localStorage.getItem('soegiri_sops_last_good');
+      if (cachedSops && (!sops || sops.length === 0)) {
+        const parsed = JSON.parse(cachedSops);
+        if (Array.isArray(parsed)) setSops(parsed);
+      }
+    } catch {}
+
+    const hasStructuralBadge = userSession.role === 'user' && Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
+    const activeUserDivisions = userSession.role === 'user' && !hasStructuralBadge
+      ? (Array.isArray(userSession.assignments) && userSession.assignments.length
+          ? Array.from(new Set(userSession.assignments.map((a) => a.divisionCode).filter(Boolean)))
+          : (userSession.divisionCode || 'PEL'))
+      : 'ALL';
+    const unsubscribeSops = subscribeToSops((localSops) => {
+      // During restore, never allow an intermediate cached snapshot to overwrite
+      // the authoritative local result.
+      if (isRestoringRef.current) return;
+
+      // After restore, wait for the realtime listener to catch up to the exact
+      // restored local state. Older cached snapshots are ignored.
+      if (awaitingRestoredSnapshotRef.current) {
+        const incomingIds = new Set(localSops.map((s) => s.id));
+        const expectedIds = expectedRestoredIdsRef.current;
+        const matchesExpected =
+          incomingIds.size === expectedIds.size &&
+          Array.from(expectedIds).every((id: string) => incomingIds.has(id));
+
+        if (!matchesExpected) return;
+
+        awaitingRestoredSnapshotRef.current = false;
+        expectedRestoredIdsRef.current = new Set();
+      }
+
+      setSops(localSops);
+      try {
+        localStorage.setItem('soegiri_sops_last_good', JSON.stringify(localSops));
+      } catch {}
+      setLocalDataUnavailable(false);
+    }, (err) => {
+      setLocalDataUnavailable(true);
+      console.error('local database SOP subscription unavailable:', err);
+    }, activeUserDivisions);
+
+    const mergeLibraryDocuments = (type: 'SK' | 'MOU', documents: LibraryDocument[]) => {
+      setLibraryDocuments((current) => {
+        const otherType = current.filter((document) => document.type !== type);
+        return [...otherType, ...documents];
+      });
+      setLocalDataUnavailable(false);
+    };
+
+    const unsubscribeSK = subscribeToSKDocuments(
+      (documents) => mergeLibraryDocuments('SK', documents),
+      (err) => {
+        setLocalDataUnavailable(true);
+        console.error('local database SK subscription unavailable:', err);
+      }
+    );
+
+    const unsubscribeMOU = subscribeToMOUDocuments(
+      (documents) => mergeLibraryDocuments('MOU', documents),
+      (err) => {
+        setLocalDataUnavailable(true);
+        console.error('local database MOU subscription unavailable:', err);
+      }
+    );
+
+    const unsubscribeConfig = subscribeToNumberingConfig((localConfig) => {
+      setNumberingConfig(localConfig);
+      setLocalDataUnavailable(false);
+    }, (err) => {
+      setLocalDataUnavailable(true);
+      console.error('local database numbering config unavailable:', err);
+    });
+
+    const unsubscribeUsers = userSession.role === 'admin'
+      ? subscribeToUsers(
+          (localUsers) => {
+            setUsers(localUsers);
+            setLocalDataUnavailable(false);
+          },
+          (err) => {
+            setLocalDataUnavailable(true);
+            console.error('local database users subscription unavailable:', err);
+          }
+        )
+      : () => {};
+
+    if (userSession.role !== 'admin') {
+      setUsers([]);
+    }
+
+  
+    return () => {
+      unsubscribeSops();
+      unsubscribeSK();
+      unsubscribeMOU();
+      unsubscribeConfig();
+      unsubscribeUsers();
+    };
+  }, [userSession?.authUid, userSession?.divisionCode, userSession?.role, userSession?.assignments, userSession?.badges]);
+
+  // Compute available distinct years from SOPs
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    (sops || []).forEach((s) => {
+      if (s?.effectiveDate) {
+        const yr = s.effectiveDate.split('-')[0];
+        if (yr) years.add(yr);
+      }
+      if (s?.createdAt) {
+        const yr = new Date(s.createdAt).getFullYear().toString();
+        if (yr && yr !== 'NaN') years.add(yr);
+      }
+    });
+    return Array.from(years).sort().reverse();
+  }, [sops]);
+
+  // Filter and Sort Logic
+  const filteredAndSortedSops = useMemo(() => {
+    const query = filters.searchQuery.toLowerCase().trim();
+
+    return (sops || [])
+      .filter((sop) => {
+        // Search SPO hanya berdasarkan judul dokumen.
+        // Detail isi tidak digunakan sebagai sumber pencarian.
+        if (query && !(sop.title || '').toLowerCase().includes(query)) {
+          return false;
+        }
+
+        // Division Filter
+        if (filters.division && sop.divisionCode !== filters.division) {
+          return false;
+        }
+
+        // Category Filter
+        if (filters.category && sop.categoryName !== filters.category && sop.divisionCode !== filters.category) {
+          return false;
+        }
+
+        // Status Filter
+        if (filters.status) {
+          if (filters.status === 'DRAFT' || filters.status === 'DRAFT') {
+            if (sop.status !== 'DRAFT' && sop.status !== 'DRAFT' && !sop.isNumberReservation) {
+              return false;
+            }
+          } else if (sop.status !== filters.status) {
+            return false;
+          }
+        }
+
+        // Year Filter
+        if (filters.year) {
+          const sopYear = sop.effectiveDate ? sop.effectiveDate.split('-')[0] : '';
+          const createYear = new Date(sop.createdAt).getFullYear().toString();
+          if (sopYear !== filters.year && createYear !== filters.year) {
+            return false;
+          }
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        let valA: any = a[filters.sortBy];
+        let valB: any = b[filters.sortBy];
+
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+
+        if (valA < valB) return filters.sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return filters.sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+  }, [sops, filters]);
+
+  // Handlers
+  const handleFilterChange = (updates: Partial<FilterOptions>) => {
+    setFilters((prev) => ({ ...prev, ...updates }));
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      searchQuery: '',
+      division: '',
+      category: '',
+      status: '',
+      year: '',
+      sortBy: 'sopNumber',
+      sortOrder: 'desc'
+    });
+    addToast('info', 'Filter Direset', 'Semua filter pencarian telah dikembalikan.');
+  };
+
+  // Add New SOP
+  const handleCreateSop = async (newSopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string }): Promise<SopDocument> => {
+    const now = new Date().toISOString();
+    const isLegacyInput = newSopData.documentType === 'LAMA' || newSopData.isLegacySop || newSopData.jenis_spo === 'EKSISTING';
+    // EXISTING_REPLACE_ONLY is an authoritative Existing flow marker. Even if a UI path
+    // accidentally submits documentType=BARU, it must never enter the auto-numbering path.
+    const isExistingInput = isLegacyInput || (newSopData as any).numberReservationPurpose === 'EXISTING_REPLACE_ONLY';
+    const isNewSopInput = (newSopData.jenis_spo || newSopData.documentType) === 'BARU';
+    const isCompletingIssuedNumber = Boolean(
+      newSopData.id &&
+      newSopData.sopNumber &&
+      Number(newSopData.sequenceNumber) > 0 &&
+      (newSopData as any).numberReservationPurpose !== 'EXISTING_REPLACE_ONLY'
+    );
+
+    const rawTargetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
+    const targetNumber = isLegacyInput ? normalizeSopNumberInput(rawTargetNumber) : rawTargetNumber;
+    let authoritativeSopData = newSopData;
+    let systemReservationId: string | undefined;
+    // Reservation adalah register nomor terpisah, bukan dokumen SPO. Untuk alur
+    // Existing, nomor reserved boleh dipakai untuk registrasi PDF fisik dan
+    // reservation dikonsumsi setelah dokumen berhasil tersimpan.
+    // Existing is the only flow allowed to consume a Nomor Terbit reservation.
+    // Resolve it before any numbering logic and keep the reservation number authoritative.
+    const reservedTarget = isExistingInput && targetNumber
+      ? (
+          ((newSopData as any).numberReservationId
+            ? (await getAllNumberReservations()).find((row) =>
+                row.status === 'RESERVED' &&
+                row.id === (newSopData as any).numberReservationId &&
+                normalizeSopNumberInput(row.sopNumber) === normalizeSopNumberInput(targetNumber)
+              )
+            : undefined)
+          || (await findNumberReservationBySopNumber(targetNumber))
+        )
+      : undefined;
+
+    // SPO Riviu memakai nomor lama hanya sebagai rujukan. Nomor hasil selalu
+    // dialokasikan baru setelah validasi rujukan dan hirarki berhasil.
+    // HARD WORKFLOW BOUNDARY: Existing is NEVER allowed to enter Riviu validation,
+    // even if legacy metadata/flags on the incoming document still contain review markers.
+    const isRiviuInput = !isExistingInput && (
+      newSopData.documentType === 'RIVIU' ||
+      newSopData.documentType === 'REVIEW' ||
+      newSopData.jenis_spo === 'RIVIU' ||
+      newSopData.isReviewDocument === true
+    );
+
+    if (isRiviuInput) {
+      const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
+      if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
+
+      const referenced = (newSopData.existingSopId ? sops.find((s) => s.id === newSopData.existingSopId) : undefined)
+        || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      const externalSignedPdf = Boolean(
+        (newSopData as any).externalReviewSignedConfirmed &&
+        (newSopData.fileDataUrl || (newSopData as any).oldFileDataUrl)
+        && (String(newSopData.fileType || (newSopData as any).oldFileType || '').toLowerCase() === 'application/pdf'
+          || String(newSopData.fileName || (newSopData as any).oldFileName || '').toLowerCase().endsWith('.pdf'))
+      );
+      if (!referenced && !externalSignedPdf) {
+        throw new Error(`SPO rujukan "${reviewNumber}" tidak ditemukan di database. Untuk SPO lama dari luar aplikasi, unggah PDF yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.`);
+      }
+      if (referenced && referenced.status !== 'AKTIF') throw new Error(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF untuk dapat diriviu.`);
+
+      const selectedDiv = String(newSopData.divisionCode || '').trim().toUpperCase();
+      const selectedSub = String(newSopData.subHierarchyCode || '').trim();
+      if (!selectedDiv || selectedDiv === 'ALL') throw new Error('Hirarki Riviu tidak valid.');
+
+      // Deteksi otomatis format nomor SPO rujukan:
+      // Format Baru -> Harus sesuai dengan hirarki yang dipilih
+      // Format Lama -> Abaikan validasi ketidaksesuaian hirarki; hirarki SPO Riviu tetap mengikuti hirarki yang dipilih
+      const isNewFormat = isNewSopFormat(reviewNumber);
+      const newPattern = matchMasterHierarchyPattern(reviewNumber);
+      if (isNewFormat && newPattern.isMatch) {
+        const numberDiv = String(newPattern.categoryCode || '').trim().toUpperCase();
+        const numberSub = String(newPattern.subHierarchyCode || '').trim();
+        if (numberDiv !== selectedDiv || numberSub !== selectedSub) {
+          throw new Error(`Nomor SPO "${reviewNumber}" tidak sesuai dengan hirarki yang dipilih. Hirarki nomor: ${numberDiv}${numberSub ? ` / ${numberSub}` : ''}; hirarki pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
+        }
+      }
+    }
+
+    let dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
+
+    if (isExistingInput) {
+      // Aturan Khusus SPO Existing:
+      // 1. Format baru + nomor belum ada → ❌ Tidak boleh (harus terbit via alur SPO Baru).
+      // 2. Format baru + nomor sudah ada (bukan AKTIF) → ✅ Boleh replace / lengkapi.
+      // 3. Format lama + nomor belum ada → ✅ Boleh register, mengikuti hirarki yang dipilih user.
+      const existing = dupCheck.matchedDoc || (newSopData.id ? sops.find((s) => s.id === newSopData.id) : undefined);
+      const isNewFormat = isNewSopFormat(targetNumber);
+
+      // Aturan 1: Pola penomoran baru Master Hirarki + nomor belum ada -> TIDAK BOLEH
+      if (isNewFormat && !existing && !reservedTarget) {
+        throw new Error(
+          `Nomor dengan pola penomoran baru Master Hirarki ("${targetNumber}") belum terdaftar di sistem. Untuk menerbitkan nomor format baru, silakan gunakan alur "SPO Baru" agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki.`
+        );
+      }
+
+      // Deteksi hirarki otomatis dari nomor SPO lama jika hirarki belum diisi
+      const detected = detectHierarchyFromSopNumber(targetNumber);
+
+      if (existing) {
+        // Aturan Rumah Sakit: Dokumen yang sudah berstatus AKTIF TIDAK BISA digantikan oleh SPO Eksisting.
+        // Dokumen AKTIF hanya dapat diperbarui melalui alur SPO RIVIU.
+        if (existing.status === 'AKTIF') {
+          throw new Error(
+            `Nomor SPO "${targetNumber}" sudah terdaftar dengan status AKTIF ("${existing.title}"). Dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting. Silakan gunakan alur "SPO Riviu" jika ingin melakukan pembaruan/revisi terhadap SPO Aktif.`
+          );
+        }
+
+        // Aturan 2: Format baru (atau format lama) + nomor sudah ada (bukan aktif) -> Boleh replace
+        const replacedId = existing.id;
+        const isExistingDraftOrNew =
+          existing.status === 'DRAFT' &&
+          (existing.jenis_spo === 'BARU' || existing.documentType === 'BARU');
+
+        const statusPreviousName =
+          existing.status === 'DRAFT'
+            ? 'Draft'
+            : isExistingDraftOrNew
+            ? 'Draft / Draft'
+            : existing.status || 'Tersimpan';
+
+        const finalSop: SopDocument = {
+          ...existing,
+          ...newSopData,
+          id: replacedId,
+          title: newSopData.title?.trim() || existing.title || 'SPO',
+          divisionCode: newSopData.divisionCode || existing.divisionCode || detected?.divisionCode || 'PEL',
+          divisionName: newSopData.divisionName || existing.divisionName || detected?.divisionName || 'Bidang Pelayanan',
+          subHierarchyCode: newSopData.subHierarchyCode !== undefined ? newSopData.subHierarchyCode : (existing.subHierarchyCode || detected?.subHierarchyCode || ''),
+          subCode: newSopData.subCode || existing.subCode || detected?.subCode,
+          instalasiCode: newSopData.instalasiCode || existing.instalasiCode || (existing as any).instCode || detected?.instalasiCode,
+          poliCode: newSopData.poliCode || existing.poliCode || detected?.poliCode,
+          subUnitCode: newSopData.subUnitCode || existing.subUnitCode || detected?.subUnitCode,
+          hierarchyDescription: newSopData.hierarchyDescription || existing.hierarchyDescription || detected?.hierarchyDescription,
+          sopNumber: targetNumber || existing.sopNumber || '',
+          legacySopNumber: isExistingDraftOrNew ? (existing.legacySopNumber || undefined) : (targetNumber || existing.legacySopNumber || existing.sopNumber || ''),
+          
+          // Hasil replace SPO yang masih Draft / SPO Baru harus tetap berstatus SPO Baru, bukan SPO Riviu atau Lama
+          documentType: isExistingDraftOrNew ? 'BARU' : (isNewFormat ? 'BARU' : 'LAMA'),
+          jenis_spo: isExistingDraftOrNew ? 'BARU' : (isNewFormat ? 'BARU' : 'EKSISTING'),
+          isLegacySop: isExistingDraftOrNew ? false : !isNewFormat,
+          isReviewDocument: false,
+          existingSopId: undefined,
+          oldSopNumber: undefined,
+          oldFileName: undefined,
+          oldFileSize: undefined,
+          oldFileType: undefined,
+          oldFileDataUrl: undefined,
+          reviewReason: undefined,
+          isNumberReservation: false,
+          // Existing replacement must keep the uploaded PDF as the authoritative
+          // document preview even though its final document type remains BARU.
+          isExistingReplacement: true,
+          status: 'AKTIF',
+          createdAt: existing.createdAt || now,
+          updatedAt: now,
+          revisionHistory: [
+            ...(existing.revisionHistory || []),
+            {
+              id: `rev-replace-${Date.now()}`,
+              version: newSopData.revisionNumber || newSopData.version || existing.version || '00',
+              date: newSopData.effectiveDate || existing.effectiveDate || now.split('T')[0],
+              author: newSopData.creatorName || userSession?.name || 'User',
+              notes: `Dokumen dilengkapi/diaktifkan melalui unggah berkas fisik (sebelumnya berstatus ${statusPreviousName}).`
+            }
+          ]
+        };
+
+        if (finalSop.fileDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
+          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
+        }
+        if (finalSop.signedScanDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
+          saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
+        }
+        if (finalSop.oldFileDataUrl) {
+          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
+        }
+
+        await saveSopToLocal(finalSop);
+        setSops((prev) => prev.map((s) => (s.id === replacedId ? finalSop : s)));
+
+        addToast(
+          'success',
+          'SPO Berhasil Dilengkapi & Diaktifkan!',
+          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diaktifkan di sistem.`
+        );
+
+        return finalSop;
+      }
+
+      // Reservation nomor bukan dokumen Draft. Jika nomor reserved ditemukan dan
+      // belum ada dokumen dengan nomor tersebut, Existing dapat menggunakannya.
+      // Reservation dikonsumsi setelah dokumen Existing berhasil disimpan.
+      if (reservedTarget && !existing) {
+        // HARD RULE: a Nomor Terbit found here is authoritative. Never run
+        // getNextSequenceNumber/generateSopNumber for this Existing submission.
+        // The final document must use exactly the reserved number.
+        const reservedDivision = String(reservedTarget.divisionCode || '').trim().toUpperCase();
+        const selectedDivision = String(newSopData.divisionCode || '').trim().toUpperCase();
+        const reservedHierarchy = String(reservedTarget.subHierarchyCode || '').trim();
+        const selectedHierarchy = String(newSopData.subHierarchyCode || '').trim();
+        if (reservedDivision !== selectedDivision || reservedHierarchy !== selectedHierarchy) {
+          throw new Error(`Nomor Terbit \"${reservedTarget.sopNumber}\" tidak sesuai dengan hirarki yang dipilih. Nomor diterbitkan untuk ${reservedDivision}${reservedHierarchy ? ` / ${reservedHierarchy}` : ''}, sedangkan pilihan Anda ${selectedDivision}${selectedHierarchy ? ` / ${selectedHierarchy}` : ''}.`);
+        }
+
+        const newId = newSopData.id || `sop-${Date.now()}`;
+        const reservedFinal: SopDocument = {
+          ...newSopData,
+          id: newId,
+          title: newSopData.title?.trim() || reservedTarget.title || reservedTarget.sopNumber,
+          divisionCode: reservedTarget.divisionCode,
+          divisionName: newSopData.divisionName || reservedTarget.divisionCode,
+          categoryId: reservedTarget.divisionCode,
+          categoryName: newSopData.categoryName || reservedTarget.divisionCode,
+          subHierarchyCode: reservedTarget.subHierarchyCode || '',
+          sequenceNumber: reservedTarget.sequenceNumber,
+          sopNumber: reservedTarget.sopNumber,
+          documentType: 'BARU',
+          jenis_spo: 'BARU',
+          isLegacySop: false,
+          // This document originates from the Existing upload path. Keep the
+          // original uploaded PDF as the preview source after consuming the reservation.
+          isExistingReplacement: true,
+          isNumberReservation: false,
+          status: 'AKTIF',
+          createdAt: now,
+          updatedAt: now,
+          revisionHistory: [
+            {
+              id: `rev-reserved-existing-${Date.now()}`,
+              version: newSopData.revisionNumber || newSopData.version || '00',
+              date: newSopData.effectiveDate || reservedTarget.year + '-01-01',
+              author: newSopData.creatorName || userSession?.name || 'User',
+              notes: 'Nomor reservation digunakan untuk registrasi SPO Eksisting.'
+            }
+          ]
+        };
+        if (reservedFinal.fileDataUrl) {
+          saveFileToLocalCache(reservedFinal.id, 'file', reservedFinal.fileDataUrl);
+          saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.fileDataUrl);
+          saveFileToLocalCache(reservedFinal.id, 'oldFile', reservedFinal.fileDataUrl);
+        }
+        if (reservedFinal.signedScanDataUrl) saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.signedScanDataUrl);
+        await saveSopToLocal(reservedFinal);
+        await consumeNumberReservation(reservedTarget.id, reservedFinal.id);
+        setSops((prev) => [reservedFinal, ...prev.filter((s) => s.id !== reservedFinal.id)]);
+        addToast('success', 'SPO Eksisting Berhasil Diregistrasi!', `Nomor reserved ${reservedFinal.sopNumber} digunakan dan sekarang menjadi SPO Aktif.`);
+        return reservedFinal;
+      }
+
+      // Aturan 3: Format lama + nomor belum ada -> Boleh register, mengikuti hirarki yang dipilih user
+      const newId = newSopData.id || `sop-${Date.now()}`;
+      const finalSop: SopDocument = {
+        ...newSopData,
+        id: newId,
+        title: newSopData.title?.trim() || 'SPO Eksisting',
+        divisionCode: newSopData.divisionCode || detected?.divisionCode || 'PEL',
+        divisionName: newSopData.divisionName || detected?.divisionName || 'Bidang Pelayanan',
+        subHierarchyCode: newSopData.subHierarchyCode !== undefined ? newSopData.subHierarchyCode : (detected?.subHierarchyCode || ''),
+        subCode: newSopData.subCode || detected?.subCode,
+        instalasiCode: newSopData.instalasiCode || (newSopData as any).instCode || detected?.instalasiCode,
+        poliCode: newSopData.poliCode || detected?.poliCode,
+        subUnitCode: newSopData.subUnitCode || detected?.subUnitCode,
+        hierarchyDescription: newSopData.hierarchyDescription || detected?.hierarchyDescription,
+        sopNumber: targetNumber,
+        legacySopNumber: targetNumber,
+        documentType: 'LAMA',
+        jenis_spo: 'EKSISTING',
+        isLegacySop: true,
+        isNumberReservation: false,
+        status: 'AKTIF',
+        createdAt: now,
+        updatedAt: now,
+        revisionHistory: [
+          {
+            id: `rev-init-${Date.now()}`,
+            version: newSopData.revisionNumber || newSopData.version || '00',
+            date: newSopData.effectiveDate || now.split('T')[0],
+            author: newSopData.creatorName,
+            notes: 'Registrasi otomatis dokumen resmi SPO Eksisting RSUD Dr. Soegiri Lamongan.'
+          }
+        ]
+      };
+
+      if (finalSop.fileDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
+        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
+      }
+      if (finalSop.signedScanDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
+        saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
+      }
+      if (finalSop.oldFileDataUrl) {
+        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
+      }
+
+      await saveSopToLocal(finalSop);
+      if (systemReservationId) await consumeNumberReservation(systemReservationId, finalSop.id);
+      setSops((prev) => [finalSop, ...prev.filter((s) => s.id !== finalSop.id)]);
+
+      addToast(
+        'success',
+        'SPO Eksisting Berhasil Diregistrasi!',
+        `Dokumen SPO Eksisting "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diregistrasi ke sistem.`
+      );
+
+      return finalSop;
+    }
+
+    // Riviu selalu memperoleh nomor BARU. Gunakan reservation yang sama dengan
+    // menu Terbitkan Nomor agar nomor terpakai/reserved tidak pernah bentrok.
+    if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
+      const reserved = await reserveNextSopNumber({
+        config: numberingConfig,
+        divisionCode: String(newSopData.divisionCode || 'PEL').trim().toUpperCase(),
+        subHierarchyCode: String(newSopData.subHierarchyCode || '').trim() || undefined,
+        dateStr: newSopData.effectiveDate || now.split('T')[0],
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
+        purpose: 'SYSTEM_DOCUMENT'
+      });
+      systemReservationId = reserved.id;
+      authoritativeSopData = {
+        ...newSopData,
+        id: newSopData.id || `sop-${Date.now()}`,
+        sopNumber: reserved.sopNumber,
+        sequenceNumber: reserved.sequenceNumber,
+        divisionCode: reserved.divisionCode,
+        subHierarchyCode: reserved.subHierarchyCode || '',
+        documentType: 'RIVIU',
+        jenis_spo: 'RIVIU',
+        isReviewDocument: true,
+        isNumberReservation: false,
+        oldSopNumber: normalizeSopNumberInput(newSopData.oldSopNumber || ''),
+        existingSopId: newSopData.existingSopId
+      };
+      dupCheck = checkDuplicateSopNumber(sops, reserved.sopNumber, undefined);
+    }
+
+    // Untuk SPO Baru: cegah nomor SPO duplikat
+    if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
+      const existing = dupCheck.matchedDoc;
+      const isCompletingSameDoc = newSopData.id && newSopData.id === existing.id;
+      if (!isCompletingSameDoc) {
+        throw new Error(`Nomor SPO "${targetNumber}" sudah digunakan oleh dokumen "${existing.title}". Nomor SPO tidak boleh duplikat.`);
+      }
+    }
+
+    // SPO Baru: Jika nomor belum diterbitkan secara eksplisit sebelumnya,
+    // otomatis alokasikan nomor urut dan nomor resmi baru sesuai standar penomoran.
+    if (isNewSopInput && !isExistingInput && !isCompletingIssuedNumber) {
+      const divCode = (newSopData.divisionCode || 'PEL').trim().toUpperCase();
+      const subCode = (newSopData.subHierarchyCode || '').trim();
+      const dateStr = newSopData.effectiveDate || now.split('T')[0];
+      const reserved = await reserveNextSopNumber({
+        config: numberingConfig,
+        divisionCode: divCode,
+        subHierarchyCode: subCode || undefined,
+        dateStr,
+        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
+        purpose: 'SYSTEM_DOCUMENT'
+      });
+      systemReservationId = reserved.id;
+      authoritativeSopData = {
+        ...newSopData,
+        id: newSopData.id || `sop-${Date.now()}`,
+        sopNumber: reserved.sopNumber,
+        sequenceNumber: reserved.sequenceNumber,
+        divisionCode: reserved.divisionCode,
+        subHierarchyCode: reserved.subHierarchyCode || '',
+      };
+    }
+
+    const newId = authoritativeSopData.id || newSopData.id || `sop-${Date.now()}`;
+    const newSop: SopDocument = {
+      ...authoritativeSopData,
+      id: newId,
+      createdAt: now,
+      updatedAt: now,
+      isNumberReservation: false,
+      revisionHistory: [
+        {
+          id: `rev-init-${Date.now()}`,
+          version: newSopData.revisionNumber || newSopData.version || '00',
+          date: newSopData.effectiveDate || now.split('T')[0],
+          author: newSopData.creatorName,
+          notes: 'Registrasi dan penerbitan nomor resmi SPO RSUD Dr. Soegiri Lamongan.'
+        }
+      ]
+    };
+
+    // Cache physical files in local persistent storage
+    if (newSop.fileDataUrl) {
+      saveFileToLocalCache(newSop.id, 'file', newSop.fileDataUrl);
+    }
+    if (newSop.oldFileDataUrl) {
+      saveFileToLocalCache(newSop.id, 'oldFile', newSop.oldFileDataUrl);
+    }
+
+    const finalSop = standardizeSopDocument(newSop);
+
+    // Calculate updated numbering config per division and unit
+    const prevCounters = numberingConfig?.divisionCounters || {};
+    const divCode = finalSop.divisionCode;
+    const subCode = finalSop.subHierarchyCode || '';
+    const unitKey = getUnitKey(divCode, subCode);
+
+    // Collision prevention: ensure sequenceNumber and sopNumber are strictly unique in this unit
+    const usedSequences = getUsedSequencesForUnit(sops.filter((s) => s.id !== finalSop.id), divCode, subCode, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+    let allocatedSeq = finalSop.sequenceNumber || getNextSequenceNumber(numberingConfig, divCode, subCode, sops, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+
+    if (usedSequences.has(allocatedSeq)) {
+      // Collision detected with another registered document in this unit:
+      // Allocate next lowest unused positive integer
+      let nextAvailable = 1;
+      while (usedSequences.has(nextAvailable)) {
+        nextAvailable++;
+      }
+      allocatedSeq = nextAvailable;
+      finalSop.sequenceNumber = allocatedSeq;
+
+      // Re-generate standard number with unique sequence
+      const paddedNum = getPaddedNumber(allocatedSeq, 3);
+      const effectiveYear = finalSop.effectiveDate ? finalSop.effectiveDate.split('-')[0] : (SOEGIRI_HOSPITAL_INFO.year || '2026');
+      finalSop.sopNumber = subCode
+        ? `${divCode} / ${subCode} / ${paddedNum} / ${effectiveYear}`
+        : `${divCode} / ${paddedNum} / ${effectiveYear}`;
+    }
+
+    const updatedConfig: NumberingConfig = {
+      ...numberingConfig,
+      currentCounter: Math.max((numberingConfig?.currentCounter || 0) + 1, allocatedSeq),
+      divisionCounters: {
+        ...prevCounters,
+        [unitKey]: Math.max(prevCounters[unitKey] || 0, allocatedSeq),
+        [divCode]: Math.max(prevCounters[divCode] || 0, allocatedSeq)
+      }
+    };
+
+    // Persist first. The registration UI must wait for local database acknowledgement
+    // before showing the success dialog; local state is updated only after the
+    // local write succeeds.
+    await registerSopAndNumberingToLocal(finalSop, updatedConfig);
+
+    setNumberingConfig(updatedConfig);
+    setSops((prev) => prev.some((s) => s.id === finalSop.id)
+      ? prev.map((s) => (s.id === finalSop.id ? finalSop : s))
+      : [finalSop, ...prev]);
+
+    addToast(
+      'success',
+      'SPO Berhasil Didaftarkan!',
+      `Nomor resmi ${finalSop.sopNumber} telah dialokasikan untuk "${finalSop.title}".`
+    );
+
+    // Dispatch real-time assignment event
+    dispatchDocumentEvent(
+      'assignment',
+      finalSop,
+      `Dokumen baru "${finalSop.title}" (${finalSop.sopNumber}) telah diterbitkan dan dialokasikan untuk divisi ${finalSop.divisionCode}.`
+    );
+
+    return finalSop;
+  };
+
+  const handleIssueSopNumber = async (params: { divisionCode: string; subHierarchyCode?: string; dateStr?: string; title: string; revisionNumber: string }): Promise<SopDocument> => {
+    if (userSession?.role !== 'admin' && userSession?.role !== 'user') {
+      throw new Error('Akses penerbitan nomor SPO ditolak.');
+    }
+    if (!params.title?.trim()) throw new Error('Judul SPO wajib diisi.');
+    if (!params.dateStr) throw new Error('Tanggal berlaku wajib diisi.');
+        const effectiveDivision = String(params.divisionCode || '').trim().toUpperCase();
+    if (!effectiveDivision || effectiveDivision === 'ALL') {
+      throw new Error('Unit kerja yang dipilih tidak valid untuk penerbitan nomor SPO.');
+    }
+
+    const reserved = await reserveNextSopNumber({
+      config: numberingConfig,
+      divisionCode: effectiveDivision,
+      subHierarchyCode: params.subHierarchyCode,
+      dateStr: params.dateStr || new Date().toISOString().slice(0, 10),
+      title: params.title.trim(),
+      reservedBy: userSession?.name || userSession?.username || 'Administrator',
+      purpose: 'EXISTING_REPLACE_ONLY'
+    });
+    // Nomor reservation disimpan di store khusus, BUKAN sebagai dokumen Draft.
+    // Nomor ini tidak boleh dipakai untuk SPO Baru; pengguna dapat menggunakannya
+    // pada alur SPO Eksisting sesuai aturan yang dikunci.
+    const updatedConfig: NumberingConfig = {
+      ...numberingConfig,
+      currentCounter: Math.max((numberingConfig?.currentCounter || 0), reserved.sequenceNumber),
+      divisionCounters: {
+        ...(numberingConfig?.divisionCounters || {}),
+        [getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '')]: Math.max((numberingConfig?.divisionCounters?.[getUnitKey(reserved.divisionCode, reserved.subHierarchyCode || '')] || 0), reserved.sequenceNumber),
+        [reserved.divisionCode]: Math.max((numberingConfig?.divisionCounters?.[reserved.divisionCode] || 0), reserved.sequenceNumber)
+      }
+    };
+    await saveConfigToLocal(updatedConfig);
+    setNumberingConfig(updatedConfig);
+
+    // Return transient metadata only for the confirmation UI. It is deliberately
+    // NOT inserted into the SPO document list.
+    return {
+      id: `reservation-${reserved.id}`,
+      sopNumber: reserved.sopNumber,
+      sequenceNumber: reserved.sequenceNumber,
+      divisionId: reserved.divisionCode,
+      divisionCode: reserved.divisionCode,
+      divisionName: SOEGIRI_HOSPITAL_INFO.hospitalName || reserved.divisionCode,
+      categoryId: reserved.divisionCode,
+      categoryName: reserved.divisionCode,
+      subHierarchyCode: reserved.subHierarchyCode || '',
+      title: params.title.trim(),
+      effectiveDate: params.dateStr!,
+      reviewPeriodMonths: 12,
+      nextReviewDate: '',
+      version: String(params.revisionNumber || '00').trim(),
+      revisionNumber: String(params.revisionNumber || '00').trim(),
+      documentType: 'BARU',
+      jenis_spo: 'BARU',
+      isLegacySop: false,
+      isNumberReservation: true,
+      numberReservationPurpose: 'EXISTING_REPLACE_ONLY',
+      fileName: '',
+      createdAt: reserved.reservedAt,
+      updatedAt: reserved.reservedAt,
+      creatorName: userSession?.name || userSession?.username || 'Administrator',
+      summary: '',
+      tags: [reserved.divisionCode, reserved.subHierarchyCode].filter(Boolean),
+      confidentialityLevel: 'Internal',
+      revisionHistory: [],
+      locationOrFolder: 'Register SPO - Nomor Terbit',
+      status: 'DRAFT'
+    } as SopDocument;
+  };
+
+  const handleSaveMaintenanceMode = async (enabled: boolean, message: string) => {
+    if (userSession?.role !== 'admin') return;
+
+    const updatedBy = userSession.name || userSession.username || 'Administrator';
+    await setMaintenanceMode(enabled, message, updatedBy);
+
+    setMaintenanceModeState({
+      enabled,
+      message,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+    });
+
+    addToast(
+      'success',
+      enabled ? 'Mode Pemeliharaan Aktif' : 'Mode Pemeliharaan Dinonaktifkan',
+      enabled
+        ? 'Akses pengguna/user dialihkan ke layar pemeliharaan secara realtime.'
+        : 'Akses normal telah dibuka kembali untuk semua pengguna.'
+    );
+  };
+
+  const handleToggleMaintenanceMode = async () => {
+    if (userSession?.role !== 'admin' || isChangingMaintenanceMode) return;
+    setIsMaintenanceModalOpen(true);
+  };
+
+  const handleLogout = async () => {
+    if (userSession) {
+      await logoutUser(userSession).catch((err) => console.error('Error logging out from server:', err));
+    }
+    resetAllViewStates();
+    setUserSession(null);
+    setInactivityNotice(null);
+    addToast('info', 'Sesi Berakhir', 'Anda telah keluar dari aplikasi dengan aman.');
+  };
+
+  // Edit SOP
+  const handleUpdateSop = async (updatedSop: SopDocument) => {
+    const isLegacy = updatedSop.documentType === 'LAMA' || updatedSop.isLegacySop;
+    const normalizedDivision = (updatedSop.divisionCode || (updatedSop.sopNumber ? updatedSop.sopNumber.split('/')[0]?.trim() : 'PEL') || 'PEL').trim().toUpperCase();
+    const normalizedHierarchy = (updatedSop.subHierarchyCode || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+    const effectiveYear = updatedSop.effectiveDate?.slice(0, 4) || (updatedSop.createdAt ? String(new Date(updatedSop.createdAt).getFullYear()) : (SOEGIRI_HOSPITAL_INFO.year || '2026'));
+    let normalizedSequence = typeof updatedSop.sequenceNumber === 'number' && updatedSop.sequenceNumber > 0 ? updatedSop.sequenceNumber : 1;
+    let normalizedNumber = updatedSop.sopNumber || '';
+
+    if (!isLegacy) {
+      const previous = sops.find((s) => s.id === updatedSop.id);
+      const previousHierarchy = (previous?.subHierarchyCode || '').trim();
+      const previousDivision = (previous?.divisionCode || '').trim().toUpperCase();
+      const previousYear = previous?.effectiveDate?.slice(0, 4) || (previous?.createdAt ? String(new Date(previous.createdAt).getFullYear()) : '');
+      const unitChanged = previousDivision !== normalizedDivision || previousHierarchy !== normalizedHierarchy || previousYear !== effectiveYear;
+      const used = getUsedSequencesForUnit(sops.filter((s) => s.id !== updatedSop.id), normalizedDivision, normalizedHierarchy, effectiveYear);
+      if (unitChanged || used.has(normalizedSequence)) {
+        normalizedSequence = getNextSequenceNumber(numberingConfig, normalizedDivision, normalizedHierarchy, sops.filter((s) => s.id !== updatedSop.id), effectiveYear);
+      }
+      const padded = getPaddedNumber(normalizedSequence, 3);
+      normalizedNumber = normalizedHierarchy
+        ? `${normalizedDivision} / ${normalizedHierarchy} / ${padded} / ${effectiveYear}`
+        : `${normalizedDivision} / ${padded} / ${effectiveYear}`;
+    }
+
+    // Cegah nomor duplikat saat edit
+    const dupCheck = checkDuplicateSopNumber(sops, normalizedNumber, updatedSop.id);
+    if (dupCheck.isDuplicate && dupCheck.matchedDoc) {
+      addToast('error', 'Nomor SPO Duplikat', `Nomor SPO "${normalizedNumber}" sudah digunakan oleh dokumen "${dupCheck.matchedDoc.title}". Perubahan dibatalkan.`);
+      return;
+    }
+
+    const finalUpdatedSop: SopDocument = {
+      ...updatedSop,
+      sopNumber: normalizedNumber,
+      sequenceNumber: normalizedSequence,
+      subHierarchyCode: normalizedHierarchy,
+      divisionCode: normalizedDivision,
+      divisionName: updatedSop.divisionName,
+      categoryName: updatedSop.categoryName,
+      status: isLegacy
+        ? ((updatedSop.status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'AKTIF') as SopStatus)
+        : (updatedSop.status || 'AKTIF'),
+      ...(isLegacy ? { jenis_spo: 'EKSISTING' as const, documentType: 'LAMA' as const, isLegacySop: true } : {})
+    };
+
+    if (finalUpdatedSop.fileDataUrl) {
+      saveFileToLocalCache(finalUpdatedSop.id, 'file', finalUpdatedSop.fileDataUrl);
+    }
+    if (finalUpdatedSop.oldFileDataUrl) {
+      saveFileToLocalCache(finalUpdatedSop.id, 'oldFile', finalUpdatedSop.oldFileDataUrl);
+    }
+
+    setSops((prev) => prev.map((s) => (s.id === finalUpdatedSop.id ? finalUpdatedSop : s)));
+    
+    // Also update active detail view if it's currently open
+    if (selectedSopForDetail?.id === finalUpdatedSop.id) {
+      setSelectedSopForDetail(finalUpdatedSop);
+    }
+
+    try {
+      await saveSopToLocal(finalUpdatedSop);
+    } catch (err) {
+      console.error('Error updating SOP in local database:', err);
+    }
+
+    addToast('success', 'Perubahan Disimpan', `Dokumen ${finalUpdatedSop.sopNumber} berhasil diperbarui.`);
+
+    const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);
+    if (reviewStatus.isDue) {
+      dispatchDocumentEvent('review', finalUpdatedSop, `Dokumen ${finalUpdatedSop.sopNumber}: ${reviewStatus.reason}`);
+    }
+  };
+
+  // Delete SOP Handler (Opens Custom Confirm Modal)
+  const handleDeleteSop = (id: string, title: string) => {
+    const target = sops.find((s) => s.id === id);
+    setSopToDelete({
+      id,
+      title,
+      sopNumber: target?.sopNumber || id
+    });
+  };
+
+  const confirmDeleteSop = async () => {
+    if (!sopToDelete) return;
+    const { id, title } = sopToDelete;
+
+    try {
+      // Persist the delete first. This prevents a delete racing with a
+      // subsequent restore and ensures the UI only reflects confirmed state.
+      await deleteSopFromLocal(id);
+      deleteFileFromLocalCache(id);
+      const nextSops = sops.filter((s) => s.id !== id);
+      setSops(nextSops);
+
+    if (nextSops.length === 0) {
+      const resetConfig: NumberingConfig = {
+        ...numberingConfig,
+        currentCounter: 0,
+        divisionCounters: {}
+      };
+      setNumberingConfig(resetConfig);
+      saveConfigToLocal(resetConfig).catch((err) => console.error('Error resetting config in local database:', err));
+      addToast('info', 'Penomoran Direset', `SPO "${title}" telah dihapus. Daftar SPO kini kosong dan penomoran otomatis di-reset dari awal (#001).`);
+    } else {
+      addToast('info', 'Dokumen Dihapus', `SPO "${title}" telah dihapus dari daftar.`);
+    }
+
+    if (selectedSopForDetail?.id === id) {
+      setSelectedSopForDetail(null);
+    }
+    if (selectedSopForEdit?.id === id) {
+      setSelectedSopForEdit(null);
+    }
+    setSopToDelete(null);
+    } catch (error) {
+      console.error('Error deleting SOP from local database:', error);
+      addToast('error', 'Penghapusan Gagal', 'Dokumen tidak dihapus karena perubahan belum berhasil disimpan ke server.');
+    }
+  };
+
+  const handleResetCountersToZero = () => {
+    const resetConfig: NumberingConfig = {
+      ...numberingConfig,
+      currentCounter: 0,
+      divisionCounters: {}
+    };
+    setNumberingConfig(resetConfig);
+    saveConfigToLocal(resetConfig).catch((err) => console.error('Error resetting config in local database:', err));
+    addToast('success', 'Penomoran Diatur Ulang', 'Penghitung (counter) penomoran SPO berhasil diatur ulang dari awal (#001).');
+  };
+
+  // Quick Status Update (Admin Only). AKTIF hanya melalui Pengesahan/Aktivasi.
+  const handleUpdateStatus = (id: string, newStatus: SopStatus) => {
+    if (userSession?.role !== 'admin') {
+      addToast('error', 'Akses Ditolak', 'Hanya Administrator yang memiliki wewenang untuk mengubah status dokumen.');
+      return;
+    }
+    const target = sops.find((s) => s.id === id);
+    if (!target) return;
+    const isExisting = target.documentType === 'LAMA' || target.jenis_spo === 'EKSISTING' || target.isLegacySop;
+    if (newStatus === 'AKTIF') {
+      if (isExisting) {
+        // SPO Eksisting sudah sah dan bertanda tangan Direktur. Tidak perlu aktivasi ulang.
+        const updated = { ...target, status: 'AKTIF' as SopStatus, updatedAt: new Date().toISOString() };
+        setSops((prev) => prev.map((s) => s.id === id ? updated : s));
+        if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
+        saveSopToLocal(updated).catch((err) => console.error('Error updating existing SPO status:', err));
+        addToast('success', 'SPO Eksisting Aktif', 'SPO Eksisting sudah merupakan dokumen sah dan tidak memerlukan pengesahan ulang.');
+        return;
+      }
+      addToast('info', 'Gunakan Pengesahan', 'SPO Baru/Riviu hanya dapat menjadi Aktif melalui proses Pengesahan/Aktivasi.');
+      setSelectedSopForActivation(target);
+      return;
+    }
+    const updated = { ...target, status: newStatus, updatedAt: new Date().toISOString() };
+    setSops((prev) => prev.map((s) => s.id === id ? updated : s));
+    if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
+    saveSopToLocal(updated).catch((err) => console.error('Error updating status in local database:', err));
+    addToast('success', 'Status Diperbarui', `Status SPO diubah menjadi ${newStatus === 'DIARSIPKAN' ? 'Diarsipkan' : 'Draft'}.`);
+  };
+
+  const handleConfirmActivation = async (sopId: string, activationData: {
+    activatedAt: string; activatedBy: string; activationNotes: string;
+    signedScanFileName?: string; signedScanFileSize?: number; signedScanFileType?: string; signedScanDataUrl?: string;
+  }) => {
+    if (userSession?.role !== 'admin') {
+      addToast('error', 'Akses Ditolak', 'Hanya Admin Tata Naskah yang dapat mengaktifkan SPO.');
+      return;
+    }
+    const target = sops.find((s) => s.id === sopId);
+    if (!target || target.status !== 'DRAFT') {
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru atau SPO Riviu dengan status Draft yang dapat diaktifkan.');
+      return;
+    }
+
+    const targetJenis = String(target.jenis_spo || target.documentType || '').trim().toUpperCase();
+    const targetIsRiviu = targetJenis === 'RIVIU' || targetJenis === 'REVIEW' || target.isReviewDocument === true;
+    const targetIsBaru = targetJenis === 'BARU';
+    const targetIsExisting =
+      target.jenis_spo === 'EKSISTING' ||
+      target.documentType === 'EKSISTING' ||
+      target.documentType === 'LAMA' ||
+      target.isLegacySop === true;
+
+    if (targetIsExisting || (!targetIsBaru && !targetIsRiviu)) {
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru dan SPO Riviu yang dapat diaktifkan melalui proses Pengesahan/Aktivasi. SPO Existing mempertahankan dokumen sah existing.');
+      return;
+    }
+
+    if (!activationData.activationNotes || !activationData.activationNotes.trim()) {
+      addToast('error', 'Aktivasi Ditolak', 'Verifikasi TTD + stempel Direktur wajib tercatat sebelum SPO menjadi Aktif.');
+      return;
+    }
+
+    const updated: SopDocument = {
+      ...target, status: 'AKTIF', updatedAt: new Date().toISOString(),
+      activatedAt: activationData.activatedAt, activatedBy: activationData.activatedBy,
+      activationNotes: activationData.activationNotes, signedScanFileName: activationData.signedScanFileName,
+      signedScanFileSize: activationData.signedScanFileSize, signedScanFileType: activationData.signedScanFileType,
+      signedScanDataUrl: activationData.signedScanDataUrl,
+    };
+    try {
+      if (activationData.signedScanDataUrl) await saveFileToLocalCache(sopId, 'signedScan', activationData.signedScanDataUrl);
+      await saveSopToLocal(updated);
+      setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
+      setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);
+      setSelectedSopForActivation(null);
+      addToast('success', 'SPO Diaktifkan', `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`);
+    } catch (err) {
+      console.error('Error activating SOP:', err);
+      addToast('error', 'Aktivasi Gagal', err instanceof Error ? err.message : 'Data aktivasi tidak dapat disimpan.');
+    }
+  };
+
+  // Copy Number
+  const handleCopyNumber = (num: string) => {
+    addToast('info', 'Nomor Disalin', `Nomor ${num} telah disalin ke papan klip.`);
+  };
+
+  // Save Numbering Config
+  const handleSaveConfig = (newConfig: NumberingConfig) => {
+    setNumberingConfig(newConfig);
+    saveConfigToLocal(newConfig).catch((err) => console.error('Error saving config to local database:', err));
+    addToast('success', 'Format Penomoran Disimpan', 'Aturan penomoran otomatis berhasil diperbarui.');
+  };
+
+  const handleResetDefaultConfig = () => {
+    setNumberingConfig(DEFAULT_NUMBERING_CONFIG);
+    addToast('info', 'Pengaturan Diatur Ulang', 'Format penomoran dikembalikan ke Standar Baku RSUD Dr. Soegiri Lamongan.');
+  };
+
+  // Standardize All SOP Numbers manually (Admin Trigger)
+  const handleStandardizeAllSopNumbers = () => {
+    const { updatedSops, changedCount, changes, duplicateCount } = standardizeAllSops(sops);
+    if (changedCount === 0) {
+      addToast(
+        'info',
+        'Penomoran Sudah Standar Baku & Bebas Duplikat',
+        'Semua nomor dokumen SPO yang terdaftar sudah 100% unik dan sesuai dengan Pedoman Tata Naskah RSUD Dr. Soegiri Lamongan.'
+      );
+      return;
+    }
+
+    setSops(updatedSops);
+    updatedSops.forEach((s) => {
+      if (changes.some((c) => c.newNumber === s.sopNumber)) {
+        saveSopToLocal(s).catch((err) => console.error('Error saving standardized SOP to local database:', err));
+      }
+    });
+
+    const summaryList = changes
+      .slice(0, 4)
+      .map((c) => `• ${c.oldNumber} ➔ ${c.newNumber}`)
+      .join('\n');
+    const remaining = changes.length > 4 ? `\n...dan ${changes.length - 4} dokumen lainnya.` : '';
+
+    addToast(
+      'success',
+      `${changedCount} Nomor SPO Berhasil Disesuaikan!`,
+      `${duplicateCount > 0 ? `Ditemukan & diperbaiki ${duplicateCount} nomor duplikat per unit.\n` : ''}Seluruh format nomor unit telah distandarkan:\n${summaryList}${remaining}`
+    );
+  };
+
+  // User Management Handlers
+  const handleSaveUser = async (userAcc: UserAccount) => {
+    try {
+      await saveUserToLocal(userAcc);
+      const safeUser = { ...userAcc };
+      delete (safeUser as any).password;
+      delete (safeUser as any).passwordHash;
+      delete (safeUser as any).passwordSalt;
+      setUsers((prev) => {
+        const idx = prev.findIndex((u) => u.id === safeUser.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = safeUser;
+          return updated;
+        }
+        return [...prev, safeUser];
+      });
+    } catch (e) {
+      console.error('Failed to save user account:', e);
+      throw e;
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      await deleteUserFromLocal(userId);
+    } catch (e) {
+      console.error('Failed to delete user account from local database:', e);
+    } finally {
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+    }
+  };
+
+  // Self password update for User / logged-in user
+  const handleUpdateSelfPassword = async (
+    currentPass: string, 
+    newPass: string
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!userSession) {
+      return { success: false, message: 'Sesi login tidak valid. Silakan login kembali.' };
+    }
+
+    if (!newPass || newPass.trim().length < 8) {
+      return { success: false, message: 'Kata sandi baru minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, dan angka.' };
+    }
+
+    const result = await changeUserPassword(userSession.username, currentPass, newPass);
+    if (result.success) {
+      addToast('success', 'Kata Sandi Diperbarui', 'Kata sandi akun Anda berhasil diganti secara aman.');
+    }
+    return result;
+  };
+
+
+  // Avoid flashing the login page while a refresh session is being restored.
+  if (isSessionRestoring) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-sm text-slate-500">Memulihkan sesi...</div>
+      </div>
+    );
+  }
+
+  // Render Login Page if no user session
+  if (!userSession) {
+    return (
+      <>
+        <LoginPage 
+          onLogin={(session) => {
+            resetAllViewStates();
+            setInactivityNotice(null);
+            setSessionKey(Date.now());
+            persistClientSession(session);
+            setUserSession(session);
+          }} 
+          inactivityNotice={inactivityNotice}
+          maintenanceMode={maintenanceMode}
+        />
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      </>
+    );
+  }
+
+  // Maintenance mode blocks non-admin users immediately and in real time.
+  if (maintenanceMode.enabled && userSession.role !== 'admin') {
+    return (
+      <MaintenancePage
+        message={maintenanceMode.message}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Render User View if user role is 'user'
+  if (userSession.role === 'user') {
+    return (
+      <div key={`session-user-${sessionKey}`} className="min-h-screen bg-slate-50 flex flex-col selection:bg-emerald-500 selection:text-white">
+        <div className={Boolean(selectedSopForDetail) ? 'no-print' : ''}>
+          <UserView
+            key={`view-user-${sessionKey}`}
+            userSession={userSession}
+            onLogout={handleLogout}
+            sops={sops}
+            libraryDocuments={libraryDocuments}
+            onAddSop={handleCreateSop}
+            onIssueSopNumber={handleIssueSopNumber}
+            onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
+            numberingConfig={numberingConfig}
+            divisions={divisions}
+            categories={categories}
+            onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+            onCopyNumber={handleCopyNumber}
+            users={users}
+            onUpdatePassword={handleUpdateSelfPassword}
+            onShowToast={addToast}
+          />
+        </div>
+
+        <SopDetailModal
+          isOpen={Boolean(selectedSopForDetail)}
+          sop={selectedSopForDetail}
+          onClose={() => setSelectedSopForDetail(null)}
+          onEdit={(sop) => {
+            setSelectedSopForDetail(null);
+            setSelectedSopForEdit(sop);
+          }}
+          onDelete={() => {}}
+          onUpdateStatus={handleUpdateStatus}
+          onCopyNumber={handleCopyNumber}
+          userSession={userSession}
+        />
+
+        <EditSopModal
+          key={selectedSopForEdit?.id || 'none'}
+          isOpen={Boolean(selectedSopForEdit)}
+          sop={selectedSopForEdit}
+          onClose={() => setSelectedSopForEdit(null)}
+          onSubmit={handleUpdateSop}
+          divisions={divisions}
+          categories={categories}
+          userSession={userSession}
+          sops={sops}
+        />
+
+        <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      </div>
+    );
+  }
+
+  // Administrator uses the exact same UserView UI/workflow.
+  // Admin-only capabilities are exposed as additional management actions via the shared Header.
+  return (
+    <div key={`session-admin-${sessionKey}`} className="min-h-screen bg-slate-50 flex flex-col selection:bg-emerald-500 selection:text-white">
+      <UserView
+        key={`view-admin-${sessionKey}`}
+        userSession={userSession}
+        onLogout={handleLogout}
+        sops={sops}
+        libraryDocuments={libraryDocuments}
+        onAddSop={handleCreateSop}
+        onIssueSopNumber={handleIssueSopNumber}
+        onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
+        numberingConfig={numberingConfig}
+        divisions={divisions}
+        categories={categories}
+        onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+        onCopyNumber={handleCopyNumber}
+        users={users}
+        onUpdatePassword={handleUpdateSelfPassword}
+        onShowToast={addToast}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        onOpenMasterData={() => setIsMasterDataOpen(true)}
+        onOpenSecurity={() => setIsSecurityOpen(true)}
+        onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
+        onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
+      />
+
+      {/* Modals */}
+      <UploadSopModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onSubmit={handleCreateSop}
+        divisions={divisions}
+        categories={categories}
+        numberingConfig={numberingConfig}
+        sops={sops}
+        userSession={userSession}
+        onCheckReservedNumber={async (number) => Boolean(await findNumberReservationBySopNumber(normalizeSopNumberInput(number)))}
+        onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+      />
+
+      <SopDetailModal
+        isOpen={Boolean(selectedSopForDetail)}
+        sop={selectedSopForDetail}
+        onClose={() => setSelectedSopForDetail(null)}
+        onEdit={(sop) => {
+          setSelectedSopForDetail(null);
+          setSelectedSopForEdit(sop);
+        }}
+        onDelete={(sop) => handleDeleteSop(sop.id, sop.title)}
+        onUpdateStatus={handleUpdateStatus}
+        onCopyNumber={handleCopyNumber}
+        onActivateSop={(sop) => {
+          const isExisting = sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop;
+          if (!isExisting) setSelectedSopForActivation(sop);
+        }}
+        userSession={userSession}
+      />
+
+      <AktivasiSopModal
+        isOpen={Boolean(selectedSopForActivation)}
+        sop={selectedSopForActivation}
+        adminSession={userSession}
+        onClose={() => setSelectedSopForActivation(null)}
+        onConfirmActivation={handleConfirmActivation}
+      />
+
+      <DeleteConfirmModal
+        isOpen={Boolean(sopToDelete)}
+        sopNumber={sopToDelete?.sopNumber}
+        title={sopToDelete?.title}
+        onClose={() => setSopToDelete(null)}
+        onConfirm={confirmDeleteSop}
+      />
+
+      <EditSopModal
+        key={selectedSopForEdit?.id || 'none'}
+        isOpen={Boolean(selectedSopForEdit)}
+        sop={selectedSopForEdit}
+        onClose={() => setSelectedSopForEdit(null)}
+        onSubmit={handleUpdateSop}
+        divisions={divisions}
+        categories={categories}
+        userSession={userSession}
+        sops={sops}
+      />
+
+      <PrintRegisterModal
+        isOpen={isPrintRegisterOpen}
+        onClose={() => setIsPrintRegisterOpen(false)}
+        sops={sops}
+        initialDivisionFilter={filters.division || 'ALL'}
+      />
+
+      <UserManagementModal
+        isOpen={isUserManagementOpen}
+        onClose={() => setIsUserManagementOpen(false)}
+        users={users}
+        onSaveUser={handleSaveUser}
+        onDeleteUser={handleDeleteUser}
+        onShowToast={addToast}
+      />
+
+      <SecurityAccountPanel
+        isOpen={isSecurityOpen}
+        userSession={userSession}
+        isAdmin={true}
+        onClose={() => setIsSecurityOpen(false)}
+        onLogout={handleLogout}
+        onShowToast={addToast}
+      />
+
+      <MasterDataModal isOpen={isMasterDataOpen} onClose={() => setIsMasterDataOpen(false)} />
+      <BackupRestorePanel
+        isOpen={isBackupRestoreOpen}
+        onClose={() => setIsBackupRestoreOpen(false)}
+        onBackup={handleAdminBackup}
+        onRestore={handleAdminRestore}
+        isRestoring={isRestoring}
+        restoreProgress={restoreProgress}
+      />
+      <MaintenanceModal
+        isOpen={isMaintenanceModalOpen}
+        onClose={() => setIsMaintenanceModalOpen(false)}
+        currentMode={maintenanceMode}
+        onSave={handleSaveMaintenanceMode}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+    </div>
+  );
+}

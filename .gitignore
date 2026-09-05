@@ -1,0 +1,9 @@
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+node_modules/
+.env
+.env.*
+!.env.example
+
+.vercel
+.env*
