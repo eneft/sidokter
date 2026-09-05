@@ -72,13 +72,20 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
     headers['X-User-Username'] = s.username;
   }
   let response: Response;
+  const sendRequest = () => fetch(AUTH_API_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ action, ...body }),
+    cache: 'no-store'
+  });
+
   try {
-    response = await fetch(AUTH_API_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ action, ...body }),
-      cache: 'no-store'
-    });
+    response = await sendRequest();
+    // Retry once if server error (e.g., 500/502/503/504 cold-start in Vercel or upstream)
+    if (response.status >= 500 && action !== 'logout') {
+      await new Promise(r => setTimeout(r, 600));
+      response = await sendRequest();
+    }
   } catch (netErr: any) {
     console.warn(`[authService] Network error calling ${AUTH_API_URL}:`, netErr);
     if (AUTH_API_URL !== '/api/auth') {
@@ -104,7 +111,11 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
   let payload:any={};
   try { payload=await response.json(); } catch {}
   if(!response.ok){
-    const err:any=new Error(payload?.message||`Layanan autentikasi gagal (HTTP ${response.status}).`);
+    const message = payload?.message
+      || payload?.error?.message
+      || (typeof payload?.error === 'string' ? payload.error : '')
+      || `Layanan autentikasi gagal (HTTP ${response.status}).`;
+    const err:any=new Error(message);
     err.status=response.status;
     err.lockedOut=payload?.lockedOut;
     err.remainingMinutes=payload?.remainingMinutes;

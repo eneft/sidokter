@@ -5,19 +5,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/auth",
-      "destination": "/api/auth/index"
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth"
     },
     {
-      "source": "/api/auth/:match*",
-      "destination": "/api/auth/:match*"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
