@@ -1058,37 +1058,6 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                   </button>
                 </div>
 
-                {documentType === 'BARU' && (
-                  <div className="mt-3 p-4 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/60 space-y-2.5">
-                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
-                      <Upload className="w-4 h-4 text-indigo-600" />
-                      <span>Import SPO dari Microsoft Word (.DOCX)</span>
-                      <span className="text-[10px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">OTOMATIS</span>
-                    </div>
-                    <p className="text-[11px] text-indigo-900 leading-relaxed">
-                      Upload file Word SPO. Sistem akan mencoba mendeteksi <strong>Judul</strong>, <strong>Tanggal</strong>, dan bagian <strong>Pengertian, Tujuan, Kebijakan, Prosedur, Alur, Unit Terkait</strong>, lalu mengisinya ke form untuk diperiksa sebelum diterbitkan.
-                    </p>
-                    <input
-                      id="admin-upload-docx-import"
-                      type="file"
-                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      onChange={handleFileChange}
-                      disabled={isParsingDocx}
-                      className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer disabled:opacity-60"
-                    />
-                    {isParsingDocx && (
-                      <div className="flex items-center gap-2 text-[11px] font-semibold text-indigo-800">
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Memproses file Word…
-                      </div>
-                    )}
-                    {docxImportMessage && (
-                      <div className="text-[11px] font-semibold text-indigo-900 bg-white border border-indigo-200 rounded-lg px-3 py-2">
-                        {docxImportMessage}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Input Detail SPO Lama jika mode LAMA */}
                 {documentType === 'LAMA' && (
                   <div className="mt-3 pt-3 border-t border-purple-200 space-y-4 bg-purple-50/90 p-4 rounded-xl border border-purple-300">
@@ -1422,6 +1391,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
             {/* 3. Isi Standar Naskah SPO — template live yang sama dengan Edit/Revisi */}
             {activeTab === 'konten' && documentType !== 'LAMA' && (
+              <>
               <SopLiveTemplate
                 title={title}
                 onTitleChange={setTitle}
@@ -1444,6 +1414,38 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 onUnitTerkaitChange={setUnitTerkait}
                 missingSections={missingSections}
               />
+
+                {documentType === 'BARU' && (
+                  <div className="mt-3 p-4 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/60 space-y-2.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                      <Upload className="w-4 h-4 text-indigo-600" />
+                      <span>Import SPO dari Microsoft Word (.DOCX)</span>
+                      <span className="text-[10px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">OTOMATIS</span>
+                    </div>
+                    <p className="text-[11px] text-indigo-900 leading-relaxed">
+                      Upload file Word SPO. Sistem akan mencoba mendeteksi <strong>Judul</strong>, <strong>Tanggal</strong>, dan bagian <strong>Pengertian, Tujuan, Kebijakan, Prosedur, Alur, Unit Terkait</strong>, lalu mengisinya ke form untuk diperiksa sebelum diterbitkan.
+                    </p>
+                    <input
+                      id="admin-upload-docx-import"
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={handleFileChange}
+                      disabled={isParsingDocx}
+                      className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer disabled:opacity-60"
+                    />
+                    {isParsingDocx && (
+                      <div className="flex items-center gap-2 text-[11px] font-semibold text-indigo-800">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Memproses file Word…
+                      </div>
+                    )}
+                    {docxImportMessage && (
+                      <div className="text-[11px] font-semibold text-indigo-900 bg-white border border-indigo-200 rounded-lg px-3 py-2">
+                        {docxImportMessage}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             {activeTab === 'lampiran' && (
