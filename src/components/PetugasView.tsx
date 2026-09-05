@@ -33,7 +33,8 @@ import {
   AlertTriangle,
   Info,
   LayoutList,
-  Table as TableIcon
+  Table as TableIcon,
+  FileUp
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -47,6 +48,7 @@ import {
 } from '../types';
 import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
+import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
   SOEGIRI_HOSPITAL_INFO,

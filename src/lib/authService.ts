@@ -42,15 +42,16 @@ const AUTH_API_URL = (import.meta as any).env?.VITE_AUTH_CLIENT_DIRECT === 'true
 async function getIdToken(forceRefresh=false):Promise<string|null>{
   try {
     await authPersistenceReady;
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady();
+    }
     if (auth.currentUser) {
       const token = await auth.currentUser.getIdToken(forceRefresh);
       if (token) return token;
     }
-    const s = getPersistedClientSession();
-    return s?.sessionId || null;
+    return null;
   } catch {
-    const s = getPersistedClientSession();
-    return s?.sessionId || null;
+    return null;
   }
 }
 
@@ -58,9 +59,8 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
   const bearer = token === undefined ? await getIdToken() : token;
   const s = getPersistedClientSession();
   const headers:Record<string,string>={'Content-Type':'application/json','Accept':'application/json'};
-  if (bearer) {
+  if (bearer && typeof bearer === 'string' && bearer.includes('.')) {
     headers.Authorization=`Bearer ${bearer}`;
-    headers['X-Session-Id'] = bearer;
   }
   if (s?.sessionId) {
     headers['X-Session-Id'] = s.sessionId;
@@ -141,15 +141,23 @@ function buildSession(raw:any):UserSession{
 export async function validatePersistedClientSession(session?:UserSession|null){
   try {
     await authPersistenceReady;
-    if(!auth.currentUser && !session?.sessionId) return false;
-    const payload=await callAuthApi('session', {}, session?.sessionId || null);
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady();
+    }
+    const currentSession = session || getPersistedClientSession();
+    if (!currentSession?.sessionId) return false;
+    const payload=await callAuthApi('session', {});
     return !!payload?.success && !!payload?.session;
   } catch { return false; }
 }
 
 export async function refreshUserSessionProfile(session?:UserSession|null):Promise<UserSession|null>{
   try {
-    const payload=await callAuthApi('session', {}, session?.sessionId || null);
+    await authPersistenceReady;
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady();
+    }
+    const payload=await callAuthApi('session', {});
     if(!payload?.success||!payload?.session)return null;
     const refreshed=buildSession(payload.session);
     persistClientSession(refreshed);

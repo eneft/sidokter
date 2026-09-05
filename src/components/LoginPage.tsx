@@ -2,19 +2,16 @@ import React, { useState } from 'react';
 import {
   User,
   Lock,
-  LogIn,
   Eye,
   EyeOff,
   ShieldAlert,
   Clock,
   Loader2,
-  FileText,
   KeyRound,
   Wrench,
-  Building2,
-  Award,
-  Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  ArrowRight,
+  FileText,
 } from 'lucide-react';
 import { UserSession } from '../types';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
@@ -33,7 +30,7 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({
   onLogin,
   inactivityNotice,
-  maintenanceMode
+  maintenanceMode,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -67,7 +64,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const result = await authenticateUser(cleanUser, cleanPass);
 
       if (result.success && result.session) {
-        // Rotate the GEMES reminder only on a real successful login.
         try {
           const key = `sidokter.gemes.loginIndex.${cleanUser}`;
           const current = Number.parseInt(localStorage.getItem(key) || '0', 10);
@@ -80,17 +76,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         onLogin(result.session);
       } else {
         setErrorMsg(result.message || 'Gagal masuk ke sistem.');
-
-        if (result.lockedOut) {
-          setIsLockedOut(true);
-        }
+        if (result.lockedOut) setIsLockedOut(true);
       }
     } catch (err: any) {
       console.error('Authentication error:', err);
-      setErrorMsg(
-        err?.message ||
-          'Terjadi gangguan pada koneksi server autentikasi.'
-      );
+      setErrorMsg(err?.message || 'Terjadi gangguan pada koneksi server autentikasi.');
     } finally {
       setIsSubmitting(false);
     }
@@ -102,368 +92,309 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   const handleInitialAdminSetup = async (e: React.FormEvent) => {
-    e.preventDefault(); setSetupMessage('');
-    if (setupPassword !== setupPassword2) { setSetupMessage('Konfirmasi password tidak sama.'); return; }
-    if (setupPassword.length < 8 || !/[A-Z]/.test(setupPassword) || !/[a-z]/.test(setupPassword) || !/[0-9]/.test(setupPassword)) {
-      setSetupMessage('Password Admin minimal 8 karakter dan wajib mengandung huruf besar, huruf kecil, serta angka.'); return;
+    e.preventDefault();
+    setSetupMessage('');
+    if (!setupSecret.trim()) {
+      setSetupMessage('Setup key server wajib diisi.');
+      return;
+    }
+    if (setupPassword !== setupPassword2) {
+      setSetupMessage('Konfirmasi password tidak sama.');
+      return;
+    }
+    if (
+      setupPassword.length < 8 ||
+      !/[A-Z]/.test(setupPassword) ||
+      !/[a-z]/.test(setupPassword) ||
+      !/[0-9]/.test(setupPassword)
+    ) {
+      setSetupMessage('Password Admin minimal 8 karakter dan wajib mengandung huruf besar, huruf kecil, serta angka.');
+      return;
     }
     setSetupBusy(true);
-    const keyToUse = setupSecret.trim() || 'soegiri-admin-secret-2025';
-    const result = await provisionInitialAdmin(keyToUse, setupPassword);
+    const result = await provisionInitialAdmin(setupSecret.trim(), setupPassword);
     setSetupBusy(false);
     if (result.success) {
-      setShowAdminSetup(false); setSetupSecret(''); setSetupPassword(''); setSetupPassword2('');
-      setUsername('admin'); setPassword(setupPassword); setErrorMsg('');
+      setShowAdminSetup(false);
+      setSetupSecret('');
+      setSetupPassword('');
+      setSetupPassword2('');
+      setUsername('admin');
+      setPassword('');
+      setErrorMsg('');
       setSetupMessage('Admin berhasil dibuat. Silakan login dengan password yang baru Anda buat.');
-    } else setSetupMessage(result.message || 'Provisioning Admin gagal.');
+    } else {
+      setSetupMessage(result.message || 'Provisioning Admin gagal.');
+    }
   };
 
+  const featureItems = [
+    ['Tata Kelola Dokumen', 'Lebih terstruktur'],
+    ['Transparan & Akuntabel', 'Pengendalian dokumen'],
+    ['Kolaborasi Unit Kerja', 'Terintegrasi'],
+  ];
+
   return (
-    <div
+    <main
       id="login-page-container"
-      className="min-h-screen w-full flex flex-col lg:grid lg:grid-cols-12 bg-slate-900 text-slate-900 selection:bg-emerald-500 selection:text-white"
+      className="relative h-[100dvh] min-h-0 w-full overflow-hidden bg-white text-slate-900 selection:bg-teal-600 selection:text-white"
     >
-      {/* =========================================================
-          LEFT PANEL: EXECUTIVE HOSPITAL SHOWCASE (DESKTOP)
-      ========================================================== */}
-      <div
-        id="login-showcase-panel"
-        className="relative hidden lg:flex lg:col-span-7 xl:col-span-7 flex-col justify-between p-8 xl:p-12 overflow-hidden bg-slate-950 text-white"
-      >
-        {/* Background Image Layer */}
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-transform duration-1000 scale-105"
-          style={{
-            backgroundImage: "url('/login-background.png')",
-            filter: 'brightness(0.38) contrast(1.15) saturate(1.1)'
-          }}
-        />
+      {/* The supplied RSUD sketch is the actual page background on every breakpoint. */}
+      <img
+        src="/login-background.png"
+        alt=""
+        aria-hidden="true"
+        className="login-background-image pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+      />
 
-        {/* Sophisticated Dark Emerald Vignette Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-950/85 to-emerald-950/75" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-emerald-500/15 via-transparent to-transparent pointer-events-none" />
+      {/* Very subtle background treatment: the supplied sketch remains visible but never competes with the login form. */}
+      <div className="pointer-events-none absolute inset-0 bg-white/10" />
 
-        {/* TOP BRANDING BAR */}
-        <div className="relative z-10 flex items-center justify-between">
-          <div id="login-showcase-logo-badge" className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 p-1 flex items-center justify-center shadow-lg shadow-black/20">
-              <img
-                src="/logo_soegiri_transparent.png"
-                alt="Logo RSUD Dr. Soegiri"
-                className="w-full h-full object-contain"
-              />
+      <div className="relative z-10 mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col px-3 py-3 sm:px-5 sm:py-4 lg:px-10 lg:py-5 xl:px-12">
+        {/* HEADER */}
+        <header className="flex shrink-0 items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/95 p-1 sm:h-10 sm:w-10 lg:h-11 lg:w-11">
+              <HospitalLogo size="lg" />
             </div>
-            <div>
-              <p className="text-[10px] font-semibold tracking-wider text-emerald-300 uppercase">
-                {SOEGIRI_HOSPITAL_INFO.government}
+            <div className="leading-tight">
+              <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:text-[9px] sm:tracking-[0.18em]">
+                Pemerintah Kabupaten Lamongan
               </p>
-              <h2 className="text-sm font-bold text-white tracking-tight">
-                {SOEGIRI_HOSPITAL_INFO.hospitalName}
-              </h2>
-            </div>
-          </div>
-
-          <div
-            id="login-showcase-accreditation-badge"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 backdrop-blur-md text-[11px] text-emerald-200 font-medium"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <Award className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Akreditasi Paripurna KARS</span>
-          </div>
-        </div>
-
-        {/* CENTER HERO COPY & VALUE PROPOSITIONS */}
-        <div className="relative z-10 my-auto py-8 xl:py-12 max-w-xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/10 border border-white/15 backdrop-blur-md text-xs font-semibold text-emerald-300 mb-4">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Portal Tata Naskah & Dokumen Resmi Terintegrasi</span>
-          </div>
-
-          <h1
-            id="login-showcase-hero-heading"
-            className="text-2xl xl:text-3xl font-extrabold text-white tracking-tight leading-snug mb-4 font-sans"
-          >
-            Tata Kelola Naskah Dinas & Dokumen Resmi Rumah Sakit yang Terintegrasi
-          </h1>
-
-          <p className="text-sm text-slate-300 leading-relaxed mb-8">
-            Platform terpadu RSUD Dr. Soegiri Lamongan untuk penyusunan, penomoran,
-            pengesahan, pelacakan, dan pengarsipan naskah dinas serta dokumen resmi secara tertib dan akuntabel.
-          </p>
-
-          {/* Core Capability Cards */}
-          <div id="login-showcase-features-list" className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <div
-              id="login-showcase-feature-tatanaskah"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
-            >
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0 text-emerald-300 mt-0.5">
-                <FileText className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Tata Naskah Dinas</h3>
-                <p className="text-[11px] text-slate-300 leading-normal">
-                  Surat, nota dinas, undangan, surat tugas, disposisi, berita acara, dan naskah kedinasan lainnya.
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="login-showcase-feature-regulasi"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
-            >
-              <div className="w-9 h-9 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center shrink-0 text-indigo-300 mt-0.5">
-                <Building2 className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Dokumen Regulasi</h3>
-                <p className="text-[11px] text-slate-300 leading-normal">
-                  SPO, SK, kebijakan, pedoman, keputusan, dan dokumen standar rumah sakit dalam satu sistem.
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="login-showcase-feature-kerjasama"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
-            >
-              <div className="w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0 text-sky-300 mt-0.5">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Kerja Sama & Dokumen Resmi</h3>
-                <p className="text-[11px] text-slate-300 leading-normal">
-                  MOU, perjanjian, dokumen eksternal, serta berkas resmi dengan pengelolaan masa berlaku yang terpantau.
-                </p>
-              </div>
-            </div>
-
-            <div
-              id="login-showcase-feature-control"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.10] border border-white/10 backdrop-blur-md transition-all duration-200"
-            >
-              <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-400/30 flex items-center justify-center shrink-0 text-amber-300 mt-0.5">
-                <Award className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-bold text-white mb-0.5">Pengesahan, Tracking & Arsip</h3>
-                <p className="text-[11px] text-slate-300 leading-normal">
-                  Penomoran, paraf, TTD, stempel, status, riwayat perubahan, pelacakan, dan arsip dokumen terintegrasi.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* BOTTOM SHOWCASE FOOTER */}
-        <div
-          id="login-showcase-footer"
-          className="relative z-10 pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400"
-        >
-          <span>{SOEGIRI_HOSPITAL_INFO.address}</span>
-          <span className="flex items-center gap-1.5 font-mono text-[10px] text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Sistem Aktif & Terlindungi
-          </span>
-        </div>
-      </div>
-
-      {/* =========================================================
-          RIGHT PANEL: AUTHENTICATION FORM (DESKTOP & MOBILE)
-      ========================================================== */}
-      <div
-        id="login-auth-panel"
-        className="flex-1 lg:col-span-5 xl:col-span-5 flex flex-col justify-between p-6 sm:p-10 lg:p-12 xl:p-14 bg-slate-50 relative overflow-y-auto"
-      >
-        {/* Subtle decorative background pattern */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-40 pointer-events-none" />
-
-        <div className="relative z-10 w-full max-w-md mx-auto my-auto py-4">
-          {/* MOBILE HEADER (Visible on screens < lg) */}
-          <div id="login-mobile-header" className="text-center mb-6 lg:hidden">
-            <div className="flex justify-center mb-3">
-              <div className="w-16 h-16 rounded-2xl bg-white p-2 shadow-md border border-slate-200/80 flex items-center justify-center">
-                <HospitalLogo size="md" />
-              </div>
-            </div>
-            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
-              SIDOKTER SOEGIRI
-            </h1>
-            <p className="text-xs text-emerald-700 font-bold mt-0.5">
-              {SOEGIRI_HOSPITAL_INFO.shortName}
-            </p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Sistem Informasi Dokumen Terpadu & Tata Naskah
-            </p>
-          </div>
-
-          {/* AUTHENTICATION CARD */}
-          <div
-            id="login-auth-card"
-            className="bg-white rounded-2xl shadow-xl shadow-slate-200/70 border border-slate-200/80 p-6 sm:p-8"
-          >
-            {/* Header with Title & Subtitle */}
-            <div id="login-card-header" className="mb-6">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200/70 flex items-center justify-center text-emerald-600">
-                  <KeyRound className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100/60 px-2 py-0.5 rounded-full">
-                  Portal Masuk Resmi
-                </span>
-              </div>
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                Masuk ke Akun Anda
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Silakan masukkan kredensial akun terdaftar untuk mengakses tata naskah.
+              <p className="mt-0.5 text-xs font-extrabold text-[#183b63] sm:text-sm">
+                {SOEGIRI_HOSPITAL_INFO.shortName}
               </p>
             </div>
+          </div>
 
-            {/* MAINTENANCE NOTICE */}
-            {maintenanceMode?.enabled && (
-              <div
-                id="login-maintenance-notice"
-                className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2.5 animate-fade-in"
-              >
-                <Wrench className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="leading-snug">
-                  <div className="font-bold text-amber-950">
-                    Mode Pemeliharaan Sistem Aktif
-                  </div>
-                  <div className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                    {maintenanceMode.message ||
-                      'Sistem sedang dalam proses pemeliharaan berkala. Akses saat ini dibatasi khusus untuk akun Administrator.'}
-                  </div>
-                </div>
-              </div>
-            )}
+          <div className="hidden items-center gap-3 text-[11px] font-semibold text-slate-500 md:flex">
+            <span>Dokumen Tertata</span>
+            <span className="text-slate-300">|</span>
+            <span>Layanan Berkualitas</span>
+            <span className="text-slate-300">|</span>
+            <span className="text-[#087f70]">Soegiri Semakin Baik</span>
+            <span className="ml-2 h-1 w-14 rounded-full bg-[#0b9b83]" />
+          </div>
+        </header>
 
-            {/* INACTIVITY TIMEOUT NOTICE */}
-            {inactivityNotice && (
-              <div
-                id="login-inactivity-notice"
-                className="mb-4 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2.5 animate-fade-in"
-              >
-                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span className="leading-snug text-[11px]">
-                  {inactivityNotice}
-                </span>
-              </div>
-            )}
-
-            {/* ERROR ALERT */}
-            {errorMsg && (
-              <div
-                id="login-error-notice"
-                className={`mb-4 p-3.5 rounded-xl text-xs flex items-start gap-2.5 border animate-shake ${
-                  isLockedOut
-                    ? 'bg-rose-50 border-rose-200 text-rose-900'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
-              >
-                {isLockedOut ? (
-                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                ) : (
-                  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-rose-200/80 text-rose-700 font-bold text-[10px] shrink-0 mt-0.5">!
+        {/* MAIN */}
+        <div className="flex min-h-0 flex-1 items-center py-2 sm:py-3 lg:py-2">
+          <div className="grid w-full min-h-0 items-center gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,370px)] lg:gap-8 xl:gap-10">
+            {/* BRANDING */}
+            <section id="login-brand-panel" className="order-2 max-w-3xl lg:order-1 lg:pb-0">
+              <div className="max-w-2xl rounded-[24px] border border-white/55 bg-white/35 p-4 shadow-[0_20px_60px_-45px_rgba(15,23,42,.25)] sm:p-5 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#1b486f] sm:text-xs">
+                  SISTEM DOKUMEN TERPADU
+                </p>
+                <h1
+                  id="login-brand-title"
+                  className="mt-1 text-[2.8rem] font-black leading-[.88] tracking-[-0.065em] text-[#173b65] sm:text-[3.8rem] md:text-[4.2rem] lg:text-[4.5rem] xl:text-[5.1rem]"
+                >
+                  SID<span className="text-[#07977d]">OKTER</span>
+                </h1>
+                <div className="mt-3 flex items-center gap-3 sm:mt-4">
+                  <span className="h-1 w-16 rounded-full bg-[#07977d] sm:w-20" />
+                  <span className="text-xs font-bold uppercase tracking-[0.24em] text-[#173b65] sm:text-sm">
+                    SOEGIRI
                   </span>
-                )}
-                <span className="leading-snug text-[11px] font-medium">{errorMsg}</span>
+                </div>
+                <p className="mt-2 max-w-xl text-xs font-medium leading-5 text-[#274967] sm:text-sm sm:leading-6 lg:text-base">
+                  Tata naskah dan dokumen resmi RSUD Dr. Soegiri Lamongan dalam satu sistem yang tertib, aman, dan terintegrasi.
+                </p>
+                <div className="mt-2 flex items-center gap-3 sm:mt-3">
+                  <span className="text-lg font-semibold italic tracking-[-0.04em] text-[#173b65] sm:text-xl">
+                    Soegiri Semakin Baik
+                  </span>
+                  <span className="hidden h-0.5 w-20 bg-[#07977d] sm:block" />
+                </div>
+
+                <div className="mt-3 hidden max-w-2xl gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3 md:grid">
+                  {featureItems.map(([title, subtitle]) => (
+                    <div
+                      key={title}
+                      className="rounded-2xl border border-white/70 bg-white/75 px-3 py-2.5 shadow-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#e8f5f2] text-[#087f70]">
+                          <FileText className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-[11px] font-extrabold text-[#173b65]">{title}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">{subtitle}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            </section>
 
-            {showAdminSetup && (
-              <form id="initial-admin-setup-form" onSubmit={handleInitialAdminSetup} className="mb-5 p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 space-y-3">
-                <div>
-                  <div className="text-sm font-bold text-slate-900">Setup Administrator Pertama</div>
-                  <p className="text-[11px] text-slate-600 mt-1">
-                    Masukkan setup key server (default: <code className="bg-emerald-100/70 px-1 py-0.5 rounded text-emerald-900 font-mono text-[10px]">soegiri-admin-secret-2025</code>) dan tentukan password baru untuk Administrator.
-                  </p>
-                </div>
-                <input type="password" autoComplete="off" value={setupSecret} onChange={e=>setSetupSecret(e.target.value)} placeholder="Setup key (default: soegiri-admin-secret-2025)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-600 bg-white" disabled={setupBusy}/>
-                <input type="password" autoComplete="new-password" value={setupPassword} onChange={e=>setSetupPassword(e.target.value)} placeholder="Password Admin baru (min. 8 karakter)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-600 bg-white" disabled={setupBusy}/>
-                <input type="password" autoComplete="new-password" value={setupPassword2} onChange={e=>setSetupPassword2(e.target.value)} placeholder="Ulangi password Admin baru" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-600 bg-white" disabled={setupBusy}/>
-                {setupMessage && <div className="text-[11px] font-medium text-slate-700 bg-white border border-slate-200 rounded-lg p-2">{setupMessage}</div>}
-                <div className="flex gap-2">
-                  <button type="submit" disabled={setupBusy} className="flex-1 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-60 transition-colors">
-                    {setupBusy ? 'Memproses...' : 'Simpan Admin Baru'}
-                  </button>
-                  <button type="button" onClick={()=>{setShowAdminSetup(false);setSetupMessage('');}} className="px-3 h-9 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* LOGIN FORM */}
-            <form id="login-form" onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="login-username-input" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Nama Pengguna <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-emerald-600 transition-colors">
-                    <User className="w-4 h-4" />
+            {/* LOGIN CARD */}
+            <section id="login-auth-panel" className="order-1 flex min-h-0 w-full justify-center lg:order-2 lg:justify-end">
+              <div className="w-full max-w-[360px] sm:max-w-[370px]">
+                <div
+                  id="login-auth-card"
+                  className="rounded-[20px] border border-slate-200/80 bg-white p-4 shadow-[0_20px_55px_-30px_rgba(15,43,69,.32)] sm:rounded-[22px] sm:p-5"
+                >
+                  <div id="login-card-header" className="mb-3">
+                    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9f6f3] text-[#087f70] ring-1 ring-[#cdebe4]">
+                      <KeyRound className="h-5 w-5" />
+                    </div>
+                    <h2 className="text-[1.35rem] font-extrabold tracking-[-0.03em] text-[#173b65] sm:text-[1.45rem]">
+                      Masuk ke SIDOKTER
+                    </h2>
+                    <p className="mt-1 text-[11px] leading-4.5 text-slate-500 sm:text-xs">
+                      Gunakan akun terdaftar untuk mengakses Sistem Dokumen Terpadu Soegiri.
+                    </p>
                   </div>
-                  <input id="login-username-input" name="username" type="text" autoComplete="username" value={username}
-                    disabled={isSubmitting} onChange={(e) => { setUsername(e.target.value); if (errorMsg) setErrorMsg(''); }}
-                    placeholder="Masukkan nama pengguna" className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100" autoFocus />
-                </div>
-              </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="login-password-input" className="block text-xs font-semibold text-slate-700">
-                    Kata Sandi <span className="text-rose-500">*</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400">Sensitif Huruf Besar/Kecil</span>
-                </div>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-emerald-600 transition-colors">
-                    <Lock className="w-4 h-4" />
+                  {maintenanceMode?.enabled && (
+                    <div id="login-maintenance-notice" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                      <Wrench className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      <div className="text-xs leading-5">
+                        <div className="font-bold">Pemeliharaan Sistem</div>
+                        <div className="text-amber-800">{maintenanceMode.message || 'Akses sedang dibatasi untuk proses pemeliharaan.'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {inactivityNotice && (
+                    <div id="login-inactivity-notice" className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      <span>{inactivityNotice}</span>
+                    </div>
+                  )}
+
+                  {errorMsg && (
+                    <div id="login-error-notice" className={`mb-5 flex items-start gap-3 rounded-2xl border p-4 text-xs leading-5 ${isLockedOut ? 'border-rose-200 bg-rose-50 text-rose-900' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                      <span className="font-medium">{errorMsg}</span>
+                    </div>
+                  )}
+
+                  {showAdminSetup && (
+                    <form id="initial-admin-setup-form" onSubmit={handleInitialAdminSetup} className="mb-6 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div>
+                        <div className="text-sm font-bold text-slate-900">Setup Administrator</div>
+                        <p className="mt-1 text-[11px] leading-4 text-slate-500">Gunakan setup key server yang diberikan administrator infrastruktur. Key tidak disimpan di halaman login.</p>
+                      </div>
+                      <input type="password" autoComplete="off" value={setupSecret} onChange={e => setSetupSecret(e.target.value)} placeholder="Setup key server" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#07977d] focus:ring-4 focus:ring-[#07977d]/10" disabled={setupBusy} />
+                      <input type="password" autoComplete="new-password" value={setupPassword} onChange={e => setSetupPassword(e.target.value)} placeholder="Password Admin baru" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#07977d] focus:ring-4 focus:ring-[#07977d]/10" disabled={setupBusy} />
+                      <input type="password" autoComplete="new-password" value={setupPassword2} onChange={e => setSetupPassword2(e.target.value)} placeholder="Ulangi password Admin" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#07977d] focus:ring-4 focus:ring-[#07977d]/10" disabled={setupBusy} />
+                      {setupMessage && <div className="rounded-xl border border-slate-200 bg-white p-3 text-[11px] font-medium text-slate-700">{setupMessage}</div>}
+                      <div className="flex gap-2 pt-1">
+                        <button type="submit" disabled={setupBusy} className="flex-1 rounded-xl bg-[#087f70] px-3 py-2.5 text-xs font-bold text-white transition hover:bg-[#066d60] disabled:opacity-60">
+                          {setupBusy ? 'Memproses...' : 'Simpan Administrator'}
+                        </button>
+                        <button type="button" onClick={() => { setShowAdminSetup(false); setSetupMessage(''); }} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">Batal</button>
+                      </div>
+                    </form>
+                  )}
+
+                  <form id="login-form" onSubmit={handleSubmit} className="space-y-3">
+                    <div>
+                      <label htmlFor="login-username-input" className="mb-1.5 block text-[11px] font-bold text-slate-700">
+                        Nama Pengguna <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="group relative">
+                        <User className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-slate-400 transition group-focus-within:text-[#087f70]" />
+                        <input
+                          id="login-username-input"
+                          name="username"
+                          type="text"
+                          autoComplete="username"
+                          autoFocus
+                          value={username}
+                          disabled={isSubmitting}
+                          onChange={e => { setUsername(e.target.value); if (errorMsg) setErrorMsg(''); }}
+                          placeholder="Masukkan nama pengguna"
+                          className="h-10 w-full rounded-xl border border-slate-300 bg-slate-50 pl-10 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:bg-white focus:border-[#087f70] focus:bg-white focus:ring-4 focus:ring-[#087f70]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between gap-3">
+                        <label htmlFor="login-password-input" className="text-[11px] font-bold text-slate-700">
+                          Kata Sandi <span className="text-rose-500">*</span>
+                        </label>
+                        <span className="text-[10px] font-medium text-slate-400">Peka huruf besar/kecil</span>
+                      </div>
+                      <div className="group relative">
+                        <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-slate-400 transition group-focus-within:text-[#087f70]" />
+                        <input
+                          id="login-password-input"
+                          name="password"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="current-password"
+                          value={password}
+                          disabled={isSubmitting}
+                          onChange={e => { setPassword(e.target.value); if (errorMsg) setErrorMsg(''); }}
+                          placeholder="Masukkan kata sandi"
+                          className="h-11 w-full rounded-2xl border border-slate-300 bg-slate-50 pl-11 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:bg-white focus:border-[#087f70] focus:bg-white focus:ring-4 focus:ring-[#087f70]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                        <button
+                          id="login-password-toggle-btn"
+                          type="button"
+                          onClick={() => setShowPassword(value => !value)}
+                          disabled={isSubmitting}
+                          className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center text-slate-400 transition hover:text-slate-700 disabled:opacity-50"
+                          title={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}
+                          aria-label={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}
+                        >
+                          {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      id="login-submit-btn"
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="group flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#173b65] px-4 text-sm font-extrabold text-white shadow-lg shadow-[#173b65]/15 transition hover:bg-[#123253] hover:shadow-xl active:bg-[#0e2841] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmitting ? (
+                        <><Loader2 className="h-[18px] w-[18px] animate-spin" /><span>Memvalidasi...</span></>
+                      ) : (
+                        <><span>Masuk</span><ArrowRight className="h-[18px] w-[18px] transition-transform group-hover:translate-x-0.5" /></>
+                      )}
+                    </button>
+                  </form>
+
+                  <div className="mt-4 flex items-center gap-2.5 border-t border-slate-100 pt-3">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-[#087f70]" />
+                    <p className="text-[11px] leading-5 text-slate-500">
+                      Akses hanya untuk pengguna terdaftar. Jaga kerahasiaan akun dan password Anda.
+                    </p>
                   </div>
-                  <input id="login-password-input" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password"
-                    value={password} disabled={isSubmitting} onChange={(e) => { setPassword(e.target.value); if (errorMsg) setErrorMsg(''); }}
-                    placeholder="Masukkan kata sandi Anda" className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 rounded-xl pl-10 pr-11 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all outline-none disabled:opacity-50 disabled:bg-slate-100" />
-                  <button id="login-password-toggle-btn" type="button" onClick={() => setShowPassword(!showPassword)} disabled={isSubmitting}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    title={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'} aria-label={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}>
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+
+                  <div className="mt-3 text-center">
+                    <button
+                      id="login-admin-setup-toggle"
+                      type="button"
+                      onClick={() => { setShowAdminSetup(value => !value); setSetupMessage(''); }}
+                      className="text-[10px] font-semibold text-slate-400 transition hover:text-[#087f70]"
+                    >
+                      {showAdminSetup ? 'Tutup Setup Administrator' : 'Administrasi Sistem'}
+                    </button>
+                  </div>
                 </div>
+
+                <footer id="login-auth-footer" className="mt-3 text-center">
+                  <p className="text-[10px] font-semibold text-slate-500">© 2026 {SOEGIRI_HOSPITAL_INFO.shortName}</p>
+                  <p className="mt-1 text-[9px] text-slate-400">Sistem Dokumen Terpadu Soegiri · Akses resmi RSUD</p>
+                </footer>
               </div>
-
-              <button id="login-submit-btn" type="submit" disabled={isSubmitting}
-                className="w-full h-11 px-4 mt-2 rounded-xl font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
-                {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin text-white" /><span>Memvalidasi Kredensial...</span></> : <><LogIn className="w-4 h-4" /><span>Masuk ke Sistem</span></>}
-              </button>
-            </form>
-            <div className="mt-4 flex flex-col items-center gap-1.5 text-center">
-              <button type="button" onClick={()=>setShowAdminSetup(!showAdminSetup)} className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 transition-colors">
-                {showAdminSetup ? 'Tutup Form Setup Administrator' : 'Setup / Reset Password Administrator'}
-              </button>
-              <span className="text-[10px] text-slate-500">
-                Akun default: <code className="font-mono font-medium text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">admin</code> / <code className="font-mono font-medium text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">AdminSoegiri@2025!</code>
-              </span>
-            </div>
-          </div>
-
-          {/* FOOTER METADATA */}
-          <div
-            id="login-auth-footer"
-            className="text-center text-[11px] text-slate-400 mt-6 space-y-1"
-          >
-            <p>
-              © 2026 {SOEGIRI_HOSPITAL_INFO.shortName}
-            </p>
-            <p className="text-[10px] text-slate-400/80">
-              Sistem Terproteksi Enkripsi Sesi Tunggal • Hak Cipta Dilindungi
-            </p>
+            </section>
           </div>
         </div>
+
+        {/* Small-screen footer marker */}
+        <div className="hidden">
+          <ShieldCheck className="h-3.5 w-3.5 text-[#087f70]" />
+          Sistem resmi RSUD Dr. Soegiri Lamongan
+        </div>
       </div>
-    </div>
+    </main>
   );
 };
-
