@@ -34,10 +34,10 @@ export function getPersistedClientSession():UserSession|null{
 }
 export function clearPersistedClientSession(){try{sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)}catch{}}
 
-const DEFAULT_AUTH_API_URL = `https://asia-southeast2-${firebaseConfig.projectId}.cloudfunctions.net/authApi`;
-const AUTH_API_URL = String(
-  (import.meta as any).env?.VITE_AUTH_API_URL || DEFAULT_AUTH_API_URL
-).replace(/\/$/,'');
+// Use same-origin /api/auth proxy by default to avoid browser CORS issues.
+const AUTH_API_URL = (import.meta as any).env?.VITE_AUTH_CLIENT_DIRECT === 'true'
+  ? String((import.meta as any).env?.VITE_AUTH_API_URL || `https://asia-southeast2-${firebaseConfig.projectId}.cloudfunctions.net/authApi`).replace(/\/$/,'')
+  : '/api/auth';
 
 async function getIdToken(forceRefresh=false):Promise<string|null>{
   try {
@@ -56,10 +56,20 @@ async function getIdToken(forceRefresh=false):Promise<string|null>{
 
 async function callAuthApi(action:string, body:Record<string,any>={}, token?:string|null){
   const bearer = token === undefined ? await getIdToken() : token;
+  const s = getPersistedClientSession();
   const headers:Record<string,string>={'Content-Type':'application/json','Accept':'application/json'};
   if (bearer) {
     headers.Authorization=`Bearer ${bearer}`;
     headers['X-Session-Id'] = bearer;
+  }
+  if (s?.sessionId) {
+    headers['X-Session-Id'] = s.sessionId;
+  }
+  if (s?.authUid) {
+    headers['X-Soegiri-Auth-Uid'] = s.authUid;
+  }
+  if (s?.username) {
+    headers['X-User-Username'] = s.username;
   }
   let response: Response;
   try {
@@ -128,22 +138,22 @@ function buildSession(raw:any):UserSession{
 }
 
 /** Server-authoritative session validation. Browser storage is only a cache. */
-export async function validatePersistedClientSession(_session:UserSession){
+export async function validatePersistedClientSession(session?:UserSession|null){
   try {
     await authPersistenceReady;
-    if(!auth.currentUser)return false;
-    const payload=await callAuthApi('session');
+    if(!auth.currentUser && !session?.sessionId) return false;
+    const payload=await callAuthApi('session', {}, session?.sessionId || null);
     return !!payload?.success && !!payload?.session;
   } catch { return false; }
 }
 
-export async function refreshUserSessionProfile(_session:UserSession):Promise<UserSession|null>{
+export async function refreshUserSessionProfile(session?:UserSession|null):Promise<UserSession|null>{
   try {
-    const payload=await callAuthApi('session');
+    const payload=await callAuthApi('session', {}, session?.sessionId || null);
     if(!payload?.success||!payload?.session)return null;
-    const session=buildSession(payload.session);
-    persistClientSession(session);
-    return session;
+    const refreshed=buildSession(payload.session);
+    persistClientSession(refreshed);
+    return refreshed;
   } catch {
     return null;
   }
@@ -174,10 +184,15 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
       if (!result.customToken || typeof result.customToken !== 'string') {
         throw new Error('AUTH_CUSTOM_TOKEN_MISSING');
       }
-      await signInWithCustomToken(auth, result.customToken);
-    } catch (tokenErr) {
+      if (result.customToken.includes('.')) {
+        await signInWithCustomToken(auth, result.customToken);
+      } else {
+        console.warn('[authService] Custom token is in local fallback format; skipping Firebase Auth remote sign-in.');
+      }
+    } catch (tokenErr: any) {
       try { await signOut(auth); } catch {}
-      const err:any = new Error('Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
+      console.error('[authService] Firebase Auth signInWithCustomToken error:', tokenErr);
+      const err: any = new Error(tokenErr?.message || 'Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
       err.status = 502;
       err.cause = tokenErr;
       throw err;

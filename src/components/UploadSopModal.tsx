@@ -34,6 +34,7 @@ import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { RichTextEditor } from './RichTextEditor';
 import { HierarchyPicker } from './HierarchyPicker';
 import { SopLiveTemplate } from './SopLiveTemplate';
+import { parseSopFromDocx } from '../utils/docxParser';
 
 interface UploadSopModalProps {
   isOpen: boolean;
@@ -128,6 +129,11 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<'info' | 'konten' | 'lampiran'>('info');
   const [missingSections, setMissingSections] = useState<string[]>([]);
+  // DOCX import state — the Word file is a temporary source only and is
+  // deliberately NOT assigned to selectedFile/fileDataUrl (those are attachments).
+  const [isImportingDocx, setIsImportingDocx] = useState(false);
+  const [docxImportError, setDocxImportError] = useState('');
+  const [docxImportSource, setDocxImportSource] = useState('');
 
   // Result Banner / Success Pop-Up State
   const [latestCreatedSop, setLatestCreatedSop] = useState<SopDocument | null>(null);
@@ -227,6 +233,72 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     return d.toISOString().split('T')[0];
   };
 
+  // DOCX Import Handler (SPO Baru / Tahap 3 only).
+  // This parses the Word document into the existing editable template and does
+  // not store the Word file as an attachment.
+  const handleDocxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    if (!isDocx) {
+      setDocxImportError('File sumber harus berformat Word .DOCX.');
+      return;
+    }
+
+    setIsImportingDocx(true);
+    setDocxImportError('');
+    try {
+      const parsed = await parseSopFromDocx(file);
+      // Import is a replacement of the editable Stage-3 content, not a merge
+      // with stale values from a previous import. Empty fields are cleared so
+      // the user can immediately see what the current Word file did not contain.
+      setTitle(parsed.title || '');
+      setEffectiveDate(parsed.effectiveDate || new Date().toISOString().split('T')[0]);
+      setPengertian(parsed.pengertian || '');
+      setTujuan(parsed.tujuan || '');
+      setKebijakan(parsed.kebijakan || '');
+      setProsedur(parsed.prosedur || '');
+      setAlur(parsed.alur || '');
+      setUnitTerkait(parsed.unitTerkait || '');
+      setActiveTab('konten');
+
+      const importedMissingSections = [
+        !parsed.pengertian ? 'PENGERTIAN' : '',
+        !parsed.tujuan ? 'TUJUAN' : '',
+        !parsed.kebijakan ? 'KEBIJAKAN' : '',
+        !parsed.prosedur ? 'PROSEDUR' : '',
+        !parsed.unitTerkait ? 'UNIT TERKAIT' : ''
+      ].filter(Boolean);
+      setMissingSections(importedMissingSections);
+      setDocxImportSource(file.name);
+
+      if (parsed.totalFieldsFound === 0) {
+        setDocxImportError('Isi Word belum berhasil dikenali. Pastikan dokumen memiliki label PENGERTIAN, TUJUAN, KEBIJAKAN, PROSEDUR, ALUR, dan UNIT TERKAIT.');
+      } else if (parsed.totalFieldsFound < 8) {
+        const missing = [
+          !parsed.title ? 'Judul' : '',
+          !parsed.effectiveDate ? 'Tanggal' : '',
+          !parsed.pengertian ? 'Pengertian' : '',
+          !parsed.tujuan ? 'Tujuan' : '',
+          !parsed.kebijakan ? 'Kebijakan' : '',
+          !parsed.prosedur ? 'Prosedur' : '',
+          !parsed.alur ? 'Alur' : '',
+          !parsed.unitTerkait ? 'Unit Terkait' : ''
+        ].filter(Boolean);
+        setDocxImportError(`Import berhasil sebagian (${parsed.totalFieldsFound}/8 bagian). Belum terbaca: ${missing.join(', ')}. Bagian tersebut tetap dapat diisi/edit manual.`);
+      }
+    } catch (error) {
+      console.error('[SPO DOCX Import] failed:', error);
+      setDocxImportError('Word tidak dapat dibaca. Pastikan file .DOCX valid dan tidak rusak.');
+    } finally {
+      setIsImportingDocx(false);
+    }
+  };
+
   // File Handlers
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -287,6 +359,9 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
   const resetForm = () => {
     setTitle('');
+    setIsImportingDocx(false);
+    setDocxImportError('');
+    setDocxImportSource('');
     setPengertian('');
     setTujuan('');
     setKebijakan('');
@@ -1261,6 +1336,46 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
             )}
 
             {/* 3. Isi Standar Naskah SPO — template live yang sama dengan Edit/Revisi */}
+            {activeTab === 'konten' && documentType === 'BARU' && (
+              <div className="mb-4 p-4 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/60">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-indigo-900">
+                      <Upload className="w-4 h-4 text-indigo-600" />
+                      Import SPO dari Word (.DOCX)
+                    </div>
+                    <p className="text-[11px] text-indigo-800 mt-1 leading-relaxed">
+                      Pilih file Word untuk mengisi otomatis Judul, Tanggal, Pengertian, Tujuan, Kebijakan, Prosedur, Alur, dan Unit Terkait. Hasil import masuk ke template Tahap 3 dan tetap bisa diedit. File Word hanya sebagai sumber import, bukan lampiran.
+                    </p>
+                  </div>
+                  <label className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white transition-colors ${
+                    isImportingDocx ? 'bg-slate-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                  }`}>
+                    {isImportingDocx ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {isImportingDocx ? 'Membaca Word…' : 'Pilih Word (.DOCX)'}
+                    <input
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={handleDocxImport}
+                      disabled={isImportingDocx}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {docxImportSource && !docxImportError && (
+                  <div className="mt-3 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    ✓ Sumber Word berhasil diimport: {docxImportSource}
+                  </div>
+                )}
+                {docxImportError && (
+                  <div className="mt-3 text-[11px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                    {docxImportError}
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'konten' && documentType !== 'LAMA' && (
               <SopLiveTemplate
                 title={title}

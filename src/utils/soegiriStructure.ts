@@ -507,3 +507,5 @@ export function isSopAccessibleByUser(
     return isHierarchyWithin(sopHierarchy, assignedHierarchy);
   });
 }
+
+export const userCanAccessSop = isSopAccessibleByUser;

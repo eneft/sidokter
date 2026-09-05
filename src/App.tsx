@@ -80,7 +80,8 @@ import {
   setupDocumentRealtimeWatcher, 
   scanDocumentsForPeriodicReviews, 
   dispatchDocumentEvent, 
-  evaluatePeriodicReview 
+  evaluatePeriodicReview,
+  NotificationType
 } from './lib/notificationService';
 import { LoginPage } from './components/LoginPage';
 import { UserView } from './components/UserView';
@@ -478,7 +479,7 @@ export default function App() {
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
 
   const addToast = (
-    type: 'success' | 'error' | 'info' | 'warning' | 'assignment' | 'review',
+    type: NotificationType,
     title: string,
     message?: string,
     options?: {
@@ -764,11 +765,9 @@ export default function App() {
       ? subscribeToUsers(
           (localUsers) => {
             setUsers(localUsers);
-            setLocalDataUnavailable(false);
           },
           (err) => {
-            setLocalDataUnavailable(true);
-            console.error('local database users subscription unavailable:', err);
+            console.warn('User subscription sync notice:', err?.message || err);
           }
         )
       : () => {};
@@ -1342,12 +1341,26 @@ export default function App() {
       `Nomor resmi ${finalSop.sopNumber} telah dialokasikan untuk "${finalSop.title}".`
     );
 
-    // Dispatch real-time assignment event
-    dispatchDocumentEvent(
-      'assignment',
-      finalSop,
-      `Dokumen baru "${finalSop.title}" (${finalSop.sopNumber}) telah diterbitkan dan dialokasikan untuk divisi ${finalSop.divisionCode}.`
-    );
+    // Dispatch real-time events based on status & role:
+    if (finalSop.status === 'DRAFT' && userSession?.role !== 'admin') {
+      dispatchDocumentEvent(
+        'proposal',
+        finalSop,
+        `Usulan aktivasi dari ${finalSop.creatorName || 'Pengguna'} (${finalSop.divisionName || finalSop.divisionCode}): SPO "${finalSop.title}" (${finalSop.sopNumber || 'Draft'}) menunggu pengesahan Admin.`
+      );
+    } else if (finalSop.status === 'AKTIF') {
+      dispatchDocumentEvent(
+        'activation',
+        finalSop,
+        `SPO "${finalSop.title}" (${finalSop.sopNumber}) telah disahkan & diaktifkan untuk ${finalSop.divisionName || finalSop.divisionCode}.`
+      );
+    } else {
+      dispatchDocumentEvent(
+        'assignment',
+        finalSop,
+        `Dokumen baru "${finalSop.title}" (${finalSop.sopNumber}) telah diterbitkan dan dialokasikan untuk divisi ${finalSop.divisionCode}.`
+      );
+    }
 
     return finalSop;
   };
@@ -1670,9 +1683,43 @@ export default function App() {
       setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);
       setSelectedSopForActivation(null);
       addToast('success', 'SPO Diaktifkan', `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`);
+      
+      // Dispatch activation event so users in this hierarchy receive notification
+      dispatchDocumentEvent(
+        'activation',
+        updated,
+        `SPO "${updated.title}" (${updated.sopNumber}) telah disahkan & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`
+      );
     } catch (err) {
       console.error('Error activating SOP:', err);
       addToast('error', 'Aktivasi Gagal', err instanceof Error ? err.message : 'Data aktivasi tidak dapat disimpan.');
+    }
+  };
+
+  const handleProposeActivation = async (sop: SopDocument) => {
+    const updated: SopDocument = {
+      ...sop,
+      activationRequestedAt: new Date().toISOString(),
+      activationRequestedBy: userSession?.name || userSession?.username || 'Pengguna'
+    };
+    try {
+      await saveSopToLocal(updated);
+      setSops((prev) => prev.map((s) => (s.id === sop.id ? updated : s)));
+      if (selectedSopForDetail?.id === sop.id) {
+        setSelectedSopForDetail(updated);
+      }
+      addToast(
+        'success',
+        'Usulan Aktivasi Terkirim',
+        `Usulan aktivasi SPO "${sop.title}" berhasil diajukan ke Admin Tata Naskah.`
+      );
+      dispatchDocumentEvent(
+        'proposal',
+        updated,
+        `Usulan aktivasi dari ${updated.activationRequestedBy} (${updated.divisionName || updated.divisionCode}): SPO "${updated.title}" (${updated.sopNumber || 'Draft'}) menunggu pengesahan.`
+      );
+    } catch (err: any) {
+      addToast('error', 'Gagal Mengirim Usulan', err?.message || 'Terjadi kesalahan.');
     }
   };
 
@@ -1854,6 +1901,7 @@ export default function App() {
           onDelete={() => {}}
           onUpdateStatus={handleUpdateStatus}
           onCopyNumber={handleCopyNumber}
+          onProposeActivation={handleProposeActivation}
           userSession={userSession}
         />
 
@@ -1931,6 +1979,7 @@ export default function App() {
           const isExisting = sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop;
           if (!isExisting) setSelectedSopForActivation(sop);
         }}
+        onProposeActivation={handleProposeActivation}
         userSession={userSession}
       />
 

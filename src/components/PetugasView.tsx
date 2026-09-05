@@ -384,6 +384,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
   const [alur, setAlur] = useState('');
   const [unitTerkait, setUnitTerkait] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // DOCX import is a temporary source for SPO Baru Tahap 3; it is never stored as an attachment.
+  const [isImportingDocx, setIsImportingDocx] = useState(false);
+  const [docxImportSource, setDocxImportSource] = useState('');
+  const [docxImportError, setDocxImportError] = useState('');
 
   // Mode Lama & Review fields
   const [manualLegacyNumber, setManualLegacyNumber] = useState('');
@@ -510,6 +514,56 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
       onShowToast?.('error', 'Penerbitan Nomor Gagal', message);
     } finally {
       setIsIssuingNumber(false);
+    }
+  };
+
+  // Import Word hanya aktif untuk SPO Baru Tahap 3. Hasilnya masuk ke state editor yang sama.
+  const handleDocxImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (!isDocx) {
+      setDocxImportError('File sumber harus berformat Word .DOCX.');
+      return;
+    }
+
+    setIsImportingDocx(true);
+    setDocxImportError('');
+    try {
+      const parsed = await parseSopFromDocx(file);
+      setTitle(parsed.title || '');
+      setEffectiveDate(parsed.effectiveDate || new Date().toISOString().split('T')[0]);
+      setPengertian(parsed.pengertian || '');
+      setTujuan(parsed.tujuan || '');
+      setKebijakan(parsed.kebijakan || '');
+      setProsedur(parsed.prosedur || '');
+      setAlur(parsed.alur || '');
+      setUnitTerkait(parsed.unitTerkait || '');
+      setDocxImportSource(file.name);
+
+      if (parsed.totalFieldsFound === 0) {
+        setDocxImportError('Isi Word belum berhasil dikenali. Pastikan dokumen memiliki bagian Judul, Tanggal, Pengertian, Tujuan, Kebijakan, Prosedur, Alur, dan Unit Terkait.');
+      } else if (parsed.totalFieldsFound < 8) {
+        const missing = [
+          !parsed.title ? 'Judul' : '',
+          !parsed.effectiveDate ? 'Tanggal' : '',
+          !parsed.pengertian ? 'Pengertian' : '',
+          !parsed.tujuan ? 'Tujuan' : '',
+          !parsed.kebijakan ? 'Kebijakan' : '',
+          !parsed.prosedur ? 'Prosedur' : '',
+          !parsed.alur ? 'Alur' : '',
+          !parsed.unitTerkait ? 'Unit Terkait' : ''
+        ].filter(Boolean);
+        setDocxImportError(`Import berhasil sebagian (${parsed.totalFieldsFound}/8 bagian). Belum terbaca: ${missing.join(', ')}. Bagian tersebut tetap dapat diisi/edit manual.`);
+      }
+    } catch (error) {
+      console.error('[SPO DOCX Import] failed:', error);
+      setDocxImportError('Word tidak dapat dibaca. Pastikan file .DOCX valid dan tidak rusak.');
+    } finally {
+      setIsImportingDocx(false);
     }
   };
 
@@ -1703,7 +1757,33 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                             </p>
                           </div>
 
+                          {documentType === 'BARU' && (
+                            <label className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-colors ${
+                              isImportingDocx ? 'bg-slate-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                            }`}>
+                              {isImportingDocx ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
+                              {isImportingDocx ? 'Membaca Word…' : 'Import SPO dari Word (.DOCX)'}
+                              <input
+                                type="file"
+                                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                onChange={handleDocxImport}
+                                disabled={isImportingDocx}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
                         </div>
+
+                        {documentType === 'BARU' && docxImportSource && !docxImportError && (
+                          <div className="-mt-2 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                            ✓ Word berhasil diimport: {docxImportSource} — isi tetap dapat diedit.
+                          </div>
+                        )}
+                        {documentType === 'BARU' && docxImportError && (
+                          <div className="-mt-2 text-[11px] font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 leading-relaxed">
+                            {docxImportError}
+                          </div>
+                        )}
 
                         <div className="pt-1">
                           <SopLiveTemplate

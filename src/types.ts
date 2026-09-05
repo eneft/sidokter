@@ -186,6 +186,8 @@ export interface SopDocument {
   activatedAt?: string; // Tanggal verifikasi & aktivasi (YYYY-MM-DD)
   activatedBy?: string; // Nama Admin Tata Naskah yang mengaktifkan
   activationNotes?: string; // Catatan pengesahan / nomor fisik
+  activationRequestedAt?: string; // ISO timestamp kapan user mengusulkan aktivasi
+  activationRequestedBy?: string; // Nama/username user pengusul aktivasi
   signedScanFileName?: string;
   signedScanFileSize?: number;
   signedScanFileType?: string;

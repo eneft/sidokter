@@ -52,6 +52,7 @@ interface SopDetailModalProps {
   onUpdateStatus: (id: string, newStatus: SopStatus) => void;
   onCopyNumber: (num: string) => void;
   onActivateSop?: (sop: SopDocument) => void;
+  onProposeActivation?: (sop: SopDocument) => void;
   userSession?: UserSession | null;
 }
 
@@ -74,6 +75,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   onUpdateStatus,
   onCopyNumber,
   onActivateSop,
+  onProposeActivation,
   userSession
 }) => {
   const [copied, setCopied] = useState(false);
@@ -2313,6 +2315,28 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   <Stamp className="w-3.5 h-3.5" />
                   <span>Aktivasi Dokumen</span>
                 </button>
+              )}
+
+              {userSession?.role !== 'admin' && !isExisting && sop.status === 'DRAFT' && (
+                sop.activationRequestedAt ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/80 rounded-xl"
+                    title={`Diusulkan oleh ${sop.activationRequestedBy || 'Pengguna'} pada ${new Date(sop.activationRequestedAt).toLocaleDateString('id-ID')}`}
+                  >
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Menunggu Pengesahan Admin</span>
+                  </span>
+                ) : onProposeActivation ? (
+                  <button
+                    type="button"
+                    onClick={() => onProposeActivation(sop)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors cursor-pointer shadow-sm"
+                    title="Usulkan Dokumen SPO untuk disahkan dan diaktifkan oleh Admin"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Usulkan Aktivasi</span>
+                  </button>
+                ) : null
               )}
 
               {userSession?.role === 'admin' && onDelete && (

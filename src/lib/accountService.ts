@@ -6,6 +6,7 @@
  */
 import { UserAccount } from '../types';
 import { saveManagedUser, deleteManagedUser, restoreManagedUserProfile, fetchManagedUsers } from './authService';
+import { fetchUsersFromFirestore } from './firestoreService';
 
 const USERS_PROFILE_CACHE_KEY = 'soegiri_user_profiles_cache_v2';
 const subscribers = new Set<() => void>();
@@ -69,8 +70,29 @@ export function subscribeToUsers(onData:(users:UserAccount[])=>void,onError?:(er
   const refresh=async()=>{
     try {
       const users=await fetchManagedUsers();
-      if(!stopped) writeCache(users);
-    } catch(err) { if(!stopped) onError?.(err); }
+      if(!stopped && Array.isArray(users) && users.length > 0) {
+        writeCache(users);
+        return;
+      }
+    } catch(err) {
+      // 1. Try Firestore direct read as fallback
+      try {
+        const firestoreUsers = await fetchUsersFromFirestore();
+        if(!stopped && Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
+          writeCache(firestoreUsers);
+          return;
+        }
+      } catch {}
+
+      // 2. If cached profiles exist, keep emitting without interrupting the UI
+      const cached = readCache();
+      if (cached && cached.length > 0) {
+        console.warn('[accountService] Backend user sync notice, serving cached profiles:', err);
+        return;
+      }
+
+      if(!stopped) onError?.(err);
+    }
   };
   void refresh();
   const timer=window.setInterval(refresh,15000);

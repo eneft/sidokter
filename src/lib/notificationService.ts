@@ -1,15 +1,27 @@
 /**
  * NOTIFICATION SERVICE - SIDOKTER SOEGIRI
  * Sistem notifikasi real-time berbasis toast & notification center
- * untuk penugasan dokumen ke divisi dan pengingat riviu berkala dokumen.
+ * untuk penugasan dokumen ke divisi, pengingat riviu berkala,
+ * aktivasi SPO oleh Admin bagi User, dan usulan aktivasi bagi Admin.
  */
-import { collection, onSnapshot, query, limit, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { SopDocument, UserSession } from '../types';
+import { userCanAccessSop } from './soegiriStructure';
+
+export type NotificationType =
+  | 'activation'
+  | 'proposal'
+  | 'assignment'
+  | 'review'
+  | 'success'
+  | 'info'
+  | 'warning'
+  | 'error';
 
 export interface AppNotification {
   id: string;
-  type: 'assignment' | 'review' | 'success' | 'info' | 'warning' | 'error';
+  type: NotificationType;
   title: string;
   message: string;
   documentId?: string;
@@ -17,12 +29,14 @@ export interface AppNotification {
   documentType?: 'SPO' | 'SK' | 'MOU';
   divisionCode?: string;
   divisionName?: string;
+  subHierarchyCode?: string;
   dueDate?: string;
   isOverdue?: boolean;
   timestamp: number;
   read: boolean;
   actionLabel?: string;
   onAction?: () => void;
+  metadata?: Record<string, any>;
 }
 
 export interface ReviewStatus {
@@ -36,7 +50,33 @@ export interface ReviewStatus {
 // In-memory set of already notified document IDs per session to prevent spamming
 const notifiedReviewDocIds = new Set<string>();
 const notifiedAssignmentDocIds = new Set<string>();
-let activeNotifications: AppNotification[] = [];
+const notifiedActivationDocIds = new Set<string>();
+const notifiedProposalDocIds = new Set<string>();
+
+const NOTIF_STORAGE_KEY = 'soegiri_active_notifications';
+
+function loadPersistedNotifications(): AppNotification[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(NOTIF_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.slice(0, 50);
+    }
+  } catch {}
+  return [];
+}
+
+function persistNotifications(notifications: AppNotification[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const serializable = notifications.slice(0, 50).map(({ onAction, ...rest }) => rest);
+    localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(serializable));
+  } catch {}
+}
+
+let activeNotifications: AppNotification[] = loadPersistedNotifications();
 const notificationListeners = new Set<(notifications: AppNotification[]) => void>();
 
 /* =========================================================================
@@ -72,7 +112,9 @@ export function setAudioMuted(muted: boolean): void {
   localStorage.setItem('soegiri_notification_muted', muted ? 'true' : 'false');
 }
 
-export function playChime(type: 'assignment' | 'review' | 'default' = 'default'): void {
+export function playChime(
+  type: 'activation' | 'proposal' | 'assignment' | 'review' | 'default' = 'default'
+): void {
   if (isAudioMuted() || typeof window === 'undefined') return;
 
   try {
@@ -87,7 +129,25 @@ export function playChime(type: 'assignment' | 'review' | 'default' = 'default')
     gain.connect(ctx.destination);
     osc.connect(gain);
 
-    if (type === 'assignment') {
+    if (type === 'activation') {
+      // Pleasant hospital activation chime (Harmonic ascend: E5 -> G#5 -> B5 -> E6)
+      osc.frequency.setValueAtTime(659.25, now);
+      osc.frequency.exponentialRampToValueAtTime(830.61, now + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(987.77, now + 0.16);
+      osc.frequency.exponentialRampToValueAtTime(1318.51, now + 0.24);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+      osc.start(now);
+      osc.stop(now + 0.55);
+    } else if (type === 'proposal') {
+      // Crisp double tone for new user activation proposal: F5 (698Hz) -> C6 (1046Hz)
+      osc.frequency.setValueAtTime(698.46, now);
+      osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+      osc.start(now);
+      osc.stop(now + 0.42);
+    } else if (type === 'assignment') {
       // Pleasant hospital assignment chime: C5 (523Hz) -> G5 (784Hz) -> C6 (1046Hz)
       osc.frequency.setValueAtTime(523.25, now);
       osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.08);
@@ -284,6 +344,7 @@ export function addNotification(
   };
 
   activeNotifications = [item, ...activeNotifications.slice(0, 49)];
+  persistNotifications(activeNotifications);
   notifySubscribers();
   return item;
 }
@@ -292,16 +353,19 @@ export function markNotificationAsRead(id: string): void {
   activeNotifications = activeNotifications.map((n) =>
     n.id === id ? { ...n, read: true } : n
   );
+  persistNotifications(activeNotifications);
   notifySubscribers();
 }
 
 export function markAllNotificationsAsRead(): void {
   activeNotifications = activeNotifications.map((n) => ({ ...n, read: true }));
+  persistNotifications(activeNotifications);
   notifySubscribers();
 }
 
 export function clearNotifications(): void {
   activeNotifications = [];
+  persistNotifications(activeNotifications);
   notifySubscribers();
 }
 
@@ -312,13 +376,14 @@ export function clearNotifications(): void {
 export interface RealtimeWatcherOptions {
   userSession: UserSession | null;
   onToast: (
-    type: 'assignment' | 'review' | 'success' | 'info' | 'warning' | 'error',
+    type: NotificationType,
     title: string,
     message?: string,
     options?: {
       document?: SopDocument;
       divisionCode?: string;
       dueDate?: string;
+      isOverdue?: boolean;
       actionLabel?: string;
       onAction?: () => void;
     }
@@ -327,7 +392,8 @@ export interface RealtimeWatcherOptions {
 }
 
 /**
- * Initializes real-time listener for document assignments and periodic reviews.
+ * Initializes real-time listener for document assignments, periodic reviews,
+ * admin activation alerts for users in that hierarchy, and user proposals for admin.
  * Combines Firestore onSnapshot and local event listeners.
  */
 export function setupDocumentRealtimeWatcher({
@@ -339,6 +405,8 @@ export function setupDocumentRealtimeWatcher({
 
   let isFirstSnapshot = true;
   const initialKnownDocIds = new Set<string>();
+  const docStatusMap = new Map<string, string>();
+  const docActivationReqMap = new Map<string, string>();
 
   // 1. Listen to Firestore 'sops' collection in real-time
   let unsubscribeFirestore: (() => void) | null = null;
@@ -348,8 +416,17 @@ export function setupDocumentRealtimeWatcher({
       sopsCollection,
       (snapshot) => {
         if (isFirstSnapshot) {
-          // Record existing documents without spamming
-          snapshot.docs.forEach((d) => initialKnownDocIds.add(d.id));
+          // Record existing documents and baseline statuses without spamming
+          snapshot.docs.forEach((d) => {
+            initialKnownDocIds.add(d.id);
+            const data = d.data() as SopDocument;
+            if (data?.id) {
+              docStatusMap.set(data.id, data.status || '');
+              if (data.activationRequestedAt) {
+                docActivationReqMap.set(data.id, data.activationRequestedAt);
+              }
+            }
+          });
           isFirstSnapshot = false;
           return;
         }
@@ -358,12 +435,95 @@ export function setupDocumentRealtimeWatcher({
           const sop = change.doc.data() as SopDocument;
           if (!sop || !sop.id) return;
 
-          const assigned = isAssignedToUserDivision(sop.divisionCode, userSession);
+          const prevStatus = docStatusMap.get(sop.id);
+          const prevActivationReq = docActivationReqMap.get(sop.id);
+          docStatusMap.set(sop.id, sop.status || '');
+          if (sop.activationRequestedAt) {
+            docActivationReqMap.set(sop.id, sop.activationRequestedAt);
+          }
 
-          // NEW DOCUMENT ASSIGNMENT
+          const isAdmin = userSession.role === 'admin';
+          const inUserHierarchy = userCanAccessSop(sop, userSession) || isAssignedToUserDivision(sop.divisionCode, userSession);
+
+          // EVENT 1 (USER): Notif muncul kalau SPO dari hirarki diaktifkan Admin
+          if (!isAdmin && inUserHierarchy && sop.status === 'AKTIF') {
+            const isJustActivated =
+              (prevStatus && prevStatus !== 'AKTIF') ||
+              (change.type === 'modified' && prevStatus === 'DRAFT') ||
+              (sop.activatedAt && (!prevStatus || prevStatus === 'DRAFT'));
+
+            const actKey = `${sop.id}-act-${sop.activatedAt || sop.updatedAt || 'active'}`;
+            if (isJustActivated && !notifiedActivationDocIds.has(actKey)) {
+              notifiedActivationDocIds.add(actKey);
+              playChime('activation');
+
+              const unitLabel = sop.divisionName || sop.divisionCode || 'unit Anda';
+              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah disahkan & diaktifkan oleh Admin untuk ${unitLabel}.`;
+
+              addNotification({
+                type: 'activation',
+                title: 'SPO Telah Diaktifkan',
+                message: notifMsg,
+                documentId: sop.id,
+                documentNumber: sop.sopNumber,
+                documentType: 'SPO',
+                divisionCode: sop.divisionCode,
+                divisionName: sop.divisionName,
+                actionLabel: 'Buka Dokumen',
+                onAction: () => onSelectDocument?.(sop)
+              });
+
+              onToast('activation', 'SPO Telah Diaktifkan', notifMsg, {
+                document: sop,
+                divisionCode: sop.divisionCode,
+                actionLabel: 'Buka Dokumen',
+                onAction: () => onSelectDocument?.(sop)
+              });
+            }
+          }
+
+          // EVENT 2 (ADMIN): Muncul kalau user mengusulkan aktivasi SPO (status DRAFT baru atau ada usulan baru)
+          if (isAdmin && sop.status === 'DRAFT') {
+            const isNewDraft = change.type === 'added' && !initialKnownDocIds.has(sop.id);
+            const isActivationRequested =
+              sop.activationRequestedAt &&
+              sop.activationRequestedAt !== prevActivationReq;
+
+            const propKey = `${sop.id}-prop-${sop.activationRequestedAt || sop.createdAt || sop.updatedAt || 'draft'}`;
+            if ((isNewDraft || isActivationRequested) && !notifiedProposalDocIds.has(propKey)) {
+              notifiedProposalDocIds.add(propKey);
+              playChime('proposal');
+
+              const creatorLabel = sop.activationRequestedBy || sop.creatorName || 'Pengguna';
+              const unitLabel = sop.divisionName || sop.divisionCode || 'Unit';
+              const notifMsg = `Usulan aktivasi dari ${creatorLabel} (${unitLabel}): SPO "${sop.title}" (${sop.sopNumber || 'Draft'}) menunggu pengesahan.`;
+
+              addNotification({
+                type: 'proposal',
+                title: 'Usulan Aktivasi SPO',
+                message: notifMsg,
+                documentId: sop.id,
+                documentNumber: sop.sopNumber,
+                documentType: 'SPO',
+                divisionCode: sop.divisionCode,
+                divisionName: sop.divisionName,
+                actionLabel: 'Tinjau & Sahkan',
+                onAction: () => onSelectDocument?.(sop)
+              });
+
+              onToast('proposal', 'Usulan Aktivasi SPO', notifMsg, {
+                document: sop,
+                divisionCode: sop.divisionCode,
+                actionLabel: 'Tinjau & Sahkan',
+                onAction: () => onSelectDocument?.(sop)
+              });
+            }
+          }
+
+          // EVENT 3: NEW DOCUMENT ASSIGNMENT (Untuk divisi terkait saat dokumen aktif baru terbit)
           if (change.type === 'added' && !initialKnownDocIds.has(sop.id)) {
             initialKnownDocIds.add(sop.id);
-            if (assigned && !notifiedAssignmentDocIds.has(sop.id)) {
+            if (inUserHierarchy && sop.status === 'AKTIF' && !notifiedAssignmentDocIds.has(sop.id)) {
               notifiedAssignmentDocIds.add(sop.id);
               playChime('assignment');
 
@@ -392,8 +552,8 @@ export function setupDocumentRealtimeWatcher({
             }
           }
 
-          // PERIODIC REVIEW ALERT
-          if ((change.type === 'added' || change.type === 'modified') && assigned) {
+          // EVENT 4: PERIODIC REVIEW ALERT
+          if ((change.type === 'added' || change.type === 'modified') && inUserHierarchy && sop.status === 'AKTIF') {
             const reviewStatus = evaluatePeriodicReview(sop);
             if (reviewStatus.isDue && !notifiedReviewDocIds.has(`${sop.id}-${reviewStatus.dueDate}`)) {
               notifiedReviewDocIds.add(`${sop.id}-${reviewStatus.dueDate}`);
@@ -419,6 +579,7 @@ export function setupDocumentRealtimeWatcher({
                 document: sop,
                 divisionCode: sop.divisionCode,
                 dueDate: reviewStatus.dueDate,
+                isOverdue: reviewStatus.isOverdue,
                 actionLabel: 'Tinjau Sekarang',
                 onAction: () => onSelectDocument?.(sop)
               });
@@ -437,17 +598,79 @@ export function setupDocumentRealtimeWatcher({
   // 2. Local window event listener for immediate same-client / multi-tab responsiveness
   const handleLocalEvent = (e: Event) => {
     const customEvent = e as CustomEvent<{
-      type: 'assignment' | 'review';
+      type: 'assignment' | 'review' | 'activation' | 'proposal';
       document: SopDocument;
       reason?: string;
     }>;
     if (!customEvent.detail || !customEvent.detail.document) return;
 
     const { type, document: sop, reason } = customEvent.detail;
-    const assigned = isAssignedToUserDivision(sop.divisionCode, userSession);
-    if (!assigned) return;
+    const isAdmin = userSession.role === 'admin';
+    const inUserHierarchy = userCanAccessSop(sop, userSession) || isAssignedToUserDivision(sop.divisionCode, userSession);
 
-    if (type === 'assignment') {
+    if (type === 'activation') {
+      // Notification for regular user when admin activates an SPO in their hierarchy
+      if (isAdmin || !inUserHierarchy) return;
+      const actKey = `${sop.id}-act-${sop.activatedAt || sop.updatedAt || 'active'}`;
+      if (notifiedActivationDocIds.has(actKey)) return;
+      notifiedActivationDocIds.add(actKey);
+      playChime('activation');
+
+      const unitLabel = sop.divisionName || sop.divisionCode || 'unit Anda';
+      const notifMsg = reason || `SPO "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah disahkan & diaktifkan oleh Admin untuk ${unitLabel}.`;
+
+      addNotification({
+        type: 'activation',
+        title: 'SPO Telah Diaktifkan',
+        message: notifMsg,
+        documentId: sop.id,
+        documentNumber: sop.sopNumber,
+        documentType: 'SPO',
+        divisionCode: sop.divisionCode,
+        divisionName: sop.divisionName,
+        actionLabel: 'Buka Dokumen',
+        onAction: () => onSelectDocument?.(sop)
+      });
+
+      onToast('activation', 'SPO Telah Diaktifkan', notifMsg, {
+        document: sop,
+        divisionCode: sop.divisionCode,
+        actionLabel: 'Buka Dokumen',
+        onAction: () => onSelectDocument?.(sop)
+      });
+    } else if (type === 'proposal') {
+      // Notification for Admin when user proposes activation
+      if (!isAdmin) return;
+      const propKey = `${sop.id}-prop-${sop.activationRequestedAt || sop.createdAt || sop.updatedAt || 'draft'}`;
+      if (notifiedProposalDocIds.has(propKey)) return;
+      notifiedProposalDocIds.add(propKey);
+      playChime('proposal');
+
+      const creatorLabel = sop.activationRequestedBy || sop.creatorName || 'Pengguna';
+      const unitLabel = sop.divisionName || sop.divisionCode || 'Unit';
+      const notifMsg = reason || `Usulan aktivasi dari ${creatorLabel} (${unitLabel}): SPO "${sop.title}" (${sop.sopNumber || 'Draft'}) menunggu pengesahan.`;
+
+      addNotification({
+        type: 'proposal',
+        title: 'Usulan Aktivasi SPO',
+        message: notifMsg,
+        documentId: sop.id,
+        documentNumber: sop.sopNumber,
+        documentType: 'SPO',
+        divisionCode: sop.divisionCode,
+        divisionName: sop.divisionName,
+        actionLabel: 'Tinjau & Sahkan',
+        onAction: () => onSelectDocument?.(sop)
+      });
+
+      onToast('proposal', 'Usulan Aktivasi SPO', notifMsg, {
+        document: sop,
+        divisionCode: sop.divisionCode,
+        actionLabel: 'Tinjau & Sahkan',
+        onAction: () => onSelectDocument?.(sop)
+      });
+    } else if (type === 'assignment') {
+      if (!inUserHierarchy) return;
       if (notifiedAssignmentDocIds.has(sop.id)) return;
       notifiedAssignmentDocIds.add(sop.id);
       playChime('assignment');
@@ -474,6 +697,7 @@ export function setupDocumentRealtimeWatcher({
         onAction: () => onSelectDocument?.(sop)
       });
     } else if (type === 'review') {
+      if (!inUserHierarchy) return;
       const reviewStatus = evaluatePeriodicReview(sop);
       const key = `${sop.id}-${reviewStatus.dueDate || 'review'}`;
       if (notifiedReviewDocIds.has(key)) return;
@@ -500,6 +724,7 @@ export function setupDocumentRealtimeWatcher({
         document: sop,
         divisionCode: sop.divisionCode,
         dueDate: reviewStatus.dueDate,
+        isOverdue: reviewStatus.isOverdue,
         actionLabel: 'Tinjau Sekarang',
         onAction: () => onSelectDocument?.(sop)
       });
@@ -515,10 +740,10 @@ export function setupDocumentRealtimeWatcher({
 }
 
 /**
- * Dispatches an event when a document is assigned or updated locally.
+ * Dispatches an event when a document is assigned, updated, activated, or proposed locally.
  */
 export function dispatchDocumentEvent(
-  type: 'assignment' | 'review',
+  type: 'assignment' | 'review' | 'activation' | 'proposal',
   document: SopDocument,
   reason?: string
 ): void {
