@@ -14,7 +14,6 @@ import {
   FileText,
 } from 'lucide-react';
 import { UserSession } from '../types';
-import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 import { authenticateUser, provisionInitialAdmin } from '../lib/authService';
 
 interface LoginPageProps {
@@ -150,17 +149,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <div className="pointer-events-none absolute inset-0 bg-white/10" />
 
       <div className="relative z-10 mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col px-3 py-3 sm:px-5 sm:py-4 lg:px-10 lg:py-5 xl:px-12">
-        {/* HEADER — official SIDOKTER branding, centered above the login card */}
-        <header id="login-institution-header" className="login-brand-header flex shrink-0 items-center justify-center">
-          <img
-            src="/sidokter-login-brand.png"
-            alt="SIDOKTER — Sistem Dokumen Terpadu — RSUD Dr. Soegiri"
-            className="login-brand-header-image"
-          />
-        </header>
-
-        {/* MAIN */}
+        {/* MAIN — responsive login stage: branding, card, and footer move as one group */}
         <div className="flex min-h-0 flex-1 items-center py-2 sm:py-3 lg:py-2">
+          <header id="login-institution-header" className="login-brand-header flex shrink-0 items-center justify-center">
+            <img
+              src="/sidokter-login-brand.png"
+              alt="SIDOKTER — Sistem Dokumen Terpadu — RSUD Dr. Soegiri"
+              className="login-brand-header-image"
+            />
+          </header>
           <div className="grid w-full min-h-0 items-center gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,370px)] lg:gap-8 xl:gap-10">
             {/* BRANDING */}
             <section id="login-brand-panel" className="order-2 max-w-3xl lg:order-1 lg:pb-0">
@@ -355,8 +352,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
 
                 <footer id="login-auth-footer" className="mt-3 text-center">
-                  <p className="text-[10px] font-semibold text-slate-500">© 2026 {SOEGIRI_HOSPITAL_INFO.shortName}</p>
-                  <p className="mt-1 text-[9px] text-slate-400">Sistem Dokumen Terpadu Soegiri · Akses resmi RSUD</p>
+                  <p className="whitespace-nowrap text-[10px] font-semibold text-slate-500">© 2026 RSUD Dr. Soegiri Lamongan | Bagian Umum dan Kepegawaian</p>
                 </footer>
               </div>
             </section>
