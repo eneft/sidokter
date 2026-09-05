@@ -99,41 +99,15 @@ function ensureDbLoaded(): AuthDb {
     console.error('[authHandler] Error loading auth db, reinitializing:', err);
   }
 
-  // Pre-seed default Administrator with known password AdminSoegiri@2025!
-  const defaultSalt = '9034e54709d6849e548d904c44f889e1';
-  const defaultHash = 'abe185438638cff94f7e20e27f0a9b261017bf460081e8b359ee2ba089ed5b50';
+  // Fresh local auth starts empty. Admin provisioning must use an explicit server-side setup secret.
   const now = new Date().toISOString();
 
   const initialDb: AuthDb = {
-    users: {
-      'admin-root': {
-        id: 'admin-root',
-        username: 'admin',
-        name: 'Administrator SIDOKTER',
-        role: 'admin',
-        divisionCode: 'ALL',
-        divisionCodes: ['ALL'],
-        assignments: [],
-        badges: [],
-        unitName: 'RSUD Dr. Soegiri Lamongan',
-        createdAt: now,
-        updatedAt: now,
-        credentialStatus: 'ACTIVE',
-        failedLoginAttempts: 0,
-        lockoutUntil: 0
-      }
-    },
-    credentials: {
-      'admin-root': {
-        passwordHash: defaultHash,
-        passwordSalt: defaultSalt,
-        updatedAt: now
-      }
-    },
+    users: {},
+    credentials: {},
     sessions: {},
     auditLogs: []
   };
-
   saveDb(initialDb);
   return initialDb;
 }
@@ -507,22 +481,28 @@ export async function handleAuthApi(req: Request, res: Response) {
       }
     }
 
+    const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
+    if (!localFallbackEnabled) {
+      return res.status(503).json({ message: 'Layanan autentikasi utama tidak tersedia.' });
+    }
+
     // -------------------------------------------------------------
     // ACTION: BOOTSTRAP-ADMIN
     // -------------------------------------------------------------
     if (action === 'bootstrap-admin') {
       const setupSecret = String(req.body?.setupSecret || '').trim();
       const password = String(req.body?.password || '');
-      const configuredSecret = String(process.env.SIDOKTER_BOOTSTRAP_SECRET || 'soegiri-admin-secret-2025').trim();
+      const configuredSecret = String(process.env.SIDOKTER_BOOTSTRAP_SECRET || '').trim();
 
-      // Check setupSecret: accept configured secret or development default
-      const isValidSecret =
-        setupSecret === configuredSecret ||
-        setupSecret === 'soegiri-admin-secret-2025' ||
-        (configuredSecret && safeEqualHex(
-          crypto.createHash('sha256').update(setupSecret).digest('hex'),
-          crypto.createHash('sha256').update(configuredSecret).digest('hex')
-        ));
+      // Never use a built-in bootstrap secret. Local bootstrap is available only when explicitly configured.
+      if (!configuredSecret) {
+        return res.status(503).json({ message: 'Provisioning Admin belum dikonfigurasi server.' });
+      }
+
+      const isValidSecret = safeEqualHex(
+        crypto.createHash('sha256').update(setupSecret).digest('hex'),
+        crypto.createHash('sha256').update(configuredSecret).digest('hex')
+      );
 
       if (!isValidSecret) {
         return res.status(403).json({ message: 'Setup key tidak valid.' });

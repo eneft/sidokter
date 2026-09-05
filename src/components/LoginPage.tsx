@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { UserSession } from '../types';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
-import { HospitalLogo } from './HospitalLogo';
 import { authenticateUser, provisionInitialAdmin } from '../lib/authService';
 
 interface LoginPageProps {
@@ -151,30 +150,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <div className="pointer-events-none absolute inset-0 bg-white/10" />
 
       <div className="relative z-10 mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col px-3 py-3 sm:px-5 sm:py-4 lg:px-10 lg:py-5 xl:px-12">
-        {/* HEADER */}
-        <header className="flex shrink-0 items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/95 p-1 sm:h-10 sm:w-10 lg:h-11 lg:w-11">
-              <HospitalLogo size="lg" />
-            </div>
-            <div className="leading-tight">
-              <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:text-[9px] sm:tracking-[0.18em]">
-                Pemerintah Kabupaten Lamongan
-              </p>
-              <p className="mt-0.5 text-xs font-extrabold text-[#183b63] sm:text-sm">
-                {SOEGIRI_HOSPITAL_INFO.shortName}
-              </p>
-            </div>
-          </div>
-
-          <div className="hidden items-center gap-3 text-[11px] font-semibold text-slate-500 md:flex">
-            <span>Dokumen Tertata</span>
-            <span className="text-slate-300">|</span>
-            <span>Layanan Berkualitas</span>
-            <span className="text-slate-300">|</span>
-            <span className="text-[#087f70]">Soegiri Semakin Baik</span>
-            <span className="ml-2 h-1 w-14 rounded-full bg-[#0b9b83]" />
-          </div>
+        {/* HEADER — official SIDOKTER branding, centered above the login card */}
+        <header id="login-institution-header" className="login-brand-header flex shrink-0 items-center justify-center">
+          <img
+            src="/sidokter-login-brand.png"
+            alt="SIDOKTER — Sistem Dokumen Terpadu — RSUD Dr. Soegiri"
+            className="login-brand-header-image"
+          />
         </header>
 
         {/* MAIN */}
@@ -368,16 +350,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </p>
                   </div>
 
-                  <div className="mt-3 text-center">
-                    <button
-                      id="login-admin-setup-toggle"
-                      type="button"
-                      onClick={() => { setShowAdminSetup(value => !value); setSetupMessage(''); }}
-                      className="text-[10px] font-semibold text-slate-400 transition hover:text-[#087f70]"
-                    >
-                      {showAdminSetup ? 'Tutup Setup Administrator' : 'Administrasi Sistem'}
-                    </button>
-                  </div>
+                  {/* Admin setup is not displayed on the public login surface.
+                      The existing authentication foundation remains unchanged. */}
                 </div>
 
                 <footer id="login-auth-footer" className="mt-3 text-center">
