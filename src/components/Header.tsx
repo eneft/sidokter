@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, LogOut, FileText, FileCheck, Handshake,
-  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Bell
+  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Bell, RefreshCw
 } from 'lucide-react';
 import { UserSession, MainMenuTab } from '../types';
 import { HospitalLogo } from './HospitalLogo';
@@ -26,12 +26,13 @@ interface HeaderProps {
   onOpenSecurity?: () => void;
   onOpenBackupRestore?: () => void;
   onOpenMaintenance?: () => void;
+  onStandardizeAllNumbers?: () => void;
   onSelectDocument?: (docId: string, docNumber?: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab, onTabChange, totalSopCount, activeSopCount, skCount = 0, mouCount = 0,
-  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onSelectDocument
+  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onStandardizeAllNumbers, onSelectDocument
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -356,6 +357,11 @@ export const Header: React.FC<HeaderProps> = ({
           <button type="button" onClick={onOpenMaintenance} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
             <Wrench className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Mode Pemeliharaan</span>
           </button>
+          {onStandardizeAllNumbers && (
+            <button type="button" onClick={onStandardizeAllNumbers} id="sidebar-sync-sop-numbers-btn" className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-purple-700 hover:bg-purple-50 text-left cursor-pointer transition-colors">
+              <RefreshCw className="w-4.5 h-4.5 text-purple-600" /><span className="flex-1 font-black">Sinkronkan Nomor</span>
+            </button>
+          )}
         </nav>
 
         {/* Firebase Cloud Sync Status */}
@@ -430,6 +436,9 @@ export const Header: React.FC<HeaderProps> = ({
               <button type="button" onClick={onOpenSecurity} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Lock className="w-4.5 h-4.5" /><span className="flex-1">Security</span></button>
               <button type="button" onClick={onOpenBackupRestore} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Database className="w-4.5 h-4.5" /><span className="flex-1">Backup & Restore</span></button>
               <button type="button" onClick={onOpenMaintenance} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Wrench className="w-4.5 h-4.5" /><span className="flex-1">Mode Pemeliharaan</span></button>
+              {onStandardizeAllNumbers && (
+                <button type="button" onClick={onStandardizeAllNumbers} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-purple-700 hover:bg-purple-50 text-left"><RefreshCw className="w-4.5 h-4.5 text-purple-600" /><span className="flex-1 font-black">Sinkronkan Nomor</span></button>
+              )}
             </div>
             <button type="button" onClick={onLogout} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 text-left"><LogOut className="w-4.5 h-4.5" /><span>Keluar Akun</span></button>
           </nav>

@@ -213,7 +213,7 @@ export function setNotificationUserSession(userSession: UserSession | null): voi
   activeNotifications = loadPersistedNotifications();
   seedDedupeSetsFromNotifications(activeNotifications);
 
-  if (userSession?.role === 'admin') {
+  if (userSession?.role === 'admin' || hasAdminBadge(userSession)) {
     ingestQueuedAdminProposals();
   }
 

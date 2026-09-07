@@ -726,8 +726,7 @@ export default function App() {
       }
     } catch {}
 
-    const hasStructuralBadge = userSession.role === 'user' && Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-    const activeUserDivisions = userSession.role === 'user' && !hasStructuralBadge
+    const activeUserDivisions = userSession.role === 'user'
       ? (Array.isArray(userSession.assignments) && userSession.assignments.length
           ? Array.from(new Set(userSession.assignments.map((a) => a.divisionCode).filter(Boolean)))
           : (userSession.divisionCode || 'PEL'))
@@ -2056,12 +2055,31 @@ export default function App() {
             setSelectedSopForDetail(null);
             setSelectedSopForEdit(sop);
           }}
-          onDelete={() => {}}
+          onDelete={(sop) => handleDeleteSop(sop.id, sop.title)}
           onUpdateStatus={handleUpdateStatus}
           onCopyNumber={handleCopyNumber}
+          onActivateSop={(sop) => {
+            setSelectedSopForActivation(sop);
+          }}
           onProposeActivation={handleProposeActivation}
           userSession={userSession}
           users={users}
+        />
+
+        <AktivasiSopModal
+          isOpen={Boolean(selectedSopForActivation)}
+          sop={selectedSopForActivation}
+          adminSession={userSession}
+          onClose={() => setSelectedSopForActivation(null)}
+          onConfirmActivation={handleConfirmActivation}
+        />
+
+        <DeleteConfirmModal
+          isOpen={Boolean(sopToDelete)}
+          sopNumber={sopToDelete?.sopNumber}
+          title={sopToDelete?.title}
+          onClose={() => setSopToDelete(null)}
+          onConfirm={confirmDeleteSop}
         />
 
         <EditSopModal
@@ -2107,6 +2125,7 @@ export default function App() {
         onOpenSecurity={() => setIsSecurityOpen(true)}
         onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
         onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
+        onStandardizeAllNumbers={handleStandardizeAllSopNumbers}
       />
 
       {/* Modals */}

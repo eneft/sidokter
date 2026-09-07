@@ -34,7 +34,8 @@ import {
   Info,
   LayoutList,
   Table as TableIcon,
-  FileUp
+  FileUp,
+  Loader2
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -92,6 +93,7 @@ interface UserViewProps {
   onOpenSecurity?: () => void;
   onOpenBackupRestore?: () => void;
   onOpenMaintenance?: () => void;
+  onStandardizeAllNumbers?: () => void;
 }
 
 export const UserView: React.FC<UserViewProps> = ({
@@ -114,7 +116,8 @@ export const UserView: React.FC<UserViewProps> = ({
   onOpenMasterData,
   onOpenSecurity,
   onOpenBackupRestore,
-  onOpenMaintenance
+  onOpenMaintenance,
+  onStandardizeAllNumbers
 }) => {
   const [showIssueNumberModal, setShowIssueNumberModal] = useState(false);
   const [showIssuedNumbers, setShowIssuedNumbers] = useState(false);
@@ -218,13 +221,11 @@ export const UserView: React.FC<UserViewProps> = ({
     });
   }, []);
 
-  const hasStructuralBadge = userSession.role === 'user' && Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  // ALL pada assignment adalah hak akses global ke seluruh master hirarki.
-  // Ini berbeda dari badge: badge menentukan hak akses dokumen, sedangkan ALL
-  // menentukan cakupan hirarki yang boleh dipilih sebagai TUJUAN SPO.
+  // Catatan: Badge STRUKTURAL hanya memberikan hak akses untuk SK dan MOU.
+  // Untuk SPO, akses dan kategori tujuan tetap mengikuti hirarki penugasan pengguna.
   const hasAllHierarchyAssignment = normalizedAssignments.some((a) => String(a.divisionCode || '').toUpperCase() === 'ALL');
   const hasGlobalHierarchyAccess = userSession.role === 'admin' || hasAllHierarchyAssignment;
-  const hasAllDivisionsAccess = hasGlobalHierarchyAccess || hasStructuralBadge;
+  const hasAllDivisionsAccess = hasGlobalHierarchyAccess;
 
   // ALL is a global Admin marker. A User account must never inherit
   // global access from legacy divisionCode/divisionCodes/assignments.
@@ -538,11 +539,61 @@ export const UserView: React.FC<UserViewProps> = ({
     }
   };
 
+  const [isParsingDocx, setIsParsingDocx] = useState(false);
+  const [parsedDocxSummary, setParsedDocxSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
+  const docxInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleDocxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      onShowToast?.('error', 'Format File Tidak Didukung', 'Harap pilih berkas Microsoft Word dengan ekstensi .docx.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setIsParsingDocx(true);
+      const parsed = await parseSopFromDocx(file);
+
+      if (parsed.title) setTitle(parsed.title);
+      if (parsed.effectiveDate) setEffectiveDate(parsed.effectiveDate);
+      if (parsed.pengertian) setPengertian(parsed.pengertian);
+      if (parsed.tujuan) setTujuan(parsed.tujuan);
+      if (parsed.kebijakan) setKebijakan(parsed.kebijakan);
+      if (parsed.prosedur) setProsedur(parsed.prosedur);
+      if (parsed.alur) setAlur(parsed.alur);
+      if (parsed.unitTerkait) setUnitTerkait(parsed.unitTerkait);
+
+      setParsedDocxSummary({
+        fileName: file.name,
+        fields: parsed.extractedFields
+      });
+
+      onShowToast?.(
+        'success',
+        'Naskah Word (.docx) Berhasil Diimpor',
+        `Berhasil mengekstrak ${parsed.totalFieldsFound} bagian naskah dari ${file.name} ke dalam formulir.`
+      );
+    } catch (err: any) {
+      console.error('Error parsing DOCX:', err);
+      onShowToast?.(
+        'error',
+        'Gagal Membaca File DOCX',
+        err?.message || 'File Word tidak dapat dibaca. Pastikan file berformat .docx valid.'
+      );
+    } finally {
+      setIsParsingDocx(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if ((documentType === 'LAMA' || documentType === 'REVIEW') && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-        onShowToast?.('error', 'Format File Salah', documentType === 'REVIEW' ? 'SPO rujukan Riviu dari luar aplikasi wajib berupa file PDF.' : 'SPO Eksisting wajib berupa file PDF asli.');
+      if ((documentType === 'LAMA' || documentType === 'REVIEW') && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf') && !file.name.toLowerCase().endsWith('.docx') && !file.name.toLowerCase().endsWith('.doc')) {
+        onShowToast?.('error', 'Format File Salah', documentType === 'REVIEW' ? 'SPO rujukan Riviu dari luar aplikasi wajib berupa file PDF atau Word (.docx).' : 'SPO Eksisting wajib berupa file PDF asli atau Word (.docx).');
         e.target.value = '';
         return;
       }
@@ -584,6 +635,8 @@ export const UserView: React.FC<UserViewProps> = ({
     setEffectiveDate(new Date().toISOString().split('T')[0]);
     setWorkflowStep(1);
     setDocumentTypeChosen(false);
+    setParsedDocxSummary(null);
+    setIsParsingDocx(false);
   };
 
   const openSpoInput = () => {
@@ -946,9 +999,19 @@ export const UserView: React.FC<UserViewProps> = ({
         onOpenSecurity={onOpenSecurity}
         onOpenBackupRestore={onOpenBackupRestore}
         onOpenMaintenance={onOpenMaintenance}
+        onStandardizeAllNumbers={onStandardizeAllNumbers}
         onSelectDocument={(docId, docNumber) => {
           const found = sops.find((s) => s.id === docId || (docNumber && s.sopNumber === docNumber));
-          if (found) onViewDetail(found);
+          if (found) {
+            setActiveTab('spo');
+            onViewDetail(found);
+            return;
+          }
+          const foundLib = libraryDocuments?.find((d) => d.id === docId || (docNumber && d.documentNumber === docNumber));
+          if (foundLib) {
+            if (foundLib.category === 'SK') setActiveTab('sk');
+            else if (foundLib.category === 'MOU') setActiveTab('mou');
+          }
         }}
       />
 
@@ -1033,6 +1096,20 @@ export const UserView: React.FC<UserViewProps> = ({
                   <span>Nomor Terbit</span>
                   <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
                 </button>
+
+                {/* Tombol Sinkronkan Nomor untuk Role Admin */}
+                {userSession.role === 'admin' && onStandardizeAllNumbers && (
+                  <button
+                    type="button"
+                    onClick={onStandardizeAllNumbers}
+                    id="admin-sync-sop-numbers-btn"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black transition-all cursor-pointer shadow-xs shadow-purple-100"
+                    title="Sinkronkan & standarisasi nomor SPO seluruh unit kerja sesuai Pedoman Tata Naskah Soegiri"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Sinkronkan Nomor</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1043,6 +1120,7 @@ export const UserView: React.FC<UserViewProps> = ({
                 userSession={userSession}
                 onViewDetail={onViewDetail}
                 onSwitchToInputTab={() => setSpoSubTab('input')}
+                onStandardizeAllNumbers={onStandardizeAllNumbers}
               />
             )}
 
@@ -1691,7 +1769,64 @@ export const UserView: React.FC<UserViewProps> = ({
                             </p>
                           </div>
 
+                          {/* Tombol Import / Upload Naskah DOCX */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <input
+                              ref={docxInputRef}
+                              type="file"
+                              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                              onChange={handleDocxUpload}
+                              className="hidden"
+                              id="docx-sop-uploader-userview"
+                            />
+                            <label
+                              htmlFor="docx-sop-uploader-userview"
+                              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                isParsingDocx
+                                  ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-wait'
+                                  : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200 shadow-2xs hover:shadow-xs'
+                              }`}
+                              title="Unggah berkas Word (.docx) untuk otomatis mengekstrak judul, tanggal, pengertian, tujuan, kebijakan, prosedur, alur, dan unit terkait."
+                            >
+                              {isParsingDocx ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                  <span>Mengekstrak Naskah DOCX...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <FileUp className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Upload Draft DOCX</span>
+                                </>
+                              )}
+                            </label>
+                          </div>
                         </div>
+
+                        {/* Banner status hasil import DOCX */}
+                        {parsedDocxSummary && (
+                          <div className="flex items-start justify-between gap-3 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 text-xs">
+                            <div className="flex items-start gap-2.5">
+                              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="font-bold text-blue-950">
+                                  Naskah DOCX Berhasil Diimpor: <span className="font-mono text-blue-800">{parsedDocxSummary.fileName}</span>
+                                </div>
+                                <div className="text-[11px] text-blue-800 mt-0.5">
+                                  Bagian terisi otomatis: {parsedDocxSummary.fields.join(', ') || 'Semua Bagian Naskah'}. Silakan teliti dan lengkapi naskah pada lembar kerja di bawah jika diperlukan.
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setParsedDocxSummary(null)}
+                              className="text-blue-500 hover:text-blue-800 p-1"
+                              title="Tutup info"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
 
                         <div className="pt-1">
                           <SopLiveTemplate
@@ -1837,6 +1972,23 @@ export const UserView: React.FC<UserViewProps> = ({
             onLogout={onLogout}
             onUpdatePassword={onUpdatePassword}
             onShowToast={onShowToast}
+          />
+        )}
+
+        {/* TAB ADMIN HUB */}
+        {activeTab === 'admin' && (
+          <AdminHubPage
+            userSession={userSession}
+            userAccounts={users}
+            onOpenUserManagement={onOpenUserManagement}
+            onOpenMasterData={onOpenMasterData}
+            onOpenSecurity={onOpenSecurity}
+            onOpenBackupRestore={onOpenBackupRestore}
+            onOpenMaintenance={onOpenMaintenance}
+            onLogout={onLogout}
+            onUpdatePassword={onUpdatePassword}
+            onShowToast={onShowToast}
+            onStandardizeAllNumbers={onStandardizeAllNumbers}
           />
         )}
       </main>

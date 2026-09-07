@@ -450,10 +450,8 @@ export function isSopAccessibleByUser(
   if (userSession.role === 'admin') return true;
   if (sop.isExampleOnly) return false;
 
-  // Elevated badge precedence: STRUKTURAL grants document-wide access
-  // regardless of the user's assigned hierarchy. Role admin remains the
-  // highest system privilege.
-  if (Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) return true;
+  // Catatan: Badge STRUKTURAL hanya memberikan hak akses untuk dokumen SK dan MOU.
+  // Untuk dokumen SPO, akses tetap mengikuti penugasan hirarki unit pengguna.
 
   const sopDivision = String(sop.divisionCode || '').trim().toUpperCase();
   if (!sopDivision) return false;
@@ -574,7 +572,6 @@ export function getUserHierarchyAccessKeys(userSession?: {
   subCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string;
 } | null): string[] {
   if (!userSession || userSession.role === 'admin') return [];
-  if (Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) return [];
 
   const normalize = (v?: string) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
   const assignments = Array.isArray(userSession.assignments) && userSession.assignments.length

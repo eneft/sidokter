@@ -797,7 +797,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             }
           });
 
-          if (!words.length) return [element.outerHTML];
+          // If too few words, keep intact to prevent awkward orphan words
+          if (words.length < 8) return [element.outerHTML];
 
           const host = createMeasureHost(template);
           const safetyLimit = Math.max(1, maxHeight - 4);
@@ -813,34 +814,34 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             return host.getBoundingClientRect().height <= safetyLimit;
           };
 
-          const chunks: string[] = [];
-          let startWord = 0;
-          while (startWord < words.length) {
-            let low = startWord + 1;
-            let high = words.length;
-            let best = startWord;
+          // Binary search for how many words [0 .. best] fit into maxHeight
+          let low = 1;
+          let high = words.length - 1;
+          let best = 0;
 
-            while (low <= high) {
-              const mid = Math.floor((low + high) / 2);
-              const candidate = buildCandidate(startWord, mid);
-              if (fits(candidate)) {
-                best = mid;
-                low = mid + 1;
-              } else {
-                high = mid - 1;
-              }
+          while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const candidate = buildCandidate(0, mid);
+            if (fits(candidate)) {
+              best = mid;
+              low = mid + 1;
+            } else {
+              high = mid - 1;
             }
-
-            // A single word can be wider/taller than the available area. Keep it
-            // intact rather than producing an empty fragment or dropping content.
-            if (best === startWord) best = startWord + 1;
-
-            chunks.push(buildCandidate(startWord, best));
-            startWord = best;
           }
 
           host.remove();
-          return chunks.length > 1 ? chunks : [element.outerHTML];
+
+          // Require at least 4 words in the first chunk to avoid orphan fragments,
+          // and don't split if all words fit
+          if (best < 4 || best >= words.length) {
+            return [element.outerHTML];
+          }
+
+          // Return strictly 2 chunks: what fits on current page, and all remaining text intact
+          const chunk0 = buildCandidate(0, best);
+          const chunk1 = buildCandidate(best, words.length);
+          return [chunk0, chunk1];
         };
 
         // Split a rich-text block to fit a specific amount of remaining A4 space.
@@ -872,15 +873,36 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               return host.getBoundingClientRect().height <= safetyLimit;
             };
 
-            // Multiple independent top-level blocks are already safe page units.
+            // Multiple independent top-level blocks: fit as many whole blocks as possible
             if (elements.length > 1 && !hasTopLevelText) {
+              if (fits(source)) {
+                host.remove();
+                return [source];
+              }
+
+              let fitCount = 0;
+              for (let i = 0; i < elements.length; i++) {
+                const candidate = elements.slice(0, i + 1).map((el) => el.outerHTML).join('');
+                if (fits(candidate)) {
+                  fitCount = i + 1;
+                } else {
+                  break;
+                }
+              }
+
               host.remove();
-              return elements.map((el) => el.outerHTML).filter(Boolean);
+              if (fitCount > 0 && fitCount < elements.length) {
+                return [
+                  elements.slice(0, fitCount).map((el) => el.outerHTML).join(''),
+                  elements.slice(fitCount).map((el) => el.outerHTML).join('')
+                ];
+              }
+              // If not even the first element fits, don't split it into a tiny space
+              return [source];
             }
 
-            // Ordered/unordered lists: keep the actual list structure. Only split
-            // between items or, when one item itself is too tall, inside that LI
-            // while preserving its markup via Range.cloneContents().
+            // Ordered/unordered lists: keep list structure and ONLY split at WHOLE <li> item boundaries.
+            // Never break within an individual list item unless that single item is taller than an entire page.
             if (/^(ol|ul)$/i.test(first.tagName)) {
               const isOl = first.tagName.toLowerCase() === 'ol';
               const explicitStart = isOl
@@ -892,7 +914,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
               const listTag = first.tagName.toLowerCase();
               const listAttrs = Array.from(first.attributes)
-                .filter((attr) => !(isOl && attr.name.toLowerCase() === 'start'))
+                .filter((attr) => {
+                  const n = attr.name.toLowerCase();
+                  return !(isOl && n === 'start') && n !== 'data-sop-list-continuation' && n !== 'data-sop-continuation-number';
+                })
                 .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
                 .join('');
 
@@ -911,78 +936,66 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   return [source];
                 }
 
-                const fragments: string[] = [];
-                let currentItems: string[] = [];
-                let currentStartIndex = 0;
-
-                const flush = () => {
-                  if (currentItems.length) {
-                    fragments.push(makeList(currentItems, currentStartIndex));
-                    currentItems = [];
+                // Greedily find how many whole items fit into maxHeight
+                let fitCount = 0;
+                for (let i = 0; i < items.length; i++) {
+                  const candidate = makeList(items.slice(0, i + 1).map((el) => el.outerHTML), 0);
+                  if (fits(candidate)) {
+                    fitCount = i + 1;
+                  } else {
+                    break;
                   }
-                };
+                }
 
-                items.forEach((item, itemIndex) => {
-                  const candidateItem = item.outerHTML;
-                  const candidateList = makeList([...currentItems, candidateItem], currentStartIndex);
+                // Case 1: At least 1 whole item fits, and some items remain for next page
+                if (fitCount > 0 && fitCount < items.length) {
+                  host.remove();
+                  const firstPart = makeList(items.slice(0, fitCount).map((el) => el.outerHTML), 0);
+                  const remainingPart = makeList(items.slice(fitCount).map((el) => el.outerHTML), fitCount);
+                  return [firstPart, remainingPart];
+                }
 
-                  if (fits(candidateList)) {
-                    if (!currentItems.length) currentStartIndex = itemIndex;
-                    currentItems.push(candidateItem);
-                    return;
+                // Case 2: Not even the first item fits in maxHeight
+                if (fitCount === 0) {
+                  // Only if we have a single item that is itself taller than an entire page capacity
+                  // would we attempt to split inside that single item.
+                  if (items.length === 1 && maxHeight > 400) {
+                    const item = items[0];
+                    const itemParts = splitElementPreservingMarkup(
+                      item,
+                      maxHeight,
+                      (fragment, isFirstChunk) => {
+                        const li = item.cloneNode(false) as HTMLElement;
+                        li.removeAttribute('id');
+                        li.innerHTML = '';
+                        li.appendChild(fragment);
+                        return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
+                      },
+                      template
+                    );
+                    host.remove();
+                    if (itemParts.length > 1) return itemParts;
                   }
+                  host.remove();
+                  return [source];
+                }
 
-                  flush();
-                  const singleList = makeList([candidateItem], itemIndex);
-                  if (fits(singleList)) {
-                    currentStartIndex = itemIndex;
-                    currentItems = [candidateItem];
-                    return;
-                  }
-
-                  // The individual LI is taller than the remaining page. Split
-                  // its words without flattening inline markup, nested paragraphs,
-                  // emphasis, links, etc.
-                  const itemNumber = explicitStart + itemIndex;
-                  const itemParts = splitElementPreservingMarkup(
-                    item,
-                    maxHeight,
-                    (fragment, isFirstChunk) => {
-                      const li = item.cloneNode(false) as HTMLElement;
-                      li.removeAttribute('id');
-                      li.innerHTML = '';
-                      li.appendChild(fragment);
-                      return makeList(
-                        [li.outerHTML],
-                        itemIndex,
-                        !isFirstChunk,
-                        itemNumber
-                      );
-                    },
-                    template
-                  );
-
-                  itemParts.forEach((part) => fragments.push(part));
-                });
-
-                flush();
                 host.remove();
-                return fragments.length > 1 ? fragments : (fragments.length === 1 ? fragments : [source]);
+                return [source];
               }
             }
 
-            // A wrapper containing multiple real block elements must retain those
-            // elements. Never convert a mixed <p>/<ul>/<p> structure to plain text.
+            // A wrapper containing multiple real block elements: fit as many whole blocks as possible
             const nestedBlockElements = Array.from(first.children).filter((child) =>
               /^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(child.tagName)
             ) as HTMLElement[];
 
             if (nestedBlockElements.length > 0) {
-              const preservedParts: string[] = [];
+              const childBlocks: string[] = [];
               let inlineBuffer = '';
 
               const flushInlineBuffer = () => {
-                if (inlineBuffer.trim()) preservedParts.push(`<p>${inlineBuffer}</p>`);
+                if (inlineBuffer.trim()) childBlocks.push(`<p>${inlineBuffer}</p>`);
                 inlineBuffer = '';
               };
 
@@ -995,20 +1008,47 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 const childEl = child as HTMLElement;
                 if (/^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(childEl.tagName)) {
                   flushInlineBuffer();
-                  preservedParts.push(childEl.outerHTML);
+                  childBlocks.push(childEl.outerHTML);
                 } else {
                   inlineBuffer += childEl.outerHTML;
                 }
               });
               flushInlineBuffer();
 
-              host.remove();
-              return preservedParts.length > 1 ? preservedParts : (preservedParts.length === 1 ? preservedParts : [source]);
+              if (childBlocks.length > 1) {
+                if (fits(childBlocks.join(''))) {
+                  host.remove();
+                  return [source];
+                }
+
+                let fitCount = 0;
+                for (let i = 0; i < childBlocks.length; i++) {
+                  const candidate = childBlocks.slice(0, i + 1).join('');
+                  if (fits(candidate)) {
+                    fitCount = i + 1;
+                  } else {
+                    break;
+                  }
+                }
+
+                host.remove();
+                if (fitCount > 0 && fitCount < childBlocks.length) {
+                  return [
+                    childBlocks.slice(0, fitCount).join(''),
+                    childBlocks.slice(fitCount).join('')
+                  ];
+                }
+                return [source];
+              }
             }
 
-            // Last-resort oversized single element. Even here, preserve the
-            // element's markup instead of rebuilding it from textContent().
+            // Single paragraph or element: only split if there's substantial room (>= 60px)
             if (!fits(source)) {
+              if (maxHeight < 60) {
+                host.remove();
+                return [source];
+              }
+
               const wrapperTag = first.tagName.toLowerCase();
               const attrs = Array.from(first.attributes)
                 .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)

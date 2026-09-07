@@ -15,7 +15,8 @@ import {
   Activity,
   ArrowRight,
   ShieldAlert,
-  Building2
+  Building2,
+  RefreshCw
 } from 'lucide-react';
 import { UserSession, UserAccount } from '../types';
 import { SecurityAccountPanel } from './SecurityAccountPanel';
@@ -39,6 +40,7 @@ interface AdminHubPageProps {
   onLogout?: () => void;
   onUpdatePassword?: (newPassword: string) => Promise<void>;
   onShowToast?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
+  onStandardizeAllNumbers?: () => void;
 }
 
 type AdminSubTab = 'tools' | 'security' | 'backup' | 'password';
@@ -60,6 +62,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   onLogout,
   onUpdatePassword,
   onShowToast,
+  onStandardizeAllNumbers,
 }) => {
   const isAdmin = userSession.role === 'admin';
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(isAdmin ? 'tools' : 'password');
@@ -336,6 +339,30 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
               >
                 <span>Buka Panel Keamanan</span>
                 <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Card 7: Sinkronkan Nomor SPO */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col justify-between shadow-2xs hover:shadow-md hover:border-purple-300 transition-all group">
+            <div>
+              <div className="p-3 rounded-2xl bg-purple-50 text-purple-700 w-fit mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                <RefreshCw className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-slate-900">Sinkronkan Nomor SPO</h3>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                Standarisasi seluruh nomor urut SPO per unit kerja sesuai Pedoman Tata Naskah Soegiri serta rapikan nomor duplikat secara otomatis.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={onStandardizeAllNumbers}
+                disabled={!onStandardizeAllNumbers}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs shadow-purple-100"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Sinkronkan Nomor Sekarang</span>
               </button>
             </div>
           </div>

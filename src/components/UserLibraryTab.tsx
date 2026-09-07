@@ -5,6 +5,7 @@ import {
   Eye, 
   Check, 
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 import { SopDocument, UserSession } from '../types';
 import { SOEGIRI_MASTER_CATEGORIES, isSopAccessibleByUser } from '../utils/soegiriStructure';
@@ -14,6 +15,7 @@ interface UserLibraryTabProps {
   userSession: UserSession;
   onViewDetail: (sop: SopDocument) => void;
   onSwitchToInputTab: () => void;
+  onStandardizeAllNumbers?: () => void;
 }
 
 export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
@@ -21,6 +23,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
   userSession,
   onViewDetail,
   onSwitchToInputTab,
+  onStandardizeAllNumbers,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -32,8 +35,9 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
       : (Array.isArray(userSession.divisionCodes) ? userSession.divisionCodes : [userSession.divisionCode || 'PEL']))
       .filter(Boolean).map((c) => String(c).toUpperCase())
   ));
-  const hasStructuralBadge = userSession.role === 'user' && Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  const isRestricted = userSession.role !== 'admin' && !hasStructuralBadge && !assignedDivCodes.includes('ALL');
+  // Catatan: Badge STRUKTURAL memberikan akses untuk SK & MOU.
+  // Untuk arsip SPO, tampilan tetap dibatasi sesuai kewenangan hirarki pengguna.
+  const isRestricted = userSession.role !== 'admin' && !assignedDivCodes.includes('ALL');
   const assignedDivCode = assignedDivCodes[0] || 'PEL';
 
   // A multi-hierarchy account must see the combined library by default.
@@ -124,7 +128,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
                   : 'bg-white border-slate-300 text-slate-700'
               }`}
             >
-              <option value="ALL">Semua Kewenangan{hasStructuralBadge ? ' (Badge Struktural)' : ` (${assignmentSummary.length || assignedDivCodes.length})`}</option>
+              <option value="ALL">Semua Kewenangan ({assignmentSummary.length || assignedDivCodes.length})</option>
               {assignedDivCodes.map((code) => {
                 const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
                 return (
@@ -147,6 +151,20 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
             <option value="AKTIF">Aktif</option>
             <option value="DIARSIPKAN">Diarsipkan</option>
           </select>
+
+          {/* Tombol Sinkronkan Nomor untuk Admin */}
+          {userSession.role === 'admin' && onStandardizeAllNumbers && (
+            <button
+              type="button"
+              onClick={onStandardizeAllNumbers}
+              id="library-sync-sop-numbers-btn"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs shadow-purple-100"
+              title="Sinkronkan & standarisasi seluruh nomor urut SPO per unit kerja"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sinkronkan Nomor</span>
+            </button>
+          )}
 
         </div>
       </div>

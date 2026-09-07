@@ -160,8 +160,7 @@ function initFirestoreSopSync(userSession?: UserSession | null): () => void {
       ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
       : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
   const globalAccess = userSession?.role === 'admin'
-    || hasAllHierarchyAssignment
-    || (Array.isArray(userSession?.badges) && userSession!.badges!.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL'));
+    || hasAllHierarchyAssignment;
 
   void fetchSopsFromFirestore(scopedKeys, globalAccess).then(async (cloudSops) => {
     if (!active) return;

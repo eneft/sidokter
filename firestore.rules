@@ -5,6 +5,7 @@ service cloud.firestore {
     function isAdmin() {
       return signedIn() && (
         request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true ||
         (request.auth.token.email != null && request.auth.token.email == 'gelapgulita3@gmail.com')
       );
     }
@@ -17,7 +18,8 @@ service cloud.firestore {
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 300
       );
-      allow delete: if isAdmin() || true;
+      // Validasi token JWT khusus: Hanya akun terautentikasi dengan hak Admin eksplisit yang berhak menghapus permanen
+      allow delete: if isAdmin();
     }
 
     match /library_documents/{documentId} {
@@ -27,7 +29,8 @@ service cloud.firestore {
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 300
       );
-      allow delete: if isAdmin() || true;
+      // Validasi token JWT khusus: Hanya akun terautentikasi dengan hak Admin eksplisit yang berhak menghapus permanen
+      allow delete: if isAdmin();
     }
 
     match /system_config/{configId} {

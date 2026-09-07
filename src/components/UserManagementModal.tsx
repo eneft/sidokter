@@ -484,7 +484,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           <span>STRUKTURAL</span>
                         </div>
                         <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
-                          Akses ke dokumen SK, MOU, dan seluruh dokumen SPO rumah sakit.
+                          Akses ke dokumen SK dan MOU. Akses SPO tetap mengikuti hirarki unit akun.
                         </p>
                       </div>
                     </label>

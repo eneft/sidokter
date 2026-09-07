@@ -1783,17 +1783,17 @@ main .rich-text-toolbar,
 .login-page-shell {
   position: relative;
   width: 100%;
-  height: 100svh;
-  min-height: 620px;
-  overflow: hidden;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   color: #173f6d;
   background: #f8fbfd;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .login-page-background {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 0;
   background-position: center center;
@@ -1805,59 +1805,60 @@ main .rich-text-toolbar,
 .login-main-content {
   position: relative;
   z-index: 2;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
   width: 100%;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px 16px 8px;
+  margin: auto 0;
+  padding: 36px 16px 20px;
+  box-sizing: border-box;
 }
 
 .login-brand-header {
   flex: 0 0 auto;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
+  margin-bottom: 22px;
 }
 
 .login-brand-lockup {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 283.45px;
-  height: 60.55px;
-  max-width: 396px;
+  margin: 0 auto;
+  max-width: 100%;
 }
 
 .login-brand-rsud-logo {
-  width: 55px;
-  height: 60px;
-  flex: 0 0 55px;
-  margin-right: -6px;
-  margin-left: -27px;
-  border-radius: 0px;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  margin: 0;
+  border-radius: 0;
   object-fit: contain;
   display: block;
 }
 
 .login-brand-divider {
-  width: 1px;
-  height: 50px;
-  margin: 0 13px;
-  background: rgba(23, 63, 109, .42);
-  flex: 0 0 1px;
+  width: 1.5px;
+  height: 48px;
+  margin: 0 14px;
+  background: rgba(23, 63, 109, .38);
+  flex: 0 0 1.5px;
 }
 
 .login-brand-wordmark {
   min-width: 0;
-  text-align: center;
+  text-align: left;
   line-height: 1;
   display: inline-flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   width: max-content;
   max-width: 100%;
@@ -1866,12 +1867,12 @@ main .rich-text-toolbar,
 .login-brand-title {
   display: inline-flex;
   align-items: baseline;
-  justify-content: center;
+  justify-content: flex-start;
   white-space: nowrap;
   font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 35px;
+  font-size: 34px;
   line-height: .95;
-  letter-spacing: -1.2px;
+  letter-spacing: -1.1px;
   font-weight: 900;
   width: max-content;
 }
@@ -1884,7 +1885,7 @@ main .rich-text-toolbar,
 }
 .login-brand-title-teal {
   color: #009b83;
-  font-size: inherit;
+  font-size: 33px;
   line-height: inherit;
   font-weight: inherit;
 }
@@ -1897,51 +1898,58 @@ main .rich-text-toolbar,
   width: 100%;
   box-sizing: border-box;
   display: block;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   font-weight: 800;
   color: #173f6d;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .login-brand-hospital {
-  margin-top: 2.5px;
+  margin-top: 0px;
   font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 8.6px;
+  font-size: 9.5px;
+  width: 164.781px;
+  line-height: 8.875px;
   font-weight: 700;
-  line-height: 1.25;
-  width: 100%;
   box-sizing: border-box;
   display: block;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   text-transform: uppercase;
   color: #526f8f;
-  letter-spacing: 0.45px;
+  letter-spacing: 0.5px;
 }
 
 .login-auth-panel {
   flex: 0 0 auto;
-  width: 396px;
-  max-width: calc(100vw - 32px);
+  width: 100%;
+  max-width: 396px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 #login-auth-card,
 .login-auth-card {
-  width: 327px;
-  height: 342.4px;
+  width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 18px 24px 18px;
-  margin-left: 13px;
-  margin-top: 9px;
+  padding: 24px 26px 22px;
+  margin: 0 auto;
   border: 1px solid rgba(121, 151, 181, .42);
   border-radius: 20px;
-  background: rgba(255,255,255,.84);
-  box-shadow: 0 16px 38px rgba(31, 65, 95, .12);
+  background: rgba(255, 255, 255, .88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 16px 38px rgba(31, 65, 95, .12), 0 2px 6px rgba(23, 63, 109, .04);
 }
 
-.login-card-header { margin-bottom: 17px; }
+.login-card-header {
+  margin-bottom: 18px;
+  text-align: center;
+}
 
 .login-card-title {
   margin: 0;
@@ -1951,13 +1959,15 @@ main .rich-text-toolbar,
   line-height: 1.15;
   font-weight: 850;
   letter-spacing: -.45px;
+  text-align: center;
 }
 
 .login-card-subtitle {
-  margin: 7px 0 0;
+  margin: 0;
   color: #5d7591;
   font-size: 12px;
   line-height: 1.5;
+  text-align: center;
 }
 
 .login-form { display: flex; flex-direction: column; gap: 16px; }
@@ -2107,39 +2117,50 @@ main .rich-text-toolbar,
 }
 
 @media (max-width: 640px) {
-  .login-page-shell { min-height: 560px; }
-  .login-main-content { padding: 12px 12px 5px; }
-  .login-brand-header { margin-bottom: 11px; }
-  .login-brand-rsud-logo { width: 54px; height: 54px; flex-basis: 54px; }
-  .login-brand-divider { height: 43px; margin: 0 10px; }
-  .login-brand-title { font-size: clamp(28px, 8.5vw, 34px); letter-spacing: -1.2px; }
-  .login-brand-subtitle { font-size: clamp(9px, 2.7vw, 10.2px); letter-spacing: 0.4px; margin-top: 3px; }
-  .login-brand-hospital { font-size: clamp(7.4px, 2.2vw, 8.4px); letter-spacing: 0.35px; margin-top: 2px; }
-  .login-auth-panel { width: 396px; max-width: calc(100vw - 24px); }
-  .login-auth-card { padding: 21px 19px 15px; border-radius: 18px; }
+  .login-page-shell { min-height: 100svh; }
+  .login-main-content { padding: 20px 14px 14px; }
+  .login-brand-header { margin-bottom: 16px; }
+  .login-brand-rsud-logo { width: 48px; height: 48px; flex-basis: 48px; margin: 0; }
+  .login-brand-divider { height: 40px; margin: 0 11px; }
+  .login-brand-title { font-size: clamp(26px, 7.5vw, 30px); letter-spacing: -1px; }
+  .login-brand-subtitle { font-size: clamp(8.8px, 2.5vw, 9.8px); letter-spacing: 0.4px; margin-top: 3px; }
+  .login-brand-hospital { font-size: clamp(7.2px, 2vw, 8.2px); letter-spacing: 0.35px; margin-top: 2px; }
+  .login-auth-panel { width: 100%; max-width: 360px; margin: 0 auto; }
+  .login-auth-card { padding: 20px 20px 16px; border-radius: 18px; margin: 0 auto; }
+  .login-card-header { margin-bottom: 14px; }
   .login-card-title { font-size: 19px; }
-  .login-card-subtitle { font-size: 11px; }
+  .login-card-subtitle { font-size: 11.5px; }
   .login-form { gap: 14px; }
-  .login-input-wrap input { height: 47px; border-radius: 13px; }
+  .login-input-wrap input { height: 47px; border-radius: 13px; font-size: 13px; }
   .login-submit-btn { height: 45px; }
   .login-security-note { margin-top: 12px; padding-top: 10px; }
-  .login-page-footer { padding-bottom: 9px; font-size: 9px; }
+  .login-page-footer { padding-bottom: 12px; font-size: 9.5px; }
 }
 
-@media (max-height: 700px) {
-  .login-main-content { padding-top: 7px; }
-  .login-brand-header { margin-bottom: 7px; }
-  .login-brand-rsud-logo { width: 48px; height: 48px; flex-basis: 48px; }
-  .login-brand-divider { height: 38px; }
-  .login-brand-title { font-size: 28px; }
-  .login-brand-subtitle { font-size: 9.2px; letter-spacing: 0.35px; margin-top: 2px; }
-  .login-brand-hospital { font-size: 7.4px; letter-spacing: 0.3px; margin-top: 1.5px; }
-  .login-auth-card { padding-top: 17px; padding-bottom: 12px; }
+@media (min-width: 641px) and (max-width: 1024px) {
+  .login-main-content { padding: 28px 16px 16px; }
+  .login-brand-header { margin-bottom: 20px; }
+  .login-brand-rsud-logo { width: 54px; height: 54px; flex-basis: 54px; margin: 0; }
+  .login-brand-divider { height: 44px; margin: 0 13px; }
+  .login-brand-title { font-size: 32px; }
+  .login-auth-panel { width: 100%; max-width: 384px; margin: 0 auto; }
+  .login-auth-card { padding: 24px 24px 20px; border-radius: 20px; margin: 0 auto; }
+}
+
+@media (max-height: 720px) {
+  .login-main-content { padding-top: 14px; padding-bottom: 14px; }
+  .login-brand-header { margin-bottom: 12px; }
+  .login-brand-rsud-logo { width: 44px; height: 44px; flex-basis: 44px; }
+  .login-brand-divider { height: 36px; margin: 0 9px; }
+  .login-brand-title { font-size: 26px; }
+  .login-brand-subtitle { font-size: 8.8px; letter-spacing: 0.35px; margin-top: 2px; }
+  .login-brand-hospital { font-size: 7.2px; letter-spacing: 0.3px; margin-top: 1.5px; }
+  .login-auth-card { padding-top: 16px; padding-bottom: 14px; }
   .login-card-header { margin-bottom: 12px; }
-  .login-form { gap: 11px; }
-  .login-field label { margin-bottom: 5px; }
+  .login-form { gap: 12px; }
+  .login-field label { margin-bottom: 4px; }
   .login-input-wrap input { height: 43px; }
   .login-submit-btn { height: 42px; }
-  .login-security-note { margin-top: 9px; padding-top: 8px; }
-  .login-admin-link-wrap { margin-top: 5px; }
+  .login-security-note { margin-top: 10px; padding-top: 8px; }
+  .login-admin-link-wrap { margin-top: 6px; }
 }

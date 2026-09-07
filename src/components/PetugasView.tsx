@@ -892,7 +892,10 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
         onLogout={onLogout}
         onSelectDocument={(docId, docNumber) => {
           const found = sops.find((s) => s.id === docId || (docNumber && s.sopNumber === docNumber));
-          if (found) onViewDetail(found);
+          if (found) {
+            setActiveTab('spo');
+            onViewDetail(found);
+          }
         }}
       />
 

@@ -242,12 +242,29 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               const isAssignment = item.type === 'assignment';
               const isReview = item.type === 'review';
 
+              const canOpenDoc = Boolean(item.onAction || (item.documentId && onSelectDocument));
+
+              const handleItemClick = () => {
+                if (item.onAction) {
+                  markNotificationAsRead(item.id);
+                  item.onAction();
+                  onClose();
+                } else if (item.documentId && onSelectDocument) {
+                  markNotificationAsRead(item.id);
+                  onSelectDocument(item.documentId, item.documentNumber);
+                  onClose();
+                }
+              };
+
               return (
                 <div
                   key={item.id}
+                  onClick={canOpenDoc ? handleItemClick : undefined}
                   className={`p-3 rounded-xl border transition-all text-left ${
+                    canOpenDoc ? 'cursor-pointer hover:shadow-xs' : ''
+                  } ${
                     !item.read
-                      ? 'bg-slate-50 border-slate-200'
+                      ? 'bg-slate-50/90 border-slate-200 hover:border-slate-300'
                       : 'bg-white border-slate-100 hover:border-slate-200'
                   }`}
                 >
@@ -328,7 +345,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         {item.onAction ? (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               markNotificationAsRead(item.id);
                               item.onAction?.();
                               onClose();
@@ -343,14 +361,15 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         ) : item.documentId && onSelectDocument ? (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               markNotificationAsRead(item.id);
                               onSelectDocument(item.documentId!, item.documentNumber);
                               onClose();
                             }}
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-800 hover:text-slate-950 transition-colors cursor-pointer"
                           >
-                            <span>Buka Dokumen</span>
+                            <span>{item.actionLabel || (isProposal ? 'Tinjau & Sahkan' : 'Buka Dokumen')}</span>
                             <ArrowRight className="w-3 h-3" />
                           </button>
                         ) : <div />}
@@ -358,7 +377,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         {!item.read && (
                           <button
                             type="button"
-                            onClick={() => markNotificationAsRead(item.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markNotificationAsRead(item.id);
+                            }}
                             className="text-[10px] text-slate-400 hover:text-slate-700 transition-colors flex items-center gap-0.5 py-0.5 px-1.5 rounded cursor-pointer"
                           >
                             <Check className="w-3 h-3" />
