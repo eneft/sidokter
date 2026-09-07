@@ -495,9 +495,10 @@ export function isSopAccessibleByUser(
           subUnitCode: userSession.subUnitCode,
         }]);
 
-  // ALL is a global scope marker reserved for Admin. It must never grant
-  // a User access to every SPO.
-  if (userSession.role === 'admin' && assignments.some((a) => String(a.divisionCode || '').toUpperCase() === 'ALL')) return true;
+  // ALL is a global scope assignment for both Admin and User accounts.
+  // It grants access to every SPO, while remaining a scope marker rather than
+  // a Firestore access-key value.
+  if (assignments.some((a) => String(a.divisionCode || '').trim().toUpperCase() === 'ALL')) return true;
 
   return assignments.some((assignment) => {
     if (String(assignment.divisionCode || '').trim().toUpperCase() !== sopDivision) return false;
@@ -511,3 +512,121 @@ export function isSopAccessibleByUser(
 }
 
 export const userCanAccessSop = isSopAccessibleByUser;
+
+export function hasStructuralBadge(user?: { badges?: string[] } | null): boolean {
+  return Boolean(Array.isArray(user?.badges) && user.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL'));
+}
+
+export function hasAdminBadge(user?: { badges?: string[] } | null): boolean {
+  return Boolean(Array.isArray(user?.badges) && user.badges.some((b) => String(b).trim().toUpperCase() === 'ADMIN'));
+}
+
+/**
+ * Access to SK and MOU documents:
+ * "Tidak boleh akses SK dan MOU hanya karena role Admin."
+ * "Struktural: tetap memiliki akses SK, MOU, dan hak akses existing."
+ */
+export function canUserAccessProtectedDocs(user?: { role?: string; badges?: string[] } | null): boolean {
+  return hasStructuralBadge(user);
+}
+
+/**
+ * Can activate an SPO document:
+ * 1. Administrator: can activate.
+ * 2. User with badge ADMIN: "Bisa aktivasi dokumen sesuai hirarki user. Tidak boleh akses/aktivasi dokumen di luar hirarkinya."
+ * 3. Badge Admin combined with Struktural: has both structural access and activation authority.
+ */
+export function canUserActivateSop(
+  sop: any,
+  userSession?: {
+    role: string;
+    badges?: string[];
+    divisionCode?: string;
+    divisionCodes?: string[];
+    assignments?: any[];
+    subCode?: string;
+    instCode?: string;
+    poliCode?: string;
+    subUnitCode?: string;
+  } | null
+): boolean {
+  if (!userSession || !sop) return false;
+  if (userSession.role === 'admin') return true;
+  if (hasAdminBadge(userSession)) {
+    return isSopAccessibleByUser(sop, {
+      ...userSession,
+      role: userSession.role || 'petugas',
+    });
+  }
+  return false;
+}
+
+
+/**
+ * Canonical Firestore access keys for a user hierarchy assignment.
+ * A key is `DIVISION` for division-level access or `DIVISION|1.2.3` for a
+ * specific hierarchy. Firestore rules use these keys as the authoritative
+ * document boundary; UI filtering is only a secondary defense.
+ */
+export function getUserHierarchyAccessKeys(userSession?: {
+  role: string;
+  badges?: string[];
+  divisionCode?: string;
+  divisionCodes?: string[];
+  assignments?: Array<{ divisionCode: string; hierarchyCode?: string; hierarchyPath?: string[]; subCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string }>;
+  subCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string;
+} | null): string[] {
+  if (!userSession || userSession.role === 'admin') return [];
+  if (Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) return [];
+
+  const normalize = (v?: string) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  const assignments = Array.isArray(userSession.assignments) && userSession.assignments.length
+    ? userSession.assignments
+    : (Array.isArray(userSession.divisionCodes) && userSession.divisionCodes.length
+      ? userSession.divisionCodes.map((divisionCode, index) => ({
+          divisionCode,
+          subCode: index === 0 ? userSession.subCode : undefined,
+          instCode: index === 0 ? userSession.instCode : undefined,
+          poliCode: index === 0 ? userSession.poliCode : undefined,
+          subUnitCode: index === 0 ? userSession.subUnitCode : undefined,
+        }))
+      : [{
+          divisionCode: userSession.divisionCode || 'PEL',
+          subCode: userSession.subCode,
+          instCode: userSession.instCode,
+          poliCode: userSession.poliCode,
+          subUnitCode: userSession.subUnitCode,
+        }]);
+
+  const keys = new Set<string>();
+  for (const assignment of assignments) {
+    const division = String(assignment.divisionCode || '').trim().toUpperCase();
+    if (!division || division === 'ALL') continue;
+    const hierarchy = normalize(
+      (assignment as any).hierarchyCode ||
+      ((assignment as any).hierarchyPath || []).filter(Boolean).join('.') ||
+      [assignment.subCode, assignment.instCode, assignment.poliCode, assignment.subUnitCode].filter(Boolean).join('.')
+    );
+    keys.add(hierarchy ? `${division}|${hierarchy}` : division);
+  }
+  return Array.from(keys).slice(0, 30);
+}
+
+/** Build document access keys including all hierarchy ancestors. */
+export function getSopAccessKeys(sop: { divisionCode?: string; subHierarchyCode?: string; subCode?: string; instalasiCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string; sopNumber?: string }): string[] {
+  const division = String(sop.divisionCode || '').trim().toUpperCase();
+  if (!division) return [];
+  const normalize = (v?: string) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  const hierarchy = normalize(
+    sop.subHierarchyCode ||
+    [sop.subCode, sop.instalasiCode || sop.instCode, sop.poliCode, sop.subUnitCode].filter(Boolean).join('.') ||
+    (sop.sopNumber?.split('/')[1]?.trim() || '')
+  );
+  const keys = [division];
+  if (hierarchy) {
+    const parts = hierarchy.split('.').filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) keys.push(`${division}|${parts.slice(0, i).join('.')}`);
+  }
+  return Array.from(new Set(keys));
+}
+

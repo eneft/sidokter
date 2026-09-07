@@ -141,9 +141,9 @@ function cleanSectionHtml(html: string, sectionName: string): string {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
       'ol', 'ul', 'li', 'div', 'span', 'sub', 'sup',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'figure', 'figcaption'
+      'table', 'thead', 'tbody', 'tr', 'th', 'td'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'colspan', 'rowspan', 'src', 'alt', 'width', 'height', 'loading']
+    ALLOWED_ATTR: ['style', 'start', 'type', 'colspan', 'rowspan']
   }).trim();
 }
 
@@ -231,14 +231,6 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
   // 1. Check Tables (Primary format for Indonesian hospital SPOs)
   const tables = Array.from(doc.querySelectorAll('table'));
   let tableHeaderFound = false;
-  const tableSectionHtml: Record<string, string[]> = {
-    pengertian: [],
-    tujuan: [],
-    kebijakan: [],
-    prosedur: [],
-    alur: [],
-    unitTerkait: []
-  };
 
   for (const table of tables) {
     const rows = Array.from(table.querySelectorAll('tr'));
@@ -259,16 +251,12 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
         const matchedSection = col0Label || col1Label;
         if (matchedSection) {
           // Content is in the next cell or combined remaining cells
-          const contentStartIndex = col0Label ? 1 : 2;
-          const contentHtml = cleanSectionHtml(
-            cellHtmls.slice(contentStartIndex).join('') || cellHtmls[1] || '',
-            matchedSection
-          );
-          const contentText = cellTexts.slice(contentStartIndex).join(' ').trim() || cellTexts[1] || '';
+          const contentCellIndex = col0Label ? (cells.length === 2 ? 1 : cells.length - 1) : 2;
+          const contentHtml = cleanSectionHtml(cellHtmls[contentCellIndex] || cellHtmls[1] || '', matchedSection);
+          const contentText = (cellTexts[contentCellIndex] || cellTexts[1] || '').trim();
 
-          if (contentText) {
-            const value = contentHtml || plainTextToHtml(contentText);
-            if (value) tableSectionHtml[matchedSection].push(value);
+          if (contentText && !parsed[matchedSection]) {
+            parsed[matchedSection] = contentHtml || plainTextToHtml(contentText);
           }
           continue;
         }
@@ -301,13 +289,8 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
           // Explicit title cell indicator
           if (lower.includes('judul') || lower.includes('nama prosedur') || lower.includes('nama spo')) {
             const clean = cleanTitle(ct);
-            // A table label such as "Judul SPO" is not itself the title.
-            // Prefer the value in the following cell when the label has no value.
-            const labelOnly = /^(?:judul\s*(?:spo|sop)?|nama\s*(?:prosedur|spo))\s*[:：]?$/i.test(ct);
-            const nextValue = labelOnly ? (cellTexts[i + 1] || '').trim() : '';
-            const candidate = labelOnly ? cleanTitle(nextValue) : clean;
-            if (candidate && candidate.length > 3 && !/^(?:judul\s*(?:spo|sop)?|nama\s*(?:prosedur|spo))$/i.test(candidate)) {
-              parsed.title = candidate;
+            if (clean && clean.length > 3) {
+              parsed.title = clean;
               tableHeaderFound = true;
               break;
             }
@@ -340,16 +323,6 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
       }
     }
   }
-
-  // Combine repeated rows belonging to the same section. Hospital SPO Word
-  // templates often split PROSEDUR/UNIT TERKAIT across several table rows.
-  (Object.keys(tableSectionHtml) as Array<keyof typeof tableSectionHtml>).forEach((sec) => {
-    const parts = tableSectionHtml[sec].filter(Boolean);
-    if (parts.length > 0) {
-      const combined = cleanSectionHtml(parts.join(''), sec);
-      if (combined) parsed[sec] = combined;
-    }
-  });
 
   // 2. Linear Paragraph / Heading extraction (if any fields are still missing)
   const missingSections: Array<'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait'> = [];
@@ -445,11 +418,8 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
   if (!parsed.title && rawText) {
     // Check lines for explicit "JUDUL :"
     const titleMatch = rawText.match(/(?:judul\s*(?:spo|sop)?|nama\s*(?:prosedur|spo))\s*[:：\-]\s*([^\r\n]+)/i);
-    const titleLabelThenValue = rawText.match(/(?:^|\n)\s*(?:judul\s*(?:spo|sop)?|nama\s*(?:prosedur|spo))\s*[:：]?\s*\n\s*([^\r\n]+)/i);
     if (titleMatch && titleMatch[1]?.trim()) {
       parsed.title = cleanTitle(titleMatch[1].trim());
-    } else if (titleLabelThenValue && titleLabelThenValue[1]?.trim()) {
-      parsed.title = cleanTitle(titleLabelThenValue[1].trim());
     } else {
       // Look at the first 10 non-empty lines
       const lines = rawText
@@ -469,7 +439,6 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
           lower.includes('ditetapkan') ||
           lower.includes('direktur') ||
           lower.includes('pengertian') ||
-          /^(?:judul\s*(?:spo|sop)?|nama\s*(?:prosedur|spo))\s*[:：-]?$/i.test(line) ||
           line.length < 5
         ) {
           continue;

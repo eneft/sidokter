@@ -43,7 +43,8 @@ export const LibraryDocumentPage: React.FC<Props> = ({
 }) => {
   const isAdmin = userSession.role === 'admin';
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  const hasProtectedDocumentAccess = isAdmin || hasStructuralBadge;
+  // Admin role or Admin badge alone does not grant access to SK & MOU; must have STRUKTURAL badge
+  const hasProtectedDocumentAccess = hasStructuralBadge;
   const canUpload = hasProtectedDocumentAccess;
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');

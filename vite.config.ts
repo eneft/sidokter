@@ -5,7 +5,10 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': path.resolve(__dirname, '.') } },
+  resolve: {
+    alias: { '@': path.resolve(__dirname, '.') },
+    dedupe: ['react', 'react-dom'],
+  },
   server: {
     hmr: process.env.DISABLE_HMR !== 'true',
     watch: process.env.DISABLE_HMR === 'true' ? null : {},

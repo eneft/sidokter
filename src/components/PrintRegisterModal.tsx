@@ -20,15 +20,13 @@ interface PrintRegisterModalProps {
   activeFilterSummary?: string;
 }
 
-export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
+const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
   isOpen,
   onClose,
   sops,
   initialDivisionFilter,
   activeFilterSummary
 }) => {
-  if (!isOpen) return null;
-
   const [selectedDivision, setSelectedDivision] = useState<string>(initialDivisionFilter || 'ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -379,4 +377,10 @@ export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = ({
       </div>
     </div>
   );
+};
+
+
+export const PrintRegisterModal: React.FC<PrintRegisterModalProps> = (props) => {
+  if (!props.isOpen) return null;
+  return <PrintRegisterModalContent {...props} />;
 };

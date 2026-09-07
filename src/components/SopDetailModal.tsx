@@ -32,9 +32,9 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
-import { SopDocument, SopStatus, UserSession, getStandardJenisSpo } from '../types';
+import { SopDocument, SopStatus, UserSession, UserAccount, getStandardJenisSpo } from '../types';
 import { formatBytes } from '../utils/numbering';
-import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser } from '../utils/soegiriStructure';
+import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser, canUserActivateSop } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { triggerFileDownload, openDocumentPreview, getFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
@@ -54,6 +54,7 @@ interface SopDetailModalProps {
   onActivateSop?: (sop: SopDocument) => void;
   onProposeActivation?: (sop: SopDocument) => void;
   userSession?: UserSession | null;
+  users?: UserAccount[];
 }
 
 type OfficialBlock = {
@@ -66,6 +67,59 @@ type OfficialBlock = {
   logicalListGroup?: string;
 };
 
+const PreviewMetadata: React.FC<{ sop: SopDocument; kind: 'BARU' | 'EKSISTING' | 'RIVIU'; users?: UserAccount[] }> = ({ sop, kind, users }) => {
+  const fmt = (value?: string) => {
+    if (!value) return '-';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+  // Pengusul wajib ditampilkan sebagai Nama Lengkap pada akun user.
+  // Data lama yang masih menyimpan username di activationRequestedBy di-resolve
+  // kembali ke direktori akun agar preview tidak menampilkan username.
+  const proposerAccount = users?.find((u) =>
+    String(u.username || '').trim().toLowerCase() === String(sop.activationRequestedBy || '').trim().toLowerCase()
+  );
+  const proposer = proposerAccount?.name || sop.activationRequestedBy || sop.creatorName || '-';
+  const proposerUnit = sop.creatorUnit || sop.divisionName || '-';
+  const status = sop.status === 'AKTIF' ? 'Aktif' : sop.status === 'DRAFT' ? 'Draft' : sop.status || '-';
+  const typeLabel = kind === 'BARU' ? 'SPO Baru' : kind === 'EKSISTING' ? 'SPO Existing / Lama' : 'SPO Hasil Riviu';
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden no-print" aria-label="Informasi dokumen SPO">
+      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-900 border border-blue-200">{typeLabel}</span>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Informasi Dokumen</span>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border ${sop.status === 'AKTIF' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : sop.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>{status}</span>
+      </div>
+      <div className="px-4 sm:px-5 py-4 space-y-3">
+        <div><div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Judul SPO</div><h3 className="mt-0.5 text-base sm:text-lg font-extrabold leading-snug text-slate-900">{sop.title || 'Tanpa Judul SPO'}</h3></div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Nomor SPO</span><span className="mt-0.5 block font-mono text-[11px] font-bold text-blue-900 break-words leading-tight">{sop.sopNumber || '-'}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Pengusul</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposer}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Unit / Pemilik</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposerUnit}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Revisi</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{sop.revisionNumber || sop.version || '00'}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Tanggal Pengajuan</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{fmt(sop.activationRequestedAt || sop.createdAt)}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Tanggal Terbit / Berlaku</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{fmt(sop.effectiveDate)}</span></div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Penetap</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{sop.approverName || sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</span></div>
+        </div>
+        {kind === 'RIVIU' && (
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,0.8fr)_minmax(0,2fr)] gap-2 pt-0.5">
+            <div className="rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5">
+              <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">SPO Lama yang Diriviu</span>
+              <span className="mt-0.5 block text-[10px] font-mono font-bold text-blue-900 break-words leading-tight">{sop.oldSopNumber || '-'}</span>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5">
+              <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">Alasan Riviu</span>
+              <span className="mt-0.5 block text-[10px] font-medium text-slate-700 leading-snug break-words">{sop.reviewReason || '-'}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+};
+
 export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   isOpen,
   sop,
@@ -76,7 +130,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   onCopyNumber,
   onActivateSop,
   onProposeActivation,
-  userSession
+  userSession,
+  users
 }) => {
   const [copied, setCopied] = useState(false);
   const [isFullscreenDocOpen, setIsFullscreenDocOpen] = useState(false);
@@ -1165,7 +1220,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   if (!isOpen || !sop) return null;
 
   // Enforce access control for non-admin users
-  const isAccessible = !userSession || userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession);
+  const isAccessible = Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession));
   const showSignatureAndStamp = shouldShowSignatureAndStamp(sop);
 
   if (!isAccessible) {
@@ -1667,7 +1722,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         {/* Top Bar (Hidden in Print) */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-slate-100 bg-slate-50/90 no-print flex-wrap gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-mono font-bold bg-blue-50 text-blue-900 border border-blue-200 shrink-0">
               {sop.divisionCode} {sop.subHierarchyCode ? `/ ${sop.subHierarchyCode}` : ''}
             </span>
             <span className="text-xs text-slate-600 font-semibold truncate max-w-[120px] sm:max-w-[220px]">
@@ -1677,17 +1732,17 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
             {/* EDIT DOKUMEN / UBAH NOMOR */}
-            {(!userSession || userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession)) && (
+            {(Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession))) && (
               <button
                 type="button"
                 onClick={() => {
                   onClose();
                   onEdit(sop);
                 }}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 active:bg-amber-200 border border-amber-300 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-300 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
                 title="Edit data SPO atau ubah nomor registrasi"
               >
-                <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                <Edit3 className="w-3.5 h-3.5 text-blue-800" />
                 <span className="hidden sm:inline">Edit / Ubah Nomor</span>
                 <span className="sm:hidden">Edit</span>
               </button>
@@ -1699,7 +1754,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 type="button"
                 onClick={handleDownloadDirectPdf}
                 disabled={isPdfGenerating || isPaginatingOfficial}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
                 title="Simpan Naskah Standar SPO sebagai PDF A4"
               >
                 {isPdfGenerating ? (
@@ -1717,7 +1772,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsFullscreenDocOpen(true)}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 active:bg-purple-800 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
                 title="Pratinjau PDF asli SPO Eksisting"
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -1753,59 +1808,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           
           {isExisting ? (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 bg-purple-200/80 px-2 py-0.5 rounded-md border border-purple-300">
-                        SPO Eksisting / Lama
-                      </span>
-                      <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                        {sop.status === 'AKTIF' ? 'AKTIF' : (sop.status || 'AKTIF')}
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-slate-900 leading-snug">{sop.title}</h3>
-                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
-                      <div className="min-w-0">
-                        <span className="font-semibold text-purple-900">Nomor SPO:</span>
-                        <span className="ml-1.5 font-mono font-bold text-slate-800">{sop.sopNumber || '-'}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-semibold text-purple-900">Penerbit:</span>
-                        <span className="ml-1.5 font-semibold text-slate-700">{sop.divisionName || '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {legacyFileUrl && (
-                    <div className="flex items-center gap-2 shrink-0 self-start">
-                      <button
-                        type="button"
-                        onClick={() => openDocumentPreview(legacyFileUrl, legacyFileName)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-900 bg-purple-200/90 hover:bg-purple-300 rounded-xl transition-colors cursor-pointer"
-                        title="Buka PDF di tab baru peramban"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Buka Tab Baru</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => triggerFileDownload(legacyFileUrl, legacyFileName)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl transition-colors cursor-pointer shadow-xs"
-                        title="Unduh berkas PDF asli"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Unduh PDF</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
+              <PreviewMetadata users={users} sop={sop} kind="EKSISTING" />
               {isLoadingLegacyFile ? (
                 <div className="flex flex-col items-center justify-center gap-3 p-12 bg-white rounded-2xl border border-slate-200 min-h-[380px]">
-                  <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-800" />
                   <p className="text-xs font-semibold text-slate-600">Memuat berkas PDF asli SPO Eksisting...</p>
                 </div>
               ) : legacyFileUrl ? (
@@ -1822,79 +1828,35 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
           ) : (
             <>
+              <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : "BARU"} />
+
               {/* FORMAT RESMI BAKU (Halaman 6 RSUD Soegiri - untuk SPO Baru/Riviu) */}
           {activeTab === 'official_format' && (
             <div className="space-y-4 sm:space-y-6">
               
 
-              {/* BANNER INFORMASI DOKUMEN RIVIU & BUKTI SPO LAMA */}
-              {isReviewDoc && (
-                <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50/60 p-3.5 sm:p-5 text-slate-800 shadow-xs no-print space-y-3">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
-                        <FileCheck2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              {/* BUKTI SPO LAMA — metadata utama sudah digabung di PreviewMetadata agar tidak ada data Riviu yang tampil dua kali */}
+              {isReviewDoc && (sop.oldFileName || legacyFileUrl) && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs no-print">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 text-blue-900 flex items-center justify-center shrink-0">
+                        <FileCheck2 className="w-4 h-4" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-extrabold uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded-md border border-amber-300">
-                            Dokumen Hasil Riviu
-                          </span>
-                          <span className="text-xs font-bold text-amber-800">
-                            Revisi Ke: {sop.revisionNumber || sop.version || '01'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-amber-950 font-medium mt-0.5">
-                          SPO ini merupakan hasil peninjauan/perubahan dari naskah SPO terdahulu.
-                        </p>
+                      <div className="min-w-0">
+                        <div className="text-xs font-extrabold text-slate-900">Berkas Bukti SPO Lama</div>
+                        <div className="text-[11px] text-slate-500 truncate">{sop.oldFileName || 'Bukti Riviu'}</div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={handleDownloadReviewEvidence}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 active:bg-amber-800 rounded-xl transition-all shadow-xs cursor-pointer"
-                        title="Unduh dokumen berkas bukti SPO lama / bukti riviu yang telah diunggah"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Unduh Bukti</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Detail Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-200/70 text-xs">
-                    <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/60">
-                      <span className="font-bold text-amber-900 block text-[11px]">SPO Lama yang Diriviu:</span>
-                      <span className="font-mono font-bold text-slate-800 break-words mt-0.5 block">
-                        {sop.oldSopNumber || '(Tidak dicantumkan)'}
-                      </span>
-                    </div>
-
-                    <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/60 sm:col-span-2">
-                      <span className="font-bold text-amber-900 block text-[11px]">Alasan & Pedoman Perubahan:</span>
-                      <span className="text-slate-700 mt-0.5 block leading-relaxed">
-                        {sop.reviewReason || 'Penyesuaian tata laksana operasional dan regulasi terbaru.'}
-                      </span>
-                    </div>
-
-                    {sop.oldFileName && (
-                      <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/60 sm:col-span-3 flex items-center justify-between gap-3 flex-wrap">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-amber-700 shrink-0" />
-                          <span className="font-medium text-slate-800 truncate text-xs">
-                            Berkas Bukti: <strong>{sop.oldFileName}</strong>
-                          </span>
-                          {sop.oldFileSize ? (
-                            <span className="text-[11px] text-slate-500 shrink-0">
-                              ({formatBytes(sop.oldFileSize)})
-                            </span>
-                          ) : null}
-                        </div>
-
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => legacyFileUrl && triggerFileDownload(legacyFileUrl, sop.oldFileName || 'Bukti-Riviu.pdf')}
+                      disabled={!legacyFileUrl}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Unduh Bukti</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -2264,7 +2226,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex items-center justify-between no-print gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500 font-medium">Status Dokumen:</span>
-              {userSession?.role === 'admin' ? (
+              {canUserActivateSop(sop, userSession) ? (
                 isExisting ? (
                   <div className="text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 font-bold text-emerald-800">
                     {sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : 'Aktif — SPO Eksisting'}
@@ -2306,32 +2268,32 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {userSession?.role === 'admin' && !isExisting && sop.status === 'DRAFT' && onActivateSop && (
+              {canUserActivateSop(sop, userSession) && sop.status === 'DRAFT' && onActivateSop && (
                 <button
                   onClick={() => onActivateSop(sop)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-sm"
-                  title="Aktivasi Dokumen SPO oleh Admin Tata Naskah"
+                  title={isExisting ? "Setujui dan Aktifkan Dokumen SPO Eksisting" : "Aktivasi Dokumen SPO"}
                 >
                   <Stamp className="w-3.5 h-3.5" />
-                  <span>Aktivasi Dokumen</span>
+                  <span>{isExisting ? 'Setujui Dokumen' : 'Aktivasi Dokumen'}</span>
                 </button>
               )}
 
-              {userSession?.role !== 'admin' && !isExisting && sop.status === 'DRAFT' && (
+              {!canUserActivateSop(sop, userSession) && sop.status === 'DRAFT' && (
                 sop.activationRequestedAt ? (
                   <span
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/80 rounded-xl"
                     title={`Diusulkan oleh ${sop.activationRequestedBy || 'Pengguna'} pada ${new Date(sop.activationRequestedAt).toLocaleDateString('id-ID')}`}
                   >
                     <Clock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Menunggu Pengesahan Admin</span>
+                    <span>Menunggu Persetujuan Admin</span>
                   </span>
                 ) : onProposeActivation ? (
                   <button
                     type="button"
                     onClick={() => onProposeActivation(sop)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors cursor-pointer shadow-sm"
-                    title="Usulkan Dokumen SPO untuk disahkan dan diaktifkan oleh Admin"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 rounded-xl transition-colors cursor-pointer shadow-sm"
+                    title="Usulkan Dokumen SPO untuk disetujui dan diaktifkan"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Usulkan Aktivasi</span>
@@ -2339,7 +2301,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 ) : null
               )}
 
-              {userSession?.role === 'admin' && onDelete && (
+              {(userSession?.role === 'admin' || canUserActivateSop(sop, userSession)) && onDelete && (
                 <button
                   onClick={() => onDelete(sop)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"

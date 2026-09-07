@@ -74,6 +74,20 @@
         "timestamp": { "type": "string", "description": "Waktu kejadian ISO 8601", "required": true }
       },
       "rules": "admin read; backend write only"
+    },
+    "notifications": {
+      "description": "Koleksi notifikasi privat akun pengguna (notifications/{userId}/items/{eventKey})",
+      "fields": {
+        "id": { "type": "string", "description": "ID unik dokumen notifikasi / eventKey", "required": true },
+        "type": { "type": "string", "description": "Tipe notifikasi (activation, proposal, assignment, review, dll)", "required": true },
+        "title": { "type": "string", "description": "Judul notifikasi", "required": true },
+        "message": { "type": "string", "description": "Isi pesan ringkasan notifikasi", "required": true },
+        "read": { "type": "boolean", "description": "Status telah dibaca", "required": true },
+        "hidden": { "type": "boolean", "description": "Status disembunyikan/dibersihkan", "required": false },
+        "timestamp": { "type": "number", "description": "Epoch timestamp pembuatan notifikasi", "required": true },
+        "metadata": { "type": "map", "description": "Metadata eventKey dan konteks pengenal", "required": false }
+      },
+      "rules": "authenticated owner read/create/update/delete for own UID"
     }
   },
   "indexes": []

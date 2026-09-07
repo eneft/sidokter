@@ -12,7 +12,8 @@ import {
   UserCheck, 
   Search,
   Lock,
-  User as UserIcon
+  User as UserIcon,
+  ShieldCheck
 } from 'lucide-react';
 import { UserAccount, UserAssignment, UserRole } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES, SoegiriCategory, buildSubHierarchyCode, getSoegiriHierarchyInfo } from '../utils/soegiriStructure';
@@ -220,7 +221,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         divisionCode: role === 'admin' ? 'ALL' : firstAssignment.divisionCode,
         divisionCodes: role === 'admin' ? ['ALL'] : Array.from(new Set(uniqueAssignments.map((a) => a.divisionCode))),
         assignments: role === 'admin' ? undefined : uniqueAssignments,
-        badges: role === 'admin' ? [] : badges.filter((b) => String(b).toUpperCase() === 'STRUKTURAL'),
+        badges: badges.map(String).filter((b) => ['STRUKTURAL', 'ADMIN'].includes(b.toUpperCase())) as any,
         subCode: role === 'admin' ? undefined : (firstAssignment.subCode || undefined),
         instCode: role === 'admin' ? undefined : (firstAssignment.instCode || undefined),
         poliCode: role === 'admin' ? undefined : (firstAssignment.poliCode || undefined),
@@ -289,7 +290,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 no-print">
-      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
@@ -453,25 +454,73 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                   )}
                 </div>
 
-                {/* Elevated Document Access Badge */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Badge Akses Dokumen
+                {/* Elevated Document Access & Authority Badges */}
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Badge Khusus Akun (Hak Akses & Wewenang)
                   </label>
-                  <label className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-3 py-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={badges.includes('STRUKTURAL')}
-                      onChange={(e) => setBadges(e.target.checked ? ['STRUKTURAL'] : [])}
-                      disabled={role === 'admin'}
-                      className="accent-emerald-600"
-                    />
-                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                      <Shield className="w-3.5 h-3.5 text-emerald-600" />
-                      STRUKTURAL
-                    </span>
-                  </label>
-                  <p className="text-[10px] text-slate-500 mt-1">Badge STRUKTURAL memiliki prioritas di atas hirarki dan memberi akses ke seluruh dokumen SPO.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {/* Badge STRUKTURAL */}
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                      badges.some(b => String(b).toUpperCase() === 'STRUKTURAL')
+                        ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                        : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={badges.some(b => String(b).toUpperCase() === 'STRUKTURAL')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBadges(prev => Array.from(new Set([...prev, 'STRUKTURAL'])));
+                          } else {
+                            setBadges(prev => prev.filter(b => String(b).toUpperCase() !== 'STRUKTURAL'));
+                          }
+                        }}
+                        className="mt-0.5 rounded accent-emerald-600 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-emerald-800">
+                          <Shield className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>STRUKTURAL</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                          Akses ke dokumen SK, MOU, dan seluruh dokumen SPO rumah sakit.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Badge ADMIN */}
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                      badges.some(b => String(b).toUpperCase() === 'ADMIN')
+                        ? 'bg-purple-50/70 border-purple-300 text-purple-950'
+                        : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={badges.some(b => String(b).toUpperCase() === 'ADMIN')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBadges(prev => Array.from(new Set([...prev, 'ADMIN'])));
+                          } else {
+                            setBadges(prev => prev.filter(b => String(b).toUpperCase() !== 'ADMIN'));
+                          }
+                        }}
+                        className="mt-0.5 rounded accent-purple-600 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-purple-800">
+                          <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                          <span>ADMIN</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                          Wewenang aktivasi SPO sesuai hirarki user. Tidak otomatis akses SK/MOU.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Badge Admin dan Struktural dapat digabungkan pada satu akun.
+                  </p>
                 </div>
 
                 {/* Cascading Hierarchy Selection (Bidang -> Sub -> Instalasi -> Unit) */}
@@ -745,110 +794,139 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
             </div>
           )}
 
-          {/* User Account List Table */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3">Username</th>
-                  <th className="px-4 py-3">Nama User</th>
-                  <th className="px-4 py-3">Akses Bidang SPO</th>
-                  <th className="px-4 py-3">Rincian Unit</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Badge</th>
-                  <th className="px-4 py-3">Kata Sandi</th>
-                  <th className="px-4 py-3 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="text-center py-8 text-slate-400 italic">
-                      Tidak ada akun user yang ditemukan.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredUsers.map((u) => {
-                    const catInfo = categories.find(c => c.code === u.divisionCode);
-                    return (
-                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold text-slate-900">
-                          <div className="flex items-center gap-1.5">
-                            <UserIcon className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{u.username}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-slate-800">
-                          {u.name}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                              u.divisionCode === 'ALL' || !u.divisionCode
-                                ? 'bg-purple-100 text-purple-900 border border-purple-200'
-                                : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                            }`}
-                          >
-                            {u.divisionCode === 'ALL' || !u.divisionCode ? (
-                              <span>🌐 SEMUA BIDANG</span>
-                            ) : (
-                              <span>
-                                📁 {u.divisionCode} - {catInfo?.name || u.divisionCode}
+          {/* User Account List — desktop table + mobile cards */}
+          <div className="space-y-3">
+            <div className="hidden md:flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Daftar Akun</h3>
+                <p className="text-[11px] text-slate-500">Klik <strong>Edit</strong> untuk mengubah identitas, role, hirarki, badge, atau password.</p>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">{filteredUsers.length} akun</span>
+            </div>
+
+            {/* Desktop / tablet: action column stays visible */}
+            <div className="hidden md:block border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Username</th>
+                      <th className="px-4 py-3">Nama User</th>
+                      <th className="px-4 py-3">Akses Bidang / Hirarki</th>
+                      <th className="px-4 py-3">Unit</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Badge</th>
+                      <th className="px-4 py-3 text-center">Status</th>
+                      <th className="sticky right-0 z-10 px-3 py-3 text-center bg-slate-100 border-l border-slate-200 w-[112px]">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredUsers.length === 0 ? (
+                      <tr><td colSpan={8} className="text-center py-10 text-slate-400 italic">Tidak ada akun user yang ditemukan.</td></tr>
+                    ) : filteredUsers.map((u) => {
+                      const catInfo = categories.find(c => c.code === u.divisionCode);
+                      const hierarchyLabel = u.hierarchyPath?.length ? u.hierarchyPath.join(' → ') : (u.hierarchyCode || 'Semua hirarki');
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5"><UserIcon className="w-3.5 h-3.5 text-slate-400" /><span>{u.username}</span></div>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-800 max-w-[180px]">{u.name}</td>
+                          <td className="px-4 py-3 max-w-[250px]">
+                            <div className="flex flex-col gap-1">
+                              <span className={`inline-flex w-fit items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${u.divisionCode === 'ALL' || !u.divisionCode ? 'bg-purple-100 text-purple-900 border border-purple-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-200'}`}>
+                                {u.divisionCode === 'ALL' || !u.divisionCode ? '🌐 SEMUA BIDANG' : `📁 ${u.divisionCode} - ${catInfo?.name || u.divisionCode}`}
                               </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {u.unitName || '-'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                              u.role === 'admin'
-                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                : 'bg-slate-100 text-slate-800 border border-slate-200'
-                            }`}
-                          >
-                            {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <UserCheck className="w-3 h-3" />}
-                            <span>{u.role === 'admin' ? 'ADMINISTRATOR' : 'USER'}</span>
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {Array.isArray(u.badges) && u.badges.includes('STRUKTURAL') ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              <Shield className="w-3 h-3" /> STRUKTURAL
+                              <span className="text-[10px] text-slate-500 truncate" title={hierarchyLabel}>{hierarchyLabel}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 max-w-[150px] truncate" title={u.unitName || '-'}>{u.unitName || '-'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${u.role === 'admin' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-800 border border-slate-200'}`}>
+                              {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <UserCheck className="w-3 h-3" />}
+                              {u.role === 'admin' ? 'ADMINISTRATOR' : 'USER'}
                             </span>
-                          ) : <span className="text-[10px] text-slate-400">-</span>}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">
-                          {u.credentialStatus === 'ACTIVE' ? 'Aktif' : 'Password belum ditetapkan'}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => handleOpenEditForm(u)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                              title="Edit Akun & Password"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            {u.username !== 'admin' && (
-                              <button
-                                onClick={() => handleDeleteClick(u)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Hapus Akun"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-1">
+                              {Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <Shield className="w-3 h-3 text-emerald-700" /> STRUKTURAL
+                                </span>
+                              )}
+                              {Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
+                                  <ShieldCheck className="w-3 h-3 text-purple-700" /> ADMIN
+                                </span>
+                              )}
+                              {(!Array.isArray(u.badges) || u.badges.length === 0) && (
+                                <span className="text-[10px] text-slate-400">-</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${u.credentialStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                              {u.credentialStatus === 'ACTIVE' ? 'Aktif' : 'Belum aktif'}
+                            </span>
+                          </td>
+                          <td className="sticky right-0 z-10 px-2 py-2 bg-white border-l border-slate-200">
+                            <div className="flex items-center justify-center gap-1">
+                              <button type="button" onClick={() => handleOpenEditForm(u)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer" title="Edit Akun & Password">
+                                <Edit3 className="w-3.5 h-3.5" /><span>Edit</span>
                               </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                              {u.username !== 'admin' && <button type="button" onClick={() => handleDeleteClick(u)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" title="Hapus Akun"><Trash2 className="w-3.5 h-3.5" /></button>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mobile: no horizontal table; each account is an actionable card */}
+            <div className="md:hidden space-y-2">
+              {filteredUsers.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 italic border border-slate-200 rounded-xl">Tidak ada akun user yang ditemukan.</div>
+              ) : filteredUsers.map((u) => {
+                const catInfo = categories.find(c => c.code === u.divisionCode);
+                const hierarchyLabel = u.hierarchyPath?.length ? u.hierarchyPath.join(' → ') : (u.hierarchyCode || 'Semua hirarki');
+                return (
+                  <article key={u.id} className="border border-slate-200 rounded-xl p-3.5 bg-white shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5"><UserIcon className="w-4 h-4 text-slate-400 shrink-0" /><span className="font-mono text-xs font-extrabold text-slate-900 truncate">{u.username}</span></div>
+                        <div className="text-sm font-bold text-slate-800 mt-1">{u.name}</div>
+                      </div>
+                      <span className={`shrink-0 inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${u.credentialStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>{u.credentialStatus === 'ACTIVE' ? 'Aktif' : 'Belum aktif'}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-1.5 text-[11px]">
+                      <div className="flex items-start gap-2"><span className="w-20 shrink-0 text-slate-400">Akses</span><span className="font-semibold text-slate-700">{u.divisionCode === 'ALL' || !u.divisionCode ? '🌐 Semua Bidang' : `${u.divisionCode} - ${catInfo?.name || u.divisionCode}`}</span></div>
+                      <div className="flex items-start gap-2"><span className="w-20 shrink-0 text-slate-400">Hirarki</span><span className="text-slate-600">{hierarchyLabel}</span></div>
+                      <div className="flex items-start gap-2"><span className="w-20 shrink-0 text-slate-400">Unit</span><span className="text-slate-600">{u.unitName || '-'}</span></div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-20 shrink-0 text-slate-400">Role & Badge</span>
+                        <span className="font-semibold text-slate-700">
+                          {u.role === 'admin' ? 'Administrator' : 'User'}
+                          {[
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') ? 'Struktural' : null,
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') ? 'Admin' : null,
+                          ].filter(Boolean).length > 0 && ` • ${[
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') ? 'Struktural' : null,
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') ? 'Admin' : null,
+                          ].filter(Boolean).join(', ')}`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                      <button type="button" onClick={() => handleOpenEditForm(u)} className="inline-flex items-center justify-center gap-1.5 min-w-[88px] px-3 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg cursor-pointer"><Edit3 className="w-3.5 h-3.5" /> Edit Akun</button>
+                      {u.username !== 'admin' && <button type="button" onClick={() => handleDeleteClick(u)} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-lg cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> Hapus</button>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
 
         </div>

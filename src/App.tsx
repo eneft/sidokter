@@ -28,6 +28,7 @@ import {
 } from './utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
+import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasAdminBadge } from './utils/soegiriStructure';
 import { saveFileToLocalCache, deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import {
   subscribeToSops,
@@ -79,6 +80,9 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import { 
   setupDocumentRealtimeWatcher, 
   scanDocumentsForPeriodicReviews, 
+  scanDocumentsForActivations,
+  scanDocumentsForProposals,
+  setNotificationUsers,
   dispatchDocumentEvent, 
   evaluatePeriodicReview,
   NotificationType
@@ -531,7 +535,13 @@ export default function App() {
     return cleanupWatcher;
   }, [userSession]);
 
-  // Periodic review scanning on session start / data load
+  useEffect(() => {
+    if (Array.isArray(users) && users.length > 0) {
+      setNotificationUsers(users);
+    }
+  }, [users]);
+
+  // Periodic review and proposal scanning on session start / data load
   useEffect(() => {
     if (!userSession || !sops || sops.length === 0) return;
 
@@ -546,10 +556,33 @@ export default function App() {
           setSelectedSopForDetail(sop);
         }
       );
+      scanDocumentsForActivations(
+        sops,
+        userSession,
+        (type, title, message, opts) => {
+          addToast(type, title, message, opts);
+        },
+        (sop) => {
+          setSelectedSopForDetail(sop);
+        }
+      );
+      if (userSession?.role === 'admin' || hasAdminBadge(userSession)) {
+        scanDocumentsForProposals(
+          sops,
+          userSession,
+          users,
+          (type, title, message, opts) => {
+            addToast(type, title, message, opts);
+          },
+          (sop) => {
+            setSelectedSopForDetail(sop);
+          }
+        );
+      }
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [userSession, sops.length]);
+  }, [userSession, sops.length, users.length]);
 
   const skCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'SK').length, [libraryDocuments]);
   const mouCount = useMemo(() => libraryDocuments.filter((d) => d.type === 'MOU').length, [libraryDocuments]);
@@ -689,7 +722,7 @@ export default function App() {
       const cachedSops = localStorage.getItem('soegiri_sops_last_good');
       if (cachedSops && (!sops || sops.length === 0)) {
         const parsed = JSON.parse(cachedSops);
-        if (Array.isArray(parsed)) setSops(parsed);
+        if (Array.isArray(parsed)) setSops(parsed.filter((sop: SopDocument) => isSopAccessibleByUser(sop, userSession)));
       }
     } catch {}
 
@@ -727,7 +760,7 @@ export default function App() {
     }, (err) => {
       setLocalDataUnavailable(true);
       console.error('local database SOP subscription unavailable:', err);
-    }, activeUserDivisions);
+    }, activeUserDivisions, userSession);
 
     const mergeLibraryDocuments = (type: 'SK' | 'MOU', documents: LibraryDocument[]) => {
       setLibraryDocuments((current) => {
@@ -785,6 +818,50 @@ export default function App() {
       unsubscribeUsers();
     };
   }, [userSession?.authUid, userSession?.divisionCode, userSession?.role, userSession?.assignments, userSession?.badges]);
+
+  // Sinkronisasi metadata Pengusul untuk SPO yang SUDAH pernah diusulkan.
+  // Data lama dapat menyimpan username pada activationRequestedBy/creatorName;
+  // direktori akun adalah sumber Nama Lengkap yang benar. Hanya metadata
+  // pengusul yang disentuh; hirarki, status, nomor, isi, dan accessKeys tetap.
+  useEffect(() => {
+    if (userSession?.role !== 'admin' || !Array.isArray(users) || users.length === 0 || !Array.isArray(sops) || sops.length === 0) return;
+
+    const byUsername = new Map(
+      users
+        .filter((u) => u?.username && u?.name)
+        .map((u) => [String(u.username).trim().toLowerCase(), String(u.name).trim()])
+    );
+
+    const changed = sops.filter((sop) => {
+      if (!sop.activationRequestedAt) return false;
+      const current = String(sop.activationRequestedBy || '').trim();
+      const creator = String(sop.creatorName || '').trim();
+      const resolved = byUsername.get(current.toLowerCase()) || byUsername.get(creator.toLowerCase());
+      return !!resolved && resolved !== current;
+    });
+
+    if (!changed.length) return;
+
+    let cancelled = false;
+    const sync = async () => {
+      for (const sop of changed) {
+        if (cancelled) return;
+        const current = String(sop.activationRequestedBy || '').trim();
+        const creator = String(sop.creatorName || '').trim();
+        const resolved = byUsername.get(current.toLowerCase()) || byUsername.get(creator.toLowerCase());
+        if (!resolved || resolved === current) continue;
+
+        try {
+          await saveSopToLocal({ ...sop, activationRequestedBy: resolved });
+        } catch (err) {
+          console.warn('[SPO] Gagal sinkron nama pengusul:', sop.id, err);
+        }
+      }
+    };
+
+    void sync();
+    return () => { cancelled = true; };
+  }, [userSession?.role, users, sops.length]);
 
   // Compute available distinct years from SOPs
   const availableYears = useMemo(() => {
@@ -1155,7 +1232,15 @@ export default function App() {
         jenis_spo: 'EKSISTING',
         isLegacySop: true,
         isNumberReservation: false,
-        status: 'AKTIF',
+        status: userSession?.role !== 'admin' ? 'DRAFT' : (newSopData.status || 'AKTIF'),
+        activationRequestedAt: userSession?.role !== 'admin' ? now : (newSopData.activationRequestedAt || undefined),
+        activationRequestedBy: userSession?.role !== 'admin'
+          ? (userSession?.name || newSopData.creatorName || 'Pengguna')
+          : (newSopData.activationRequestedBy || undefined),
+        activationRequestedByUsername: userSession?.role !== 'admin' ? userSession?.username : (newSopData as any).activationRequestedByUsername,
+        activationRequestedUid: userSession?.role !== 'admin' ? (userSession?.authUid || userSession?.id) : (newSopData as any).activationRequestedUid,
+        creatorUsername: userSession?.username || (newSopData as any).creatorUsername,
+        creatorUid: userSession?.authUid || userSession?.id || (newSopData as any).creatorUid,
         createdAt: now,
         updatedAt: now,
         revisionHistory: [
@@ -1187,11 +1272,29 @@ export default function App() {
       if (systemReservationId) await consumeNumberReservation(systemReservationId, finalSop.id);
       setSops((prev) => [finalSop, ...prev.filter((s) => s.id !== finalSop.id)]);
 
-      addToast(
-        'success',
-        'SPO Eksisting Berhasil Diregistrasi!',
-        `Dokumen SPO Eksisting "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diregistrasi ke sistem.`
-      );
+      if (userSession?.role !== 'admin') {
+        dispatchDocumentEvent(
+          'proposal',
+          finalSop,
+          `Usulan SPO Eksisting dari ${finalSop.activationRequestedBy} (${finalSop.divisionName || finalSop.divisionCode}): "${finalSop.title}" (${finalSop.sopNumber || 'Eksisting'}) menunggu persetujuan Admin.`
+        );
+        addToast(
+          'success',
+          'Usulan SPO Eksisting Terkirim',
+          `Dokumen SPO Eksisting "${finalSop.title}" berhasil diajukan ke Admin Tata Naskah untuk disetujui.`
+        );
+      } else {
+        dispatchDocumentEvent(
+          'activation',
+          finalSop,
+          `SPO Eksisting "${finalSop.title}" (${finalSop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
+        );
+        addToast(
+          'success',
+          'SPO Eksisting Berhasil Diregistrasi!',
+          `Dokumen SPO Eksisting "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diregistrasi dan berstatus Aktif.`
+        );
+      }
 
       return finalSop;
     }
@@ -1342,18 +1445,33 @@ export default function App() {
     );
 
     // Dispatch real-time events based on status & role:
+    const isRiviu = finalSop.documentType === 'RIVIU' || finalSop.documentType === 'REVIEW' || finalSop.jenis_spo === 'RIVIU' || finalSop.isReviewDocument === true;
+    const isExisting = finalSop.documentType === 'LAMA' || finalSop.documentType === 'EKSISTING' || finalSop.jenis_spo === 'EKSISTING' || finalSop.isLegacySop === true;
+
     if (finalSop.status === 'DRAFT' && userSession?.role !== 'admin') {
-      dispatchDocumentEvent(
-        'proposal',
-        finalSop,
-        `Usulan aktivasi dari ${finalSop.creatorName || 'Pengguna'} (${finalSop.divisionName || finalSop.divisionCode}): SPO "${finalSop.title}" (${finalSop.sopNumber || 'Draft'}) menunggu pengesahan Admin.`
-      );
+      const userFullName =
+        users.find((u) => String(u.username || '').toLowerCase() === String(userSession?.username || '').toLowerCase())?.name
+        || userSession?.name
+        || userSession?.username
+        || 'Pengguna';
+      const proposer = finalSop.activationRequestedBy || userFullName;
+      const unitLabel = finalSop.divisionName || finalSop.divisionCode || 'Unit';
+      const docNum = finalSop.sopNumber ? `(${finalSop.sopNumber})` : '(Draft)';
+      const propMsg = isExisting
+        ? `${proposer} (${unitLabel}) mengusulkan SPO pilihan (Eksisting): "${finalSop.title}" ${docNum} menunggu persetujuan Admin.`
+        : isRiviu
+        ? `${proposer} (${unitLabel}) mengusulkan SPO pilihan (Hasil Riviu): "${finalSop.title}" ${docNum} menunggu persetujuan Admin.`
+        : `${proposer} (${unitLabel}) mengusulkan SPO pilihan: "${finalSop.title}" ${docNum} menunggu persetujuan Admin.`;
+
+      dispatchDocumentEvent('proposal', finalSop, propMsg);
     } else if (finalSop.status === 'AKTIF') {
-      dispatchDocumentEvent(
-        'activation',
-        finalSop,
-        `SPO "${finalSop.title}" (${finalSop.sopNumber}) telah disahkan & diaktifkan untuk ${finalSop.divisionName || finalSop.divisionCode}.`
-      );
+      const notifMsg = isExisting
+        ? `SPO Eksisting "${finalSop.title}" (${finalSop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
+        : isRiviu
+        ? `Hasil riviu SPO "${finalSop.title}" (${finalSop.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${finalSop.divisionName || finalSop.divisionCode}.`
+        : `SPO Baru "${finalSop.title}" (${finalSop.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${finalSop.divisionName || finalSop.divisionCode}.`;
+
+      dispatchDocumentEvent('activation', finalSop, notifMsg);
     } else {
       dispatchDocumentEvent(
         'assignment',
@@ -1640,13 +1758,14 @@ export default function App() {
     activatedAt: string; activatedBy: string; activationNotes: string;
     signedScanFileName?: string; signedScanFileSize?: number; signedScanFileType?: string; signedScanDataUrl?: string;
   }) => {
-    if (userSession?.role !== 'admin') {
-      addToast('error', 'Akses Ditolak', 'Hanya Admin Tata Naskah yang dapat mengaktifkan SPO.');
-      return;
-    }
     const target = sops.find((s) => s.id === sopId);
     if (!target || target.status !== 'DRAFT') {
       addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru atau SPO Riviu dengan status Draft yang dapat diaktifkan.');
+      return;
+    }
+
+    if (!canUserActivateSop(target, userSession)) {
+      addToast('error', 'Akses Ditolak', 'Anda tidak memiliki wewenang untuk mengaktifkan dokumen ini.');
       return;
     }
 
@@ -1659,21 +1778,29 @@ export default function App() {
       target.documentType === 'LAMA' ||
       target.isLegacySop === true;
 
-    if (targetIsExisting || (!targetIsBaru && !targetIsRiviu)) {
-      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru dan SPO Riviu yang dapat diaktifkan melalui proses Pengesahan/Aktivasi. SPO Existing mempertahankan dokumen sah existing.');
+    if (!targetIsBaru && !targetIsRiviu && !targetIsExisting) {
+      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru, SPO Riviu, dan SPO Eksisting yang dapat diproses aktivasi.');
       return;
     }
 
-    if (!activationData.activationNotes || !activationData.activationNotes.trim()) {
-      addToast('error', 'Aktivasi Ditolak', 'Verifikasi TTD + stempel Direktur wajib tercatat sebelum SPO menjadi Aktif.');
-      return;
-    }
+    const defaultNotes = targetIsExisting
+      ? 'SPO Eksisting disetujui dan diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.'
+      : 'Telah disahkan dengan tanda tangan Direktur RSUD Dr. Soegiri dan berkas fisik resmi diarsipkan di Bagian Tata Naskah.';
+
+    const finalNotes = (activationData.activationNotes && activationData.activationNotes.trim())
+      ? activationData.activationNotes.trim()
+      : defaultNotes;
 
     const updated: SopDocument = {
-      ...target, status: 'AKTIF', updatedAt: new Date().toISOString(),
-      activatedAt: activationData.activatedAt, activatedBy: activationData.activatedBy,
-      activationNotes: activationData.activationNotes, signedScanFileName: activationData.signedScanFileName,
-      signedScanFileSize: activationData.signedScanFileSize, signedScanFileType: activationData.signedScanFileType,
+      ...target,
+      status: 'AKTIF',
+      updatedAt: new Date().toISOString(),
+      activatedAt: activationData.activatedAt || new Date().toISOString().split('T')[0],
+      activatedBy: activationData.activatedBy,
+      activationNotes: finalNotes,
+      signedScanFileName: activationData.signedScanFileName,
+      signedScanFileSize: activationData.signedScanFileSize,
+      signedScanFileType: activationData.signedScanFileType,
       signedScanDataUrl: activationData.signedScanDataUrl,
     };
     try {
@@ -1682,14 +1809,25 @@ export default function App() {
       setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
       setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);
       setSelectedSopForActivation(null);
-      addToast('success', 'SPO Diaktifkan', `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`);
+
+      const successToastTitle = targetIsExisting ? 'SPO Eksisting Disetujui' : 'SPO Diaktifkan';
+      const successToastMsg = targetIsExisting
+        ? `SPO Eksisting "${updated.title}" telah disetujui & diaktifkan. PDF naskah tetap asli tanpa TTD/Stempel tambahan.`
+        : `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`;
+      addToast('success', successToastTitle, successToastMsg);
       
-      // Dispatch activation event so users in this hierarchy receive notification
-      dispatchDocumentEvent(
-        'activation',
-        updated,
-        `SPO "${updated.title}" (${updated.sopNumber}) telah disahkan & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`
-      );
+      // Dispatch activation event so users / pengusul receive notification
+      // Rules:
+      // SPO BARU: Pengusul -> 🔔Admin-> Setujui -> AKTIF -> 🔔 Pengusul
+      // SPO RIVIU: Pengusul -> 🔔Admin -> Setujui -> AKTIF -> 🔔 Pengusul
+      // SPO EXISTING: Pengusul -> 🔔Admin -> Setujui -> AKTIF -> 🔔 Pengusul -> PDF tetap asli -> tanpa TTD/Stempel tambahan
+      const notifMsg = targetIsExisting
+        ? `SPO Eksisting "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
+        : targetIsRiviu
+        ? `Hasil riviu SPO "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`
+        : `SPO Baru "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`;
+
+      dispatchDocumentEvent('activation', updated, notifMsg);
     } catch (err) {
       console.error('Error activating SOP:', err);
       addToast('error', 'Aktivasi Gagal', err instanceof Error ? err.message : 'Data aktivasi tidak dapat disimpan.');
@@ -1697,10 +1835,17 @@ export default function App() {
   };
 
   const handleProposeActivation = async (sop: SopDocument) => {
+    const proposerName =
+      users.find((u) => String(u.username || '').toLowerCase() === String(userSession?.username || '').toLowerCase())?.name
+      || userSession?.name
+      || userSession?.username
+      || 'Pengguna';
     const updated: SopDocument = {
       ...sop,
       activationRequestedAt: new Date().toISOString(),
-      activationRequestedBy: userSession?.name || userSession?.username || 'Pengguna'
+      activationRequestedBy: proposerName,
+      activationRequestedByUsername: userSession?.username,
+      activationRequestedUid: userSession?.authUid || userSession?.id,
     };
     try {
       await saveSopToLocal(updated);
@@ -1713,11 +1858,24 @@ export default function App() {
         'Usulan Aktivasi Terkirim',
         `Usulan aktivasi SPO "${sop.title}" berhasil diajukan ke Admin Tata Naskah.`
       );
-      dispatchDocumentEvent(
-        'proposal',
-        updated,
-        `Usulan aktivasi dari ${updated.activationRequestedBy} (${updated.divisionName || updated.divisionCode}): SPO "${updated.title}" (${updated.sopNumber || 'Draft'}) menunggu pengesahan.`
-      );
+
+      const targetJenis = String(sop.jenis_spo || sop.documentType || '').trim().toUpperCase();
+      const targetIsRiviu = targetJenis === 'RIVIU' || targetJenis === 'REVIEW' || sop.isReviewDocument === true;
+      const targetIsExisting =
+        sop.jenis_spo === 'EKSISTING' ||
+        sop.documentType === 'EKSISTING' ||
+        sop.documentType === 'LAMA' ||
+        sop.isLegacySop === true;
+
+      const unitLabel = updated.divisionName || updated.divisionCode || 'Unit';
+      const docNum = updated.sopNumber ? `(${updated.sopNumber})` : '(Draft)';
+      const propMsg = targetIsExisting
+        ? `${updated.activationRequestedBy} (${unitLabel}) mengusulkan SPO pilihan (Eksisting): "${updated.title}" ${docNum} menunggu persetujuan Admin.`
+        : targetIsRiviu
+        ? `${updated.activationRequestedBy} (${unitLabel}) mengusulkan SPO pilihan (Hasil Riviu): "${updated.title}" ${docNum} menunggu persetujuan Admin.`
+        : `${updated.activationRequestedBy} (${unitLabel}) mengusulkan SPO pilihan: "${updated.title}" ${docNum} menunggu persetujuan Admin.`;
+
+      dispatchDocumentEvent('proposal', updated, propMsg);
     } catch (err: any) {
       addToast('error', 'Gagal Mengirim Usulan', err?.message || 'Terjadi kesalahan.');
     }
@@ -1903,6 +2061,7 @@ export default function App() {
           onCopyNumber={handleCopyNumber}
           onProposeActivation={handleProposeActivation}
           userSession={userSession}
+          users={users}
         />
 
         <EditSopModal
@@ -1976,8 +2135,7 @@ export default function App() {
         onUpdateStatus={handleUpdateStatus}
         onCopyNumber={handleCopyNumber}
         onActivateSop={(sop) => {
-          const isExisting = sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop;
-          if (!isExisting) setSelectedSopForActivation(sop);
+          setSelectedSopForActivation(sop);
         }}
         onProposeActivation={handleProposeActivation}
         userSession={userSession}

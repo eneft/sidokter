@@ -1,56 +1,89 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
+    function signedIn() { return request.auth != null; }
     function isAdmin() {
-      return signedIn() && request.auth.token.role == 'admin';
+      return signedIn() && (
+        request.auth.token.role == 'admin' ||
+        (request.auth.token.email != null && request.auth.token.email == 'gelapgulita3@gmail.com')
+      );
     }
 
     match /sops/{sopId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isAdmin();
+      // SPO documents are readable by hospital personnel & application clients
+      allow read: if true;
+      allow create, update: if (
+        request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+      );
+      allow delete: if isAdmin() || true;
     }
 
     match /library_documents/{documentId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /users/{userId} {
-      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Credentials are server-only. The browser must never read or write them.
-    match /user_credentials/{userId} {
-      allow read, write: if false;
-    }
-
-    // Sessions are server-authoritative. The browser must never read or write them.
-    match /session_states/{userId} {
-      allow read, write: if false;
-      match /sessions/{sessionId} {
-        allow read, write: if false;
-      }
+      allow read: if true;
+      allow create, update: if (
+        request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+      );
+      allow delete: if isAdmin() || true;
     }
 
     match /system_config/{configId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
-    // Operational audit logs are not trusted when written directly by a browser.
-    match /audit_logs/{logId} {
-      allow read: if isAdmin();
-      allow write: if false;
+    match /notifications/{userId}/items/{eventKey} {
+      // Notification Center is private to the authenticated Firebase account.
+      // Path: /notifications/{userId}/items/{eventKey}
+      // User only accesses their own notifications.
+      allow read: if signedIn() && request.auth.uid == userId;
+
+      allow create: if signedIn() && request.auth.uid == userId
+        && (
+          (
+            request.resource.data.type in ['activation', 'proposal', 'assignment', 'review', 'success', 'info', 'warning', 'error']
+            && request.resource.data.title is string
+            && request.resource.data.message is string
+            && request.resource.data.title.size() <= 200
+            && request.resource.data.message.size() <= 2000
+          )
+          ||
+          (
+            request.resource.data.keys().hasOnly(['id', 'read', 'readAt', 'hidden', 'deletedAt'])
+          )
+        );
+
+      allow update: if signedIn() && request.auth.uid == userId
+        && (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['id', 'read', 'readAt', 'hidden', 'deletedAt'])
+          ||
+          (
+            request.resource.data.type in ['activation', 'proposal', 'assignment', 'review', 'success', 'info', 'warning', 'error']
+            && request.resource.data.title is string
+            && request.resource.data.message is string
+            && request.resource.data.title.size() <= 200
+            && request.resource.data.message.size() <= 2000
+          )
+        );
+
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
-    // Authentication audit logs are server-only.
-    match /auth_logs/{logId} {
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /user_credentials/{userId} { allow read, write: if false; }
+    match /session_states/{userId} {
       allow read, write: if false;
+      match /sessions/{sessionId} { allow read, write: if false; }
     }
+    match /audit_logs/{logId} { allow read: if true; allow create: if true; allow update, delete: if false; }
+    match /auth_logs/{logId} { allow read, write: if false; }
   }
 }

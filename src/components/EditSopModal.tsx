@@ -47,7 +47,7 @@ interface EditSopModalProps {
   sops?: SopDocument[];
 }
 
-export const EditSopModal: React.FC<EditSopModalProps> = ({
+const EditSopModalContent: React.FC<EditSopModalProps> = ({
   isOpen,
   sop,
   onClose,
@@ -57,8 +57,6 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
   userSession,
   sops = []
 }) => {
-  if (!isOpen || !sop) return null;
-
   const isAdmin = !userSession || userSession.role === 'admin';
   const isExisting = Boolean(sop && (sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop));
 
@@ -1409,4 +1407,9 @@ export const EditSopModal: React.FC<EditSopModalProps> = ({
 
     </div>
   );
+};
+
+export const EditSopModal: React.FC<EditSopModalProps> = (props) => {
+  if (!props.isOpen || !props.sop) return null;
+  return <EditSopModalContent {...props} />;
 };

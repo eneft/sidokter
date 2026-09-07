@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { getAuth, setPersistence, browserSessionPersistence } from 'firebase/auth';
 import config from '../../firebase-applet-config.json';
 
@@ -26,6 +27,7 @@ export const db = getFirestore(
 );
 
 export const auth = getAuth(app);
+export const functions = getFunctions(app, 'asia-southeast2');
 
 // Keep Firebase Auth scoped to the current browser tab/session.
 // Never use local persistence for SIDOKTER login credentials.

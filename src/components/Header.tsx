@@ -164,11 +164,18 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-black text-slate-800 truncate leading-tight">{userSession?.name || 'User'}</div>
                 <div className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{userSession?.unitName || userSession?.divisionCode || 'User Unit'}</div>
-                {Array.isArray(userSession?.badges) && userSession?.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') && (
-                  <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black tracking-wide shadow-sm">
-                    <ShieldCheck className="w-3 h-3" /> STRUKTURAL
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-1 mt-1">
+                  {Array.isArray(userSession?.badges) && userSession?.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black tracking-wide shadow-sm">
+                      <ShieldCheck className="w-3 h-3" /> STRUKTURAL
+                    </span>
+                  )}
+                  {Array.isArray(userSession?.badges) && userSession?.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600 text-white text-[9px] font-black tracking-wide shadow-sm">
+                      <ShieldCheck className="w-3 h-3" /> ADMIN
+                    </span>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
@@ -241,12 +248,20 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 );
               })}
-              {Array.isArray(userSession?.badges) && userSession?.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') && (
-                <div className="mt-2 px-3.5 py-2.5 rounded-xl bg-amber-500 text-white shadow-sm flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-[9px] font-black tracking-wider">BADGE AKSES</div>
-                    <div className="text-xs font-black">STRUKTURAL</div>
+              {Array.isArray(userSession?.badges) && userSession.badges.some((b) => ['STRUKTURAL', 'ADMIN'].includes(String(b).toUpperCase())) && (
+                <div className="mt-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col gap-1.5">
+                  <div className="text-[9px] font-black tracking-wider text-slate-500 uppercase">Badge Khusus Akun</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 text-white text-[10px] font-black shadow-sm">
+                        <ShieldCheck className="w-3.5 h-3.5" /> STRUKTURAL
+                      </span>
+                    )}
+                    {userSession.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[10px] font-black shadow-sm">
+                        <ShieldCheck className="w-3.5 h-3.5" /> ADMIN
+                      </span>
+                    )}
                   </div>
                 </div>
               )}

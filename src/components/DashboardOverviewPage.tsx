@@ -100,7 +100,8 @@ export const DashboardOverviewPage: React.FC<
   } | null>(null);
 
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  const canAccessProtectedDocs = isAdmin || hasStructuralBadge;
+  // Admin role or Admin badge alone does not grant access to SK & MOU; must have STRUKTURAL badge
+  const canAccessProtectedDocs = hasStructuralBadge;
 
   const archiveDocs = useMemo(() => {
     const activeSops = sops.filter((s) => s.status === 'AKTIF');

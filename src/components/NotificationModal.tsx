@@ -112,7 +112,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               title={muted ? 'Aktifkan Suara Notifikasi' : 'Senyapkan Suara Notifikasi'}
               aria-label="Toggle suara notifikasi"
             >
-              {muted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
+              {muted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4 text-slate-700" />}
             </button>
 
             {/* Close Button */}
@@ -148,8 +148,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 onClick={() => setFilter('activation')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                   filter === 'activation'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-emerald-700 hover:bg-emerald-50'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
                 Aktivasi ({countActivation})
@@ -162,8 +162,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 onClick={() => setFilter('proposal')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                   filter === 'proposal'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-indigo-700 hover:bg-indigo-50'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
                 Usulan ({countProposal})
@@ -176,7 +176,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 onClick={() => setFilter('assignment')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                   filter === 'assignment'
-                    ? 'bg-emerald-600 text-white shadow-xs'
+                    ? 'bg-slate-900 text-white shadow-xs'
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
@@ -190,8 +190,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 onClick={() => setFilter('review')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                   filter === 'review'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'text-amber-700 hover:bg-amber-50'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
                 Riviu ({countReview})
@@ -204,7 +204,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               <button
                 type="button"
                 onClick={() => markAllNotificationsAsRead()}
-                className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-700 font-medium transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-white"
+                className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 font-medium transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-white"
               >
                 <CheckCheck className="w-3 h-3" />
                 <span>Baca Semua</span>
@@ -247,13 +247,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                   key={item.id}
                   className={`p-3 rounded-xl border transition-all text-left ${
                     !item.read
-                      ? isActivation || isAssignment
-                        ? 'bg-emerald-50/30 border-emerald-200/80'
-                        : isProposal
-                        ? 'bg-indigo-50/30 border-indigo-200/80'
-                        : isReview
-                        ? 'bg-amber-50/30 border-amber-200/80'
-                        : 'bg-slate-50 border-slate-200'
+                      ? 'bg-slate-50 border-slate-200'
                       : 'bg-white border-slate-100 hover:border-slate-200'
                   }`}
                 >
@@ -261,19 +255,19 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     {/* Small Minimal Icon */}
                     <div className="shrink-0 mt-0.5">
                       {isActivation ? (
-                        <div className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
                           <Stamp className="w-3.5 h-3.5" />
                         </div>
                       ) : isProposal ? (
-                        <div className="w-6 h-6 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
                           <FileText className="w-3.5 h-3.5" />
                         </div>
                       ) : isAssignment ? (
-                        <div className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
                           <FilePlus2 className="w-3.5 h-3.5" />
                         </div>
                       ) : isReview ? (
-                        <div className="w-6 h-6 rounded-md bg-amber-100 text-amber-700 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
                           <CalendarClock className="w-3.5 h-3.5" />
                         </div>
                       ) : (
@@ -288,15 +282,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                       <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                         <span
                           className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                            isActivation
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : isProposal
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : isAssignment
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : isReview
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-700'
+                            'bg-slate-100 text-slate-700'
                           }`}
                         >
                           {isActivation
@@ -348,11 +334,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                               onClose();
                             }}
                             className={`inline-flex items-center gap-1 text-[11px] font-bold transition-colors cursor-pointer ${
-                              isActivation || isAssignment
-                                ? 'text-emerald-700 hover:text-emerald-800'
-                                : isProposal
-                                ? 'text-indigo-700 hover:text-indigo-800'
-                                : 'text-slate-800 hover:text-slate-950'
+                              'text-slate-800 hover:text-slate-950'
                             }`}
                           >
                             <span>{item.actionLabel || (isProposal ? 'Tinjau & Sahkan' : 'Buka Dokumen')}</span>
@@ -366,7 +348,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                               onSelectDocument(item.documentId!, item.documentNumber);
                               onClose();
                             }}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-800 hover:text-emerald-700 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-800 hover:text-slate-950 transition-colors cursor-pointer"
                           >
                             <span>Buka Dokumen</span>
                             <ArrowRight className="w-3 h-3" />

@@ -1,7 +1,7 @@
 export type SopStatus = 'DRAFT' | 'AKTIF' | 'DIARSIPKAN';
 
 export type UserRole = 'admin' | 'user';
-export type UserBadge = 'STRUKTURAL';
+export type UserBadge = 'STRUKTURAL' | 'ADMIN';
 
 export interface UserAssignment {
   id: string;
@@ -176,6 +176,8 @@ export interface SopDocument {
   reviewReason?: string;
   externalReviewSignedConfirmed?: boolean;
   isExampleOnly?: boolean; // Flag to indicate master template/example SOP visible only to Admin
+  /** Server-enforced Firestore hierarchy access boundary. */
+  accessKeys?: string[];
   
   // Timestamps & history
   createdAt: string;
@@ -188,6 +190,10 @@ export interface SopDocument {
   activationNotes?: string; // Catatan pengesahan / nomor fisik
   activationRequestedAt?: string; // ISO timestamp kapan user mengusulkan aktivasi
   activationRequestedBy?: string; // Nama/username user pengusul aktivasi
+  activationRequestedByUsername?: string; // Username user pengusul aktivasi
+  activationRequestedUid?: string; // UID user pengusul aktivasi
+  creatorUsername?: string; // Username pembuat SPO
+  creatorUid?: string; // UID pembuat SPO
   signedScanFileName?: string;
   signedScanFileSize?: number;
   signedScanFileType?: string;

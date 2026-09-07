@@ -5,6 +5,8 @@
 import { SopDocument, NumberingConfig, SopStatus } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
 import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
+import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
+import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
 
 const KEYS = {
@@ -18,7 +20,6 @@ const IDB_SOPS_STORE = 'sops';
 const IDB_NUMBER_RESERVATIONS_STORE = 'sopNumberReservations';
 
 const subscribers = new Map<string, Set<() => void>>();
-let firestoreSopSyncInitialized = false;
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -150,66 +151,68 @@ function normalizeSop(sop: SopDocument): SopDocument {
 }
 
 
-function initFirestoreSopSync() {
-  if (firestoreSopSyncInitialized) return;
-  firestoreSopSyncInitialized = true;
+function initFirestoreSopSync(userSession?: UserSession | null): () => void {
+  let active = true;
+  const scopedKeys = getUserHierarchyAccessKeys(userSession);
+  const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
+    ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
+    : Array.isArray(userSession?.divisionCodes)
+      ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
+      : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
+  const globalAccess = userSession?.role === 'admin'
+    || hasAllHierarchyAssignment
+    || (Array.isArray(userSession?.badges) && userSession!.badges!.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL'));
 
-  // Initial fetch from Firestore
-  void fetchSopsFromFirestore().then(async (cloudSops) => {
-    if (!cloudSops || !cloudSops.length) return;
+  void fetchSopsFromFirestore(scopedKeys, globalAccess).then(async (cloudSops) => {
+    if (!active) return;
     const local = await idbGetAllSops();
-    const map = new Map<string, SopDocument>();
-    local.forEach((s) => map.set(s.id, s));
-    cloudSops.forEach((s) => {
-      const exist = map.get(s.id);
+    if (!active) return;
+    const localMap = new Map(local.map((s) => [s.id, s]));
+    const scoped = cloudSops.map((s) => {
+      const exist = localMap.get(s.id);
       const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      }
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      }
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      }
-      map.set(s.id, merged);
+      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
+      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
+      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
+      return merged;
     });
-    await idbPutSops(Array.from(map.values()));
-    notifySopSubscribers();
-  });
+    await idbPutSops(scoped);
+    if (active) notifySopSubscribers();
+  }).catch(() => {});
 
-  // Real-time Firestore listener
-  subscribeToFirestoreSops(async (cloudSops) => {
-    if (!cloudSops || !cloudSops.length) return;
+  const unsubscribe = subscribeToFirestoreSops(async (cloudSops) => {
+    if (!active) return;
     const local = await idbGetAllSops();
-    const map = new Map<string, SopDocument>();
-    local.forEach((s) => map.set(s.id, s));
-    cloudSops.forEach((s) => {
-      const exist = map.get(s.id);
+    if (!active) return;
+    const localMap = new Map(local.map((s) => [s.id, s]));
+    const scoped = cloudSops.map((s) => {
+      const exist = localMap.get(s.id);
       const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      }
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      }
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') {
-        merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      }
-      map.set(s.id, merged);
+      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
+      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
+      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
+      return merged;
     });
-    await idbPutSops(Array.from(map.values()));
-    notifySopSubscribers();
-  });
+    // Replace, never merge, the local document set. This prevents a previous
+    // user's hierarchy cache from surviving a subsequent login on the same device.
+    await idbPutSops(scoped);
+    if (active) notifySopSubscribers();
+  }, (err) => {
+    // Graceful offline fallback: local indexedDB cache remains authoritative
+    console.info('Firestore realtime sync notice (local database active):', err?.message || err);
+  }, scopedKeys, globalAccess);
+
+  return () => { active = false; unsubscribe(); };
 }
 
-export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?: (err: any) => void, divisionCodes?: string | string[]) {
-  initFirestoreSopSync();
+export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?: (err: any) => void, divisionCodes?: string | string[], userSession?: UserSession | null) {
+  const stopFirestoreSync = initFirestoreSopSync(userSession);
   const emit = async () => {
     try {
       const normalized = Array.from(new Set((Array.isArray(divisionCodes) ? divisionCodes : [divisionCodes]).filter(Boolean).map(String)));
       const effective = normalized.filter((c) => c.toUpperCase() !== 'ALL').map((c) => c.toUpperCase());
       let sops = await getSops();
+      if (userSession) sops = sops.filter((s) => isSopAccessibleByUser(s, userSession));
       if (effective.length) sops = sops.filter((s) => effective.includes(String(s.divisionCode || '').toUpperCase()));
       sops.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       onData(sops);
@@ -221,7 +224,7 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
   subscribers.get(KEYS.sops)!.add(listener);
   void emit();
 
-  return () => subscribers.get(KEYS.sops)?.delete(listener);
+  return () => { subscribers.get(KEYS.sops)?.delete(listener); stopFirestoreSync(); };
 }
 
 export async function getAllSopsFromLocal(): Promise<SopDocument[]> { return getSops(); }

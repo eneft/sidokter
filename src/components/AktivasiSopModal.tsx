@@ -104,14 +104,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
       sop.documentType === 'LAMA' ||
       sop.isLegacySop === true;
 
-    // Existing tidak boleh masuk alur Aktivasi. TTD + stempel baru hanya
-    // diwajibkan pada SPO Baru dan SPO Riviu yang akan menjadi Aktif.
-    if (isExisting || (!isBaru && !isRiviu)) {
-      alert('SPO Existing tidak menggunakan alur Aktivasi. TTD + stempel wajib diterapkan pada SPO Baru dan SPO Riviu sebelum menjadi Aktif.');
-      return;
-    }
-
-    if (!confirmedPhysicalSignature) {
+    if (!isExisting && !confirmedPhysicalSignature) {
       alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah. Ketentuan ini WAJIB untuk SPO Baru dan SPO Riviu sebelum aktivasi.");
       return;
     }
@@ -124,10 +117,14 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
     setIsProcessing(true);
 
     try {
+      const defaultNotes = isExisting
+        ? 'SPO Eksisting disetujui dan diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.'
+        : `Telah disahkan dengan tanda tangan Direktur RSUD Dr. Soegiri (${SOEGIRI_HOSPITAL_INFO.director.name}) dan berkas fisik resmi diarsipkan di Bagian Tata Naskah.`;
+
       onConfirmActivation(sop.id, {
         activatedAt: activationDate || new Date().toISOString().split('T')[0],
         activatedBy: adminName.trim(),
-        activationNotes: activationNotes.trim() || `Telah disahkan dengan tanda tangan Direktur RSUD Dr. Soegiri (${SOEGIRI_HOSPITAL_INFO.director.name}) dan berkas fisik resmi diarsipkan di Bagian Tata Naskah.`,
+        activationNotes: activationNotes.trim() || defaultNotes,
         signedScanFileName: selectedScanFile?.name,
         signedScanFileSize: selectedScanFile?.size,
         signedScanFileType: selectedScanFile?.type,
@@ -138,6 +135,13 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
       setIsProcessing(false);
     }
   };
+
+  const jenis = String(sop.jenis_spo || sop.documentType || '').trim().toUpperCase();
+  const isExisting =
+    sop.jenis_spo === 'EKSISTING' ||
+    sop.documentType === 'EKSISTING' ||
+    sop.documentType === 'LAMA' ||
+    sop.isLegacySop === true;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 no-print animate-fade-in">
@@ -151,13 +155,15 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Aktivasi Dokumen SPO</span>
+                <span>{isExisting ? 'Setujui & Aktivasi SPO Eksisting' : 'Aktivasi Dokumen SPO'}</span>
                 <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase bg-emerald-400 text-slate-950 rounded-full">
                   Admin Tata Naskah
                 </span>
               </h2>
               <p className="text-xs text-emerald-200/90 font-medium">
-                Pengesahan Tanda Tangan Direktur & Verifikasi Penyerahan Berkas Fisik
+                {isExisting
+                  ? 'Persetujuan Admin Tata Naskah (PDF tetap asli tanpa TTD/Stempel tambahan)'
+                  : 'Pengesahan Tanda Tangan Direktur & Verifikasi Penyerahan Berkas Fisik'}
               </p>
             </div>
           </div>
@@ -212,36 +218,60 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
           </div>
 
           {/* Workflow Explanation Alert */}
-          <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-3 text-amber-900 text-xs">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-bold">Ketentuan Alur Pengesahan SPO RSUD Dr. Soegiri:</p>
-              <p className="leading-relaxed text-amber-800">
-                Dokumen yang telah didaftarkan dan mendapatkan nomor resmi belum berstatus <strong>AKTIF</strong> sampai naskah fisik dicetak, ditandatangani basah oleh Direktur (<strong>{SOEGIRI_HOSPITAL_INFO.director.name}</strong>), dan disetorkan ke Bagian Tata Naskah.
-              </p>
-            </div>
-          </div>
-
-          {/* Checklist Verification (Mandatory) */}
-          <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/60 space-y-2">
-            <label className="flex items-start gap-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                required
-                checked={confirmedPhysicalSignature}
-                onChange={(e) => setConfirmedPhysicalSignature(e.target.checked)}
-                className="w-5 h-5 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
-              />
+          {isExisting ? (
+            <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-3 text-blue-900 text-xs">
+              <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <span className="text-xs sm:text-sm font-bold text-emerald-950 block">
-                  Konfirmasi Pengesahan Fisik & Penyerahan Berkas <span className="text-rose-600">*</span>
-                </span>
-                <p className="text-xs text-emerald-900/85 leading-relaxed">
-                  Saya menyatakan dengan sebenarnya bahwa berkas naskah fisik SPO ini telah <strong>ditandatangani basah resmi oleh Direktur RSUD Dr. Soegiri</strong> dan dokumen fisiknya telah <strong>resmi disetorkan ke Admin Tata Naskah</strong> untuk diarsipkan.
+                <p className="font-bold">Ketentuan Alur SPO Eksisting:</p>
+                <p className="leading-relaxed text-blue-800">
+                  SPO Eksisting yang disetujui akan langsung berstatus <strong>AKTIF</strong>. Naskah <strong>PDF tetap asli</strong> sesuai naskah pendaftaran awal, <strong>tanpa penambahan TTD atau stempel baru</strong>.
                 </p>
               </div>
-            </label>
-          </div>
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-3 text-amber-900 text-xs">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">Ketentuan Alur Pengesahan SPO RSUD Dr. Soegiri:</p>
+                <p className="leading-relaxed text-amber-800">
+                  Dokumen yang telah didaftarkan dan mendapatkan nomor resmi belum berstatus <strong>AKTIF</strong> sampai naskah fisik dicetak, ditandatangani basah oleh Direktur (<strong>{SOEGIRI_HOSPITAL_INFO.director.name}</strong>), dan disetorkan ke Bagian Tata Naskah.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Checklist Verification (Mandatory for Baru & Riviu) */}
+          {!isExisting ? (
+            <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/60 space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  required
+                  checked={confirmedPhysicalSignature}
+                  onChange={(e) => setConfirmedPhysicalSignature(e.target.checked)}
+                  className="w-5 h-5 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
+                />
+                <div className="space-y-1">
+                  <span className="text-xs sm:text-sm font-bold text-emerald-950 block">
+                    Konfirmasi Pengesahan Fisik & Penyerahan Berkas <span className="text-rose-600">*</span>
+                  </span>
+                  <p className="text-xs text-emerald-900/85 leading-relaxed">
+                    Saya menyatakan dengan sebenarnya bahwa berkas naskah fisik SPO ini telah <strong>ditandatangani basah resmi oleh Direktur RSUD Dr. Soegiri</strong> dan dokumen fisiknya telah <strong>resmi disetorkan ke Admin Tata Naskah</strong> untuk diarsipkan.
+                  </p>
+                </div>
+              </label>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-1">
+              <span className="text-xs font-bold text-blue-950 block flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                <span>Persetujuan Naskah Asli SPO Eksisting</span>
+              </span>
+              <p className="text-xs text-blue-800 leading-relaxed">
+                Naskah fisik telah diarsipkan dan sah secara historis. Dokumen ini disahkan langsung sebagai SPO Aktif tanpa verifikasi ulang tanda tangan baru.
+              </p>
+            </div>
+          )}
 
           {/* Form Inputs Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -347,15 +377,21 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!confirmedPhysicalSignature || isProcessing}
+              disabled={isExisting ? isProcessing : (!confirmedPhysicalSignature || isProcessing)}
               className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer ${
-                confirmedPhysicalSignature && !isProcessing
+                (isExisting || confirmedPhysicalSignature) && !isProcessing
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isProcessing ? 'Memproses Aktivasi...' : 'Sahkan & Aktifkan SPO'}</span>
+              <span>
+                {isProcessing
+                  ? 'Memproses...'
+                  : isExisting
+                  ? 'Setujui & Aktifkan SPO Eksisting'
+                  : 'Sahkan & Aktifkan SPO'}
+              </span>
             </button>
           </div>
 

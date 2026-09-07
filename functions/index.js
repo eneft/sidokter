@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { onRequest } = require('firebase-functions/v2/https');
+const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -270,6 +270,95 @@ function validStrongPassword(password) {
   return typeof password === 'string' && password.length >= 12 && /[A-Z]/.test(password) && /[a-z]/.test(password) && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password);
 }
 
+function normalizeHierarchyCode(value) {
+  return String(value || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+}
+
+function getSopAccessKeysServer(sop) {
+  const division = String(sop?.divisionCode || '').trim().toUpperCase();
+  if (!division) return [];
+  const hierarchy = normalizeHierarchyCode(
+    sop?.subHierarchyCode ||
+    [sop?.subCode, sop?.instalasiCode || sop?.instCode, sop?.poliCode, sop?.subUnitCode].filter(Boolean).join('.') ||
+    String(sop?.sopNumber || '').split('/')[1]?.trim()
+  );
+  const keys = [division];
+  if (hierarchy) {
+    const parts = hierarchy.split('.').filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) keys.push(`${division}|${parts.slice(0, i).join('.')}`);
+  }
+  return Array.from(new Set(keys));
+}
+
+function getUserHierarchyClaims(user) {
+  const role = normalizeRole(user?.role);
+  if (role === 'admin') return { hierarchyKeys: [], globalHierarchyAccess: true };
+  const badges = Array.isArray(user?.badges) ? user.badges : [];
+  if (badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) {
+    return { hierarchyKeys: [], globalHierarchyAccess: true };
+  }
+  const assignments = Array.isArray(user?.assignments) && user.assignments.length
+    ? user.assignments
+    : (Array.isArray(user?.divisionCodes) && user.divisionCodes.length
+      ? user.divisionCodes.map((divisionCode, index) => ({
+          divisionCode,
+          subCode: index === 0 ? user.subCode : undefined,
+          instCode: index === 0 ? user.instCode : undefined,
+          poliCode: index === 0 ? user.poliCode : undefined,
+          subUnitCode: index === 0 ? user.subUnitCode : undefined
+        }))
+      : [{ divisionCode: user?.divisionCode || 'PEL', subCode: user?.subCode, instCode: user?.instCode, poliCode: user?.poliCode, subUnitCode: user?.subUnitCode }]);
+  // `ALL` is a legitimate global hierarchy assignment for a User account.
+  // It is a scope marker, not a document access-key value. Therefore it must
+  // set the global claim instead of being discarded from the assignment list.
+  if (assignments.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')) {
+    return { hierarchyKeys: [], globalHierarchyAccess: true };
+  }
+
+  const keys = new Set();
+  for (const a of assignments) {
+    const division = String(a?.divisionCode || '').trim().toUpperCase();
+    if (!division) continue;
+    const hierarchy = normalizeHierarchyCode(a?.hierarchyCode || (Array.isArray(a?.hierarchyPath) ? a.hierarchyPath.filter(Boolean).join('.') : '') || [a?.subCode, a?.instCode, a?.poliCode, a?.subUnitCode].filter(Boolean).join('.'));
+    keys.add(hierarchy ? `${division}|${hierarchy}` : division);
+  }
+  return { hierarchyKeys: Array.from(keys).slice(0, 30), globalHierarchyAccess: false };
+}
+
+async function migrateSopAccessBoundary(req, res, context) {
+  if (context.user.role !== 'admin') return json(res, 403, { message: 'Hanya Administrator yang dapat menjalankan migrasi keamanan dokumen.' });
+  const versionRef = db.collection('system_config').doc('security_sop_access');
+  const versionSnap = await versionRef.get();
+  if (versionSnap.exists && Number(versionSnap.data()?.version || 0) >= 2) {
+    return json(res, 200, { success: true, migrated: 0, alreadyCurrent: true });
+  }
+  const snap = await db.collection('sops').get();
+  let migrated = 0;
+  let batch = db.batch();
+  let batchCount = 0;
+  for (const d of snap.docs) {
+    const data = d.data() || {};
+    if (data.isNumberReservation) continue;
+    const accessKeys = getSopAccessKeysServer(data);
+    if (!accessKeys.length) continue;
+    const current = Array.isArray(data.accessKeys) ? data.accessKeys : [];
+    const same = current.length === accessKeys.length && current.every((v, i) => v === accessKeys[i]);
+    if (same) continue;
+    batch.update(d.ref, { accessKeys, accessBoundaryVersion: 2 });
+    migrated++;
+    batchCount++;
+    if (batchCount >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      batchCount = 0;
+    }
+  }
+  if (batchCount) await batch.commit();
+  await versionRef.set({ version: 2, migratedAt: new Date().toISOString(), migratedBy: context.decoded.uid }, { merge: true });
+  await audit({ actorUid: context.decoded.uid, username: context.user.username, name: context.user.name, role: context.user.role, event: 'SOP_ACCESS_BOUNDARY_MIGRATED', details: `Migrasi accessKeys SPO selesai: ${migrated} dokumen diperbarui.` });
+  return json(res, 200, { success: true, migrated, alreadyCurrent: false });
+}
+
 async function bootstrapInitialAdmin(req, res) {
   const setupSecret = String(req.body?.setupSecret || '');
   const password = String(req.body?.password || '');
@@ -317,6 +406,48 @@ function checkLoginRate(req, username) {
   return { allowed: true };
 }
 
+
+
+// Server-authoritative notification writer. Clients may only create a notification
+// for their own authenticated UID; Firestore rules deny direct client creation.
+exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds: 15, memory: '256MiB' }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
+  const item = request.data?.item;
+  if (!item || typeof item !== 'object') throw new HttpsError('invalid-argument', 'Notification item tidak valid.');
+  const allowedTypes = new Set(['activation', 'proposal', 'assignment', 'review', 'success', 'info', 'warning', 'error']);
+  if (!allowedTypes.has(String(item.type))) throw new HttpsError('invalid-argument', 'Tipe notification tidak valid.');
+  const eventKey = String(item.metadata?.eventKey || item.id || '').trim();
+  if (!eventKey || eventKey.length > 300) throw new HttpsError('invalid-argument', 'eventKey wajib dan valid.');
+  // Deterministic document ID based on eventKey: path /notifications/{UID}/items/{eventKey}
+  const id = eventKey.replace(/\//g, '_').slice(0, 150);
+
+  const safe = {
+    id,
+    type: String(item.type),
+    title: String(item.title || '').slice(0, 200),
+    message: String(item.message || '').slice(0, 2000),
+    documentId: item.documentId ? String(item.documentId) : undefined,
+    documentNumber: item.documentNumber ? String(item.documentNumber) : undefined,
+    documentType: item.documentType === 'SPO' || item.documentType === 'SK' || item.documentType === 'MOU' ? item.documentType : undefined,
+    divisionCode: item.divisionCode ? String(item.divisionCode) : undefined,
+    divisionName: item.divisionName ? String(item.divisionName) : undefined,
+    subHierarchyCode: item.subHierarchyCode ? String(item.subHierarchyCode) : undefined,
+    dueDate: item.dueDate ? String(item.dueDate) : undefined,
+    isOverdue: Boolean(item.isOverdue),
+    timestamp: Number.isFinite(Number(item.timestamp)) ? Number(item.timestamp) : Date.now(),
+    read: false,
+    hidden: false,
+    metadata: { eventKey }
+  };
+  Object.keys(safe).forEach((key) => safe[key] === undefined && delete safe[key]);
+
+  const ref = db.collection('notifications').doc(uid).collection('items').doc(id);
+  await ref.set(safe, { merge: true }).catch(async (error) => {
+    throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
+  });
+  return { ok: true, id };
+});
 exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
   cors(req, res);
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -390,10 +521,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       });
 
       await audit({ username, name: user.name, role: user.role, sessionId, event: 'LOGIN_SUCCESS', details: 'Login berhasil melalui trusted authentication service.' });
+      const hierarchyClaims = getUserHierarchyClaims(user);
       const customToken = await getAuth().createCustomToken(id, {
         role: user.role,
         username: user.username,
-        sessionId
+        sessionId,
+        hierarchyKeys: hierarchyClaims.hierarchyKeys,
+        globalHierarchyAccess: hierarchyClaims.globalHierarchyAccess
       });
 
       return json(res, 200, { success: true, customToken, session: publicSession(found, sessionId, sessionCreatedAt), message: 'Login berhasil.' });
@@ -408,6 +542,10 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         Number(context.user.sessionCreatedAt || Date.now())
       );
       return json(res, 200, { success: true, session });
+    }
+
+    if (action === 'migrate-sop-access') {
+      return await migrateSopAccessBoundary(req, res, context);
     }
 
     if (action === 'logout') {

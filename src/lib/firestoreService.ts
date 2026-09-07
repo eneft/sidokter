@@ -11,12 +11,14 @@ import {
   getDoc,
   onSnapshot,
   query,
+  where,
   limit,
   Timestamp,
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
+import { getSopAccessKeys } from '../utils/soegiriStructure';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -98,6 +100,7 @@ export async function saveSopToFirestore(sop: SopDocument): Promise<void> {
     updateStatus({ isSyncing: true });
     const cleanSop = sanitizeForFirestore({
       ...sop,
+      accessKeys: getSopAccessKeys(sop),
       _syncedAt: new Date().toISOString()
     });
     const docRef = doc(db, 'sops', sop.id);
@@ -134,56 +137,56 @@ export async function deleteSopFromFirestore(id: string): Promise<void> {
   }
 }
 
-export async function fetchSopsFromFirestore(): Promise<SopDocument[]> {
+export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess = false): Promise<SopDocument[]> {
   try {
     const colRef = collection(db, 'sops');
-    const snapshot = await getDocs(colRef);
+    const q = globalAccess
+      ? colRef
+      : accessKeys && accessKeys.length
+        ? query(colRef, where('accessKeys', 'array-contains-any', accessKeys.slice(0, 30)))
+        : null;
+    if (!q) return [];
+    const snapshot = await getDocs(q);
     const sops: SopDocument[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
-      if (data && (data.id || docSnap.id)) {
-        sops.push({
-          ...data,
-          id: data.id || docSnap.id
-        } as SopDocument);
-      }
+      if (data && (data.id || docSnap.id)) sops.push({ ...data, id: data.id || docSnap.id } as SopDocument);
     });
     return sops;
   } catch (err: any) {
-    console.warn('Failed to fetch SOPs from Firestore:', err?.message || err);
+    console.warn('Failed to fetch scoped SOPs from Firestore:', err?.message || err);
     return [];
   }
 }
 
 export function subscribeToFirestoreSops(
   callback: (sops: SopDocument[]) => void,
-  onError?: (err: any) => void
+  onError?: (err: any) => void,
+  accessKeys?: string[],
+  globalAccess = false
 ): () => void {
   try {
     const colRef = collection(db, 'sops');
-    return onSnapshot(
-      colRef,
-      (snapshot) => {
-        const sops: SopDocument[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data && (data.id || docSnap.id)) {
-            sops.push({
-              ...data,
-              id: data.id || docSnap.id
-            } as SopDocument);
-          }
-        });
-        updateStatus({ isConnected: true, lastSync: new Date().toISOString() });
-        callback(sops);
-      },
-      (err) => {
-        console.warn('Firestore sops snapshot listener warning:', err?.message || err);
-        onError?.(err);
-      }
-    );
+    const q = globalAccess
+      ? colRef
+      : accessKeys && accessKeys.length
+        ? query(colRef, where('accessKeys', 'array-contains-any', accessKeys.slice(0, 30)))
+        : null;
+    if (!q) { callback([]); return () => {}; }
+    return onSnapshot(q, (snapshot) => {
+      const sops: SopDocument[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data && (data.id || docSnap.id)) sops.push({ ...data, id: data.id || docSnap.id } as SopDocument);
+      });
+      updateStatus({ isConnected: true, lastSync: new Date().toISOString() });
+      callback(sops);
+    }, (err) => {
+      console.warn('Firestore scoped sops snapshot listener warning:', err?.message || err);
+      onError?.(err);
+    });
   } catch (err) {
-    console.warn('Failed to attach Firestore sops listener:', err);
+    console.warn('Failed to attach scoped Firestore sops listener:', err);
     return () => {};
   }
 }

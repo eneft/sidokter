@@ -52,64 +52,92 @@ export function writeUsers(users:UserAccount[]):void { writeCache(users); }
 export const INITIAL_USERS: UserAccount[] = [];
 
 export async function syncUsersWithFirestore():Promise<UserAccount[]> {
+  // The Firestore `users` collection is the authoritative profile directory.
+  // Do not let a stale/partial authApi response replace a complete directory.
   try {
     const firestoreUsers = await fetchUsersFromFirestore();
     if (Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
       writeCache(firestoreUsers);
       return firestoreUsers;
     }
-  } catch (err) {
-    console.warn('[accountService] Direct Firestore users read notice:', err);
+  } catch (e) {
+    console.warn('[accountService] Firestore user directory unavailable:', e);
   }
 
   try {
-    const users=await fetchManagedUsers();
+    const users = await fetchManagedUsers();
     if (Array.isArray(users) && users.length > 0) {
-      writeCache(users);
-      return users;
+      const cached = readCache();
+      // Never replace a known larger directory with a suspiciously smaller
+      // backend snapshot (for example a legacy one-account auth database).
+      if (cached.length === 0 || users.length >= cached.length) {
+        writeCache(users);
+        return users;
+      }
+      console.warn('[accountService] Ignoring partial user-list response:', {
+        received: users.length,
+        cached: cached.length
+      });
+      return cached;
     }
-    return readCache();
-  } catch(e) {
-    console.warn('syncUsersWithFirestore error:',e);
-    return readCache();
+  } catch (e) {
+    console.warn('[accountService] Auth API user directory unavailable:', e);
   }
+
+  return readCache();
 }
 
 export function subscribeToUsers(onData:(users:UserAccount[])=>void,onError?:(err:any)=>void) {
   let stopped=false;
-  let isRefreshing=false;
   const emit=()=>{ if(!stopped) onData(readCache().filter(u=>u.username!=='guest').sort((a,b)=>a.username.localeCompare(b.username))); };
   emit();
   subscribers.add(emit);
   const refresh=async()=>{
-    if (stopped || isRefreshing) return;
-    isRefreshing = true;
+    let firestoreUsers: UserAccount[] = [];
+
+    // 1. Prefer the authoritative Firestore profile directory. This prevents
+    // a successful but stale one-account authApi response from hiding users.
     try {
-      const firestoreUsers = await fetchUsersFromFirestore();
+      firestoreUsers = await fetchUsersFromFirestore();
       if(!stopped && Array.isArray(firestoreUsers) && firestoreUsers.length > 0) {
         writeCache(firestoreUsers);
         return;
       }
-    } catch {
-      try {
-        const users=await fetchManagedUsers();
-        if(!stopped && Array.isArray(users) && users.length > 0) {
+    } catch (err) {
+      console.warn('[accountService] Firestore user directory sync notice:', err);
+    }
+
+    // 2. Auth API remains the fallback for deployments where Firestore reads
+    // are temporarily unavailable. Never shrink an existing complete cache.
+    try {
+      const users=await fetchManagedUsers();
+      if(!stopped && Array.isArray(users) && users.length > 0) {
+        const cached = readCache();
+        if (cached.length === 0 || users.length >= cached.length) {
           writeCache(users);
           return;
         }
-      } catch(err) {
-        const cached = readCache();
-        if (cached && cached.length > 0) {
-          return;
-        }
-        if(!stopped) onError?.(err);
+        console.warn('[accountService] Ignoring partial authApi user-list response:', {
+          received: users.length,
+          cached: cached.length
+        });
+        return;
       }
-    } finally {
-      isRefreshing = false;
+    } catch(err) {
+      // Continue to the cache/error path below.
+      console.warn('[accountService] Auth API user directory sync notice:', err);
     }
+
+    // 3. If cached profiles exist, keep the last known complete directory.
+    const cached = readCache();
+    if (cached && cached.length > 0) {
+      return;
+    }
+
+    if(!stopped) onError?.(new Error('Daftar akun belum dapat dimuat dari Firestore maupun server autentikasi.'));
   };
   void refresh();
-  const timer=window.setInterval(refresh,60000);
+  const timer=window.setInterval(refresh,15000);
   return ()=>{ stopped=true; subscribers.delete(emit); window.clearInterval(timer); };
 }
 

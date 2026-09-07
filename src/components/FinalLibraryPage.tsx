@@ -21,6 +21,7 @@ import { DocumentViewer } from './DocumentViewer';
 import { LibraryDocument, SopDocument, UserSession } from '../types';
 import { formatBytes } from '../utils/numbering';
 import { getLibraryDocumentUrl } from '../lib/documentLibraryService';
+import { isSopAccessibleByUser } from '../utils/soegiriStructure';
 
 interface FinalLibraryPageProps {
   sops: SopDocument[];
@@ -41,7 +42,8 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
 }) => {
   const isAdmin = userSession.role === 'admin';
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  const canAccessProtectedDocs = isAdmin || hasStructuralBadge;
+  // Admin role or Admin badge alone does not grant access to SK & MOU; must have STRUKTURAL badge
+  const canAccessProtectedDocs = hasStructuralBadge;
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<FinalDocTypeFilter>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
@@ -57,8 +59,8 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
 
   // 1. Final Active SOPs (hanya status AKTIF)
   const activeSops = useMemo(() => {
-    return sops.filter((s) => s.status === 'AKTIF');
-  }, [sops]);
+    return sops.filter((s) => s.status === 'AKTIF' && isSopAccessibleByUser(s, userSession));
+  }, [sops, userSession]);
 
   // 2. Final SK and MOU Documents
   const skDocs = useMemo(() => documents.filter((d) => d.type === 'SK'), [documents]);
