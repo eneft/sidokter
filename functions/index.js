@@ -116,7 +116,7 @@ function cors(req, res) {
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
@@ -454,7 +454,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   try {
-    const action = req.path.replace(/^\/+/, '').split('/').pop() || req.body?.action;
+    const pathAction = req.path.replace(/^\/+/, '').split('/').pop();
+    const action = (pathAction && pathAction !== 'authApi' && pathAction !== 'auth') ? pathAction : req.body?.action;
 
     if (action === 'bootstrap-admin') {
       return await bootstrapInitialAdmin(req, res);
@@ -807,7 +808,7 @@ function pdfCors(req, res) {
     res.set('Access-Control-Allow-Origin', origin);
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
