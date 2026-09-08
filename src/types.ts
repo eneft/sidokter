@@ -166,6 +166,8 @@ export interface SopDocument {
   // True when an Existing SPO replaces an existing draft/number record; it remains BARU in document type.
   isExistingReplacement?: boolean;
   isLegacySop?: boolean;
+  /** Source format for Existing workflow: PDF keeps original; DOCX may be finalized with TTD/stamp. */
+  existingSourceFormat?: 'PDF' | 'DOCX';
   legacySopNumber?: string;
   oldSopNumber?: string;
   oldFileName?: string;

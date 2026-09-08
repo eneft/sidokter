@@ -649,6 +649,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       isExistingReplacement: documentType === 'LAMA',
       isReviewDocument: documentType === 'REVIEW',
       isLegacySop: documentType === 'LAMA',
+      existingSourceFormat: documentType === 'LAMA' ? ((selectedFile?.name || '').toLowerCase().endsWith('.docx') || selectedFile?.type?.includes('wordprocessingml') || selectedFile?.type?.includes('msword') ? 'DOCX' : 'PDF') : undefined,
       legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
       oldSopNumber: documentType === 'REVIEW' ? oldSopNumber.trim() : undefined,
       reviewReason: documentType === 'REVIEW' ? reviewReason.trim() : undefined,

@@ -266,6 +266,18 @@ export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {
   }
 }
 
+export async function bulkUpdateSops(sops: SopDocument[], changedIds?: string[]): Promise<void> {
+  const normalized = sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
+  await idbPutSops(normalized);
+  notifySopSubscribers();
+  const targetDocs = changedIds && changedIds.length > 0
+    ? normalized.filter((s) => changedIds.includes(s.id))
+    : normalized;
+  for (const item of targetDocs) {
+    void saveSopToFirestore(item);
+  }
+}
+
 export async function deleteSopFromLocal(id: string): Promise<void> {
   await idbDeleteSop(id);
   notifySopSubscribers();

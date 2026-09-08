@@ -43,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
     lastSync: null,
     error: null
   });
+  const hasAdminAccess = userSession?.role === 'admin' || (Array.isArray(userSession?.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'ADMIN'));
   const isAdmin = userSession?.role === 'admin';
 
   useEffect(() => {
@@ -60,12 +61,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-    const userItems: Array<{ id: MainMenuTab; label: string; icon: React.ComponentType<{className?: string}>; count?: number }> = [
+  const userItems: Array<{ id: MainMenuTab; label: string; icon: React.ComponentType<{className?: string}>; count?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
     { id: 'sk', label: 'SK', icon: FileCheck, count: skCount },
     { id: 'mou', label: 'MOU', icon: Handshake, count: mouCount },
-      { id: 'profile', label: 'Profil', icon: UserRound },
+    ...(hasAdminAccess ? [{ id: 'admin' as MainMenuTab, label: 'Administrator', icon: ShieldCheck }] : []),
+    { id: 'profile', label: 'Profil', icon: UserRound },
   ];
 
   const handleSelect = (tab: MainMenuTab) => {
@@ -171,10 +173,15 @@ export const Header: React.FC<HeaderProps> = ({
                       <ShieldCheck className="w-3 h-3" /> STRUKTURAL
                     </span>
                   )}
-                  {Array.isArray(userSession?.badges) && userSession?.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600 text-white text-[9px] font-black tracking-wide shadow-sm">
-                      <ShieldCheck className="w-3 h-3" /> ADMIN
-                    </span>
+                  {hasAdminAccess && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelect('admin')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-[9px] font-black tracking-wide shadow-xs transition-colors cursor-pointer"
+                      title="Buka Portal Administrator"
+                    >
+                      <ShieldCheck className="w-3 h-3" /> Administrator UI →
+                    </button>
                   )}
                 </div>
               </div>
@@ -258,10 +265,14 @@ export const Header: React.FC<HeaderProps> = ({
                         <ShieldCheck className="w-3.5 h-3.5" /> STRUKTURAL
                       </span>
                     )}
-                    {userSession.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[10px] font-black shadow-sm">
-                        <ShieldCheck className="w-3.5 h-3.5" /> ADMIN
-                      </span>
+                    {hasAdminAccess && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelect('admin')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black shadow-xs cursor-pointer transition-colors"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" /> Buka Administrator UI →
+                      </button>
                     )}
                   </div>
                 </div>
@@ -293,6 +304,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
     { id: 'sk', label: 'SK', icon: FileCheck, count: skCount },
     { id: 'mou', label: 'MOU', icon: Handshake, count: mouCount },
+    { id: 'admin', label: 'Administrator', icon: ShieldCheck },
     { id: 'profile', label: 'Profil', icon: UserRound },
   ];
 

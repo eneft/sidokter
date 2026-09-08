@@ -38,6 +38,7 @@ import {
   restoreSopsToLocal,
   deleteSopFromLocal,
   deleteAllSops,
+  bulkUpdateSops,
   saveConfigToLocal,
   registerSopAndNumberingToLocal,
   reserveNextSopNumber,
@@ -1231,13 +1232,12 @@ export default function App() {
         jenis_spo: 'EKSISTING',
         isLegacySop: true,
         isNumberReservation: false,
-        status: userSession?.role !== 'admin' ? 'DRAFT' : (newSopData.status || 'AKTIF'),
-        activationRequestedAt: userSession?.role !== 'admin' ? now : (newSopData.activationRequestedAt || undefined),
-        activationRequestedBy: userSession?.role !== 'admin'
-          ? (userSession?.name || newSopData.creatorName || 'Pengguna')
-          : (newSopData.activationRequestedBy || undefined),
-        activationRequestedByUsername: userSession?.role !== 'admin' ? userSession?.username : (newSopData as any).activationRequestedByUsername,
-        activationRequestedUid: userSession?.role !== 'admin' ? (userSession?.authUid || userSession?.id) : (newSopData as any).activationRequestedUid,
+        // Existing is NEVER active at submission time. It must pass Admin approval.
+        status: 'DRAFT',
+        activationRequestedAt: now,
+        activationRequestedBy: userSession?.name || newSopData.creatorName || 'Pengguna',
+        activationRequestedByUsername: userSession?.username || (newSopData as any).activationRequestedByUsername,
+        activationRequestedUid: userSession?.authUid || userSession?.id || (newSopData as any).activationRequestedUid,
         creatorUsername: userSession?.username || (newSopData as any).creatorUsername,
         creatorUid: userSession?.authUid || userSession?.id || (newSopData as any).creatorUid,
         createdAt: now,
@@ -1283,15 +1283,17 @@ export default function App() {
           `Dokumen SPO Eksisting "${finalSop.title}" berhasil diajukan ke Admin Tata Naskah untuk disetujui.`
         );
       } else {
+        // Even when the submitter is an Admin, Existing follows the same approval gate:
+        // submission creates a DRAFT/request; activation is a separate explicit action.
         dispatchDocumentEvent(
-          'activation',
+          'proposal',
           finalSop,
-          `SPO Eksisting "${finalSop.title}" (${finalSop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
+          `Usulan SPO Eksisting dari ${finalSop.activationRequestedBy} (${finalSop.divisionName || finalSop.divisionCode}): "${finalSop.title}" (${finalSop.sopNumber || 'Eksisting'}) menunggu persetujuan Admin.`
         );
         addToast(
           'success',
-          'SPO Eksisting Berhasil Diregistrasi!',
-          `Dokumen SPO Eksisting "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diregistrasi dan berstatus Aktif.`
+          'Usulan SPO Eksisting Tersimpan',
+          `Dokumen SPO Eksisting "${finalSop.title}" berhasil disimpan sebagai DRAFT dan menunggu persetujuan Admin.`
         );
       }
 
@@ -1396,25 +1398,31 @@ export default function App() {
     const unitKey = getUnitKey(divCode, subCode);
 
     // Collision prevention: ensure sequenceNumber and sopNumber are strictly unique in this unit
-    const usedSequences = getUsedSequencesForUnit(sops.filter((s) => s.id !== finalSop.id), divCode, subCode, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
-    let allocatedSeq = finalSop.sequenceNumber || getNextSequenceNumber(numberingConfig, divCode, subCode, sops, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+    // IMPORTANT: Legacy / Existing SOPs must retain their original legacy numbers and MUST NOT be regenerated.
+    const isLegacyDoc = Boolean(finalSop.isLegacySop || finalSop.documentType === 'LAMA');
+    let allocatedSeq = finalSop.sequenceNumber || 0;
 
-    if (usedSequences.has(allocatedSeq)) {
-      // Collision detected with another registered document in this unit:
-      // Allocate next lowest unused positive integer
-      let nextAvailable = 1;
-      while (usedSequences.has(nextAvailable)) {
-        nextAvailable++;
+    if (!isLegacyDoc) {
+      const usedSequences = getUsedSequencesForUnit(sops.filter((s) => s.id !== finalSop.id), divCode, subCode, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+      allocatedSeq = finalSop.sequenceNumber || getNextSequenceNumber(numberingConfig, divCode, subCode, sops, finalSop.effectiveDate ? finalSop.effectiveDate.slice(0, 4) : undefined);
+
+      if (usedSequences.has(allocatedSeq)) {
+        // Collision detected with another registered document in this unit:
+        // Allocate next lowest unused positive integer
+        let nextAvailable = 1;
+        while (usedSequences.has(nextAvailable)) {
+          nextAvailable++;
+        }
+        allocatedSeq = nextAvailable;
+        finalSop.sequenceNumber = allocatedSeq;
+
+        // Re-generate standard number with unique sequence
+        const paddedNum = getPaddedNumber(allocatedSeq, 3);
+        const effectiveYear = finalSop.effectiveDate ? finalSop.effectiveDate.split('-')[0] : (SOEGIRI_HOSPITAL_INFO.year || '2026');
+        finalSop.sopNumber = subCode
+          ? `${divCode} / ${subCode} / ${paddedNum} / ${effectiveYear}`
+          : `${divCode} / ${paddedNum} / ${effectiveYear}`;
       }
-      allocatedSeq = nextAvailable;
-      finalSop.sequenceNumber = allocatedSeq;
-
-      // Re-generate standard number with unique sequence
-      const paddedNum = getPaddedNumber(allocatedSeq, 3);
-      const effectiveYear = finalSop.effectiveDate ? finalSop.effectiveDate.split('-')[0] : (SOEGIRI_HOSPITAL_INFO.year || '2026');
-      finalSop.sopNumber = subCode
-        ? `${divCode} / ${subCode} / ${paddedNum} / ${effectiveYear}`
-        : `${divCode} / ${paddedNum} / ${effectiveYear}`;
     }
 
     const updatedConfig: NumberingConfig = {
@@ -1759,7 +1767,7 @@ export default function App() {
   }) => {
     const target = sops.find((s) => s.id === sopId);
     if (!target || target.status !== 'DRAFT') {
-      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru atau SPO Riviu dengan status Draft yang dapat diaktifkan.');
+      addToast('error', 'Aktivasi Ditolak', 'Hanya pengajuan SPO Baru, Riviu, atau Existing dengan status Draft yang dapat diaktifkan.');
       return;
     }
 
@@ -1782,16 +1790,52 @@ export default function App() {
       return;
     }
 
+    const sourceName = String(target.fileName || target.signedScanFileName || '').toLowerCase();
+    const sourceType = String(target.fileType || target.signedScanFileType || '').toLowerCase();
+    const targetIsExistingDocx = targetIsExisting && (
+      target.existingSourceFormat === 'DOCX' ||
+      sourceType.includes('wordprocessingml') ||
+      sourceType.includes('msword') ||
+      sourceName.endsWith('.docx') ||
+      sourceName.endsWith('.doc')
+    );
     const defaultNotes = targetIsExisting
-      ? 'SPO Eksisting disetujui dan diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.'
+      ? (targetIsExistingDocx
+        ? 'SPO Eksisting berbasis DOCX disetujui dan diaktifkan oleh Admin. Dokumen dapat difinalisasi dengan TTD dan stempel sesuai alur pengesahan.'
+        : 'SPO Eksisting berbasis PDF disetujui dan diaktifkan oleh Admin. PDF asli tetap dipertahankan tanpa TTD/Stempel tambahan.')
       : 'Telah disahkan dengan tanda tangan Direktur RSUD Dr. Soegiri dan berkas fisik resmi diarsipkan di Bagian Tata Naskah.';
 
     const finalNotes = (activationData.activationNotes && activationData.activationNotes.trim())
       ? activationData.activationNotes.trim()
       : defaultNotes;
 
+    // RULE SPO RIVIU: nomor revisi wajib mengikuti SPO aktif yang diriviu + 1.
+    // User tidak boleh menetapkan nomor revisi Riviu secara manual jika rujukan
+    // internal ditemukan. Untuk dokumen lama dari luar aplikasi, nilai yang
+    // sudah diisi tetap dipakai sebagai fallback.
+    let reviewRevisionNumber = target.revisionNumber || target.version || '00';
+    let reviewedSource: SopDocument | undefined;
+    if (targetIsRiviu) {
+      reviewedSource = (target.existingSopId ? sops.find((s) => s.id === target.existingSopId) : undefined)
+        || (target.oldSopNumber
+          ? sops.find((s) => normalizeSopNumberInput(s.sopNumber) === normalizeSopNumberInput(target.oldSopNumber || '')
+            || normalizeSopNumberInput(s.legacySopNumber) === normalizeSopNumberInput(target.oldSopNumber || ''))
+          : undefined);
+
+      if (reviewedSource) {
+        const rawRevision = String(reviewedSource.revisionNumber || reviewedSource.version || '00').trim();
+        const numericRevision = Number.parseInt(rawRevision.replace(/[^0-9]/g, ''), 10);
+        const nextRevision = Number.isFinite(numericRevision) ? numericRevision + 1 : 1;
+        reviewRevisionNumber = String(nextRevision).padStart(2, '0');
+      }
+    }
+
     const updated: SopDocument = {
       ...target,
+      ...(targetIsRiviu ? {
+        revisionNumber: reviewRevisionNumber,
+        version: reviewRevisionNumber,
+      } : {}),
       status: 'AKTIF',
       updatedAt: new Date().toISOString(),
       activatedAt: activationData.activatedAt || new Date().toISOString().split('T')[0],
@@ -1805,13 +1849,42 @@ export default function App() {
     try {
       if (activationData.signedScanDataUrl) await saveFileToLocalCache(sopId, 'signedScan', activationData.signedScanDataUrl);
       await saveSopToLocal(updated);
-      setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
+
+      // Sinkronkan nomor revisi pada SPO aktif yang menjadi objek Riviu.
+      // Ini menjaga register SPO lama tetap menunjukkan revisi terakhir yang
+      // telah disahkan, sementara dokumen hasil Riviu juga memakai nomor yang sama.
+      if (targetIsRiviu && reviewedSource) {
+        const reviewedUpdated: SopDocument = {
+          ...reviewedSource,
+          revisionNumber: reviewRevisionNumber,
+          version: reviewRevisionNumber,
+          updatedAt: new Date().toISOString(),
+          revisionHistory: [
+            ...(reviewedSource.revisionHistory || []),
+            {
+              id: `rev-riviu-sync-${Date.now()}`,
+              version: reviewRevisionNumber,
+              date: updated.activatedAt || new Date().toISOString().split('T')[0],
+              author: activationData.activatedBy || userSession?.name || 'Admin',
+              notes: `Nomor revisi diperbarui otomatis karena SPO ini telah diriviu dan hasil Riviu disahkan. Rujukan Riviu: ${updated.sopNumber || updated.id}.`
+            }
+          ]
+        };
+        await saveSopToLocal(reviewedUpdated);
+        setSops((prev) => prev.map((s) =>
+          s.id === sopId ? updated : s.id === reviewedUpdated.id ? reviewedUpdated : s
+        ));
+      } else {
+        setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
+      }
       setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);
       setSelectedSopForActivation(null);
 
       const successToastTitle = targetIsExisting ? 'SPO Eksisting Disetujui' : 'SPO Diaktifkan';
       const successToastMsg = targetIsExisting
-        ? `SPO Eksisting "${updated.title}" telah disetujui & diaktifkan. PDF naskah tetap asli tanpa TTD/Stempel tambahan.`
+        ? (targetIsExistingDocx
+          ? `SPO Eksisting DOCX "${updated.title}" telah disetujui & diaktifkan. Dokumen dapat difinalisasi dengan TTD dan stempel.`
+          : `SPO Eksisting PDF "${updated.title}" telah disetujui & diaktifkan. PDF naskah tetap asli tanpa TTD/Stempel tambahan.`)
         : `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`;
       addToast('success', successToastTitle, successToastMsg);
       
@@ -1821,7 +1894,9 @@ export default function App() {
       // SPO RIVIU: Pengusul -> 🔔Admin -> Setujui -> AKTIF -> 🔔 Pengusul
       // SPO EXISTING: Pengusul -> 🔔Admin -> Setujui -> AKTIF -> 🔔 Pengusul -> PDF tetap asli -> tanpa TTD/Stempel tambahan
       const notifMsg = targetIsExisting
-        ? `SPO Eksisting "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
+        ? (targetIsExistingDocx
+          ? `SPO Eksisting DOCX "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. Dokumen dapat difinalisasi dengan TTD dan stempel.`
+          : `SPO Eksisting PDF "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`)
         : targetIsRiviu
         ? `Hasil riviu SPO "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`
         : `SPO Baru "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`;
@@ -1898,7 +1973,7 @@ export default function App() {
   };
 
   // Standardize All SOP Numbers manually (Admin Trigger)
-  const handleStandardizeAllSopNumbers = () => {
+  const handleStandardizeAllSopNumbers = async () => {
     const { updatedSops, changedCount, changes, duplicateCount } = standardizeAllSops(sops);
     if (changedCount === 0) {
       addToast(
@@ -1910,11 +1985,15 @@ export default function App() {
     }
 
     setSops(updatedSops);
-    updatedSops.forEach((s) => {
-      if (changes.some((c) => c.newNumber === s.sopNumber)) {
-        saveSopToLocal(s).catch((err) => console.error('Error saving standardized SOP to local database:', err));
-      }
-    });
+    const changedIds = updatedSops
+      .filter((s) => changes.some((c) => c.newNumber === s.sopNumber))
+      .map((s) => s.id);
+
+    try {
+      await bulkUpdateSops(updatedSops, changedIds);
+    } catch (err) {
+      console.error('Error saving standardized SOPs to local database:', err);
+    }
 
     const summaryList = changes
       .slice(0, 4)

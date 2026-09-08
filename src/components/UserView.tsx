@@ -35,7 +35,8 @@ import {
   LayoutList,
   Table as TableIcon,
   FileUp,
-  Loader2
+  Loader2,
+  ExternalLink
 } from 'lucide-react';
 import { 
   SopDocument, 
@@ -50,6 +51,7 @@ import {
 import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { parseSopFromDocx } from '../utils/docxParser';
+import { parseSopMetadataFromPdf } from '../utils/pdfParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
   SOEGIRI_HOSPITAL_INFO,
@@ -68,6 +70,7 @@ import { SKPage } from './SKPage';
 import { MOUPage } from './MOUPage';
 import { FinalLibraryPage } from './FinalLibraryPage';
 import { DashboardOverviewPage } from './DashboardOverviewPage';
+import { DocumentViewer } from './DocumentViewer';
 import { AdminHubPage } from './AdminHubPage';
 import IssueSopNumberModal from './IssueSopNumberModal';
 import { getAllNumberReservations, SopNumberReservation } from '../lib/sopService';
@@ -543,6 +546,13 @@ export const UserView: React.FC<UserViewProps> = ({
   const [parsedDocxSummary, setParsedDocxSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
   const docxInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Khusus SPO Existing: 2 Opsi (DOCX -> Live Form A4, atau PDF -> Pratinjau Asli)
+  const [existingMode, setExistingMode] = useState<'docx' | 'pdf'>('docx');
+  const [isParsingPdf, setIsParsingPdf] = useState(false);
+  const [parsedPdfSummary, setParsedPdfSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const pdfInputRef = React.useRef<HTMLInputElement>(null);
+
   const handleDocxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -566,6 +576,16 @@ export const UserView: React.FC<UserViewProps> = ({
       if (parsed.alur) setAlur(parsed.alur);
       if (parsed.unitTerkait) setUnitTerkait(parsed.unitTerkait);
 
+      // Deteksi nomor SPO lama & nomor revisi dari dokumen DOCX jika tersedia
+      if (parsed.sopNumber) {
+        setManualLegacyNumber(parsed.sopNumber);
+      }
+      if (parsed.revisionNumber) {
+        setRevisionNumber(parsed.revisionNumber);
+      }
+
+      setSelectedFile(file);
+
       setParsedDocxSummary({
         fileName: file.name,
         fields: parsed.extractedFields
@@ -574,7 +594,9 @@ export const UserView: React.FC<UserViewProps> = ({
       onShowToast?.(
         'success',
         'Naskah Word (.docx) Berhasil Diimpor',
-        `Berhasil mengekstrak ${parsed.totalFieldsFound} bagian naskah dari ${file.name} ke dalam formulir.`
+        parsed.sopNumber
+          ? `Terdeteksi nomor "${parsed.sopNumber}" dan ${parsed.totalFieldsFound} bagian naskah dari ${file.name}.`
+          : `Berhasil mengekstrak ${parsed.totalFieldsFound} bagian naskah dari ${file.name} ke dalam formulir.`
       );
     } catch (err: any) {
       console.error('Error parsing DOCX:', err);
@@ -586,6 +608,71 @@ export const UserView: React.FC<UserViewProps> = ({
     } finally {
       setIsParsingDocx(false);
       if (e.target) e.target.value = '';
+    }
+  };
+
+  const handlePdfUploadForExisting = async (file: File) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      onShowToast?.('error', 'Format File Salah', 'Harap pilih berkas scan PDF asli.');
+      return;
+    }
+
+    setSelectedFile(file);
+
+    if (pdfPreviewUrl) {
+      try { URL.revokeObjectURL(pdfPreviewUrl); } catch {}
+    }
+    try {
+      const url = URL.createObjectURL(file);
+      setPdfPreviewUrl(url);
+    } catch (err) {
+      console.warn('Gagal membuat URL pratinjau PDF:', err);
+    }
+
+    try {
+      setIsParsingPdf(true);
+      const meta = await parseSopMetadataFromPdf(file);
+      const extractedFields: string[] = [];
+
+      if (meta.sopNumber) {
+        setManualLegacyNumber(meta.sopNumber);
+        extractedFields.push(`Nomor: ${meta.sopNumber}`);
+      }
+      if (meta.title && (!title || title.trim() === '')) {
+        setTitle(meta.title);
+        extractedFields.push(`Judul: ${meta.title}`);
+      } else if (!title) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim();
+        setTitle(cleanName);
+        extractedFields.push(`Judul: ${cleanName}`);
+      }
+      if (meta.effectiveDate) {
+        setEffectiveDate(meta.effectiveDate);
+        extractedFields.push(`Tanggal: ${meta.effectiveDate}`);
+      }
+      if (meta.revisionNumber) {
+        setRevisionNumber(meta.revisionNumber);
+        extractedFields.push(`Revisi: ${meta.revisionNumber}`);
+      }
+
+      setParsedPdfSummary({
+        fileName: file.name,
+        fields: extractedFields.length > 0 ? extractedFields : ['Pratinjau PDF Asli Dimuat']
+      });
+
+      onShowToast?.(
+        'success',
+        'Berkas PDF Asli Berhasil Dimuat',
+        meta.sopNumber
+          ? `Nomor naskah "${meta.sopNumber}" terdeteksi. Silakan verifikasi data sebelum menyimpan sebagai Existing Aktif.`
+          : 'PDF berhasil dimuat untuk pratinjau. Silakan periksa nomor naskah asli sebelum menyimpan.'
+      );
+    } catch (err: any) {
+      console.error('Error parsing PDF:', err);
+      onShowToast?.('error', 'Gagal Membaca Metadata PDF', err?.message || 'Gagal memproses file PDF.');
+    } finally {
+      setIsParsingPdf(false);
     }
   };
 
@@ -637,6 +724,12 @@ export const UserView: React.FC<UserViewProps> = ({
     setDocumentTypeChosen(false);
     setParsedDocxSummary(null);
     setIsParsingDocx(false);
+    if (pdfPreviewUrl) {
+      try { URL.revokeObjectURL(pdfPreviewUrl); } catch {}
+    }
+    setPdfPreviewUrl(null);
+    setParsedPdfSummary(null);
+    setIsParsingPdf(false);
   };
 
   const openSpoInput = () => {
@@ -763,9 +856,21 @@ export const UserView: React.FC<UserViewProps> = ({
         setSubmitError('Nomor SPO Lama / Eksisting resmi wajib diisi.');
         return;
       }
-      if (!selectedFile) {
-        setSubmitError('Wajib mengunggah scan file PDF asli SPO Eksisting yang sudah bertanda tangan.');
+      if (!title.trim() && !matchedExistingDoc?.title) {
+        setSubmitError('Judul SPO Eksisting wajib diisi.');
         return;
+      }
+      if (existingMode === 'pdf') {
+        if (!selectedFile) {
+          setSubmitError('Wajib mengunggah scan file PDF asli SPO Eksisting yang sudah bertanda tangan.');
+          return;
+        }
+      } else {
+        // existingMode === 'docx' (Live Form A4)
+        if (missingSections.length > 0) {
+          setSubmitError(`Bagian batang tubuh SPO Live Form berikut belum lengkap:\n• ${missingSections.join('\n• ')}`);
+          return;
+        }
       }
 
       // Deteksi dokumen terdaftar yang sudah ada di sistem
@@ -851,7 +956,9 @@ export const UserView: React.FC<UserViewProps> = ({
         categoryId: finalDivCode,
         categoryName: finalDivName,
         version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
-        status: 'DRAFT',
+        status: isLegacy ? 'AKTIF' : 'DRAFT',
+        activatedAt: isLegacy ? new Date().toISOString() : undefined,
+        activatedBy: isLegacy ? userSession.name : undefined,
         activationRequestedAt: new Date().toISOString(),
         activationRequestedBy: userSession.name,
         activationRequestedByUsername: userSession.username,
@@ -879,8 +986,9 @@ export const UserView: React.FC<UserViewProps> = ({
         // but the submit boundary itself is always explicitly EKSISTING.
         documentType: isLegacy ? 'LAMA' : (isReview ? 'RIVIU' : 'BARU'),
         jenis_spo: isLegacy ? 'EKSISTING' : (isReview ? 'RIVIU' : 'BARU'),
-        isLegacySop: isLegacy ? (matchedExistingDoc ? Boolean(matchedExistingDoc.isLegacySop) : !isNewFormat) : false,
-        legacySopNumber: isLegacy ? (isNewFormat && matchedExistingDoc ? undefined : cleanNum) : undefined,
+        isLegacySop: isLegacy ? true : false,
+        existingSourceFormat: isLegacy ? ((selectedFile?.name || '').toLowerCase().endsWith('.docx') || selectedFile?.type?.includes('wordprocessingml') || selectedFile?.type?.includes('msword') ? 'DOCX' : 'PDF') : undefined,
+        legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
@@ -1366,22 +1474,82 @@ export const UserView: React.FC<UserViewProps> = ({
                   {workflowStep >= 3 && (
                     <>
                   {/* Nomor SPO diterbitkan ditampilkan ringkas di bawah form setelah berhasil. */}
-                  {/* 3. Formulir SPO EKSISTING (Tanpa Batang Tubuh, Cukup Nomor & Upload File PDF) */}
+                  {/* 3. Formulir SPO EKSISTING — Live Form Khusus dengan 2 Opsi: Upload DOCX (Live Form A4) atau Upload PDF (SPO Fisik Asli) */}
                   {documentType === 'LAMA' ? (
-                    <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-6 space-y-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-950">
-                          <BookOpen className="w-4 h-4 text-purple-700" />
-                          <span>3. Rincian & Berkas SPO Eksisting</span>
+                    <section className="rounded-2xl border border-purple-200 bg-white p-4 sm:p-6 space-y-6 shadow-xs">
+                      {/* Header Section */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-purple-100">
+                        <div>
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-purple-950">
+                            <BookOpen className="w-4 h-4 text-purple-700" />
+                            <span>3. Live Form SPO Existing Aktif</span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1">
+                            Daftarkan SPO Eksisting yang sudah berlaku. Nomor lama/legacy asli <strong>wajib dipertahankan</strong> dan tidak digenerate ulang oleh sistem.
+                          </p>
                         </div>
-                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100/80 px-2.5 py-1 rounded-full border border-purple-200">
-                          Format Penomoran Asli / Lama
-                        </span>
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-purple-800 text-[11px] font-bold shrink-0">
+                          <Lock className="w-3.5 h-3.5 text-purple-600" />
+                          <span>Nomor Asli Dipertahankan</span>
+                        </div>
                       </div>
 
-                      {/* Dropdown Opsional: Pilih dokumen terdaftar untuk digantikan */}
+                      {/* Switcher 2 Opsi: Upload DOCX vs Upload PDF */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setExistingMode('docx')}
+                          className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${
+                            existingMode === 'docx'
+                              ? 'border-purple-600 bg-purple-50/80 ring-2 ring-purple-500/20 shadow-xs'
+                              : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/70 text-slate-700'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-lg shrink-0 ${existingMode === 'docx' ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                            <FileText className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-slate-900">Opsi 1: Upload DOCX → Live Form A4</span>
+                              {existingMode === 'docx' && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-200 text-purple-900">Aktif</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                              Otomatis mendeteksi nomor naskah lama, judul, tanggal, dan seluruh isi batang tubuh SPO ke lembar kerja A4 untuk diverifikasi.
+                            </p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setExistingMode('pdf')}
+                          className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${
+                            existingMode === 'pdf'
+                              ? 'border-purple-600 bg-purple-50/80 ring-2 ring-purple-500/20 shadow-xs'
+                              : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/70 text-slate-700'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-lg shrink-0 ${existingMode === 'pdf' ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                            <FileCheck2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-slate-900">Opsi 2: Upload PDF (SPO Fisik Asli)</span>
+                              {existingMode === 'pdf' && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-200 text-purple-900">Aktif</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                              Untuk naskah yang sudah aktif & bertanda tangan Direktur. Deteksi nomor & metadata, pratinjau dokumen asli di layar, simpan tanpa modifikasi PDF.
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+
+                      {/* Dropdown Opsional: Pilih dokumen terdaftar untuk digantikan jika ada */}
                       {sops && sops.length > 0 && (
-                        <div className="rounded-xl border border-purple-200 bg-white/80 p-3">
+                        <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-3">
                           <label className="block text-[11px] font-bold text-purple-950 mb-1">
                             Pilih Dokumen Terdaftar untuk Diganti / Diperbarui (Opsional)
                           </label>
@@ -1416,250 +1584,326 @@ export const UserView: React.FC<UserViewProps> = ({
                         </div>
                       )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Nomor SPO Lama */}
-                        <div>
-                          <div className="flex items-center justify-between gap-1 mb-1.5">
-                            <label className="block text-xs font-bold text-purple-950">
-                              Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
+                      {/* KONTEN OPSI 1: UPLOAD DOCX -> LIVE FORM A4 */}
+                      {existingMode === 'docx' && (
+                        <div className="space-y-5">
+                          {/* Dropzone Upload DOCX */}
+                          <div className="rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/40 p-5 text-center hover:bg-purple-50/70 transition-colors">
+                            <input
+                              type="file"
+                              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                              onChange={handleDocxUpload}
+                              className="hidden"
+                              id="existing-docx-file-input"
+                            />
+                            <label
+                              htmlFor="existing-docx-file-input"
+                              className="cursor-pointer flex flex-col items-center justify-center gap-2"
+                            >
+                              <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 shadow-2xs">
+                                {isParsingDocx ? <Loader2 className="w-6 h-6 animate-spin text-purple-600" /> : <FileUp className="w-6 h-6" />}
+                              </div>
+                              <div className="text-xs font-bold text-purple-950">
+                                {isParsingDocx ? 'Sedang Membaca & Mengekstrak Dokumen Word...' : 'Klik atau Tarik Berkas Word (.docx) ke Sini'}
+                              </div>
+                              <p className="text-[11px] text-slate-600 max-w-lg">
+                                Parser akan otomatis mendeteksi <strong>Nomor SPO Lama</strong>, <strong>Judul</strong>, <strong>Tanggal</strong>, serta mengisi Pengertian, Tujuan, Kebijakan, Prosedur, Alur, dan Unit Terkait langsung ke Lembar Kerja A4 di bawah.
+                              </p>
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors mt-1">
+                                <FileUp className="w-4 h-4" />
+                                <span>Pilih Berkas Word (.docx)</span>
+                              </span>
                             </label>
-                            <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
-                              Input Nomor Asli
-                            </span>
+
+                            {parsedDocxSummary && (
+                              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>Terekstrak dari {parsedDocxSummary.fileName}: {parsedDocxSummary.fields.join(', ')}</span>
+                              </div>
+                            )}
                           </div>
-                          <input
-                            type="text"
-                            required
-                            value={manualLegacyNumber}
-                            onChange={(e) => {
-                              const val = e.target.value.toUpperCase();
-                              setManualLegacyNumber(val);
-                              const clean道德 = normalizeSopNumberInput(val);
-                              if (clean道德) {
-                                const matched = sops?.find((s) => 
-                                  (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === clean道德) ||
-                                  (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === clean道德)
-                                );
-                                setExistingSopId(matched?.id || '');
-                                if (matched) {
-                                  if (!title.trim() && matched.title) {
-                                    setTitle(matched.title);
-                                  }
-                                  if (matched.effectiveDate) {
-                                    setEffectiveDate(matched.effectiveDate);
-                                  }
-                                } else {
-                                  const reservation = issuedNumberRegister.find((row) =>
-                                    normalizeSopNumberInput(row.sopNumber) === clean道德
-                                  );
-                                  if (reservation) {
-                                    if (!title.trim() && reservation.title) setTitle(reservation.title);
-                                    if (reservation.effectiveDate) setEffectiveDate(reservation.effectiveDate);
-                                  }
-                                }
-                              } else {
-                                setExistingSopId('');
-                              }
-                            }}
-                            onBlur={() => {
-                              if (manualLegacyNumber.trim()) {
-                                setManualLegacyNumber(normalizeSopNumberInput(manualLegacyNumber));
-                              }
-                            }}
-                            placeholder="Contoh: SOEGIRI / 398 / 2025 atau 440/102/SPO/PEL/2023"
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
-                          />
 
-                          {/* Informasi Deteksi Otomatis Nomor & Hirarki */}
-                          {manualLegacyNumber.trim() && (() => {
-                            const normalized = normalizeSopNumberInput(manualLegacyNumber);
-                            const patternMatch = matchMasterHierarchyPattern(normalized);
-                            const isNewFormat = patternMatch.isMatch;
-                            const matched = sops?.find((s) => 
-                              (s.sopNumber && normalizeSopNumberInput(s.sopNumber) === normalized) ||
-                              (s.legacySopNumber && normalizeSopNumberInput(s.legacySopNumber) === normalized) ||
-                              (existingSopId && s.id === existingSopId)
-                            );
-                            const reserved = !matched
-                              ? issuedNumberRegister.find((row) => normalizeSopNumberInput(row.sopNumber) === normalized) || null
-                              : null;
+                          {/* Verifikasi Nomor Lama & Metadata */}
+                          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                                Verifikasi Identitas & Nomor Legacy Dokumen
+                              </span>
+                              <span className="text-[11px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded">
+                                Wajib Diperiksa
+                              </span>
+                            </div>
 
-                            return (
-                              <div className="mt-2 space-y-2">
-                                {/* Normalisasi Format Tag */}
-                                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-purple-100/70 border border-purple-200 text-[11px]">
-                                  <span className="text-purple-900 font-medium truncate">
-                                    Standar Penulisan: <strong className="font-mono text-purple-950 font-bold">{normalized}</strong>
-                                  </span>
-                                  <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border shadow-2xs ${
-                                    isNewFormat
-                                      ? 'bg-purple-600 text-white border-purple-700'
-                                      : 'bg-white text-slate-700 border-slate-300'
-                                  }`}>
-                                    {isNewFormat ? `Master Hirarki: ${patternMatch.categoryCode}` : 'Format Eksisting'}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                              <div className="md:col-span-2">
+                                <label className="block text-xs font-bold text-slate-800 mb-1">
+                                  Nomor SPO Eksisting / Lama <span className="text-rose-500">*</span>
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type="text"
+                                    required
+                                    value={manualLegacyNumber}
+                                    onChange={(e) => setManualLegacyNumber(e.target.value.toUpperCase())}
+                                    placeholder="Contoh: 440/102/SPO/PEL/2023 atau SOEGIRI / 015 / 2024"
+                                    className="w-full pl-3 pr-24 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                  />
+                                  <span className="absolute right-2 top-2 px-2 py-0.5 rounded bg-purple-100 text-[10px] font-bold text-purple-800">
+                                    Dipertahankan
                                   </span>
                                 </div>
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                  Nomor ini akan disimpan persis seperti dokumen asli tanpa digenerate ulang.
+                                </p>
+                              </div>
 
-                                {matched ? (
-                                  (() => {
-                                    const isAktif = matched.status === 'AKTIF';
-                                    const statusLabel持 =
-                                      matched.status === 'DRAFT'
-                                        ? 'Draft'
-                                        : matched.status === 'DRAFT' || matched.status === 'DRAFT' || matched.isNumberReservation
-                                        ? 'Draft'
-                                        : matched.status === 'AKTIF'
-                                        ? 'Aktif'
-                                        : matched.status || 'Belum Aktif';
-                                    const unitName = matched.hierarchyDescription || matched.divisionName || (matched as any).unitName || matched.divisionCode || 'Unit kerja terdaftar';
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 mb-1">
+                                  Tanggal Pengesahan Asli
+                                </label>
+                                <input
+                                  type="date"
+                                  value={effectiveDate}
+                                  onChange={(e) => setEffectiveDate(e.target.value)}
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
 
-                                    if (isAktif) {
-                                      return (
-                                        <div className="rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
-                                          <div className="flex items-center gap-1.5 text-xs font-black text-rose-700">
-                                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                            <span>Nomor Terdaftar Status AKTIF (Tidak Boleh Diganti)</span>
-                                          </div>
-                                          <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
-                                          <div className="text-[11px] text-rose-800">
-                                            <span className="font-semibold">Unit/Hirarki:</span> {unitName}
-                                          </div>
-                                          <div className="text-[10px] font-semibold text-rose-700">
-                                            Sesuai aturan, dokumen berstatus <strong>AKTIF</strong> tidak dapat diganti melalui SPO Eksisting. Silakan gunakan menu <strong>SPO Riviu</strong>.
-                                          </div>
-                                        </div>
-                                      );
-                                    }
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 mb-1">
+                                  No. Revisi Asli
+                                </label>
+                                <input
+                                  type="text"
+                                  value={revisionNumber}
+                                  onChange={(e) => setRevisionNumber(e.target.value)}
+                                  placeholder="00"
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                            </div>
 
-                                    return (
-                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-3 space-y-1">
-                                        <div className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
-                                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                          <span>{isNewFormat ? 'Pola Master Hirarki Terdaftar' : 'Nomor Eksisting Terdaftar'} ({statusLabel持})</span>
-                                        </div>
-                                        <div className="text-xs font-bold text-slate-900 line-clamp-1">{matched.title}</div>
-                                        <div className="text-[11px] text-emerald-800">
-                                          <span className="font-semibold">Hirarki:</span> {unitName}
-                                        </div>
-                                        <div className="text-[10px] text-emerald-700 font-medium">
-                                          ✅ Boleh replace & lengkapi berkas untuk mengaktifkan dokumen ini di sistem.
-                                        </div>
-                                      </div>
-                                    );
-                                  })()
-                                ) : reserved ? (
-                                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/95 p-3 space-y-1 text-emerald-950">
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-800">
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                      <span>Nomor Terbit Ditemukan</span>
-                                    </div>
-                                    <div className="text-xs font-bold text-slate-900 line-clamp-1">{reserved.title || 'Nomor SPO Terbit'}</div>
-                                    <div className="text-[11px] text-emerald-800">
-                                      <span className="font-semibold">Hirarki:</span> {reserved.subHierarchyCode ? `${reserved.divisionCode} / ${reserved.subHierarchyCode}` : reserved.divisionCode}
-                                    </div>
-                                    <div className="text-[10px] text-emerald-700 font-medium">
-                                      Nomor ini sudah diterbitkan dan dapat digunakan untuk <strong>SPO Existing → Replace Draft</strong>. Sistem tidak akan membuat nomor baru.
-                                    </div>
-                                  </div>
-                                ) : isNewFormat ? (
-                                  /* Pola Master Hirarki namun belum ada di database */
-                                  <div className="rounded-xl border border-rose-300 bg-rose-50/95 p-3 space-y-1 text-rose-950">
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-rose-700">
-                                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                      <span>❌ Pola Master Hirarki Belum Terdaftar (Wajib via SPO Baru)</span>
-                                    </div>
-                                    <div className="text-[11px] text-rose-900 leading-relaxed">
-                                      Nomor ini sesuai <strong>Pola Penomoran Baru Master Hirarki RSUD Dr. Soegiri</strong> ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) namun belum terdaftar di sistem.
-                                    </div>
-                                    <div className="text-[10px] font-semibold text-rose-700 bg-rose-100/70 p-1.5 rounded-lg border border-rose-200">
-                                      Silakan gunakan menu <strong>"SPO Baru"</strong> agar nomor urut diterbitkan secara resmi dan terstruktur sesuai master hirarki unit kerja.
-                                    </div>
-                                  </div>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-800 mb-1">
+                                Judul SPO Eksisting <span className="text-rose-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="Contoh: Prosedur Pelayanan Pasien Gawat Darurat"
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Lembar Kerja A4 Live Template untuk SPO Eksisting */}
+                          <div className="pt-2">
+                            <div className="mb-2 flex items-center justify-between">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                                <FileText className="w-4 h-4 text-purple-600" />
+                                <span>Lembar Kerja A4 — Verifikasi Isi Naskah Batang Tubuh</span>
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                Anda dapat langsung mengedit atau melengkapi naskah di bawah
+                              </span>
+                            </div>
+
+                            <SopLiveTemplate
+                              title={title}
+                              onTitleChange={setTitle}
+                              sopNumber={manualLegacyNumber || '[Ketik/Ekstrak Nomor SPO Lama]'}
+                              version={revisionNumber || '00'}
+                              effectiveDate={effectiveDate}
+                              onEffectiveDateChange={setEffectiveDate}
+                              approverName={SOEGIRI_HOSPITAL_INFO.director.name}
+                              pengertian={pengertian}
+                              onPengertianChange={setPengertian}
+                              tujuan={tujuan}
+                              onTujuanChange={setTujuan}
+                              kebijakan={kebijakan}
+                              onKebijakanChange={setKebijakan}
+                              prosedur={prosedur}
+                              onProsedurChange={setProsedur}
+                              alur={alur}
+                              onAlurChange={setAlur}
+                              unitTerkait={unitTerkait}
+                              onUnitTerkaitChange={setUnitTerkait}
+                              titleEditable={true}
+                              dateEditable={true}
+                              missingSections={missingSections}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* KONTEN OPSI 2: UPLOAD PDF (SPO FISIK ASLI) */}
+                      {existingMode === 'pdf' && (
+                        <div className="space-y-5">
+                          {/* Dropzone Upload PDF */}
+                          <div className="rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/40 p-5 text-center hover:bg-purple-50/70 transition-colors">
+                            <input
+                              ref={pdfInputRef}
+                              type="file"
+                              accept="application/pdf,.pdf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePdfUploadForExisting(file);
+                              }}
+                              className="hidden"
+                              id="existing-pdf-file-input"
+                            />
+                            <label
+                              htmlFor="existing-pdf-file-input"
+                              className="cursor-pointer flex flex-col items-center justify-center gap-2"
+                            >
+                              <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 shadow-2xs">
+                                {isParsingPdf ? <Loader2 className="w-6 h-6 animate-spin text-purple-600" /> : <FileUp className="w-6 h-6" />}
+                              </div>
+                              <div className="text-xs font-bold text-purple-950">
+                                {isParsingPdf ? 'Sedang Membaca Berkas & Metadata PDF Asli...' : 'Klik atau Tarik Berkas PDF Scan Asli ke Sini'}
+                              </div>
+                              <p className="text-[11px] text-slate-600 max-w-lg">
+                                Unggah berkas PDF SPO yang sudah bertanda tangan basah Direktur. Metadata nomor, judul, dan tanggal akan dideteksi otomatis, dan naskah asli akan dipratinjau secara langsung di sebelah kanan.
+                              </p>
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors mt-1">
+                                <FileUp className="w-4 h-4" />
+                                <span>Pilih Berkas PDF Scan Asli</span>
+                              </span>
+                            </label>
+
+                            {parsedPdfSummary && (
+                              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>{parsedPdfSummary.fileName} — {parsedPdfSummary.fields.join(' • ')}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 2-Column Layout: Form Verifikasi (Kiri) + Pratinjau PDF Asli (Kanan) */}
+                          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                            {/* Kolom Kiri: Form Verifikasi Metadata */}
+                            <div className="lg:col-span-5 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                                  Verifikasi Data Dokumen PDF
+                                </span>
+                                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded">
+                                  Tanpa Modifikasi PDF
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 mb-1">
+                                  Nomor SPO Eksisting Resmi <span className="text-rose-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={manualLegacyNumber}
+                                  onChange={(e) => setManualLegacyNumber(e.target.value.toUpperCase())}
+                                  placeholder="Contoh: 440/102/SPO/PEL/2023 atau SOEGIRI / 015 / 2024"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                  Nomor resmi dari naskah asli. Nomor ini tidak akan diubah atau digenerate ulang.
+                                </p>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 mb-1">
+                                  Judul SPO Eksisting <span className="text-rose-500">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={title}
+                                  onChange={(e) => setTitle(e.target.value)}
+                                  placeholder="Contoh: Prosedur Triase Gawat Darurat"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                                    Tanggal Ditetapkan
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={effectiveDate}
+                                    onChange={(e) => setEffectiveDate(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                                    No. Revisi
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={revisionNumber}
+                                    onChange={(e) => setRevisionNumber(e.target.value)}
+                                    placeholder="00"
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Jaminan Integritas Dokumen Asli */}
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs space-y-1">
+                                <div className="font-bold text-emerald-900 flex items-center gap-1.5">
+                                  <Shield className="w-4 h-4 text-emerald-700 shrink-0" />
+                                  <span>Jaminan Integritas Berkas Asli</span>
+                                </div>
+                                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                                  Dokumen PDF yang diunggah akan disimpan utuh sebagai dokumen asli bertanda tangan Direktur. Sistem tidak akan menambahkan watermark atau mengubah naskah fisik ini. Dokumen akan langsung berstatus <strong>AKTIF</strong> di Library dan siap untuk diajukan <strong>Riviu</strong> sewaktu-waktu.
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Kolom Kanan: Pratinjau PDF Asli */}
+                            <div className="lg:col-span-7 rounded-xl border border-slate-300 bg-slate-900 overflow-hidden shadow-xs flex flex-col h-[520px]">
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-800 text-slate-200 border-b border-slate-700">
+                                <div className="flex items-center gap-2 text-xs font-bold">
+                                  <Eye className="w-4 h-4 text-purple-400" />
+                                  <span>Pratinjau PDF Dokumen Asli</span>
+                                </div>
+                                {pdfPreviewUrl && (
+                                  <a
+                                    href={pdfPreviewUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-300 hover:text-white"
+                                  >
+                                    <span>Buka Tab Baru</span>
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="flex-1 bg-slate-100 flex items-center justify-center relative overflow-hidden">
+                                {pdfPreviewUrl && selectedFile ? (
+                                  <DocumentViewer
+                                    file={selectedFile}
+                                    fileName={selectedFile.name}
+                                    heightClass="h-full w-full"
+                                  />
                                 ) : (
-                                  /* Format Lama / Bebas belum ada di database */
-                                  <div className="rounded-xl border border-blue-200 bg-blue-50/90 p-3 space-y-1.5">
-                                    <div className="flex items-center gap-1.5 text-xs font-black text-blue-900">
-                                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                                      <span>✅ Nomor Format Eksisting Siap Diregistrasi</span>
-                                    </div>
-                                    <div className="text-[11px] text-blue-950 leading-relaxed">
-                                      Dokumen akan didaftarkan sebagai <strong>SPO Eksisting Aktif</strong> dengan nomor asli tetap dipertahankan.
-                                    </div>
-                                    <div className="text-[10px] text-blue-800 font-semibold bg-blue-100/80 px-2 py-1 rounded-md">
-                                      Hirarki: Mengikuti pilihan unit pada Bagian 2 di atas ({activeAssignment?.unitName || activeCategory?.name || selectedCatCode}).
-                                    </div>
+                                  <div className="text-center p-8 text-slate-400 space-y-3">
+                                    <FileCheck2 className="w-12 h-12 mx-auto text-slate-300" />
+                                    <div className="text-xs font-bold text-slate-600">Belum Ada File PDF yang Diunggah</div>
+                                    <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                                      Silakan unggah berkas PDF scan asli pada dropzone di atas untuk melihat pratinjau langsung di sini sebelum verifikasi disimpan.
+                                    </p>
                                   </div>
                                 )}
                               </div>
-                            );
-                          })()}
+                            </div>
+                          </div>
                         </div>
-
-                        {/* Tanggal Penetapan/Pengesahan */}
-                        <div>
-                          <label className="block text-xs font-bold text-purple-950 mb-1.5">
-                            Tanggal Ditetapkan / Pengesahan Asli
-                          </label>
-                          <input
-                            type="date"
-                            value={effectiveDate}
-                            onChange={(e) => setEffectiveDate(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white text-xs outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
-                          />
-                          <p className="mt-1 text-[10px] text-slate-500">
-                            Tanggal pengesahan sesuai yang tercantum di lembar tanda tangan dokumen fisik.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Judul Dokumen */}
-                      <div>
-                        <label className="block text-xs font-bold text-purple-950 mb-1.5">
-                          Judul SPO Eksisting <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={title}
-                          onChange={(e) => setTitle(e.target.value)}
-                          placeholder="Contoh: Prosedur Pelayanan Rekam Medis Rawat Jalan"
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-purple-300 bg-white text-xs sm:text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
-                        />
-                      </div>
-
-                      {/* File Upload PDF SPO Eksisting */}
-                      <div className="p-4 rounded-xl border-2 border-dashed border-purple-300 bg-white space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
-                            <Upload className="w-4 h-4 text-purple-700" />
-                            Upload File Scan PDF SPO Eksisting (Wajib) <span className="text-rose-500">*</span>
-                          </span>
-                          {selectedFile && (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedFile(null)}
-                              className="text-[11px] font-bold text-rose-600 hover:text-rose-800"
-                            >
-                              Hapus File
-                            </button>
-                          )}
-                        </div>
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={handleFileChange}
-                          className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer shadow-2xs"
-                        />
-                        {selectedFile ? (
-                          <p className="text-xs font-bold text-emerald-800 bg-emerald-50 p-2 rounded-lg border border-emerald-200 truncate">
-                            ✓ {selectedFile.name} ({formatBytes(selectedFile.size)})
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-purple-900">
-                            * Cukup unggah berkas pindaian scan PDF SPO resmi yang sudah bertanda tangan untuk langsung menggantikan dan mengaktifkan dokumen di Library.
-                          </p>
-                        )}
-                      </div>
+                      )}
                     </section>
                   ) : (
                     <>
@@ -1784,23 +2028,43 @@ export const UserView: React.FC<UserViewProps> = ({
                               className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                                 isParsingDocx
                                   ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-wait'
-                                  : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200 shadow-2xs hover:shadow-xs'
+                                  : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-700 shadow-2xs hover:shadow-xs'
                               }`}
                               title="Unggah berkas Word (.docx) untuk otomatis mengekstrak judul, tanggal, pengertian, tujuan, kebijakan, prosedur, alur, dan unit terkait."
                             >
                               {isParsingDocx ? (
                                 <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                                   <span>Mengekstrak Naskah DOCX...</span>
                                 </>
                               ) : (
                                 <>
-                                  <FileUp className="w-3.5 h-3.5 text-blue-600" />
-                                  <span>Upload Draft DOCX</span>
+                                  <FileUp className="w-3.5 h-3.5 text-white" />
+                                  <span>Pilih Berkas Word (.docx)</span>
                                 </>
                               )}
                             </label>
                           </div>
+                        </div>
+
+                        {/* Prominent Upload .DOCX Dropzone Card di Tahap 3 */}
+                        <div className="rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-4 sm:p-5 text-center hover:bg-blue-50/70 transition-colors">
+                          <label
+                            htmlFor="docx-sop-uploader-userview"
+                            className="cursor-pointer flex flex-col items-center justify-center gap-2"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 shadow-2xs">
+                              {isParsingDocx ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-blue-950 block">
+                                {isParsingDocx ? 'Sedang Membaca & Mengekstrak Dokumen Word...' : 'Unggah Berkas Naskah Draf Word (.docx)'}
+                              </span>
+                              <p className="text-[11px] text-slate-600 max-w-lg mt-0.5">
+                                Klik untuk memilih berkas Word (.docx). Sistem akan otomatis membaca naskah dan mengisi <strong>Judul, Tanggal, Pengertian, Tujuan, Kebijakan, Prosedur, Alur, dan Unit Terkait</strong> langsung ke lembar kerja A4 di bawah.
+                              </p>
+                            </div>
+                          </label>
                         </div>
 
                         {/* Banner status hasil import DOCX */}
@@ -1980,6 +2244,7 @@ export const UserView: React.FC<UserViewProps> = ({
           <AdminHubPage
             userSession={userSession}
             userAccounts={users}
+            sops={sops}
             onOpenUserManagement={onOpenUserManagement}
             onOpenMasterData={onOpenMasterData}
             onOpenSecurity={onOpenSecurity}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Users, 
@@ -11,6 +11,7 @@ import {
   CheckCircle2, 
   Clock, 
   AlertTriangle,
+  AlertCircle,
   Server,
   Activity,
   ArrowRight,
@@ -18,7 +19,8 @@ import {
   Building2,
   RefreshCw
 } from 'lucide-react';
-import { UserSession, UserAccount } from '../types';
+import { UserSession, UserAccount, SopDocument } from '../types';
+import { standardizeAllSops } from '../utils/numbering';
 import { SecurityAccountPanel } from './SecurityAccountPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
 import { UserPasswordTab } from './UserPasswordTab';
@@ -26,6 +28,7 @@ import { UserPasswordTab } from './UserPasswordTab';
 interface AdminHubPageProps {
   userSession: UserSession;
   userAccounts?: UserAccount[];
+  sops?: SopDocument[];
   onOpenUserManagement?: () => void;
   onOpenMasterData?: () => void;
   onOpenMaintenanceModal?: () => void;
@@ -43,11 +46,12 @@ interface AdminHubPageProps {
   onStandardizeAllNumbers?: () => void;
 }
 
-type AdminSubTab = 'tools' | 'security' | 'backup' | 'password';
+type AdminSubTab = 'tools' | 'sync' | 'security' | 'backup' | 'password';
 
 export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   userSession,
   userAccounts = [],
+  sops = [],
   onOpenUserManagement,
   onOpenMasterData,
   onOpenMaintenanceModal,
@@ -64,11 +68,22 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   onShowToast,
   onStandardizeAllNumbers,
 }) => {
-  const isAdmin = userSession.role === 'admin';
-  const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(isAdmin ? 'tools' : 'password');
+  const hasAdminAccess = userSession.role === 'admin' || (Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'ADMIN'));
+  const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(hasAdminAccess ? 'tools' : 'password');
 
-  // If user is User, show clean User Security & Profile Hub
-  if (!isAdmin) {
+  // Live analysis of SOP numbering status
+  const standardSopsCount = useMemo(() => {
+    return sops.filter((s) => !s.isLegacySop && s.documentType !== 'LAMA' && !(s as any).isNumberReservation).length;
+  }, [sops]);
+
+  const syncAnalysis = useMemo(() => {
+    if (!sops || sops.length === 0) return { changedCount: 0, duplicateCount: 0 };
+    const res = standardizeAllSops(sops);
+    return { changedCount: res.changedCount, duplicateCount: res.duplicateCount };
+  }, [sops]);
+
+  // If user does not have Admin access, show clean User Security & Profile Hub
+  if (!hasAdminAccess) {
     return (
       <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-200">
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs">
@@ -140,9 +155,32 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
             </div>
           </div>
 
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700">
-            <Server className="w-4 h-4 text-emerald-600" />
-            <span>Database Cloud: Aktif</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {onStandardizeAllNumbers && (
+              <button
+                type="button"
+                onClick={onStandardizeAllNumbers}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+                  syncAnalysis.changedCount > 0
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+                }`}
+                title="Standarisasi format nomor urut per unit dan rapikan duplikat"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Sinkronkan Nomor</span>
+                {syncAnalysis.changedCount > 0 && (
+                  <span className="px-1.5 py-0.2 bg-white text-amber-900 rounded-full text-[10px] font-black">
+                    {syncAnalysis.changedCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700">
+              <Server className="w-4 h-4 text-emerald-600" />
+              <span>Database Cloud: Aktif</span>
+            </div>
           </div>
         </div>
 
@@ -159,6 +197,24 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
           >
             <Wrench className="w-4 h-4" />
             <span>Alat Manajemen & Master Data</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('sync')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              activeSubTab === 'sync'
+                ? 'bg-purple-600 text-white shadow-xs font-black'
+                : 'bg-purple-50 text-purple-800 hover:bg-purple-100'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Sinkronisasi Nomor SPO</span>
+            {syncAnalysis.changedCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">
+                {syncAnalysis.changedCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -346,24 +402,225 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
           {/* Card 7: Sinkronkan Nomor SPO */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col justify-between shadow-2xs hover:shadow-md hover:border-purple-300 transition-all group">
             <div>
-              <div className="p-3 rounded-2xl bg-purple-50 text-purple-700 w-fit mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                <RefreshCw className="w-6 h-6" />
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <div className="p-3 rounded-2xl bg-purple-50 text-purple-700 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                  <RefreshCw className="w-6 h-6" />
+                </div>
+                {syncAnalysis.changedCount > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200">
+                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                    {syncAnalysis.changedCount} Perlu Sinkronisasi
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    100% Baku & Rapi
+                  </span>
+                )}
               </div>
+
               <h3 className="text-base font-black text-slate-900">Sinkronkan Nomor SPO</h3>
               <p className="text-xs text-slate-500 mt-2 leading-relaxed">
                 Standarisasi seluruh nomor urut SPO per unit kerja sesuai Pedoman Tata Naskah Soegiri serta rapikan nomor duplikat secara otomatis.
               </p>
+
+              <div className="mt-3.5 p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Dokumen Standar Unit:</span>
+                  <span className="font-black text-slate-900">{standardSopsCount} dokumen</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Nomor Duplikat Terdeteksi:</span>
+                  <span className={`font-black ${syncAnalysis.duplicateCount > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                    {syncAnalysis.duplicateCount > 0 ? `${syncAnalysis.duplicateCount} duplikat` : '0 (Bebas Duplikat)'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Format Penomoran:</span>
+                  <span className="font-mono text-[10px] font-bold text-purple-700">KODE / HIRARKI / 001 / THN</span>
+                </div>
+              </div>
             </div>
-            <div className="mt-6 pt-4 border-t border-slate-100">
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('sync')}
+                className="w-full sm:w-1/2 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold transition-colors cursor-pointer"
+              >
+                <span>Buka Panel Detail</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
               <button
                 type="button"
                 onClick={onStandardizeAllNumbers}
                 disabled={!onStandardizeAllNumbers}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs shadow-purple-100"
+                className="w-full sm:w-1/2 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs shadow-purple-100"
               >
-                <RefreshCw className="w-4 h-4" />
-                <span>Sinkronkan Nomor Sekarang</span>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Sinkronkan Sekarang</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SubTab: Dedicated Panel Sinkronisasi Nomor SPO */}
+      {activeSubTab === 'sync' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Header Card */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-3.5 rounded-2xl bg-purple-100 text-purple-700">
+                  <RefreshCw className="w-7 h-7" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">Sinkronisasi & Standarisasi Nomor SPO</h2>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Menstandarisasi seluruh nomor urut SPO per unit kerja sesuai Pedoman Tata Naskah RSUD Dr. Soegiri Lamongan.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('tools')}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  ← Kembali ke Menu
+                </button>
+                <button
+                  type="button"
+                  onClick={onStandardizeAllNumbers}
+                  disabled={!onStandardizeAllNumbers}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer shadow-sm shadow-purple-200"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Jalankan Sinkronisasi Nomor Sekarang</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-6">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Dokumen</div>
+                <div className="text-xl font-black text-slate-900 mt-1">{sops.length} dokumen</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">SPO terdaftar di sistem</div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Standar Unit Terbitan</div>
+                <div className="text-xl font-black text-indigo-700 mt-1">{standardSopsCount} dokumen</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">SPO Baru & Riviu Aktif</div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Perlu Sinkronisasi</div>
+                <div className={`text-xl font-black mt-1 ${syncAnalysis.changedCount > 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                  {syncAnalysis.changedCount} dokumen
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Urutan tidak sekuensial</div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nomor Duplikat</div>
+                <div className={`text-xl font-black mt-1 ${syncAnalysis.duplicateCount > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                  {syncAnalysis.duplicateCount} duplikat
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Akan dirapikan otomatis</div>
+              </div>
+            </div>
+
+            {/* Rules Banner */}
+            <div className="mt-5 p-4 rounded-2xl bg-purple-50/70 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-purple-950">
+              <div className="space-y-1">
+                <div className="font-black text-purple-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-purple-600" />
+                  Format Baku Penomoran: KODE_BIDANG / SUB_HIRARKI / NO_URUT / TAHUN
+                </div>
+                <div className="text-purple-800 text-[11px] leading-relaxed">
+                  SPO Baru dan SPO Riviu dinomori urut per unit kerja (dimulai dari 001). 
+                  Dokumen <strong>SPO Eksisting (Lama)</strong> tetap dipertahankan nomor aslinya dan tidak akan diubah atau digenerate baru.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Preview */}
+          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-800">
+                Daftar Naskah SPO & Status Penomoran ({sops.length})
+              </div>
+              <span className="text-[11px] text-slate-500 font-medium">
+                Pratinjau sebelum & sesudah standarisasi
+              </span>
+            </div>
+
+            <div className="overflow-x-auto max-h-[480px]">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-black text-[10px] uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3">No</th>
+                    <th className="px-4 py-3">Judul SPO</th>
+                    <th className="px-4 py-3">Jenis Naskah</th>
+                    <th className="px-4 py-3">Nomor Terdaftar</th>
+                    <th className="px-4 py-3">Bidang / Unit</th>
+                    <th className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sops.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400 font-medium">
+                        Belum ada dokumen SPO yang terdaftar di database.
+                      </td>
+                    </tr>
+                  ) : (
+                    sops.map((s, idx) => {
+                      const isLegacy = Boolean(s.isLegacySop || s.documentType === 'LAMA');
+                      return (
+                        <tr key={s.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                          <td className="px-4 py-3 font-bold text-slate-900 max-w-xs truncate" title={s.title}>
+                            {s.title}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              isLegacy 
+                                ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                                : s.documentType === 'RIVIU' || s.documentType === 'REVIEW'
+                                ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                            }`}>
+                              {isLegacy ? 'SPO Eksisting' : s.documentType === 'RIVIU' || s.documentType === 'REVIEW' ? 'SPO Riviu' : 'SPO Baru'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">
+                            {s.sopNumber || s.legacySopNumber || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 text-[11px]">
+                            {s.divisionCode || 'PEL'} {s.subHierarchyCode ? `(${s.subHierarchyCode})` : ''}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              s.status === 'AKTIF'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : s.status === 'REVIEW'
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {s.status || 'DRAFT'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

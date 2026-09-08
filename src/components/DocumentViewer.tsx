@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { 
   FileText,
   AlertCircle,
@@ -16,16 +17,20 @@ import {
 } from 'lucide-react';
 import { dataUrlToBlob, triggerFileDownload } from '../utils/fileStorage';
 
-// Configure pdfjs worker using bundled worker
+// Configure pdfjs worker using bundled worker or fallback
 try {
   if (typeof window !== 'undefined' && pdfjsLib) {
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url
-      ).toString();
+      if (pdfjsWorker) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+      } else {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).toString();
+      }
     } catch {
-      const version = (pdfjsLib as any).version || '6.2.108';
+      const version = (pdfjsLib as any).version || '6.3.289';
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.mjs`;
     }
   }
@@ -33,8 +38,9 @@ try {
   // Ignore worker initialization warning
 }
 
-interface DocumentViewerProps {
-  fileUrl: string;
+export interface DocumentViewerProps {
+  fileUrl?: string;
+  file?: File | Blob | null;
   fileName?: string;
   className?: string;
   heightClass?: string;
@@ -161,11 +167,15 @@ function hasZipHeader(bytes: Uint8Array): boolean {
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   fileUrl,
-  fileName = 'Dokumen_SPO.pdf',
+  file,
+  fileName,
   className = '',
   heightClass = 'h-[500px]'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const effectiveFileName = fileName || (file as any)?.name || 'Dokumen_SPO.pdf';
+  const effectiveFileUrl = fileUrl || '';
 
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -175,18 +185,18 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [fallbackBlobUrl, setFallbackBlobUrl] = useState<string | null>(null);
   const [pdfScale, setPdfScale] = useState<number>(1.2);
 
-  const lowerName = (fileName || '').toLowerCase();
-  const isImageFile = fileUrl.startsWith('data:image/') || /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(lowerName);
-  const isWordFile = fileUrl.includes('application/vnd.openxmlformats-officedocument.wordprocessingml') || 
-                     fileUrl.includes('application/msword') || 
+  const lowerName = effectiveFileName.toLowerCase();
+  const isImageFile = (file?.type?.startsWith('image/') ?? false) || effectiveFileUrl.startsWith('data:image/') || /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(lowerName);
+  const isWordFile = effectiveFileUrl.includes('application/vnd.openxmlformats-officedocument.wordprocessingml') || 
+                     effectiveFileUrl.includes('application/msword') || 
                      /\.(docx?|rtf)$/i.test(lowerName);
-  const isExcelFile = fileUrl.includes('spreadsheet') || fileUrl.includes('excel') || /\.(xlsx?|csv)$/i.test(lowerName);
+  const isExcelFile = effectiveFileUrl.includes('spreadsheet') || effectiveFileUrl.includes('excel') || /\.(xlsx?|csv)$/i.test(lowerName);
 
   // Load Document safely
   useEffect(() => {
     let isCancelled = false;
 
-    if (!fileUrl) {
+    if (!file && !effectiveFileUrl) {
       setLoading(false);
       setError('Berkas dokumen tidak tersedia.');
       return;
@@ -221,18 +231,21 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         let arrayBuffer: ArrayBuffer;
         let blob: Blob;
 
-        if (fileUrl.startsWith('data:')) {
-          blob = dataUrlToBlob(fileUrl);
+        if (file) {
+          blob = file;
+          arrayBuffer = await file.arrayBuffer();
+        } else if (effectiveFileUrl.startsWith('data:')) {
+          blob = dataUrlToBlob(effectiveFileUrl);
           arrayBuffer = await blob.arrayBuffer();
-        } else if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http') || fileUrl.startsWith('/')) {
-          const res = await fetch(fileUrl);
+        } else if (effectiveFileUrl.startsWith('blob:') || effectiveFileUrl.startsWith('http') || effectiveFileUrl.startsWith('/')) {
+          const res = await fetch(effectiveFileUrl);
           if (!res.ok) {
             throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
           }
           blob = await res.blob();
           arrayBuffer = await blob.arrayBuffer();
-        } else if (fileUrl.startsWith('local://')) {
-          const id = fileUrl.replace('local://', '');
+        } else if (effectiveFileUrl.startsWith('local://')) {
+          const id = effectiveFileUrl.replace('local://', '');
           const fallbackServerUrl = `/api/storage/files/${id}`;
           const res = await fetch(fallbackServerUrl);
           if (!res.ok) {
@@ -242,7 +255,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           arrayBuffer = await blob.arrayBuffer();
         } else {
           // Plain text or raw string
-          blob = new Blob([fileUrl], { type: 'application/pdf' });
+          blob = new Blob([effectiveFileUrl], { type: 'application/pdf' });
           arrayBuffer = await blob.arrayBuffer();
         }
 
@@ -287,7 +300,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         }
 
         // Load via PDF.js
-        const version = (pdfjsLib as any).version || '4.0.379';
+        const version = (pdfjsLib as any).version || '6.3.289';
         const loadingTask = pdfjsLib.getDocument({
           data: uint8Array,
           cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/cmaps/`,
@@ -318,10 +331,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         URL.revokeObjectURL(fallbackBlobUrl);
       }
     };
-  }, [fileUrl, fileName, isImageFile, isWordFile, isExcelFile]);
+  }, [file, effectiveFileUrl, effectiveFileName, isImageFile, isWordFile, isExcelFile]);
 
   const handleDownload = () => {
-    triggerFileDownload(fileUrl, fileName);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      triggerFileDownload(url, effectiveFileName);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } else if (effectiveFileUrl) {
+      triggerFileDownload(effectiveFileUrl, effectiveFileName);
+    }
   };
 
   const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);

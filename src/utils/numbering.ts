@@ -47,7 +47,7 @@ export interface DetectedHierarchyInfo {
 }
 
 /**
- * Robustly parse any SOP number string (e.g. PEL / 1.1.3 / 001 / 2026, 440/102/SPO/PEL/2023, PEL/1.1.3/008/2024, etc.)
+ * Robustly parse any SOP number string (e.g. PEL / 1.1.3 / 001 / 2026, PEP / 4 / 001 / 2026, 440/102/SPO/PEL/2023, PEL/1.1.3/008/2024, etc.)
  */
 export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
   if (!sopNumStr || !sopNumStr.trim()) return null;
@@ -67,6 +67,34 @@ export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
   }
 
   if (parts.length === 0) return null;
+
+  // Check if parts match standard RSUD 4-part: [DIV] / [SUB] / [SEQ] / [YEAR]
+  // e.g. PEL / 1.1.3 / 001 / 2026 or PEP / 4 / 001 / 2026
+  if (parts.length === 4 && /^\d{4}$/.test(parts[3]) && /^\d{1,4}$/.test(parts[2])) {
+    const div = parts[0].toUpperCase();
+    const sub = parts[1];
+    const seq = parseInt(parts[2], 10);
+    return {
+      prefix,
+      divisionCode: div,
+      subHierarchyCode: sub,
+      sequenceNumber: !isNaN(seq) && seq > 0 ? seq : 1,
+      year: parts[3]
+    };
+  }
+
+  // Check if parts match standard RSUD 3-part: [DIV] / [SEQ] / [YEAR]
+  // e.g. PROGNAS / 001 / 2026
+  if (parts.length === 3 && /^\d{4}$/.test(parts[2]) && /^\d{1,4}$/.test(parts[1])) {
+    const div = parts[0].toUpperCase();
+    const seq = parseInt(parts[1], 10);
+    return {
+      prefix,
+      divisionCode: div,
+      sequenceNumber: !isNaN(seq) && seq > 0 ? seq : 1,
+      year: parts[2]
+    };
+  }
 
   // 1. Detect known division/category code from master list
   const knownCatCodes = SOEGIRI_MASTER_CATEGORIES.map((c) => c.code.toUpperCase());
@@ -102,17 +130,17 @@ export function parseSopNumber(sopNumStr?: string): ParsedSopNumber | null {
     romanMonth = parts[romanIdx].toUpperCase();
   }
 
-  // 4. Detect Sub-Hierarchy code (e.g. 1.1.3, 2.1, 1.2.2.1)
+  // 4. Detect Sub-Hierarchy code (e.g. 1.1.3, 2.1, 1.2.2.1, or single digit hierarchy)
   let subHierarchyCode: string | undefined = undefined;
-  const dotHierarchy = parts.find((p) => /^\d+(\.\d+)+$/.test(p));
-  if (dotHierarchy) {
+  const dotHierarchy = parts.find((p) => /^\d+(\.\d+)*$/.test(p) && p !== year && !ROMAN_MONTHS.includes(p.toUpperCase()) && p !== parts[parts.length - 2]);
+  if (dotHierarchy && /^\d+(\.\d+)+$/.test(dotHierarchy)) {
     subHierarchyCode = dotHierarchy;
   }
 
   // 5. Detect Sequence Number (a numeric part that is NOT the 4-digit year)
   let sequenceNumber = 1;
   const seqCandidate = parts.find(
-    (p) => /^\d{1,4}$/.test(p) && p !== year && !ROMAN_MONTHS.includes(p.toUpperCase())
+    (p) => /^\d{1,4}$/.test(p) && p !== year && !ROMAN_MONTHS.includes(p.toUpperCase()) && p !== subHierarchyCode
   );
   if (seqCandidate) {
     const parsedSeq = parseInt(seqCandidate, 10);
@@ -677,20 +705,21 @@ export function formatBytes(bytes?: number, decimals = 2): string {
  * to ensure complete compliance with RSUD Dr. Soegiri 2026 guidelines.
  */
 export function standardizeSopDocument(sop: SopDocument): SopDocument {
-  // Preserve manual legacy document numbers
-  if (sop.isLegacySop || sop.documentType === 'LAMA') {
+  // Preserve manual legacy document numbers and number reservations
+  if (sop.isLegacySop || sop.documentType === 'LAMA' || (sop as any).isNumberReservation) {
     return sop;
   }
 
-  const divCode = (sop.divisionCode || 'PEL').trim().toUpperCase();
+  const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
+  const divCode = (sop.divisionCode || parsed?.divisionCode || 'PEL').trim().toUpperCase();
   const masterCat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code.toUpperCase() === divCode);
 
   // The selected hierarchy is authoritative for EVERY category.
-  // Never infer a branch from title/unit text (for example, never turn
-  // PEN 1.2.2 into 1.2.1 because the title contains "laboratorium").
-  // If the composite code is missing, reconstruct it only from the stored
-  // hierarchy fields, never from free text.
+  // If the composite code is missing, reconstruct it from parsed or stored hierarchy fields.
   let cleanSub = (sop.subHierarchyCode || '').trim();
+  if (!cleanSub && parsed?.subHierarchyCode) {
+    cleanSub = parsed.subHierarchyCode.trim();
+  }
   if (!cleanSub) {
     cleanSub = [
       sop.subCode,
@@ -707,7 +736,6 @@ export function standardizeSopDocument(sop: SopDocument): SopDocument {
 
   // 2. Extract numeric sequence number
   let seq = typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0 ? sop.sequenceNumber : 1;
-  const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
   if (parsed && parsed.sequenceNumber > 0) {
     seq = parsed.sequenceNumber;
   }
@@ -717,11 +745,11 @@ export function standardizeSopDocument(sop: SopDocument): SopDocument {
   if (sop.effectiveDate) {
     const y = sop.effectiveDate.split('-')[0];
     if (y && /^\d{4}$/.test(y)) year = y;
+  } else if (parsed && parsed.year) {
+    year = parsed.year;
   } else if (sop.createdAt) {
     const y = new Date(sop.createdAt).getFullYear().toString();
     if (y && /^\d{4}$/.test(y)) year = y;
-  } else if (parsed && parsed.year) {
-    year = parsed.year;
   }
 
   const paddedNum = getPaddedNumber(seq, 3);
@@ -765,13 +793,13 @@ export function standardizeAllSops(sops: SopDocument[]): {
     return { updatedSops: [], changedCount: 0, changes: [], duplicateCount: 0 };
   }
 
-  // 1. Separate legacy from standard
-  const legacySops: SopDocument[] = [];
+  // 1. Separate legacy and reservations from standard documents
+  const preservedSops: SopDocument[] = [];
   const standardSops: SopDocument[] = [];
 
   sops.forEach((sop) => {
-    if (sop.isLegacySop || sop.documentType === 'LAMA') {
-      legacySops.push(sop);
+    if (sop.isLegacySop || sop.documentType === 'LAMA' || (sop as any).isNumberReservation) {
+      preservedSops.push(sop);
     } else {
       standardSops.push(standardizeSopDocument(sop));
     }
@@ -788,9 +816,14 @@ export function standardizeAllSops(sops: SopDocument[]): {
     if (sop.effectiveDate) {
       const y = sop.effectiveDate.split('-')[0];
       if (y && /^\d{4}$/.test(y)) year = y;
-    } else if (sop.createdAt) {
-      const y = new Date(sop.createdAt).getFullYear().toString();
-      if (y && /^\d{4}$/.test(y)) year = y;
+    } else {
+      const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
+      if (parsed && parsed.year) {
+        year = parsed.year;
+      } else if (sop.createdAt) {
+        const y = new Date(sop.createdAt).getFullYear().toString();
+        if (y && /^\d{4}$/.test(y)) year = y;
+      }
     }
 
     const groupKey = `${divCode}:${cleanSub}:${year}`;
@@ -822,24 +855,37 @@ export function standardizeAllSops(sops: SopDocument[]): {
       return (a.title || '').localeCompare(b.title || '');
     });
 
-    const usedSequences = new Set<number>();
+    // Step A: Allocate legitimate sequence numbers and detect duplicates
+    const reservedSequences = new Set<number>();
+    const reassignmentNeeded: SopDocument[] = [];
+    const assignedSequences = new Map<string, number>();
 
     groupDocs.forEach((sop) => {
-      let targetSeq = typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0 ? sop.sequenceNumber : 1;
-
-      // If sequence is already taken by another SOP in the same unit, resolve duplicate
-      if (usedSequences.has(targetSeq)) {
-        duplicateCount++;
-        // Find next lowest unused positive sequence starting from 1
-        let candidate = 1;
-        while (usedSequences.has(candidate)) {
-          candidate++;
+      const seq = typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0 ? sop.sequenceNumber : null;
+      if (seq !== null && !reservedSequences.has(seq)) {
+        reservedSequences.add(seq);
+        assignedSequences.set(sop.id, seq);
+      } else {
+        if (seq !== null && reservedSequences.has(seq)) {
+          duplicateCount++;
         }
-        targetSeq = candidate;
+        reassignmentNeeded.push(sop);
       }
+    });
 
-      usedSequences.add(targetSeq);
+    // Step B: Reassign duplicates to lowest available unused positive integer starting at 1
+    let candidate = 1;
+    reassignmentNeeded.forEach((sop) => {
+      while (reservedSequences.has(candidate)) {
+        candidate++;
+      }
+      reservedSequences.add(candidate);
+      assignedSequences.set(sop.id, candidate);
+    });
 
+    // Step C: Format each document to standard format
+    groupDocs.forEach((sop) => {
+      const targetSeq = assignedSequences.get(sop.id) || 1;
       const paddedNum = getPaddedNumber(targetSeq, 3);
       const standardNumber = cleanSub
         ? `${divCode} / ${cleanSub} / ${paddedNum} / ${year}`
@@ -866,10 +912,10 @@ export function standardizeAllSops(sops: SopDocument[]): {
     });
   });
 
-  // Re-merge maintaining id lookups
+  // Re-merge maintaining original id positions
   const idMap = new Map<string, SopDocument>();
   processedStandardSops.forEach((s) => idMap.set(s.id, s));
-  legacySops.forEach((s) => idMap.set(s.id, s));
+  preservedSops.forEach((s) => idMap.set(s.id, s));
 
   const updatedSops = sops.map((original) => idMap.get(original.id) || original);
 

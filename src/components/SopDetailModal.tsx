@@ -207,6 +207,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     )
   );
 
+  // Existing DOCX is only an import source. Once the LiveForm is populated
+  // and the document is approved, it must use the same official preview as
+  // SPO Baru/Riviu. Existing PDF remains the original PDF preview.
+  const isExistingDocx = Boolean(
+    sop &&
+    isExisting &&
+    (
+      sop.existingSourceFormat === 'DOCX' ||
+      String(sop.fileType || '').toLowerCase().includes('wordprocessingml') ||
+      String(sop.fileType || '').toLowerCase().includes('msword') ||
+      String(sop.fileName || '').toLowerCase().endsWith('.docx') ||
+      String(sop.fileName || '').toLowerCase().endsWith('.doc')
+    )
+  );
+
   // Existing documents (including new-format Draft replacements) must render
   // the uploaded PDF, never the generated A4 template.
   const isLegacy = Boolean(
@@ -1261,7 +1276,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
   // Enforce access control for non-admin users
   const isAccessible = Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession));
-  const showSignatureAndStamp = shouldShowSignatureAndStamp(sop);
+  const showSignatureAndStamp = shouldShowSignatureAndStamp(sop) || Boolean(isExistingDocx && sop.status === 'AKTIF');
 
   if (!isAccessible) {
     return (
@@ -1846,13 +1861,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         {/* Modal Body */}
         <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
           
-          {isExisting ? (
+          {isExisting && !isExistingDocx ? (
             <div className="space-y-4">
               <PreviewMetadata users={users} sop={sop} kind="EKSISTING" />
               {isLoadingLegacyFile ? (
                 <div className="flex flex-col items-center justify-center gap-3 p-12 bg-white rounded-2xl border border-slate-200 min-h-[380px]">
                   <Loader2 className="w-8 h-8 animate-spin text-blue-800" />
-                  <p className="text-xs font-semibold text-slate-600">Memuat berkas PDF asli SPO Eksisting...</p>
+                  <p className="text-xs font-semibold text-slate-600">Memuat PDF asli SPO Eksisting...</p>
                 </div>
               ) : legacyFileUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white min-h-[560px]">
@@ -1868,7 +1883,12 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
           ) : (
             <>
-              <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : "BARU"} />
+              <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : isExistingDocx ? "EKSISTING" : "BARU"} />
+              {isExistingDocx && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-semibold text-blue-900">
+                  DOCX digunakan sebagai sumber pengisian LiveForm. Pratinjau menampilkan dokumen final dengan format resmi SPO.
+                </div>
+              )}
 
               {/* FORMAT RESMI BAKU (Halaman 6 RSUD Soegiri - untuk SPO Baru/Riviu) */}
           {activeTab === 'official_format' && (

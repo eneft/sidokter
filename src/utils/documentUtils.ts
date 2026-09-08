@@ -64,8 +64,8 @@ export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
  *   1) SPO Baru
  *   2) SPO Riviu
  *
- * SPO Existing tidak mendapat overlay TTD/stempel baru karena dokumen
- * existing harus mempertahankan naskah fisik/scan resminya.
+ * SPO Existing PDF tidak mendapat overlay TTD/stempel baru. Existing DOCX
+ * adalah sumber import LiveForm dan hasil finalnya boleh mendapat TTD/stempel.
  *
  * Jangan menentukan rule ini dari MIME/ekstensi file. Berkas PDF pada SPO
  * Baru/Riviu tetap harus menampilkan TTD + stempel pada naskah final.
@@ -86,7 +86,19 @@ export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): 
     sop.documentType === 'LAMA' ||
     sop.isLegacySop === true;
 
-  if (isExisting && !isRiviu) return false;
+  // Existing PDF keeps its original signed/physical document and must not
+  // receive a new overlay. Existing DOCX is different: DOCX is only an import
+  // source for the LiveForm, so its approved final document follows the same
+  // TTD + stempel rule as SPO Baru.
+  if (isExisting && !isRiviu) {
+    const isExistingDocx =
+      sop.existingSourceFormat === 'DOCX' ||
+      String(sop.fileType || '').toLowerCase().includes('wordprocessingml') ||
+      String(sop.fileType || '').toLowerCase().includes('msword') ||
+      String(sop.fileName || '').toLowerCase().endsWith('.docx') ||
+      String(sop.fileName || '').toLowerCase().endsWith('.doc');
+    return isExistingDocx;
+  }
 
   return jenis === 'BARU' || isRiviu;
 }

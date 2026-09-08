@@ -3,6 +3,9 @@ import DOMPurify from 'dompurify';
 
 export interface ParsedSopDocx {
   title?: string;
+  sopNumber?: string;
+  revisionNumber?: string;
+  halaman?: string;
   effectiveDate?: string; // YYYY-MM-DD
   pengertian?: string;
   tujuan?: string;
@@ -321,6 +324,93 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
           }
         }
       }
+
+      // Case D: Search for Document Number (No. Dokumen / Nomor SPO) in cells
+      if (!parsed.sopNumber) {
+        for (let i = 0; i < cells.length; i++) {
+          const ct = cellTexts[i];
+          const lower = ct.toLowerCase();
+          if (
+            lower.includes('no. dokumen') ||
+            lower.includes('nomor dokumen') ||
+            lower.includes('no dokumen') ||
+            lower.includes('no. dok') ||
+            lower.includes('nomor spo') ||
+            lower.includes('no. spo') ||
+            lower.includes('no spo')
+          ) {
+            const colonMatch = ct.match(/(?:no\.?\s*dokumen|nomor\s*dokumen|no\.?\s*dok|nomor\s*spo|no\.?\s*spo)\s*[:：\-]?\s*([^\r\n]+)/i);
+            let candidate = colonMatch && colonMatch[1]?.trim();
+            if (!candidate || candidate.length < 2) {
+              if (i + 1 < cells.length) {
+                candidate = cellTexts[i + 1].trim();
+              }
+            }
+            if (candidate) {
+              const clean = candidate.replace(/^[:：\-]\s*/, '').trim();
+              if (
+                clean &&
+                clean.length >= 2 &&
+                !clean.toLowerCase().includes('revisi') &&
+                !clean.toLowerCase().includes('halaman') &&
+                !clean.toLowerCase().includes('standar') &&
+                !clean.toLowerCase().includes('operasional')
+              ) {
+                parsed.sopNumber = clean;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Case E: Search for Revision Number (No. Revisi / Revisi) in cells
+      if (!parsed.revisionNumber) {
+        for (let i = 0; i < cells.length; i++) {
+          const ct = cellTexts[i];
+          const lower = ct.toLowerCase();
+          if (
+            lower.includes('no. revisi') ||
+            lower.includes('nomor revisi') ||
+            lower.includes('no revisi') ||
+            lower === 'revisi'
+          ) {
+            const revMatch = ct.match(/(?:no\.?\s*revisi|nomor\s*revisi|revisi)\s*[:：\-]?\s*([^\r\n]+)/i);
+            let revCandidate = revMatch && revMatch[1]?.trim();
+            if (!revCandidate || revCandidate.length < 1) {
+              if (i + 1 < cells.length) {
+                revCandidate = cellTexts[i + 1].trim();
+              }
+            }
+            if (revCandidate) {
+              const cleanRev = revCandidate.replace(/^[:：\-]\s*/, '').trim();
+              if (cleanRev && cleanRev.length <= 10 && !cleanRev.toLowerCase().includes('halaman')) {
+                parsed.revisionNumber = cleanRev;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Case F: Search for Halaman in cells
+      if (!parsed.halaman) {
+        for (let i = 0; i < cells.length; i++) {
+          const ct = cellTexts[i];
+          const lower = ct.toLowerCase();
+          if (lower.includes('halaman')) {
+            const halMatch = ct.match(/halaman\s*[:：\-]?\s*([^\r\n]+)/i);
+            let halCandidate = halMatch && halMatch[1]?.trim();
+            if (!halCandidate && i + 1 < cells.length) {
+              halCandidate = cellTexts[i + 1].trim();
+            }
+            if (halCandidate) {
+              parsed.halaman = halCandidate.replace(/^[:：\-]\s*/, '').trim();
+              break;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -449,9 +539,31 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
     }
   }
 
+  // 6. Fallback Document Number & Revision from rawText if not found in table
+  if (!parsed.sopNumber && rawText) {
+    const numMatch = rawText.match(/(?:nomor\s*dokumen|no\.?\s*dokumen|no\.?\s*dok|nomor\s*spo|no\.?\s*spo)\s*[:：\-]\s*([^\r\n]+)/i);
+    if (numMatch && numMatch[1]?.trim()) {
+      const clean = numMatch[1].trim().replace(/^[:：\-]\s*/, '').trim();
+      if (clean && clean.length >= 2) {
+        parsed.sopNumber = clean;
+      }
+    }
+  }
+  if (!parsed.revisionNumber && rawText) {
+    const revMatch = rawText.match(/(?:nomor\s*revisi|no\.?\s*revisi|revisi)\s*[:：\-]\s*([^\r\n]+)/i);
+    if (revMatch && revMatch[1]?.trim()) {
+      const cleanRev = revMatch[1].trim().replace(/^[:：\-]\s*/, '').trim();
+      if (cleanRev && cleanRev.length <= 10) {
+        parsed.revisionNumber = cleanRev;
+      }
+    }
+  }
+
   // Build summary of extracted fields
   const fieldList: Array<{ key: keyof ParsedSopDocx; name: string }> = [
+    { key: 'sopNumber', name: 'Nomor Dokumen' },
     { key: 'title', name: 'Judul' },
+    { key: 'revisionNumber', name: 'No. Revisi' },
     { key: 'effectiveDate', name: 'Tanggal' },
     { key: 'pengertian', name: 'Pengertian' },
     { key: 'tujuan', name: 'Tujuan' },

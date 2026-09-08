@@ -103,6 +103,16 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
       sop.documentType === 'EKSISTING' ||
       sop.documentType === 'LAMA' ||
       sop.isLegacySop === true;
+    const sourceName = String(sop.fileName || sop.signedScanFileName || '').toLowerCase();
+    const sourceType = String(sop.fileType || sop.signedScanFileType || '').toLowerCase();
+    const isExistingDocx = isExisting && (
+      sop.existingSourceFormat === 'DOCX' ||
+      sourceType.includes('wordprocessingml') ||
+      sourceType.includes('msword') ||
+      sourceName.endsWith('.docx') ||
+      sourceName.endsWith('.doc')
+    );
+    const isExistingPdf = isExisting && !isExistingDocx;
 
     if (!isExisting && !confirmedPhysicalSignature) {
       alert("Harap centang konfirmasi bahwa naskah fisik SPO telah bertanda tangan basah Direktur dan telah disetor ke Admin Tata Naskah. Ketentuan ini WAJIB untuk SPO Baru dan SPO Riviu sebelum aktivasi.");
@@ -118,7 +128,9 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
 
     try {
       const defaultNotes = isExisting
-        ? 'SPO Eksisting disetujui dan diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.'
+        ? (isExistingDocx
+          ? 'SPO Eksisting berbasis DOCX disetujui dan diaktifkan oleh Admin. Dokumen dapat difinalisasi dengan TTD dan stempel sesuai alur pengesahan.'
+          : 'SPO Eksisting berbasis PDF disetujui dan diaktifkan oleh Admin. PDF asli tetap dipertahankan tanpa TTD/Stempel tambahan.')
         : `Telah disahkan dengan tanda tangan Direktur RSUD Dr. Soegiri (${SOEGIRI_HOSPITAL_INFO.director.name}) dan berkas fisik resmi diarsipkan di Bagian Tata Naskah.`;
 
       onConfirmActivation(sop.id, {
@@ -142,6 +154,16 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
     sop.documentType === 'EKSISTING' ||
     sop.documentType === 'LAMA' ||
     sop.isLegacySop === true;
+  const sourceName = String(sop.fileName || sop.signedScanFileName || '').toLowerCase();
+  const sourceType = String(sop.fileType || sop.signedScanFileType || '').toLowerCase();
+  const isExistingDocx = isExisting && (
+    sop.existingSourceFormat === 'DOCX' ||
+    sourceType.includes('wordprocessingml') ||
+    sourceType.includes('msword') ||
+    sourceName.endsWith('.docx') ||
+    sourceName.endsWith('.doc')
+  );
+  const isExistingPdf = isExisting && !isExistingDocx;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 no-print animate-fade-in">
@@ -162,7 +184,9 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
               </h2>
               <p className="text-xs text-emerald-200/90 font-medium">
                 {isExisting
-                  ? 'Persetujuan Admin Tata Naskah (PDF tetap asli tanpa TTD/Stempel tambahan)'
+                  ? (isExistingDocx
+                    ? 'Persetujuan Admin Tata Naskah (DOCX dapat difinalisasi dengan TTD/Stempel)'
+                    : 'Persetujuan Admin Tata Naskah (PDF tetap asli tanpa TTD/Stempel tambahan)')
                   : 'Pengesahan Tanda Tangan Direktur & Verifikasi Penyerahan Berkas Fisik'}
               </p>
             </div>
@@ -224,7 +248,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
               <div className="space-y-1">
                 <p className="font-bold">Ketentuan Alur SPO Eksisting:</p>
                 <p className="leading-relaxed text-blue-800">
-                  SPO Eksisting yang disetujui akan langsung berstatus <strong>AKTIF</strong>. Naskah <strong>PDF tetap asli</strong> sesuai naskah pendaftaran awal, <strong>tanpa penambahan TTD atau stempel baru</strong>.
+                  SPO Eksisting berbasis <strong>{isExistingDocx ? 'DOCX' : 'PDF'}</strong> yang disetujui akan langsung berstatus <strong>AKTIF</strong>. {isExistingDocx ? <>Dokumen DOCX dapat difinalisasi dengan <strong>TTD dan stempel</strong> setelah persetujuan Admin.</> : <>Naskah <strong>PDF tetap asli</strong> sesuai naskah pendaftaran awal, <strong>tanpa penambahan TTD atau stempel baru</strong>.</>}
                 </p>
               </div>
             </div>
@@ -268,7 +292,9 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
                 <span>Persetujuan Naskah Asli SPO Eksisting</span>
               </span>
               <p className="text-xs text-blue-800 leading-relaxed">
-                Naskah fisik telah diarsipkan dan sah secara historis. Dokumen ini disahkan langsung sebagai SPO Aktif tanpa verifikasi ulang tanda tangan baru.
+                {isExistingDocx
+                  ? 'Dokumen DOCX Existing dapat difinalisasi dengan TTD dan stempel setelah persetujuan Admin.'
+                  : 'Naskah PDF Existing tetap menggunakan berkas asli dan tidak diberi TTD atau stempel tambahan saat aktivasi.'}
               </p>
             </div>
           )}
@@ -308,7 +334,8 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
             </div>
           </div>
 
-          {/* Upload Scan Bertandatangan Direktur (Optional but Recommended) */}
+          {/* Final signed scan: hidden for Existing PDF; available for Existing DOCX and standard flows */}
+          {(!isExistingPdf) && (
           <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -316,12 +343,14 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
                 <span>Unggah Pindaian Berkas Bertanda Tangan Direktur</span>
               </label>
               <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                Sangat Dianjurkan (PDF / Scan)
+                {isExistingDocx ? 'Opsional — DOCX dapat difinalisasi' : 'Sangat Dianjurkan (PDF / Scan)'}
               </span>
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Unggah pindaian/scan dokumen fisik SPO yang telah ada tanda tangan asli Direktur sebagai arsip digital resmi (Maks. 5 MB).
+              {isExistingDocx
+                ? 'Untuk Existing DOCX, unggah hasil final/scan yang telah dilengkapi TTD dan stempel bila proses pengesahan fisik sudah dilakukan (Maks. 5 MB).'
+                : 'Unggah pindaian/scan dokumen fisik SPO yang telah ada tanda tangan asli Direktur sebagai arsip digital resmi (Maks. 5 MB).'}
             </p>
 
             <div className="flex items-center gap-3 flex-wrap pt-1">
@@ -351,6 +380,7 @@ export const AktivasiSopModal: React.FC<AktivasiSopModalProps> = ({
               )}
             </div>
           </div>
+          )}
 
           {/* Catatan Verifikasi / Nomor Arsip */}
           <div>
