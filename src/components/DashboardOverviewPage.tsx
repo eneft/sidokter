@@ -100,8 +100,8 @@ export const DashboardOverviewPage: React.FC<
   } | null>(null);
 
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  // Admin role or Admin badge alone does not grant access to SK & MOU; must have STRUKTURAL badge
-  const canAccessProtectedDocs = hasStructuralBadge;
+  // Admin Root or STRUKTURAL badge grants SK/MOU access; VERIFIKATOR alone does not
+  const canAccessProtectedDocs = userSession.role === 'admin' || hasStructuralBadge;
 
   const archiveDocs = useMemo(() => {
     const activeSops = sops.filter((s) => s.status === 'AKTIF');
@@ -734,8 +734,8 @@ export const DashboardOverviewPage: React.FC<
             </div>
             <div className="flex items-center gap-1.5 overflow-x-auto">
               {(canAccessProtectedDocs ? [
-                ['ALL', 'Semua', archiveCounts.ALL], ['SPO', 'SPO Final', archiveCounts.SPO], ['SK', 'SK Direktur', archiveCounts.SK], ['MOU', 'MOU / PKS', archiveCounts.MOU]
-              ] : [['ALL', 'SPO Final', archiveCounts.SPO], ['SPO', 'SPO Final', archiveCounts.SPO]]).map(([id, label, count]) => (
+                ['ALL', 'Semua', archiveCounts.ALL], ['SPO', 'SPO', archiveCounts.SPO], ['SK', 'SK Direktur', archiveCounts.SK], ['MOU', 'MOU / PKS', archiveCounts.MOU]
+              ] : [['ALL', 'Semua', archiveCounts.SPO], ['SPO', 'SPO', archiveCounts.SPO]]).map(([id, label, count]) => (
                 <button key={id} type="button" onClick={() => setArchiveFilter(id as typeof archiveFilter)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold shrink-0 ${archiveFilter === id ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                   {label}<span className={`text-[10px] px-1.5 rounded-md ${archiveFilter === id ? 'bg-white/20' : 'bg-slate-200'}`}>{count}</span>
                 </button>
@@ -747,21 +747,21 @@ export const DashboardOverviewPage: React.FC<
         {archiveDocs.length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3"><BookOpen className="w-6 h-6" /></div>
-            <h3 className="text-base font-extrabold text-slate-800">Tidak ada dokumen final yang ditemukan</h3>
-            <p className="text-xs text-slate-500 mt-1">Belum ada dokumen final yang sesuai dengan pencarian atau filter.</p>
+            <h3 className="text-base font-extrabold text-slate-800">Tidak ada dokumen yang ditemukan</h3>
+            <p className="text-xs text-slate-500 mt-1">Belum ada dokumen yang sesuai dengan pencarian atau filter.</p>
           </div>
         ) : archiveView === 'LIST' ? (
           <div className="overflow-x-auto">
-            <div className="min-w-[900px]">
-              <div className="grid grid-cols-[44px_1.7fr_1.25fr_1fr_1fr_130px] gap-3 px-5 py-3 bg-slate-50/70 border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-500">
+            <div className="w-full min-w-0">
+              <div className="grid grid-cols-[44px_minmax(180px,1.7fr)_minmax(120px,1.25fr)_minmax(100px,1fr)_minmax(100px,1fr)_110px] gap-3 px-5 py-3 bg-slate-50/70 border-b border-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-500">
                 <span>No</span><span>Judul Dokumen</span><span>Nomor Dokumen</span><span>Jenis</span><span>Tanggal / Unit</span><span className="text-right">Aksi</span>
               </div>
               {archiveDocs.map((row, i) => (
-                <div key={`${row.type}-${row.id}`} className="grid grid-cols-[44px_1.7fr_1.25fr_1fr_1fr_130px] gap-3 items-center px-5 py-3.5 border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
+                <div key={`${row.type}-${row.id}`} className="grid grid-cols-[44px_minmax(180px,1.7fr)_minmax(120px,1.25fr)_minmax(100px,1fr)_minmax(100px,1fr)_110px] gap-3 items-center px-5 py-3.5 border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
                   <span className="text-xs text-slate-400">{i + 1}</span>
                   <div className="min-w-0"><div className="text-sm font-bold text-slate-900 truncate">{row.title}</div><div className="text-[11px] text-slate-400 truncate">{row.fileName || 'Dokumen resmi'}{row.fileSize ? ` • ${formatBytes(row.fileSize)}` : ''}</div></div>
                   <span className="font-mono text-[11px] font-bold text-slate-700 truncate">{row.number || '—'}</span>
-                  <span className={`w-fit px-2 py-1 rounded-md text-[10px] font-black ${row.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : row.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'}`}>{row.type === 'MOU' ? 'MOU / PKS' : `${row.type} Final`}</span>
+                  <span className={`w-fit px-2 py-1 rounded-md text-[10px] font-black ${row.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : row.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'}`}>{row.type === 'SPO' ? 'SPO' : row.type === 'SK' ? 'SK Direktur' : 'MOU / PKS'}</span>
                   <div className="min-w-0"><div className="text-[11px] font-semibold text-slate-600 truncate">{row.unit || 'RSUD Dr. Soegiri'}</div><div className="text-[10px] text-slate-400">{row.date ? new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div></div>
                   <div className="flex justify-end gap-1.5"><button type="button" onClick={() => handleArchiveOpen(row)} className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100" title="Lihat"><Eye className="w-4 h-4" /></button>{(row.doc || row.sop) && <button type="button" onClick={() => handleArchiveDownload(row)} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title={`Download ${row.type} PDF`} aria-label={`Download ${row.type} PDF`}><Download className="w-4 h-4" /></button>}</div>
                 </div>
@@ -772,7 +772,7 @@ export const DashboardOverviewPage: React.FC<
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5">
             {archiveDocs.map((row) => (
               <article key={`${row.type}-${row.id}`} className="rounded-2xl border border-slate-200 p-4 hover:border-emerald-300 hover:shadow-sm transition-all">
-                <div className="flex items-start justify-between gap-2"><span className={`px-2 py-1 rounded-md text-[10px] font-black ${row.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : row.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'}`}>{row.type === 'MOU' ? 'MOU / PKS' : `${row.type} Final`}</span><span className="text-[10px] text-slate-400">{row.date ? new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span></div>
+                <div className="flex items-start justify-between gap-2"><span className={`px-2 py-1 rounded-md text-[10px] font-black ${row.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : row.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'}`}>{row.type === 'SPO' ? 'SPO' : row.type === 'SK' ? 'SK Direktur' : 'MOU / PKS'}</span><span className="text-[10px] text-slate-400">{row.date ? new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span></div>
                 <h3 className="mt-3 text-sm font-black text-slate-900 leading-snug line-clamp-2">{row.title}</h3>
                 <p className="mt-1 font-mono text-[10px] font-bold text-emerald-800 truncate">{row.number || 'Tanpa nomor'}</p>
                 <p className="mt-2 text-[11px] text-slate-500 truncate">{row.unit || 'RSUD Dr. Soegiri'}</p>
@@ -790,9 +790,9 @@ export const DashboardOverviewPage: React.FC<
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                    pdfViewer.type === 'SK' ? 'bg-emerald-50 text-emerald-800' : 'bg-blue-50 text-blue-800'
+                    pdfViewer.type === 'SPO' ? 'bg-emerald-50 text-emerald-800' : pdfViewer.type === 'SK' ? 'bg-teal-50 text-teal-800' : 'bg-blue-50 text-blue-800'
                   }`}>
-                    {pdfViewer.type === 'MOU' ? 'MOU / PKS' : `${pdfViewer.type} Final`}
+                    {pdfViewer.type === 'SPO' ? 'SPO' : pdfViewer.type === 'SK' ? 'SK Direktur' : 'MOU / PKS'}
                   </span>
                   {pdfViewer.documentNumber && (
                     <span className="text-xs font-mono font-bold text-slate-600 truncate">

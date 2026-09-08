@@ -251,7 +251,7 @@ export const FONT_SIZES = [
   { label: '18pt (Besar)', value: '18pt' },
 ];
 
-export const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024; // Up to 20 MB allowed (will be auto-compressed to ~30-60 KB)
+export const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024; // Aligned with server storage hard ceiling: 15 MB
 
 export async function compressImageToDataUrl(file: File): Promise<string> {
   return new Promise((resolve) => {

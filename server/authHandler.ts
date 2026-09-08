@@ -204,96 +204,28 @@ export function getActiveSessionByToken(tokenOrSessionId: string): { user: UserR
   if (!tokenOrSessionId) return null;
   authDb = ensureDbLoaded();
 
-  // 1. Check if token is a Firebase ID token JWT (header.payload.signature)
-  try {
-    const parts = tokenOrSessionId.split('.');
-    if (parts.length === 3) {
-      const payloadStr = Buffer.from(parts[1], 'base64url').toString('utf8');
-      const payload = JSON.parse(payloadStr);
-      if (payload && (payload.uid || payload.user_id || payload.sub)) {
-        const uid = String(payload.uid || payload.user_id || payload.sub);
-        const username = normalizeUsername(payload.username || payload.email || '');
-        const role = normalizeRole(payload.role || (username === 'admin' || uid.startsWith('admin') ? 'admin' : 'user'));
+  const clean = String(tokenOrSessionId).trim().replace(/^Bearer\s+/i, '');
+  if (!clean) return null;
 
-        // Look up user in local auth database
-        let user = authDb.users[uid];
-        if (!user && username) {
-          user = Object.values(authDb.users).find(u => normalizeUsername(u.username) === username);
-        }
-        if (!user && role === 'admin') {
-          user = Object.values(authDb.users).find(u => normalizeRole(u.role) === 'admin');
-        }
-
-        // If user not registered locally yet, create local user record
-        if (!user) {
-          const now = new Date().toISOString();
-          user = {
-            id: uid,
-            username: username || (role === 'admin' ? 'admin' : `user_${uid.slice(0, 8)}`),
-            name: role === 'admin' ? 'Administrator SIDOKTER' : 'Pengguna SIDOKTER',
-            role,
-            divisionCode: role === 'admin' ? 'ALL' : 'PEL',
-            divisionCodes: [role === 'admin' ? 'ALL' : 'PEL'],
-            assignments: [],
-            badges: [],
-            unitName: 'RSUD Dr. Soegiri Lamongan',
-            createdAt: now,
-            updatedAt: now,
-            credentialStatus: 'ACTIVE',
-            failedLoginAttempts: 0,
-            lockoutUntil: 0
-          };
-          authDb.users[uid] = user;
-          saveDb(authDb);
-        }
-
-        const sessionId = String(payload.sessionId || `jwt-${uid}`);
-        const session: SessionRecord = {
-          sessionId,
-          authUid: user.id,
-          username: user.username,
-          createdAt: typeof payload.auth_time === 'number' ? payload.auth_time * 1000 : Date.now(),
-          lastActiveAt: Date.now(),
-          revoked: false
-        };
-
-        return { user, session };
-      }
-    }
-  } catch (jwtErr) {
-    // Not a valid JWT, proceed to session lookup
-  }
-
-  // 2. Direct sessionId lookup
-  let session = authDb.sessions[tokenOrSessionId];
-  
-  // 3. Search in sessions
+  // Only a server-issued session ID is accepted here.
+  let session = authDb.sessions[clean];
   if (!session) {
+    const rawId = clean.replace(/^session-/, '');
     session = Object.values(authDb.sessions).find(
-      s => s.sessionId === tokenOrSessionId || `session-${s.sessionId}` === tokenOrSessionId
+      s => s.sessionId === clean ||
+           s.sessionId === rawId ||
+           `session-${s.sessionId}` === clean ||
+           s.sessionId.replace(/^session-/, '') === rawId
     );
   }
 
-  // 4. Fallback: if token matches user id or admin session
-  if (!session && (tokenOrSessionId.startsWith('admin') || tokenOrSessionId === 'default-admin-session')) {
-    const user = Object.values(authDb.users).find(u => normalizeRole(u.role) === 'admin');
-    if (user) {
-      return {
-        user,
-        session: {
-          sessionId: 'default-admin-session',
-          authUid: user.id,
-          username: user.username,
-          createdAt: Date.now(),
-          lastActiveAt: Date.now(),
-          revoked: false
-        }
-      };
-    }
-  }
-
   if (!session || session.revoked) return null;
-  const user = authDb.users[session.authUid];
+  let user = authDb.users[session.authUid];
+  if (!user && session.username) {
+    user = Object.values(authDb.users).find(
+      u => u.username.toLowerCase() === session.username.toLowerCase() || u.id === session.authUid
+    );
+  }
   if (!user) return null;
 
   session.lastActiveAt = Date.now();
@@ -301,67 +233,128 @@ export function getActiveSessionByToken(tokenOrSessionId: string): { user: UserR
   return { user, session };
 }
 
-export async function verifyServerSession(req: Request): Promise<{ authUid: string; username: string; role: string }> {
-  const header = String(req.headers.authorization || '');
-  const xAuthUid = String(req.headers['x-soegiri-auth-uid'] || req.headers['x-user-id'] || '');
-  const xSessionId = String(req.headers['x-session-id'] || '');
+export async function syncSessionFromUpstream(sessionId: string, userAgent?: string): Promise<{ user: UserRecord; session: SessionRecord } | null> {
+  const cleanId = String(sessionId || '').trim().replace(/^Bearer\s+/i, '');
+  if (!cleanId || !CLOUD_AUTH_API_URL) return null;
 
-  let token = '';
-  if (header.startsWith('Bearer ')) {
-    token = header.slice(7).trim();
-  } else if (xSessionId) {
-    token = xSessionId;
+  const candidateUrls = [CLOUD_AUTH_API_URL];
+  if (SECONDARY_CLOUD_AUTH_API_URL && !candidateUrls.includes(SECONDARY_CLOUD_AUTH_API_URL)) {
+    candidateUrls.push(SECONDARY_CLOUD_AUTH_API_URL);
   }
 
-  if (token) {
-    // 1. Check if token is a Firebase ID token JWT (header.payload.signature)
+  for (const candidateUrl of candidateUrls) {
     try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payloadStr = Buffer.from(parts[1], 'base64url').toString('utf8');
-        const payload = JSON.parse(payloadStr);
-        if (payload && (payload.uid || payload.user_id || payload.sub)) {
-          return {
-            authUid: payload.uid || payload.user_id || payload.sub,
-            username: payload.username || payload.email || 'user',
-            role: payload.role || 'admin'
+      const res = await fetch(candidateUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Session-Id': cleanId,
+          'User-Agent': userAgent || 'SIDOKTER-Backend'
+        },
+        body: JSON.stringify({ action: 'session' }),
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.success && data?.session) {
+          authDb = ensureDbLoaded();
+          const sessionUser = data.session;
+          const userId = sessionUser.authUid || sessionUser.id || 'admin-root';
+          const userRecord: UserRecord = {
+            id: userId,
+            username: sessionUser.username,
+            name: sessionUser.name || sessionUser.username,
+            role: normalizeRole(sessionUser.role),
+            divisionCode: sessionUser.divisionCode || 'ALL',
+            divisionCodes: sessionUser.divisionCodes || ['ALL'],
+            assignments: sessionUser.assignments || [],
+            badges: sessionUser.badges || [],
+            unitName: sessionUser.unitName || 'RSUD Dr. Soegiri Lamongan',
+            createdAt: new Date(sessionUser.sessionCreatedAt || Date.now()).toISOString(),
+            updatedAt: new Date().toISOString(),
+            credentialStatus: 'ACTIVE'
           };
+          authDb.users[userId] = userRecord;
+
+          const sessionRecord: SessionRecord = {
+            sessionId: sessionUser.sessionId || cleanId,
+            authUid: userId,
+            username: sessionUser.username,
+            createdAt: sessionUser.sessionCreatedAt || Date.now(),
+            lastActiveAt: Date.now(),
+            revoked: false,
+            userAgent: userAgent || 'client'
+          };
+          authDb.sessions[sessionRecord.sessionId] = sessionRecord;
+          if (cleanId !== sessionRecord.sessionId) {
+            authDb.sessions[cleanId] = { ...sessionRecord, sessionId: cleanId };
+          }
+          saveDb(authDb);
+          return { user: userRecord, session: sessionRecord };
         }
       }
-    } catch (jwtErr) {
-      console.warn('[verifyServerSession] Error decoding JWT:', jwtErr);
-    }
-
-    // 2. Check local database sessions
-    const active = getActiveSessionByToken(token);
-    if (active) {
-      return {
-        authUid: active.user.id,
-        username: active.user.username,
-        role: active.user.role
-      };
+    } catch (err: any) {
+      console.warn(`[authHandler] Failed upstream session sync with ${candidateUrl}:`, err?.message);
     }
   }
+  return null;
+}
 
-  if (xAuthUid) {
-    authDb = ensureDbLoaded();
-    const user = authDb.users[xAuthUid] || Object.values(authDb.users).find(u => u.username === xAuthUid);
-    if (user) {
-      return {
-        authUid: user.id,
-        username: user.username,
-        role: user.role
-      };
-    }
-    return { authUid: xAuthUid, username: 'user', role: 'user' };
+export async function verifyServerSession(req: Request): Promise<{ authUid: string; username: string; role: string; badges: string[]; assignments: any[]; divisionCode?: string; divisionCodes?: string[]; subCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string }> {
+  const header = String(req.headers.authorization || '');
+  const xSessionId = String(req.headers['x-session-id'] || '').trim();
+
+  let token = '';
+  if (xSessionId) {
+    token = xSessionId;
+  } else if (header.startsWith('Bearer ')) {
+    token = header.slice(7).trim();
   }
 
-  // If token was provided but no active session, throw SESSION_REVOKED
-  if (token) {
+  if (!token) {
+    throw new Error('UNAUTHENTICATED');
+  }
+
+  // 1. Try local active session lookup
+  let active = getActiveSessionByToken(token);
+
+  // 2. If not found locally in container memory, verify & sync with upstream live Cloud Auth API
+  if (!active && CLOUD_AUTH_API_URL) {
+    active = await syncSessionFromUpstream(token, String(req.headers['user-agent'] || ''));
+  }
+
+  if (active) {
+    if (active.session.revoked) {
+      throw new Error('SESSION_REVOKED');
+    }
+    return {
+      authUid: active.user.id,
+      username: active.user.username,
+      role: active.user.role,
+      badges: Array.isArray(active.user.badges) ? active.user.badges : [],
+      assignments: Array.isArray(active.user.assignments) ? active.user.assignments : [],
+      divisionCode: active.user.divisionCode,
+      divisionCodes: Array.isArray(active.user.divisionCodes) ? active.user.divisionCodes : [],
+      subCode: active.user.subCode,
+      instCode: active.user.instCode,
+      poliCode: active.user.poliCode,
+      subUnitCode: active.user.subUnitCode
+    };
+  }
+
+  // Check if session explicitly existed but was revoked
+  authDb = ensureDbLoaded();
+  const rawId = token.replace(/^session-/, '');
+  const foundRevoked = Object.values(authDb.sessions).find(
+    s => s.sessionId === token || s.sessionId === rawId || `session-${s.sessionId}` === token
+  );
+  if (foundRevoked && foundRevoked.revoked) {
     throw new Error('SESSION_REVOKED');
   }
 
-  throw new Error('UNAUTHENTICATED');
+  throw new Error('SESSION_EXPIRED');
 }
 
 export async function handleAuthApi(req: Request, res: Response) {
@@ -459,6 +452,19 @@ export async function handleAuthApi(req: Request, res: Response) {
                   userAgent: String(req.headers['user-agent'] || 'client')
                 };
               }
+              const incomingSessionId = String(req.headers['x-session-id'] || '').trim();
+              if (incomingSessionId && !authDb.sessions[incomingSessionId]) {
+                authDb.sessions[incomingSessionId] = {
+                  sessionId: incomingSessionId,
+                  authUid: userId,
+                  username: sessionUser.username,
+                  createdAt: sessionUser.sessionCreatedAt || Date.now(),
+                  lastActiveAt: sessionUser.lastActiveAt || Date.now(),
+                  revoked: false,
+                  userAgent: String(req.headers['user-agent'] || 'client')
+                };
+              }
+              saveDb(authDb);
             } catch (cacheErr) {
               console.warn('[authHandler] Non-fatal session cache warning:', cacheErr);
             }
@@ -650,8 +656,6 @@ export async function handleAuthApi(req: Request, res: Response) {
     // -------------------------------------------------------------
     const authHeader = String(req.headers.authorization || '');
     const xSessionId = String(req.headers['x-session-id'] || '');
-    const xAuthUid = String(req.headers['x-soegiri-auth-uid'] || req.headers['x-user-id'] || '');
-    const xUsername = String(req.headers['x-user-username'] || '');
 
     let token = '';
     if (authHeader.startsWith('Bearer ')) {
@@ -660,30 +664,11 @@ export async function handleAuthApi(req: Request, res: Response) {
       token = xSessionId.trim();
     }
 
-    let activeAuth = token ? getActiveSessionByToken(token) : null;
-    if (!activeAuth && xSessionId && xSessionId !== token) {
-      activeAuth = getActiveSessionByToken(xSessionId);
-    }
-    if (!activeAuth && (xAuthUid || xUsername)) {
-      authDb = ensureDbLoaded();
-      const user = (xAuthUid && authDb.users[xAuthUid]) || 
-                   Object.values(authDb.users).find(u => 
-                     (xAuthUid && (u.username === xAuthUid || u.id === xAuthUid)) ||
-                     (xUsername && normalizeUsername(u.username) === normalizeUsername(xUsername))
-                   );
-      if (user) {
-        activeAuth = {
-          user,
-          session: {
-            sessionId: xSessionId || `uid-${user.id}`,
-            authUid: user.id,
-            username: user.username,
-            createdAt: Date.now(),
-            lastActiveAt: Date.now(),
-            revoked: false
-          }
-        };
-      }
+    // Protected actions accept only a server-issued SIDOKTER session.
+    // User-id/username headers are metadata only and can never authenticate a request.
+    let activeAuth = xSessionId ? getActiveSessionByToken(xSessionId) : null;
+    if (!activeAuth && token && token !== xSessionId) {
+      activeAuth = getActiveSessionByToken(token);
     }
 
     // -------------------------------------------------------------
@@ -759,24 +744,9 @@ export async function handleAuthApi(req: Request, res: Response) {
     // ACTION: USER-LIST (Admin only)
     // -------------------------------------------------------------
     if (action === 'user-list') {
-      if (!activeAuth || activeAuth.user.role !== 'admin') {
-        if (xUsername === 'admin' || (xSessionId && xSessionId.includes('admin')) || (token && token.includes('admin'))) {
-          const adminUser = Object.values(authDb.users).find(u => normalizeRole(u.role) === 'admin');
-          if (adminUser) {
-            activeAuth = {
-              user: adminUser,
-              session: {
-                sessionId: xSessionId || 'default-admin-session',
-                authUid: adminUser.id,
-                username: adminUser.username,
-                createdAt: Date.now(),
-                lastActiveAt: Date.now(),
-                revoked: false
-              }
-            };
-          }
-        }
-      }
+      // Admin Root access MUST come from a valid server-issued session.
+      // Never infer administrator privileges from username, session-id text,
+      // or a decodable client token.
       if (!activeAuth || activeAuth.user.role !== 'admin') {
         return res.status(403).json({ message: 'Hanya Administrator yang dapat melihat daftar akun.' });
       }

@@ -42,8 +42,8 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
 }) => {
   const isAdmin = userSession.role === 'admin';
   const hasStructuralBadge = Array.isArray(userSession.badges) && userSession.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL');
-  // Admin role or Admin badge alone does not grant access to SK & MOU; must have STRUKTURAL badge
-  const canAccessProtectedDocs = hasStructuralBadge;
+  // Admin Root or STRUKTURAL badge grants SK/MOU access; VERIFIKATOR alone does not
+  const canAccessProtectedDocs = userSession.role === 'admin' || hasStructuralBadge;
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<FinalDocTypeFilter>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
@@ -154,14 +154,14 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                  Library Dokumen Final
+                  Library Dokumen
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-200">
                   {grandTotalFinalDocs} Dokumen Sah
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Repository arsip resmi seluruh dokumen regulasi (SPO Aktif, SK Direktur, MOU) yang telah disahkan dan berlaku di RSUD Dr. Soegiri.
+                Repository arsip resmi seluruh dokumen regulasi (SPO, SK Direktur, MOU) yang telah disahkan dan berlaku di RSUD Dr. Soegiri.
               </p>
             </div>
           </div>
@@ -169,7 +169,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
           <div className="flex items-center gap-2">
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Hanya Dokumen Final & Sah</span>
+              <span>Dokumen Sah & Berlaku</span>
             </div>
           </div>
         </div>
@@ -190,7 +190,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari semua dokumen final berdasarkan judul, nomor SK/MOU/SPO, atau unit..."
+                placeholder="Cari dokumen berdasarkan judul, nomor SK/MOU/SPO, atau unit..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
               />
               {search && (
@@ -209,13 +209,13 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
               {(canAccessProtectedDocs
                 ? [
                     { id: 'ALL' as const, label: 'Semua Dokumen', count: grandTotalFinalDocs },
-                    { id: 'SPO' as const, label: 'SPO Final', count: activeSops.length },
+                    { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
                     { id: 'SK' as const, label: 'SK Direktur', count: skDocs.length },
                     { id: 'MOU' as const, label: 'MOU / PKS', count: mouDocs.length },
                   ]
                 : [
-                    { id: 'ALL' as const, label: 'Dokumen SPO', count: activeSops.length },
-                    { id: 'SPO' as const, label: 'SPO Final', count: activeSops.length },
+                    { id: 'ALL' as const, label: 'Semua Dokumen', count: activeSops.length },
+                    { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
                   ]
               ).map((tab) => (
                 <button
@@ -280,12 +280,12 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
             <BookOpen className="w-6 h-6" />
           </div>
           <h3 className="text-base font-extrabold text-slate-800">
-            Tidak ada dokumen final yang ditemukan
+            Tidak ada dokumen yang ditemukan
           </h3>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
             {search
               ? 'Silakan gunakan kata kunci pencarian yang lain atau sesuaikan filter kategori dan tahun.'
-              : 'Belum ada dokumen final yang berstatus aktif di dalam library sistem.'}
+              : 'Belum ada dokumen yang berstatus aktif di dalam library sistem.'}
           </p>
           {search && (
             <button
@@ -299,7 +299,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
         </div>
       ) : (
         <div className="space-y-6">
-          {/* 1. SECTION SPO FINAL */}
+          {/* 1. SECTION SPO */}
           {filteredSops.length > 0 && (
             <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -309,7 +309,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
                   </div>
                   <div>
                     <h2 className="text-sm font-black text-slate-900">
-                      Standar Prosedur Operasional (SPO Final & Disahkan)
+                      Standar Prosedur Operasional (SPO)
                     </h2>
                     <p className="text-[11px] text-slate-500">
                       Dokumen SPO yang telah bertanda tangan Direktur dan berstatus AKTIF
@@ -351,9 +351,21 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
                           )}
                         </div>
 
-                        <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDocViewer({
+                            id: sop.id,
+                            type: 'SPO',
+                            title: sop.title,
+                            documentNumber: sop.sopNumber,
+                            fileName: sop.fileName || `${sop.sopNumber}.pdf`,
+                            sopData: sop,
+                          })}
+                          className="text-left font-bold text-sm text-slate-900 hover:text-emerald-700 hover:underline leading-snug cursor-pointer block"
+                          title="Buka Preview SPO"
+                        >
                           {sop.title}
-                        </h3>
+                        </button>
 
                         {sop.hierarchyDescription && (
                           <p className="text-xs text-slate-500 mt-1 line-clamp-1">
@@ -378,20 +390,6 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
                           <Eye className="w-3.5 h-3.5" />
                           <span>Buka SPO</span>
                         </button>
-
-                        {(sop.signedScanDataUrl || sop.fileDataUrl) && (
-                          <a
-                            href={sop.signedScanDataUrl || sop.fileDataUrl}
-                            download={sop.signedScanFileName || sop.fileName || `${sop.sopNumber}.pdf`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                            title="Download Berkas SPO"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Download PDF</span>
-                          </a>
-                        )}
                       </div>
                     </div>
                   );

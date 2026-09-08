@@ -1705,7 +1705,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           ...(await (async () => {
             const token = await getCurrentAuthToken();
             if (!token) throw new Error('Sesi login tidak valid. Silakan login kembali.');
-            return { Authorization: `Bearer ${token}` };
+            const persisted = getPersistedClientSession();
+            if (!persisted?.sessionId) throw new Error('Sesi server tidak tersedia. Silakan login kembali.');
+            return {
+              Authorization: `Bearer ${token}`,
+              'X-Session-Id': persisted.sessionId,
+              'X-Soegiri-Auth-Uid': persisted.authUid || ''
+            };
           })())
         },
         body: JSON.stringify({

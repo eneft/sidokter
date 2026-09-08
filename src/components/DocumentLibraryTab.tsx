@@ -41,7 +41,7 @@ export const DocumentLibraryTab: React.FC<DocumentLibraryTabProps> = ({
     }
     try {
       setSaving(true);
-      await uploadLibraryDocument(file, type, title, userSession.name || userSession.username, userSession.role);
+      await uploadLibraryDocument(file, type, title, userSession.name || userSession.username, userSession.role, undefined, userSession.badges);
       setTitle('');
       setFile(null);
       setIsUploadOpen(false);
@@ -91,7 +91,7 @@ export const DocumentLibraryTab: React.FC<DocumentLibraryTabProps> = ({
             </div>
             <p className="text-xs text-slate-500 mt-1">SK dan MOU cukup upload PDF, lalu bisa dilihat dan di-download.</p>
           </div>
-          {userSession.role === 'admin' && (
+          {(userSession.role === 'admin' || userSession.badges?.some((b) => String(b).toUpperCase() === 'STRUKTURAL')) && (
             <button type="button" onClick={() => setIsUploadOpen(true)}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">
               <Plus className="w-4 h-4" /> Upload SK / MOU

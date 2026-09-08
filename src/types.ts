@@ -1,7 +1,7 @@
 export type SopStatus = 'DRAFT' | 'AKTIF' | 'DIARSIPKAN';
 
 export type UserRole = 'admin' | 'user';
-export type UserBadge = 'STRUKTURAL' | 'ADMIN';
+export type UserBadge = 'STRUKTURAL' | 'VERIFIKATOR';
 
 export interface UserAssignment {
   id: string;
@@ -42,7 +42,7 @@ export interface UserAccount {
   username: string;
   password?: string;          // Ephemeral only: sent to trusted auth API during account create/update
   // passwordHash/passwordSalt intentionally removed from the browser model.
-  activeSessionId?: string;   // Legacy compatibility field; server now supports multiple active sessions per account
+  activeSessionId?: string;   // Legacy compatibility field; server supports multiple active sessions per account
   lastLoginAt?: string;       // ISO timestamp of last successful login
   sessionCreatedAt?: number;  // Timestamp ms when current active session started
   failedLoginAttempts?: number; // Failed login counter for rate-limiting

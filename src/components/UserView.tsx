@@ -1204,20 +1204,6 @@ export const UserView: React.FC<UserViewProps> = ({
                   <span>Nomor Terbit</span>
                   <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
                 </button>
-
-                {/* Tombol Sinkronkan Nomor untuk Role Admin */}
-                {userSession.role === 'admin' && onStandardizeAllNumbers && (
-                  <button
-                    type="button"
-                    onClick={onStandardizeAllNumbers}
-                    id="admin-sync-sop-numbers-btn"
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black transition-all cursor-pointer shadow-xs shadow-purple-100"
-                    title="Sinkronkan & standarisasi nomor SPO seluruh unit kerja sesuai Pedoman Tata Naskah Soegiri"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Sinkronkan Nomor</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1228,7 +1214,6 @@ export const UserView: React.FC<UserViewProps> = ({
                 userSession={userSession}
                 onViewDetail={onViewDetail}
                 onSwitchToInputTab={() => setSpoSubTab('input')}
-                onStandardizeAllNumbers={onStandardizeAllNumbers}
               />
             )}
 

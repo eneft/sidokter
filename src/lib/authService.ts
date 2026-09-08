@@ -57,7 +57,6 @@ async function getIdToken(forceRefresh=false):Promise<string|null>{
 
 async function callAuthApi(action:string, body:Record<string,any>={}, token?:string|null){
   const bearer = token === undefined ? await getIdToken() : token;
-<<<<<<< Updated upstream
   const s = getPersistedClientSession();
   const headers:Record<string,string>={'Content-Type':'application/json','Accept':'application/json'};
   if (bearer && typeof bearer === 'string' && bearer.includes('.')) {
@@ -71,23 +70,8 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
   }
   if (s?.username) {
     headers['X-User-Username'] = s.username;
-=======
-
-  const headers:Record<string,string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  };
-
-  if (bearer) {
-    headers.Authorization = `Bearer ${bearer}`;
-    headers['X-Session-Id'] = bearer;
->>>>>>> Stashed changes
   }
-
-  const endpoint = `${AUTH_API_URL}/${action}`;
-
   let response: Response;
-<<<<<<< Updated upstream
   const sendRequest = () => fetch(AUTH_API_URL, {
     method: 'POST',
     headers,
@@ -102,45 +86,28 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
       await new Promise(r => setTimeout(r, 600));
       response = await sendRequest();
     }
-=======
-
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      cache: 'no-store'
-    });
->>>>>>> Stashed changes
   } catch (netErr: any) {
-    console.warn(`[authService] Network error calling ${endpoint}:`, netErr);
-
-    // Fallback ke endpoint internal Vercel
+    console.warn(`[authService] Network error calling ${AUTH_API_URL}:`, netErr);
     if (AUTH_API_URL !== '/api/auth') {
       try {
-        response = await fetch(`/api/auth/${action}`, {
+        response = await fetch('/api/auth', {
           method: 'POST',
           headers,
-          body: JSON.stringify(body),
+          body: JSON.stringify({ action, ...body }),
           cache: 'no-store'
         });
       } catch {
-        const err: any = new Error(
-          'Gagal terhubung ke server autentikasi (koneksi terputus).'
-        );
+        const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
         err.status = 503;
         throw err;
       }
     } else {
-      const err: any = new Error(
-        'Gagal terhubung ke server autentikasi (koneksi terputus).'
-      );
+      const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
       err.status = 503;
       throw err;
     }
   }
 
-<<<<<<< Updated upstream
   let payload:any={};
   try { payload=await response.json(); } catch {}
   if(!response.ok){
@@ -152,27 +119,8 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
     err.status=response.status;
     err.lockedOut=payload?.lockedOut;
     err.remainingMinutes=payload?.remainingMinutes;
-=======
-  let payload:any = {};
-
-  try {
-    payload = await response.json();
-  } catch {}
-
-  if (!response.ok) {
-    const err:any = new Error(
-      payload?.message ||
-      `Layanan autentikasi gagal (HTTP ${response.status}).`
-    );
-
-    err.status = response.status;
-    err.lockedOut = payload?.lockedOut;
-    err.remainingMinutes = payload?.remainingMinutes;
-
->>>>>>> Stashed changes
     throw err;
   }
-
   return payload;
 }
 
@@ -301,7 +249,7 @@ export async function resetDefaultAdminPassword(){ return emergencyResetAdminAcc
 export function subscribeToUserSessionGuard(
   username:string,
   currentSessionId:string,
-  onSessionRevoked:(reason:'REVOKED_ANOTHER_LOGIN'|'USER_DELETED')=>void,
+  onSessionRevoked:(reason:'SESSION_REVOKED'|'USER_DELETED')=>void,
   onProfileUpdated?:(profile:UserAccount)=>void
 ){
   let stopped=false;
@@ -310,12 +258,12 @@ export function subscribeToUserSessionGuard(
     try{
       const payload=await callAuthApi('session');
       if(!payload?.success||!payload?.session){
-        onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+        onSessionRevoked('SESSION_REVOKED');
         return;
       }
       const s=buildSession(payload.session);
       if(s.username!==username.toLowerCase() || s.sessionId!==currentSessionId){
-        onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+        onSessionRevoked('SESSION_REVOKED');
         return;
       }
       onProfileUpdated?.({
@@ -323,7 +271,7 @@ export function subscribeToUserSessionGuard(
         divisionCode:s.divisionCode,divisionCodes:s.divisionCodes,assignments:s.assignments,badges:s.badges||[],createdAt:''
       });
     }catch(err:any){
-      if(err?.status===401) onSessionRevoked('REVOKED_ANOTHER_LOGIN');
+      if(err?.status===401) onSessionRevoked('SESSION_REVOKED');
     }
   };
   void check();

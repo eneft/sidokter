@@ -21,28 +21,15 @@ function initFirestoreSync() {
 
   // Initial fetch from Firestore
   void fetchLibraryDocsFromFirestore().then((cloudDocs) => {
-    if (!cloudDocs || !cloudDocs.length) return;
-    const local = getDocuments();
-    const map = new Map<string, LibraryDocument>();
-    local.forEach((d) => map.set(d.id, d));
-    cloudDocs.forEach((d) => {
-      const exist = map.get(d.id);
-      map.set(d.id, { ...exist, ...d });
-    });
-    saveDocuments(Array.from(map.values()));
+    // Firestore is authoritative. An empty successful snapshot means the
+    // cloud collection is empty and must clear stale browser cache.
+    if (cloudDocs !== null) saveDocuments(cloudDocs);
   });
 
   // Real-time snapshot listener
   subscribeToFirestoreLibraryDocs((cloudDocs) => {
-    if (!cloudDocs || !cloudDocs.length) return;
-    const local = getDocuments();
-    const map = new Map<string, LibraryDocument>();
-    local.forEach((d) => map.set(d.id, d));
-    cloudDocs.forEach((d) => {
-      const exist = map.get(d.id);
-      map.set(d.id, { ...exist, ...d });
-    });
-    saveDocuments(Array.from(map.values()));
+    // Snapshot contents are the source of truth, including an empty set.
+    saveDocuments(Array.isArray(cloudDocs) ? cloudDocs : []);
   });
 }
 
@@ -76,14 +63,14 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
   await saveNamedFileToLocalCache(`library_${id}`, dataUrl);
 
   // Upload to Cloud Server Storage so all other devices can access it permanently
-  let cloudUrl = `local://${id}`;
+  let cloudUrl = '';
   try {
     const uploadRes = await uploadFileToCloudStorage(dataUrl, file.name, id);
-    if (uploadRes?.url) {
-      cloudUrl = uploadRes.url;
-    }
+    if (!uploadRes?.url) throw new Error('Cloud storage tidak mengembalikan URL file.');
+    cloudUrl = uploadRes.url;
   } catch (uploadErr) {
-    console.warn('[uploadDocument] Cloud storage upload warning, relying on local cache:', uploadErr);
+    await deleteNamedFileFromLocalCache(`library_${id}`).catch(() => {});
+    throw uploadErr instanceof Error ? uploadErr : new Error('Gagal mengunggah file ke cloud storage.');
   }
 
   const now = new Date().toISOString();

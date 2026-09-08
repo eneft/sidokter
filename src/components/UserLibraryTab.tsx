@@ -5,7 +5,6 @@ import {
   Eye, 
   Check, 
   Lock,
-  RefreshCw,
 } from 'lucide-react';
 import { SopDocument, UserSession } from '../types';
 import { SOEGIRI_MASTER_CATEGORIES, isSopAccessibleByUser } from '../utils/soegiriStructure';
@@ -15,7 +14,6 @@ interface UserLibraryTabProps {
   userSession: UserSession;
   onViewDetail: (sop: SopDocument) => void;
   onSwitchToInputTab: () => void;
-  onStandardizeAllNumbers?: () => void;
 }
 
 export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
@@ -23,7 +21,6 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
   userSession,
   onViewDetail,
   onSwitchToInputTab,
-  onStandardizeAllNumbers,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -117,7 +114,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Kewenangan Filter - multi-hierarchy aware */}
-          <div className="relative min-w-[240px]">
+          <div className="relative w-full sm:min-w-[240px] sm:w-auto">
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
@@ -151,20 +148,6 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
             <option value="AKTIF">Aktif</option>
             <option value="DIARSIPKAN">Diarsipkan</option>
           </select>
-
-          {/* Tombol Sinkronkan Nomor untuk Admin */}
-          {userSession.role === 'admin' && onStandardizeAllNumbers && (
-            <button
-              type="button"
-              onClick={onStandardizeAllNumbers}
-              id="library-sync-sop-numbers-btn"
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs shadow-purple-100"
-              title="Sinkronkan & standarisasi seluruh nomor urut SPO per unit kerja"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Sinkronkan Nomor</span>
-            </button>
-          )}
 
         </div>
       </div>
@@ -219,10 +202,10 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-          <div className="hidden md:grid grid-cols-[minmax(190px,1.1fr)_minmax(260px,2fr)_minmax(150px,1.15fr)_150px] bg-slate-50 border-b border-slate-200 px-5 py-3 text-[10px] uppercase tracking-wider font-black text-slate-500">
+          <div className="hidden md:grid grid-cols-[minmax(150px,1fr)_minmax(220px,2fr)_minmax(110px,0.8fr)_120px] bg-slate-50 border-b border-slate-200 px-5 py-3 text-[10px] uppercase tracking-wider font-black text-slate-500">
             <div>Nomor SPO</div>
             <div>Judul SPO</div>
-            <div>Jenis / Status</div>
+            <div>Status</div>
             <div className="text-right">Aksi</div>
           </div>
 
@@ -235,25 +218,22 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
                   key={sop.id}
                   className="px-4 sm:px-5 py-4 hover:bg-slate-50/70 transition-colors"
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-[minmax(190px,1.1fr)_minmax(260px,2fr)_minmax(150px,1.15fr)_150px] items-center gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(150px,1fr)_minmax(220px,2fr)_minmax(110px,0.8fr)_120px] items-center gap-3 md:gap-4">
                     <div className="min-w-0">
-                      <div className="font-mono text-xs sm:text-sm font-black text-emerald-800 whitespace-nowrap overflow-visible">
+                      <div className="font-mono text-xs sm:text-sm font-black text-emerald-800 break-words md:whitespace-nowrap">
                         {sop.sopNumber || '-'}
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        {sop.effectiveDate || '-'} · Rev {sop.revisionNumber || '00'}
                       </div>
                     </div>
 
                     <div className="min-w-0">
-                      <div className="font-bold text-sm text-slate-900 truncate md:whitespace-normal">
+                      <button
+                        type="button"
+                        onClick={() => onViewDetail(sop)}
+                        className="block max-w-full text-left font-semibold text-sm text-slate-800 hover:text-emerald-700 hover:underline underline-offset-2 truncate md:whitespace-normal md:overflow-visible cursor-pointer"
+                        title="Buka Preview SPO"
+                      >
                         {sop.title || 'Tanpa Judul SPO'}
-                      </div>
-                      {sop.hierarchyDescription && (
-                        <div className="text-[11px] text-slate-500 mt-1 truncate md:whitespace-normal">
-                          {sop.hierarchyDescription}
-                        </div>
-                      )}
+                      </button>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5">

@@ -1,0 +1,33 @@
+--- /mnt/data/base20/src/components/UserView.tsx	2026-09-07 17:51:12.000000000 +0000
++++ /mnt/data/final20/src/components/UserView.tsx	2026-09-08 08:58:36.215967838 +0000
+@@ -955,7 +955,7 @@
+         categoryId: finalDivCode,
+         categoryName: finalDivName,
+         version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
+-        status: isLegacy ? 'AKTIF' : 'DRAFT',
++        status: 'DRAFT',
+         activatedAt: isLegacy ? new Date().toISOString() : undefined,
+         activatedBy: isLegacy ? userSession.name : undefined,
+         activationRequestedAt: new Date().toISOString(),
+--- /mnt/data/base20/src/components/PetugasView.tsx	2026-09-07 17:51:12.000000000 +0000
++++ /mnt/data/final20/src/components/PetugasView.tsx	2026-09-08 08:58:36.216963231 +0000
+@@ -750,7 +750,7 @@
+         categoryId: finalDivCode,
+         categoryName: finalDivName,
+         version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
+-        status: isLegacy ? 'AKTIF' : 'DRAFT',
++        status: 'DRAFT',
+         effectiveDate: effectiveDate || (isLegacy ? matchedExistingDoc?.effectiveDate : undefined) || new Date().toISOString().split('T')[0],
+         reviewPeriodMonths: Number(reviewPeriodMonths) || 12,
+         nextReviewDate: '',
+--- /mnt/data/base20/src/App.tsx	2026-09-07 17:51:12.000000000 +0000
++++ /mnt/data/final20/src/App.tsx	2026-09-08 08:58:36.218461292 +0000
+@@ -1766,7 +1766,7 @@
+   }) => {
+     const target = sops.find((s) => s.id === sopId);
+     if (!target || target.status !== 'DRAFT') {
+-      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru atau SPO Riviu dengan status Draft yang dapat diaktifkan.');
++      addToast('error', 'Aktivasi Ditolak', 'Hanya SPO Baru, SPO Riviu, atau SPO Eksisting dengan status Draft yang dapat diaktifkan.');
+       return;
+     }
+ 

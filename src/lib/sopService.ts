@@ -153,14 +153,18 @@ function normalizeSop(sop: SopDocument): SopDocument {
 
 function initFirestoreSopSync(userSession?: UserSession | null): () => void {
   let active = true;
+  if (!userSession) return () => { active = false; };
   const scopedKeys = getUserHierarchyAccessKeys(userSession);
   const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
     ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
     : Array.isArray(userSession?.divisionCodes)
       ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
       : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
+  const hasStructuralBadge = Array.isArray(userSession?.badges)
+    && userSession!.badges!.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL');
   const globalAccess = userSession?.role === 'admin'
-    || hasAllHierarchyAssignment;
+    || hasAllHierarchyAssignment
+    || hasStructuralBadge;
 
   void fetchSopsFromFirestore(scopedKeys, globalAccess).then(async (cloudSops) => {
     if (!active) return;

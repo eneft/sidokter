@@ -180,7 +180,14 @@ export const PetugasLibraryTab: React.FC<PetugasLibraryTabProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="md:hidden text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Judul SPO</div>
-                  <div className="text-sm font-black text-slate-900 leading-snug">{sop.title || '-'}</div>
+                  <button
+                    type="button"
+                    onClick={() => onViewDetail(sop)}
+                    className="text-left text-sm font-black text-slate-900 hover:text-emerald-700 hover:underline leading-snug cursor-pointer block"
+                    title="Buka Preview SPO"
+                  >
+                    {sop.title || '-'}
+                  </button>
                   {sop.hierarchyDescription && <div className="text-[11px] text-slate-500 mt-1 line-clamp-1">{sop.hierarchyDescription}</div>}
                 </div>
                 <div className="flex md:block items-center gap-1.5">

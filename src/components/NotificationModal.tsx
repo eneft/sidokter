@@ -152,7 +152,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Aktivasi ({countActivation})
+                Pengesahan SPO ({countActivation})
               </button>
             )}
 
@@ -166,7 +166,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Usulan ({countProposal})
+                Usulan SPO ({countProposal})
               </button>
             )}
 
@@ -194,7 +194,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Riviu ({countReview})
+                Riviu Berkala ({countReview})
               </button>
             )}
           </div>
@@ -303,9 +303,9 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           }`}
                         >
                           {isActivation
-                            ? 'Aktivasi SPO'
+                            ? 'Pengesahan SPO'
                             : isProposal
-                            ? 'Usulan Aktivasi'
+                            ? 'Usulan SPO'
                             : isAssignment
                             ? 'Penugasan'
                             : isReview

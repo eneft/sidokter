@@ -16,7 +16,7 @@ import {
   Timestamp,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
 import { getSopAccessKeys } from '../utils/soegiriStructure';
 
@@ -138,6 +138,9 @@ export async function deleteSopFromFirestore(id: string): Promise<void> {
 }
 
 export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess = false): Promise<SopDocument[]> {
+  // Never issue a Firestore SOP read before Firebase Auth is established.
+  // This prevents permission-denied noise during app bootstrap/logout transitions.
+  if (!auth.currentUser) return [];
   try {
     const colRef = collection(db, 'sops');
     const q = globalAccess
@@ -154,7 +157,7 @@ export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess
     });
     return sops;
   } catch (err: any) {
-    console.warn('Failed to fetch scoped SOPs from Firestore:', err?.message || err);
+    if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP sync unavailable; local cache remains active.');
     return [];
   }
 }
@@ -165,6 +168,7 @@ export function subscribeToFirestoreSops(
   accessKeys?: string[],
   globalAccess = false
 ): () => void {
+  if (!auth.currentUser) { callback([]); return () => {}; }
   try {
     const colRef = collection(db, 'sops');
     const q = globalAccess
@@ -182,11 +186,11 @@ export function subscribeToFirestoreSops(
       updateStatus({ isConnected: true, lastSync: new Date().toISOString() });
       callback(sops);
     }, (err) => {
-      console.warn('Firestore scoped sops snapshot listener warning:', err?.message || err);
+      if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP realtime sync unavailable; local cache remains active.');
       onError?.(err);
     });
   } catch (err) {
-    console.warn('Failed to attach scoped Firestore sops listener:', err);
+    if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP listener unavailable; local cache remains active.');
     return () => {};
   }
 }
@@ -237,7 +241,7 @@ export async function deleteLibraryDocFromFirestore(id: string): Promise<void> {
   }
 }
 
-export async function fetchLibraryDocsFromFirestore(): Promise<LibraryDocument[]> {
+export async function fetchLibraryDocsFromFirestore(): Promise<LibraryDocument[] | null> {
   try {
     const colRef = collection(db, 'library_documents');
     const snapshot = await getDocs(colRef);
@@ -254,7 +258,7 @@ export async function fetchLibraryDocsFromFirestore(): Promise<LibraryDocument[]
     return docs;
   } catch (err: any) {
     console.warn('Failed to fetch Library Docs from Firestore:', err?.message || err);
-    return [];
+    return null;
   }
 }
 
@@ -281,12 +285,12 @@ export function subscribeToFirestoreLibraryDocs(
         callback(docs);
       },
       (err) => {
-        console.warn('Firestore library_documents snapshot listener warning:', err?.message || err);
+        if (err?.code !== 'permission-denied') console.info('Firestore library_documents realtime sync unavailable; local cache remains active.');
         onError?.(err);
       }
     );
   } catch (err) {
-    console.warn('Failed to attach Firestore library_documents listener:', err);
+    console.info('Firestore library_documents listener unavailable; local cache remains active.');
     return () => {};
   }
 }
@@ -312,6 +316,17 @@ export async function saveSystemConfigToFirestore(key: string, value: any): Prom
   } catch (err: any) {
     console.warn('Firebase config sync warning:', err?.message || err);
   }
+}
+
+/* Normalize legacy badge nomenclature: badge ADMIN was the old name for VERIFIKATOR.
+   Role 'admin' remains reserved for Admin Root and is never renamed. */
+function normalizeUserBadges(value: unknown): UserAccount['badges'] {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((badge) => String(badge).trim().toUpperCase())
+    .map((badge) => badge === 'ADMIN' ? 'VERIFIKATOR' : badge)
+    .filter((badge) => badge === 'STRUKTURAL' || badge === 'VERIFIKATOR');
+  return Array.from(new Set(normalized)) as UserAccount['badges'];
 }
 
 /* =========================================================================
@@ -341,7 +356,7 @@ export async function fetchUsersFromFirestore(): Promise<UserAccount[]> {
           divisionCode: data.divisionCode,
           divisionCodes: data.divisionCodes || (data.divisionCode ? [data.divisionCode] : undefined),
           assignments: data.assignments,
-          badges: data.badges,
+          badges: normalizeUserBadges(data.badges),
           subCode: data.subCode,
           instCode: data.instCode,
           poliCode: data.poliCode,
@@ -384,16 +399,18 @@ export function subscribeToFirestoreUsers(callback: (users: UserAccount[]) => vo
             role: String(data.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user',
             unitName: data.unitName, divisionCode: data.divisionCode,
             divisionCodes: data.divisionCodes || (data.divisionCode ? [data.divisionCode] : undefined),
-            assignments: data.assignments, badges: data.badges,
+            assignments: data.assignments, badges: normalizeUserBadges(data.badges),
             subCode: data.subCode, instCode: data.instCode, poliCode: data.poliCode, subUnitCode: data.subUnitCode,
             credentialStatus: data.credentialStatus, createdAt: data.createdAt || '', updatedAt: data.updatedAt
           });
         }
       });
       callback(users);
-    }, (err) => console.warn('Firestore users snapshot listener error:', err?.message || err));
+    }, (err) => {
+      if (err?.code !== 'permission-denied') console.info('Firestore users realtime sync unavailable; local cache remains active.');
+    });
   } catch (err) {
-    console.warn('Failed to attach Firestore users listener:', err);
+    console.info('Firestore users listener unavailable; local cache remains active.');
     return () => {};
   }
 }
@@ -438,7 +455,7 @@ export async function checkFirebaseConnection(): Promise<boolean> {
     });
     return true;
   } catch (err: any) {
-    console.warn('Firebase connection check:', err?.message || err);
+    if (err?.code !== 'permission-denied') console.info('Firestore connection check unavailable; local cache remains active.');
     updateStatus({
       isConnected: false,
       isSyncing: false,

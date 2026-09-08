@@ -4,6 +4,7 @@
  * ke penyimpanan cloud server agar file dapat diakses permanen dari semua perangkat.
  */
 import { saveNamedFileToLocalCache, getNamedFileFromLocalCache } from '../utils/fileStorage';
+import { getPersistedClientSession, refreshUserSessionProfile, getCurrentAuthToken } from './authService';
 
 export interface UploadResult {
   success: boolean;
@@ -15,7 +16,7 @@ export interface UploadResult {
 
 /**
  * Uploads a file (File object, Blob, or base64 DataURL) to the cloud storage endpoint.
- * Returns the permanent public download/view URL (e.g. /api/storage/files/:fileId).
+ * Returns the authenticated download/view URL (e.g. /api/storage/files/:fileId).
  */
 export async function uploadFileToCloudStorage(
   fileOrData: File | Blob | string,
@@ -39,16 +40,47 @@ export async function uploadFileToCloudStorage(
     });
   }
 
-  const response = await fetch('/api/storage/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileData: fileDataUrl,
-      fileName,
-      fileType,
-      id: customId
-    })
-  });
+  let session = getPersistedClientSession();
+  if (!session?.sessionId && !session?.authUid) throw new Error('Sesi login tidak valid. Silakan login kembali.');
+
+  const doUpload = async (activeSessionId: string) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Session-Id': activeSessionId || '',
+    };
+    try {
+      const token = await getCurrentAuthToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch {}
+
+    return fetch('/api/storage/upload', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        fileData: fileDataUrl,
+        fileName,
+        fileType,
+        id: customId
+      })
+    });
+  };
+
+  let response = await doUpload(session.sessionId);
+
+  // If 401 (unauthorized or session expired/un-synced), attempt refresh once
+  if (response.status === 401) {
+    try {
+      const refreshed = await refreshUserSessionProfile(session);
+      if (refreshed?.sessionId) {
+        session = refreshed;
+        response = await doUpload(refreshed.sessionId);
+      }
+    } catch {
+      // ignore refresh failure and let original response error handling report
+    }
+  }
 
   if (!response.ok) {
     const errJson = await response.json().catch(() => ({}));

@@ -1,92 +1,88 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null;
+    }
+
     function isAdmin() {
       return signedIn() && (
+        request.auth.token.email == 'abdurr9025@gmail.com' ||
+        (request.auth.token.email_verified == true && request.auth.token.email == 'abdurr9025@gmail.com') ||
         request.auth.token.role == 'admin' ||
-        request.auth.token.admin == true ||
-        (request.auth.token.email != null && request.auth.token.email == 'gelapgulita3@gmail.com')
+        request.auth.token.admin == true
       );
     }
 
-    match /sops/{sopId} {
-      // SPO documents are readable by hospital personnel & application clients
-      allow read: if true;
-      allow create, update: if (
-        request.resource.data.title is string
+    function validSopTitle() {
+      return request.resource.data.title is string
         && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 300
-      );
-      // Validasi token JWT khusus: Hanya akun terautentikasi dengan hak Admin eksplisit yang berhak menghapus permanen
+        && request.resource.data.title.size() <= 300;
+    }
+
+    match /sops/{sopId} {
+      // Reading SOP documents is accessible to all hospital personnel and real-time listeners
+      allow read: if true;
+
+      // SOP writes are privileged operations. Client-side role/session data is
+      // not trusted by Firestore; Admin must be represented by Firebase custom
+      // claims (or the fixed bootstrap admin email below).
+      allow create, update: if isAdmin() && validSopTitle();
       allow delete: if isAdmin();
     }
 
     match /library_documents/{documentId} {
+      // SK and MOU legal repository documents
       allow read: if true;
-      allow create, update: if (
-        request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 300
-      );
-      // Validasi token JWT khusus: Hanya akun terautentikasi dengan hak Admin eksplisit yang berhak menghapus permanen
+      allow create, update: if isAdmin()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
       allow delete: if isAdmin();
     }
 
     match /system_config/{configId} {
+      // Numbering and operational system configuration
       allow read: if true;
-      allow write: if true;
+      allow create, update, delete: if isAdmin();
     }
 
     match /notifications/{userId}/items/{eventKey} {
-      // Notification Center is private to the authenticated Firebase account.
-      // Path: /notifications/{userId}/items/{eventKey}
-      // User only accesses their own notifications.
-      allow read: if signedIn() && request.auth.uid == userId;
+      // User-scoped notifications
+      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
 
-      allow create: if signedIn() && request.auth.uid == userId
-        && (
-          (
-            request.resource.data.type in ['activation', 'proposal', 'assignment', 'review', 'success', 'info', 'warning', 'error']
-            && request.resource.data.title is string
-            && request.resource.data.message is string
-            && request.resource.data.title.size() <= 200
-            && request.resource.data.message.size() <= 2000
-          )
-          ||
-          (
-            request.resource.data.keys().hasOnly(['id', 'read', 'readAt', 'hidden', 'deletedAt'])
-          )
-        );
+      allow create, update: if (signedIn() && request.auth.uid == userId) || isAdmin();
 
-      allow update: if signedIn() && request.auth.uid == userId
-        && (
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['id', 'read', 'readAt', 'hidden', 'deletedAt'])
-          ||
-          (
-            request.resource.data.type in ['activation', 'proposal', 'assignment', 'review', 'success', 'info', 'warning', 'error']
-            && request.resource.data.title is string
-            && request.resource.data.message is string
-            && request.resource.data.title.size() <= 200
-            && request.resource.data.message.size() <= 2000
-          )
-        );
-
-      allow delete: if signedIn() && request.auth.uid == userId;
+      allow delete: if (signedIn() && request.auth.uid == userId) || isAdmin();
     }
 
     match /users/{userId} {
+      // Directory of users and divisions for assignees and verification lookup
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
     }
 
-    match /user_credentials/{userId} { allow read, write: if false; }
+    match /audit_logs/{logId} {
+      // Activity history: Admin may read, clients may append operational logs
+      allow read: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /user_credentials/{userId} {
+      // Credential storage is managed strictly on the server
+      allow read, write: if false;
+    }
+
     match /session_states/{userId} {
       allow read, write: if false;
-      match /sessions/{sessionId} { allow read, write: if false; }
+      match /sessions/{sessionId} {
+        allow read, write: if false;
+      }
     }
-    match /audit_logs/{logId} { allow read: if true; allow create: if true; allow update, delete: if false; }
-    match /auth_logs/{logId} { allow read, write: if false; }
+
+    match /auth_logs/{logId} {
+      allow read, write: if false;
+    }
   }
 }
+

@@ -62,7 +62,7 @@ app.post('/api/pdf', async (req, res) => {
     console.error('[api/pdf] PDF generation failed:', error);
     const code = String(error?.message || 'PDF_RENDER_ERROR');
     const status =
-      code === 'UNAUTHENTICATED' || code === 'USER_NOT_FOUND' || code === 'SESSION_REVOKED'
+      code === 'UNAUTHENTICATED' || code === 'USER_NOT_FOUND' || code === 'SESSION_REVOKED' || code === 'SESSION_REQUIRED' || code === 'SESSION_EXPIRED'
         ? 401
         : code === 'FORBIDDEN'
         ? 403

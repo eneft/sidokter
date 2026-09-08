@@ -221,7 +221,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         divisionCode: role === 'admin' ? 'ALL' : firstAssignment.divisionCode,
         divisionCodes: role === 'admin' ? ['ALL'] : Array.from(new Set(uniqueAssignments.map((a) => a.divisionCode))),
         assignments: role === 'admin' ? undefined : uniqueAssignments,
-        badges: badges.map(String).filter((b) => ['STRUKTURAL', 'ADMIN'].includes(b.toUpperCase())) as any,
+        badges: badges.map(String).filter((b) => ['STRUKTURAL', 'VERIFIKATOR'].includes(b.toUpperCase())) as any,
         subCode: role === 'admin' ? undefined : (firstAssignment.subCode || undefined),
         instCode: role === 'admin' ? undefined : (firstAssignment.instCode || undefined),
         poliCode: role === 'admin' ? undefined : (firstAssignment.poliCode || undefined),
@@ -489,20 +489,20 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       </div>
                     </label>
 
-                    {/* Badge ADMIN */}
+                    {/* Badge VERIFIKATOR */}
                     <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${
-                      badges.some(b => String(b).toUpperCase() === 'ADMIN')
+                      badges.some(b => String(b).toUpperCase() === 'VERIFIKATOR')
                         ? 'bg-purple-50/70 border-purple-300 text-purple-950'
                         : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
                     }`}>
                       <input
                         type="checkbox"
-                        checked={badges.some(b => String(b).toUpperCase() === 'ADMIN')}
+                        checked={badges.some(b => String(b).toUpperCase() === 'VERIFIKATOR')}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setBadges(prev => Array.from(new Set([...prev, 'ADMIN'])));
+                            setBadges(prev => Array.from(new Set([...prev, 'VERIFIKATOR'])));
                           } else {
-                            setBadges(prev => prev.filter(b => String(b).toUpperCase() !== 'ADMIN'));
+                            setBadges(prev => prev.filter(b => String(b).toUpperCase() !== 'VERIFIKATOR'));
                           }
                         }}
                         className="mt-0.5 rounded accent-purple-600 cursor-pointer"
@@ -510,16 +510,16 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 text-xs font-black text-purple-800">
                           <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                          <span>ADMIN</span>
+                          <span>VERIFIKATOR</span>
                         </div>
                         <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
-                          Wewenang aktivasi SPO sesuai hirarki user. Tidak otomatis akses SK/MOU.
+                          Wewenang verifikasi/aktivasi SPO sesuai hirarki user. Tidak otomatis menjadi Administrator Root atau mendapat akses SK/MOU.
                         </p>
                       </div>
                     </label>
                   </div>
                   <p className="text-[10px] text-slate-500">
-                    Badge Admin dan Struktural dapat digabungkan pada satu akun.
+                    Badge Verifikator dan Struktural dapat digabungkan pada satu akun.
                   </p>
                 </div>
 
@@ -854,9 +854,9 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                   <Shield className="w-3 h-3 text-emerald-700" /> STRUKTURAL
                                 </span>
                               )}
-                              {Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') && (
+                              {Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'VERIFIKATOR') && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
-                                  <ShieldCheck className="w-3 h-3 text-purple-700" /> ADMIN
+                                  <ShieldCheck className="w-3 h-3 text-purple-700" /> VERIFIKATOR
                                 </span>
                               )}
                               {(!Array.isArray(u.badges) || u.badges.length === 0) && (
@@ -911,10 +911,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           {u.role === 'admin' ? 'Administrator' : 'User'}
                           {[
                             Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') ? 'Struktural' : null,
-                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') ? 'Admin' : null,
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'VERIFIKATOR') ? 'Verifikator' : null,
                           ].filter(Boolean).length > 0 && ` • ${[
                             Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'STRUKTURAL') ? 'Struktural' : null,
-                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'ADMIN') ? 'Admin' : null,
+                            Array.isArray(u.badges) && u.badges.some((b) => String(b).toUpperCase() === 'VERIFIKATOR') ? 'Verifikator' : null,
                           ].filter(Boolean).join(', ')}`}
                         </span>
                       </div>

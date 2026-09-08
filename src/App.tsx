@@ -28,7 +28,7 @@ import {
 } from './utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
-import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasAdminBadge } from './utils/soegiriStructure';
+import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasVerificatorBadge } from './utils/soegiriStructure';
 import { saveFileToLocalCache, deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import {
   subscribeToSops,
@@ -123,7 +123,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Auth & Session State with Cryptographic Single Active Session
+  // Auth & Session State with Cryptographic Per-Device Sessions
   const [userSession, setUserSession] = useState<UserSession | null>(null);
   const [isSessionRestoring, setIsSessionRestoring] = useState(true);
 
@@ -202,8 +202,9 @@ export default function App() {
   }, []);
 
 
-  // 1. Single Active Session Real-Time Guard
-  // Disconnects / Logs out immediately if the same account signs in on another browser or device
+  // 1. Per-device session guard
+  // Disconnects / logs out only when THIS exact server-side session is revoked.
+  // Multiple devices/sessions for one account are intentionally supported.
   useEffect(() => {
     if (!userSession || !userSession.username || !userSession.sessionId) return;
 
@@ -211,17 +212,17 @@ export default function App() {
       userSession.username,
       userSession.sessionId,
       (reason) => {
-        if (reason === 'REVOKED_ANOTHER_LOGIN') {
+        if (reason === 'SESSION_REVOKED') {
           resetAllViewStates();
           logoutUser(userSession).catch(() => {});
           setUserSession(null);
           setInactivityNotice(
-            'Sesi Dihentikan (Single Active Session): Akun Anda telah login di perangkat atau browser lain. Sesi pada perangkat ini telah dihentikan secara otomatis demi keamanan.'
+            'Sesi pada perangkat ini telah dihentikan karena sesi tersebut dicabut oleh sistem.'
           );
           addToast(
             'error',
-            'Sesi Dihentikan di Perangkat Lain',
-            'Akun Anda aktif di sesi login baru. Sesi pada perangkat ini telah di-revoke secara otomatis.'
+            'Sesi Dihentikan',
+            'Sesi pada perangkat ini telah dicabut. Perangkat lain yang masih memiliki sesi aktif tetap dapat digunakan.'
           );
         }
       },
@@ -567,7 +568,7 @@ export default function App() {
           setSelectedSopForDetail(sop);
         }
       );
-      if (userSession?.role === 'admin' || hasAdminBadge(userSession)) {
+      if (userSession?.role === 'admin' || hasVerificatorBadge(userSession)) {
         scanDocumentsForProposals(
           sops,
           userSession,
@@ -2012,7 +2013,12 @@ export default function App() {
   const handleSaveUser = async (userAcc: UserAccount) => {
     try {
       await saveUserToLocal(userAcc);
-      const safeUser = { ...userAcc };
+      const safeUser = {
+        ...userAcc,
+        badges: Array.isArray(userAcc.badges)
+          ? Array.from(new Set(userAcc.badges.map((b) => String(b).trim().toUpperCase() === 'ADMIN' ? 'VERIFIKATOR' : String(b).trim().toUpperCase()))) as any
+          : userAcc.badges,
+      };
       delete (safeUser as any).password;
       delete (safeUser as any).passwordHash;
       delete (safeUser as any).passwordSalt;

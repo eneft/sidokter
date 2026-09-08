@@ -448,10 +448,10 @@ export function isSopAccessibleByUser(
 ): boolean {
   if (!userSession) return false;
   if (userSession.role === 'admin') return true;
+  if (hasStructuralBadge(userSession)) return !sop.isExampleOnly;
   if (sop.isExampleOnly) return false;
 
-  // Catatan: Badge STRUKTURAL hanya memberikan hak akses untuk dokumen SK dan MOU.
-  // Untuk dokumen SPO, akses tetap mengikuti penugasan hirarki unit pengguna.
+  // Badge STRUKTURAL memiliki akses SPO global sesuai baseline SIDOKTER.
 
   const sopDivision = String(sop.divisionCode || '').trim().toUpperCase();
   if (!sopDivision) return false;
@@ -515,8 +515,8 @@ export function hasStructuralBadge(user?: { badges?: string[] } | null): boolean
   return Boolean(Array.isArray(user?.badges) && user.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL'));
 }
 
-export function hasAdminBadge(user?: { badges?: string[] } | null): boolean {
-  return Boolean(Array.isArray(user?.badges) && user.badges.some((b) => String(b).trim().toUpperCase() === 'ADMIN'));
+export function hasVerificatorBadge(user?: { badges?: string[] } | null): boolean {
+  return Boolean(Array.isArray(user?.badges) && user.badges.some((b) => String(b).trim().toUpperCase() === 'VERIFIKATOR'));
 }
 
 /**
@@ -532,8 +532,8 @@ export function canUserAccessProtectedDocs(user?: { role?: string; badges?: stri
 /**
  * Can activate an SPO document:
  * 1. Administrator: can activate.
- * 2. User with badge ADMIN: "Bisa aktivasi dokumen sesuai hirarki user. Tidak boleh akses/aktivasi dokumen di luar hirarkinya."
- * 3. Badge Admin combined with Struktural: has both structural access and activation authority.
+ * 2. User with badge VERIFIKATOR: "Bisa aktivasi dokumen sesuai hirarki user. Tidak boleh akses/aktivasi dokumen di luar hirarkinya."
+ * 3. Badge Verifikator combined with Struktural: has both structural access and activation authority.
  */
 export function canUserActivateSop(
   sop: any,
@@ -551,7 +551,7 @@ export function canUserActivateSop(
 ): boolean {
   if (!userSession || !sop) return false;
   if (userSession.role === 'admin') return true;
-  if (hasAdminBadge(userSession)) {
+  if (hasVerificatorBadge(userSession)) {
     return isSopAccessibleByUser(sop, {
       ...userSession,
       role: userSession.role || 'petugas',

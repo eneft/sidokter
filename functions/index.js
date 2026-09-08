@@ -116,7 +116,7 @@ function cors(req, res) {
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
@@ -454,8 +454,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   try {
-    const pathAction = req.path.replace(/^\/+/, '').split('/').pop();
-    const action = (pathAction && pathAction !== 'authApi' && pathAction !== 'auth') ? pathAction : req.body?.action;
+    const action = req.path.replace(/^\/+/, '').split('/').pop() || req.body?.action;
 
     if (action === 'bootstrap-admin') {
       return await bootstrapInitialAdmin(req, res);
@@ -513,9 +512,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         lockoutUntil: 0
       });
 
-      // SIDOKTER policy: one account may have only one active browser session.
-      // Revoke all previous sessions before issuing the new one.
-      await revokeAllSessions(id);
+      // SIDOKTER multi-device policy: each successful login gets its own
+      // independent server-side session. Existing sessions remain active.
       await createSession(id, sessionId, sessionCreatedAt, {
         userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
         ip: requestIp(req)
@@ -808,7 +806,7 @@ function pdfCors(req, res) {
     res.set('Access-Control-Allow-Origin', origin);
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 

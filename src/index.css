@@ -1777,8 +1777,8 @@ main .rich-text-toolbar,
 }
 
 /* ================================================================
-   SIDOKTER LOGIN — FIXED COMPOSITION / RESPONSIVE VIEWPORT
-   Baseline: RSUD logo | SIDOKTER, fixed card geometry, full sketch.
+   SIDOKTER LOGIN — MODERN 2-COLUMN PROFESSIONAL REDESIGN
+   Simple — Professional — Trusted — Efficient
    ================================================================ */
 .login-page-shell {
   position: relative;
@@ -1786,20 +1786,23 @@ main .rich-text-toolbar,
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  color: #173f6d;
-  background: #f8fbfd;
+  background: #f4f7fb;
+  color: #1e293b;
   overflow-x: hidden;
   overflow-y: auto;
+  font-family: "Plus Jakarta Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
 }
 
-.login-page-background {
+/* Crisp, subtle background canvas without noisy watermark */
+.login-page-bg-canvas {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: cover;
   pointer-events: none;
+  background: 
+    radial-gradient(circle at 15% 15%, rgba(0, 155, 131, 0.04) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(14, 41, 75, 0.05) 0%, transparent 50%),
+    #f4f7fb;
 }
 
 .login-main-content {
@@ -1807,360 +1810,863 @@ main .rich-text-toolbar,
   z-index: 2;
   flex: 1 0 auto;
   width: 100%;
-  max-width: 100%;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding: 32px 16px;
   margin: auto 0;
-  padding: 36px 16px 20px;
   box-sizing: border-box;
 }
 
-.login-brand-header {
-  flex: 0 0 auto;
+/* Master Unified Card Container (2-Column Desktop / 1-Column Mobile) */
+#login-auth-card,
+.login-auth-card {
+  position: relative;
   width: 100%;
+  max-width: 820px;
+  min-height: 490px;
+  background: #ffffff;
+  border-radius: 20px;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  box-shadow: 
+    0 20px 45px -12px rgba(14, 41, 75, 0.09),
+    0 2px 8px -2px rgba(14, 41, 75, 0.04);
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: box-shadow 0.2s ease;
+}
+
+/* Seamless Top Indeterminate Loading Bar */
+.login-card-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(0, 155, 131, 0.15);
+  overflow: hidden;
+  z-index: 30;
+  animation: login-progress-fade 0.2s ease-out;
+}
+
+.login-card-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 155, 131, 0) 0%,
+    #009b83 25%,
+    #00c4a7 50%,
+    #173f6d 78%,
+    rgba(23, 63, 109, 0) 100%
+  );
+  animation: login-indeterminate-sweep 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: left center;
+}
+
+@keyframes login-indeterminate-sweep {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(15%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes login-progress-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ================================================================
+   LEFT COLUMN: BRANDING & RSUD DR. SOEGIRI VISUAL
+   ================================================================ */
+.login-brand-panel {
+  position: relative;
+  background: linear-gradient(150deg, #091a30 0%, #0e294b 52%, #10365c 100%);
+  color: #ffffff;
+  padding: 38px 34px 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Subtle toska radial ambient glow */
+.login-brand-ambient-glow {
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 196, 167, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.login-brand-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Institution Lockup (Logo + Regency/Hospital) */
+.login-brand-institution {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.login-brand-logo-wrap {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 22px;
-}
-
-.login-brand-lockup {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto;
-  max-width: 100%;
 }
 
 .login-brand-rsud-logo {
-  width: 58px;
-  height: 58px;
-  flex: 0 0 58px;
-  margin: 0;
-  border-radius: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.login-brand-divider {
-  width: 1.5px;
-  height: 48px;
-  margin: 0 14px;
-  background: rgba(23, 63, 109, .38);
-  flex: 0 0 1.5px;
+.login-brand-gov-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
 }
 
-.login-brand-wordmark {
-  min-width: 0;
-  text-align: left;
-  line-height: 1;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  width: max-content;
-  max-width: 100%;
+.login-brand-gov-badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  color: #94a9c4;
+  text-transform: uppercase;
+}
+
+.login-brand-hospital-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+  line-height: 1.2;
+}
+
+/* App Hero Typography */
+.login-brand-hero {
+  margin-bottom: 22px;
 }
 
 .login-brand-title {
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  white-space: nowrap;
-  font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 34px;
-  line-height: .95;
-  letter-spacing: -1.1px;
+  font-size: 38px;
   font-weight: 900;
-  width: max-content;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: baseline;
 }
 
-.login-brand-title-navy {
-  color: #173f6d;
-  font-size: inherit;
-  line-height: inherit;
-  font-weight: inherit;
-}
-.login-brand-title-teal {
-  color: #009b83;
-  font-size: 33px;
-  line-height: inherit;
-  font-weight: inherit;
+.login-brand-title-light {
+  color: #ffffff;
 }
 
-.login-brand-subtitle {
-  margin-top: 4px;
-  font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 10.5px;
-  line-height: 1.25;
-  width: 100%;
-  box-sizing: border-box;
+.login-brand-title-accent {
+  color: #00c4a7;
+  margin-left: 1px;
+}
+
+.login-brand-system-name {
+  margin: 8px 0 2px;
+  font-size: 14.5px;
+  font-weight: 750;
+  color: #e2e8f0;
+  line-height: 1.3;
+}
+
+.login-brand-hospital-sub {
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #00c4a7;
+  letter-spacing: 0.2px;
+}
+
+.login-brand-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #94a9c4;
+  max-width: 95%;
+}
+
+/* Trust Features & Pillars */
+.login-brand-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.login-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.login-feature-icon-box {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(0, 155, 131, 0.2);
+  border: 1px solid rgba(0, 196, 167, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.login-feature-text strong {
   display: block;
-  text-align: left;
-  white-space: nowrap;
-  font-weight: 800;
-  color: #173f6d;
-  letter-spacing: 0.6px;
-}
-
-.login-brand-hospital {
-  margin-top: 0px;
-  font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 9.5px;
-  width: 164.781px;
-  line-height: 8.875px;
+  font-size: 11.5px;
   font-weight: 700;
-  box-sizing: border-box;
-  display: block;
-  text-align: left;
-  white-space: nowrap;
-  text-transform: uppercase;
-  color: #526f8f;
-  letter-spacing: 0.5px;
+  color: #f8fafc;
+  line-height: 1.25;
 }
 
+.login-feature-text span {
+  display: block;
+  font-size: 10px;
+  color: #94a9c4;
+  line-height: 1.35;
+  margin-top: 1px;
+}
+
+/* Hospital Footer Note on Left Column */
+.login-brand-footer-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  color: #64748b;
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.login-brand-footer-dot {
+  opacity: 0.6;
+}
+
+/* ================================================================
+   RIGHT COLUMN: LOGIN FORM & USER CONTROLS
+   ================================================================ */
 .login-auth-panel {
-  flex: 0 0 auto;
+  background: #ffffff;
+  padding: 38px 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.login-form-container {
   width: 100%;
-  max-width: 396px;
+  max-width: 320px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
 }
 
-#login-auth-card,
-.login-auth-card {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 24px 26px 22px;
-  margin: 0 auto;
-  border: 1px solid rgba(121, 151, 181, .42);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, .88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 16px 38px rgba(31, 65, 95, .12), 0 2px 6px rgba(23, 63, 109, .04);
+/* Mobile-Only Header */
+.login-mobile-brand-header {
+  display: none;
 }
 
+/* Card Header */
 .login-card-header {
   margin-bottom: 18px;
-  text-align: center;
+  text-align: left;
 }
 
 .login-card-title {
-  margin: 0;
-  color: #173f6d;
-  font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  font-size: 20px;
-  line-height: 1.15;
-  font-weight: 850;
-  letter-spacing: -.45px;
-  text-align: center;
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0e294b;
+  line-height: 1.25;
+  letter-spacing: -0.2px;
 }
 
 .login-card-subtitle {
   margin: 0;
-  color: #5d7591;
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: center;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
 }
 
-.login-form { display: flex; flex-direction: column; gap: 16px; }
+/* Form & Input Fields */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
 .login-field label {
   display: block;
-  margin-bottom: 7px;
-  color: #173f6d;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 5px;
   line-height: 1;
-  font-weight: 750;
 }
-.login-field label span { color: #e94a63; }
-.login-label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.login-label-row small { color: #8aa0b9; font-size: 10px; white-space: nowrap; }
 
-.login-input-wrap { position: relative; }
+.login-field label span {
+  color: #e11d48;
+}
+
+.login-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.login-label-row label {
+  margin-bottom: 0;
+}
+
+.login-label-hint {
+  font-size: 9.5px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.login-input-wrap {
+  position: relative;
+}
+
 .login-input-wrap input {
   display: block;
   width: 100%;
-  height: 50px;
+  height: 40px;
   box-sizing: border-box;
-  padding: 0 42px 0 45px;
-  border: 1px solid #c8d7e6;
-  border-radius: 14px;
+  padding: 0 36px 0 38px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
   outline: none;
-  background: rgba(248,251,253,.82);
-  color: #173f6d;
+  background: #ffffff;
+  color: #0f172a;
   font-family: inherit;
-  font-size: 13px;
-  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+  font-size: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
-.login-input-wrap input::placeholder { color: #91a6bf; }
+
+.login-input-wrap input::placeholder {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.login-input-wrap input:hover:not(:disabled):not(:focus) {
+  border-color: #94a3b8;
+}
+
 .login-input-wrap input:focus {
-  background: rgba(255,255,255,.95);
   border-color: #009b83;
-  box-shadow: 0 0 0 3px rgba(0,155,131,.11);
+  box-shadow: 0 0 0 3px rgba(0, 155, 131, 0.12);
+  background: #ffffff;
 }
+
+.login-input-wrap input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+
 .login-input-icon {
   position: absolute;
-  z-index: 1;
-  left: 15px;
+  left: 12px;
   top: 50%;
-  width: 17px;
-  height: 17px;
   transform: translateY(-50%);
-  color: #91a6bf;
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
   pointer-events: none;
+  transition: color 0.15s ease;
 }
+
+.login-input-wrap:focus-within .login-input-icon {
+  color: #009b83;
+}
+
 .login-password-toggle {
   position: absolute;
-  right: 13px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 32px;
+  height: 28px;
   padding: 0;
-  border: 0;
+  border: none;
+  border-radius: 6px;
   background: transparent;
-  color: #839bb5;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.login-password-toggle:hover:not(:disabled) {
+  color: #0e294b;
+  background: #f1f5f9;
+}
+
+.login-password-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 155, 131, 0.35);
+}
+
+.login-password-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.login-password-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Caps Lock Warning Badge */
+.login-caps-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  border: 1px solid #fde68a;
+  animation: login-fade-in 0.15s ease-out;
+}
+
+/* Options Row: Remember Me & Help Trigger */
+.login-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: -1px;
+  margin-bottom: 2px;
+}
+
+.login-remember-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: #475569;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.login-remember-label:hover {
+  color: #0e294b;
+}
+
+.login-remember-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 4px;
+  accent-color: #009b83;
   cursor: pointer;
 }
-.login-password-toggle svg { width: 17px; height: 17px; }
 
+.login-help-trigger {
+  border: none;
+  background: transparent;
+  padding: 2.5px 5px;
+  border-radius: 5px;
+  color: #008772;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.login-help-trigger:hover {
+  color: #006656;
+  background: #f0fdf9;
+}
+
+.login-help-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 155, 131, 0.4);
+}
+
+/* Submit Button */
 .login-submit-btn {
   width: 100%;
-  height: 46px;
-  margin-top: 1px;
-  border: 0;
-  border-radius: 13px;
-  background: #173f6d;
-  color: white;
-  box-shadow: 0 8px 16px rgba(23,63,109,.18);
+  height: 42px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 10px;
+  background: #0e294b;
+  color: #ffffff;
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 12.5px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   cursor: pointer;
-  transition: transform .15s ease, background .15s ease;
+  box-shadow: 0 4px 12px -2px rgba(14, 41, 75, 0.22);
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 }
-.login-submit-btn:hover { background: #12365e; }
-.login-submit-btn:active { transform: translateY(1px); }
-.login-submit-btn:disabled { opacity: .65; cursor: not-allowed; }
-.login-submit-icon { width: 18px; height: 18px; }
-.login-submit-icon.spin { animation: login-spin 1s linear infinite; }
-@keyframes login-spin { to { transform: rotate(360deg); } }
 
+.login-submit-btn:hover:not(:disabled) {
+  background: #143966;
+  box-shadow: 0 6px 16px -2px rgba(14, 41, 75, 0.3);
+}
+
+.login-submit-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(14, 41, 75, 0.18);
+}
+
+.login-submit-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 155, 131, 0.4);
+}
+
+.login-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.login-submit-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.login-submit-icon.spin {
+  animation: login-spin 1s linear infinite;
+}
+
+@keyframes login-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Security Note */
 .login-security-note {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(125,153,178,.28);
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
   display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #627b96;
+  align-items: flex-start;
+  gap: 7px;
+  color: #64748b;
   font-size: 10px;
   line-height: 1.45;
 }
-.login-security-icon { flex: 0 0 auto; width: 16px; height: 16px; color: #009b83; }
 
-.login-admin-link-wrap { margin-top: 10px; text-align: center; }
-.login-admin-link {
-  border: 0;
-  padding: 2px 4px;
-  background: transparent;
-  color: #8095ad;
-  font-family: inherit;
-  font-size: 10px;
-  cursor: pointer;
+.login-security-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: #009b83;
+  margin-top: 1px;
 }
-.login-admin-link:hover { color: #173f6d; }
 
-.login-notice { margin-bottom: 14px; padding: 10px; border-radius: 10px; display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.4; }
-.login-notice-icon { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; }
-.login-notice-warning { color: #805d00; background: rgba(255,247,218,.88); border: 1px solid #f2df9d; }
-.login-notice-warning .login-notice-icon { color: #b78300; }
-.login-notice-error { color: #9b253b; background: rgba(255,239,242,.9); border: 1px solid #f3c4cd; }
-.login-notice-error .login-notice-icon { color: #d23d58; }
-.login-error-mark { width: 15px; height: 15px; border-radius: 50%; background: #f4bdc7; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; flex: 0 0 auto; }
+/* Support & Help Drawer / Modal */
+.login-help-card {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #134e4a;
+  font-size: 10.5px;
+  line-height: 1.4;
+  animation: login-fade-in 0.2s ease-out;
+}
 
-.login-admin-setup { margin-bottom: 14px; padding: 12px; border: 1px solid #bfe6db; border-radius: 12px; background: rgba(240,253,249,.88); display: grid; gap: 8px; }
-.login-admin-title { color: #173f6d; font-size: 12px; font-weight: 800; }
-.login-admin-copy { margin: 3px 0 0; color: #617b96; font-size: 10px; line-height: 1.4; }
-.login-admin-input { width: 100%; height: 36px; box-sizing: border-box; border: 1px solid #c8d7e6; border-radius: 9px; padding: 0 10px; background: white; outline: none; font: inherit; font-size: 11px; }
-.login-admin-message { padding: 8px; border-radius: 8px; background: white; border: 1px solid #d9e4ed; color: #536d87; font-size: 10px; }
-.login-admin-actions { display: flex; gap: 7px; }
-.login-admin-save, .login-admin-cancel { height: 34px; border-radius: 8px; font-family: inherit; font-size: 10px; font-weight: 750; cursor: pointer; }
-.login-admin-save { flex: 1; border: 0; background: #009b83; color: white; }
-.login-admin-cancel { padding: 0 12px; border: 1px solid #c8d7e6; background: white; color: #526b85; }
+.login-help-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-weight: 750;
+  font-size: 11px;
+}
 
+.login-help-card-close {
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.login-help-card-close:hover {
+  background: rgba(15, 118, 110, 0.12);
+  color: #042f2e;
+}
+
+.login-help-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.login-help-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+}
+
+.login-help-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.login-help-subtext {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(153, 246, 228, 0.8);
+  font-size: 9px;
+  color: #115e59;
+  text-align: center;
+}
+
+/* Notices: Warning & Error */
+.login-notice {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  animation: login-fade-in 0.18s ease-out;
+}
+
+.login-notice-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.login-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.login-notice-warning {
+  color: #854d0e;
+  background: #fefce8;
+  border: 1px solid #fef08a;
+}
+
+.login-notice-warning .login-notice-icon {
+  color: #ca8a04;
+}
+
+.login-notice-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.login-notice-error .login-notice-icon {
+  color: #dc2626;
+}
+
+.login-lockout-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #be123c;
+  background: #ffe4e6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #fecdd3;
+  margin-top: 3px;
+  font-size: 10px;
+}
+
+@keyframes login-fade-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Global Footer */
 .login-page-footer {
   position: relative;
   z-index: 3;
   flex: 0 0 auto;
   width: 100%;
-  padding: 0 16px 13px;
+  padding: 0 16px 16px;
   box-sizing: border-box;
   text-align: center;
-  color: #173f6d;
-  font-size: 10px;
+  color: #64748b;
+  font-size: 11px;
   line-height: 1.4;
 }
 
-@media (max-width: 640px) {
-  .login-page-shell { min-height: 100svh; }
-  .login-main-content { padding: 20px 14px 14px; }
-  .login-brand-header { margin-bottom: 16px; }
-  .login-brand-rsud-logo { width: 48px; height: 48px; flex-basis: 48px; margin: 0; }
-  .login-brand-divider { height: 40px; margin: 0 11px; }
-  .login-brand-title { font-size: clamp(26px, 7.5vw, 30px); letter-spacing: -1px; }
-  .login-brand-subtitle { font-size: clamp(8.8px, 2.5vw, 9.8px); letter-spacing: 0.4px; margin-top: 3px; }
-  .login-brand-hospital { font-size: clamp(7.2px, 2vw, 8.2px); letter-spacing: 0.35px; margin-top: 2px; }
-  .login-auth-panel { width: 100%; max-width: 360px; margin: 0 auto; }
-  .login-auth-card { padding: 20px 20px 16px; border-radius: 18px; margin: 0 auto; }
-  .login-card-header { margin-bottom: 14px; }
-  .login-card-title { font-size: 19px; }
-  .login-card-subtitle { font-size: 11.5px; }
-  .login-form { gap: 14px; }
-  .login-input-wrap input { height: 47px; border-radius: 13px; font-size: 13px; }
-  .login-submit-btn { height: 45px; }
-  .login-security-note { margin-top: 12px; padding-top: 10px; }
-  .login-page-footer { padding-bottom: 12px; font-size: 9.5px; }
+/* ================================================================
+   RESPONSIVE DESIGN (TABLET & MOBILE)
+   ================================================================ */
+@media (max-width: 820px) {
+  #login-auth-card,
+  .login-auth-card {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+    min-height: auto;
+    border-radius: 18px;
+  }
+
+  .login-brand-panel {
+    display: none;
+  }
+
+  .login-auth-panel {
+    padding: 30px 24px;
+  }
+
+  .login-mobile-brand-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .login-mobile-logo {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 3px;
+  }
+
+  .login-mobile-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .login-mobile-brand-title {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    line-height: 1.1;
+  }
+
+  .login-mobile-brand-sub {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .login-card-header {
+    margin-bottom: 16px;
+  }
+
+  .login-card-title {
+    font-size: 17px;
+  }
+
+  .login-card-subtitle {
+    font-size: 11px;
+  }
 }
 
-@media (min-width: 641px) and (max-width: 1024px) {
-  .login-main-content { padding: 28px 16px 16px; }
-  .login-brand-header { margin-bottom: 20px; }
-  .login-brand-rsud-logo { width: 54px; height: 54px; flex-basis: 54px; margin: 0; }
-  .login-brand-divider { height: 44px; margin: 0 13px; }
-  .login-brand-title { font-size: 32px; }
-  .login-auth-panel { width: 100%; max-width: 384px; margin: 0 auto; }
-  .login-auth-card { padding: 24px 24px 20px; border-radius: 20px; margin: 0 auto; }
+@media (max-width: 480px) {
+  .login-main-content {
+    padding: 16px 12px;
+  }
+
+  #login-auth-card,
+  .login-auth-card {
+    max-width: 100%;
+    border-radius: 16px;
+  }
+
+  .login-auth-panel {
+    padding: 24px 18px;
+  }
+
+  .login-form-container {
+    max-width: 100%;
+  }
+
+  .login-input-wrap input {
+    height: 38px;
+    font-size: 12px;
+  }
+
+  .login-submit-btn {
+    height: 40px;
+    font-size: 12px;
+  }
+
+  .login-page-footer {
+    padding-bottom: 12px;
+    font-size: 10px;
+  }
 }
 
-@media (max-height: 720px) {
-  .login-main-content { padding-top: 14px; padding-bottom: 14px; }
-  .login-brand-header { margin-bottom: 12px; }
-  .login-brand-rsud-logo { width: 44px; height: 44px; flex-basis: 44px; }
-  .login-brand-divider { height: 36px; margin: 0 9px; }
-  .login-brand-title { font-size: 26px; }
-  .login-brand-subtitle { font-size: 8.8px; letter-spacing: 0.35px; margin-top: 2px; }
-  .login-brand-hospital { font-size: 7.2px; letter-spacing: 0.3px; margin-top: 1.5px; }
-  .login-auth-card { padding-top: 16px; padding-bottom: 14px; }
-  .login-card-header { margin-bottom: 12px; }
-  .login-form { gap: 12px; }
-  .login-field label { margin-bottom: 4px; }
-  .login-input-wrap input { height: 43px; }
-  .login-submit-btn { height: 42px; }
-  .login-security-note { margin-top: 10px; padding-top: 8px; }
-  .login-admin-link-wrap { margin-top: 6px; }
-}

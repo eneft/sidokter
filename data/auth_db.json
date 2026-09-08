@@ -12,12 +12,60 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-04T09:27:54.092Z",
-      "updatedAt": "2026-09-04T09:28:47.754Z",
-      "credentialStatus": "ACTIVE",
-      "failedLoginAttempts": 0,
-      "lockoutUntil": 0,
-      "lastLoginAt": "2026-09-05T07:15:05.463Z"
+      "createdAt": "2026-09-04T21:05:00.379Z",
+      "updatedAt": "2026-09-08T15:56:32.479Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1788587912270-4c9l": {
+      "id": "usr-1788587912270-4c9l",
+      "username": "arman123",
+      "name": "arman oi",
+      "role": "user",
+      "divisionCode": "DMY",
+      "divisionCodes": [
+        "DMY"
+      ],
+      "assignments": [
+        {
+          "id": "assignment-DMY-ROOT",
+          "divisionCode": "DMY",
+          "unitName": "Bidang Percobaan",
+          "hierarchyPath": []
+        }
+      ],
+      "badges": [
+        "VERIFIKATOR"
+      ],
+      "unitName": "Bidang Percobaan",
+      "createdAt": "2026-09-08T15:10:45.074Z",
+      "updatedAt": "2026-09-08T15:10:45.087Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1788261994005-ss3t": {
+      "id": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "name": "Abdur Rohman, S.Sn",
+      "role": "user",
+      "divisionCode": "UPH",
+      "divisionCodes": [
+        "UPH"
+      ],
+      "assignments": [
+        {
+          "unitName": "Bagian Umum dan Kepegawaian",
+          "hierarchyPath": [],
+          "divisionCode": "UPH",
+          "id": "assignment-UPH-ROOT"
+        }
+      ],
+      "badges": [
+        "STRUKTURAL",
+        "ADMIN"
+      ],
+      "unitName": "Bagian Umum dan Kepegawaian",
+      "createdAt": "2026-09-08T16:24:43.994Z",
+      "updatedAt": "2026-09-08T16:24:44.007Z",
+      "credentialStatus": "ACTIVE"
     }
   },
   "credentials": {
@@ -167,6 +215,87 @@
       "revoked": false,
       "userAgent": "node",
       "ip": "127.0.0.1"
+    },
+    "96502b2c-964b-4f09-bf93-3a9c61e77ded": {
+      "sessionId": "96502b2c-964b-4f09-bf93-3a9c61e77ded",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "6c556914-ea44-4aea-956f-030fba100ee8": {
+      "sessionId": "6c556914-ea44-4aea-956f-030fba100ee8",
+      "authUid": "usr-1788587912270-4c9l",
+      "username": "arman123",
+      "createdAt": 1788880245074,
+      "lastActiveAt": 1788880245074,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "62202db2-79e0-475e-8dc5-76ea0996d911": {
+      "sessionId": "62202db2-79e0-475e-8dc5-76ea0996d911",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "678e8d68-9324-44dd-93b8-4d941bea6518": {
+      "sessionId": "678e8d68-9324-44dd-93b8-4d941bea6518",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "61f08649-f215-4396-884e-7de1144e2e09": {
+      "sessionId": "61f08649-f215-4396-884e-7de1144e2e09",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "de10142c-62f5-4984-b469-57b9a4f7f0ab": {
+      "sessionId": "de10142c-62f5-4984-b469-57b9a4f7f0ab",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "f32e4da0-0680-4ff5-b95a-88ccc7a7da84": {
+      "sessionId": "f32e4da0-0680-4ff5-b95a-88ccc7a7da84",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788882950698,
+      "lastActiveAt": 1788882950698,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "85c3f985-3746-44bb-877e-39a7bbebfeb4": {
+      "sessionId": "85c3f985-3746-44bb-877e-39a7bbebfeb4",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "54bc047b-ad8c-4173-828c-d245af3d6936": {
+      "sessionId": "54bc047b-ad8c-4173-828c-d245af3d6936",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788884683994,
+      "lastActiveAt": 1788884683994,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     }
   },
   "auditLogs": []
