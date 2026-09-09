@@ -1,3 +1,5 @@
+import { getPersistedClientSession } from '../lib/authService';
+
 /**
  * Utility for handling file downloads safely in all browser environments (including iframes & sandboxes)
  * and managing local/IndexedDB persistent document caching for PDFs, scans, and attachments.
@@ -72,6 +74,36 @@ export function dataUrlToBlob(dataUrl: string): Blob {
  */
 export function triggerFileDownload(urlOrDataUrl: string, fileName: string): boolean {
   if (!urlOrDataUrl) return false;
+
+  // Our storage endpoint is private and requires the SIDOKTER session header.
+  // A plain <a href> cannot send X-Session-Id, so fetch the protected file first
+  // and then download the resulting Blob.
+  if (urlOrDataUrl.startsWith('/api/storage/files/')) {
+    const session = getPersistedClientSession();
+    const safeFileName = (fileName || 'Dokumen_SPO.pdf')
+      .replace(/[/\\?%*:|"<>]/g, '_')
+      .replace(/\s+/g, '_');
+    void fetch(urlOrDataUrl, {
+      headers: session?.sessionId ? { 'X-Session-Id': session.sessionId } : undefined
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
+      const blobUrl = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = safeFileName;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }, 2000);
+    }).catch((error) => {
+      console.error('Protected file download error:', error);
+      try { window.open(urlOrDataUrl, '_blank', 'noopener,noreferrer'); } catch {}
+    });
+    return true;
+  }
 
   try {
     let downloadUrl = urlOrDataUrl;

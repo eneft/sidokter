@@ -304,7 +304,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         ];
         for (const sUrl of serverUrls) {
           try {
-            const head = await fetch(sUrl, { method: 'HEAD' });
+            const persisted = getPersistedClientSession();
+            const headers: Record<string, string> = {};
+            if (persisted?.sessionId) headers['X-Session-Id'] = persisted.sessionId;
+            const head = await fetch(sUrl, { method: 'HEAD', headers });
             if (head.ok && !isCancelled) {
               setResolvedLegacyFileUrl(sUrl);
               setIsLoadingLegacyFile(false);
@@ -343,6 +346,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       let fileUrl = sop.oldFileDataUrl || getFileFromLocalCache(sop.id, 'oldFile');
       if (!fileUrl) {
         fileUrl = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
+      }
+      if (!fileUrl) {
+        fileUrl = (sop as any).oldFileUrl || null;
       }
       const safeNum = (sop.oldSopNumber || sop.sopNumber || 'SPO').replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_');
       const fileName = sop.oldFileName || `Bukti_Riviu_${safeNum}.pdf`;

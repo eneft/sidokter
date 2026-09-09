@@ -175,25 +175,39 @@ function initFirestoreSopSync(userSession?: UserSession | null): () => void {
   const globalAccess = userSession?.role === 'admin'
     || hasAllHierarchyAssignment;
 
-  const applyCloudSops = async (cloudSops: SopDocument[]) => {
-    if (!active) return;
-    if (!Array.isArray(cloudSops) || cloudSops.length === 0) {
-      // Never wipe local IndexedDB when cloud fetch is empty or offline
-      return;
-    }
-    const local = await idbGetAllSops();
-    if (!active) return;
-    const localMap = new Map(local.map((s) => [s.id, s]));
-    for (const s of cloudSops) {
-      const exist = localMap.get(s.id);
-      const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      localMap.set(s.id, merged);
-    }
-    await idbPutSops(Array.from(localMap.values()));
-    if (active) notifySopSubscribers();
+  // Serialize cloud -> IndexedDB writes. Initial fetch and realtime snapshots can
+  // arrive at nearly the same time; without a queue an older snapshot can finish
+  // after a newer one and make a file reference appear/disappear intermittently.
+  let cloudApplyQueue: Promise<void> = Promise.resolve();
+  let cloudRevision = 0;
+
+  const applyCloudSops = (cloudSops: SopDocument[]) => {
+    const revision = ++cloudRevision;
+    cloudApplyQueue = cloudApplyQueue.then(async () => {
+      if (!active) return;
+      if (!Array.isArray(cloudSops) || cloudSops.length === 0) return;
+
+      const local = await idbGetAllSops();
+      if (!active || revision < cloudRevision) return;
+
+      const localMap = new Map(local.map((s) => [s.id, s]));
+      for (const s of cloudSops) {
+        const exist = localMap.get(s.id);
+        const merged = { ...exist, ...s };
+        // Firestore deliberately replaces large DataURLs with this marker. Never
+        // let the marker erase a locally cached binary, but always preserve a
+        // durable cloud URL when one exists.
+        if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
+        if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
+        if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
+        localMap.set(s.id, merged);
+      }
+      await idbPutSops(Array.from(localMap.values()));
+      if (active) notifySopSubscribers();
+    }).catch((err) => {
+      console.warn('[SPO sync] Failed applying cloud snapshot:', err);
+    });
+    return cloudApplyQueue;
   };
 
   void fetchSopsFromFirestore(scopedKeys, globalAccess).then(applyCloudSops).catch(() => {});
@@ -237,28 +251,47 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   const all = await getSops();
   const next = normalizeSop(sop);
 
-  // Auto-upload binary attachments to cloud storage so they are accessible from all devices
-  if (next.fileDataUrl && next.fileDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`).then((res) => {
-      next.fileUrl = res.url;
-    }).catch(() => {});
+  // IMPORTANT: file upload is part of the authoritative save. The old code
+  // started uploads in the background and immediately wrote Firestore, so the
+  // document could be published without fileUrl. That made it work only on the
+  // browser that still had the local cache.
+  const uploadTasks: Promise<void>[] = [];
+
+  if (next.fileDataUrl?.startsWith('data:') && !next.fileUrl) {
+    uploadTasks.push(
+      uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`)
+        .then((res) => { next.fileUrl = res.url; })
+    );
   }
-  if (next.signedScanDataUrl && next.signedScanDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`).then((res) => {
-      next.signedScanUrl = res.url;
-    }).catch(() => {});
+  if (next.signedScanDataUrl?.startsWith('data:') && !next.signedScanUrl) {
+    uploadTasks.push(
+      uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`)
+        .then((res) => { next.signedScanUrl = res.url; })
+    );
   }
-  if (next.oldFileDataUrl && next.oldFileDataUrl.startsWith('data:')) {
-    void uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`).then((res) => {
-      next.oldFileUrl = res.url;
-    }).catch(() => {});
+  if (next.oldFileDataUrl?.startsWith('data:') && !next.oldFileUrl) {
+    uploadTasks.push(
+      uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`)
+        .then((res) => { next.oldFileUrl = res.url; })
+    );
+  }
+
+  if (uploadTasks.length) {
+    try {
+      await Promise.all(uploadTasks);
+    } catch (err) {
+      // Do not publish a SPO whose binary could not be made durable. The caller
+      // gets the error and can retry; local IndexedDB is not treated as the
+      // authoritative cross-device copy.
+      throw new Error(`File SPO gagal disimpan ke penyimpanan permanen: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const index = all.findIndex((s) => s.id === next.id);
   if (index >= 0) all[index] = next; else all.push(next);
   await idbPutSops(all);
   notifySopSubscribers();
-  void saveSopToFirestore(next);
+  await saveSopToFirestore(next);
 }
 
 export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {

@@ -24,7 +24,6 @@ import {
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
 import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
-import { uploadFileToCloudStorage } from '../lib/cloudStorageService';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -671,19 +670,16 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     }
 
     const newGeneratedId = `sop-${Date.now()}`;
+    // Keep a local cache for instant preview. Durable cloud upload is performed
+    // exactly once by saveSopToLocal/onSubmit, and is awaited before the SPO is
+    // considered successfully saved. This avoids publishing metadata without a
+    // permanent file URL.
     if (fileDataUrl) {
       saveFileToLocalCache(newGeneratedId, 'file', fileDataUrl);
       saveFileToLocalCache(newGeneratedId, 'signedScan', fileDataUrl);
-      void uploadFileToCloudStorage(fileDataUrl, selectedFile?.name || 'Dokumen.pdf', `${newGeneratedId}_file`).then(res => {
-        (newSopDoc as any).fileUrl = res.url;
-        (newSopDoc as any).signedScanUrl = res.url;
-      }).catch(() => {});
     }
     if (documentType === 'REVIEW' && oldFileDataUrl) {
       saveFileToLocalCache(newGeneratedId, 'oldFile', oldFileDataUrl);
-      void uploadFileToCloudStorage(oldFileDataUrl, selectedOldFile?.name || 'BuktiRiviu.pdf', `${newGeneratedId}_oldFile`).then(res => {
-        (newSopDoc as any).oldFileUrl = res.url;
-      }).catch(() => {});
     }
 
     // Lock synchronously immediately before the authoritative save.

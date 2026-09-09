@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getPersistedClientSession } from '../lib/authService';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { 
@@ -238,7 +239,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           blob = dataUrlToBlob(effectiveFileUrl);
           arrayBuffer = await blob.arrayBuffer();
         } else if (effectiveFileUrl.startsWith('blob:') || effectiveFileUrl.startsWith('http') || effectiveFileUrl.startsWith('/')) {
-          const res = await fetch(effectiveFileUrl);
+          const headers: Record<string, string> = {};
+          // Server storage is session-protected. Browser fetch() does not carry
+          // SIDOKTER's X-Session-Id automatically, so cloud PDFs could return
+          // 401 even though the user is logged in. Only attach the private session
+          // header to our own storage endpoint.
+          if (effectiveFileUrl.startsWith('/api/storage/files/')) {
+            const session = getPersistedClientSession();
+            if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+          }
+          const res = await fetch(effectiveFileUrl, { headers });
           if (!res.ok) {
             throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
           }
@@ -247,7 +257,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         } else if (effectiveFileUrl.startsWith('local://')) {
           const id = effectiveFileUrl.replace('local://', '');
           const fallbackServerUrl = `/api/storage/files/${id}`;
-          const res = await fetch(fallbackServerUrl);
+          const session = getPersistedClientSession();
+          const headers: Record<string, string> = {};
+          if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+          const res = await fetch(fallbackServerUrl, { headers });
           if (!res.ok) {
             throw new Error('File tidak ditemukan di penyimpanan server.');
           }

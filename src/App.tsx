@@ -1662,7 +1662,9 @@ export default function App() {
     try {
       await saveSopToLocal(finalUpdatedSop);
     } catch (err) {
-      console.error('Error updating SOP in local database:', err);
+      console.error('Error updating SOP in local/cloud storage:', err);
+      addToast('error', 'Perubahan Belum Tersimpan', err instanceof Error ? err.message : 'Dokumen gagal disimpan ke penyimpanan permanen.');
+      return;
     }
 
     addToast('success', 'Perubahan Disimpan', `Dokumen ${finalUpdatedSop.sopNumber} berhasil diperbarui.`);
