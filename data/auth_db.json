@@ -52,19 +52,23 @@
       ],
       "assignments": [
         {
-          "unitName": "Bagian Umum dan Kepegawaian",
-          "hierarchyPath": [],
+          "id": "assignment-UPH-1",
           "divisionCode": "UPH",
-          "id": "assignment-UPH-ROOT"
+          "unitName": "Umum & Perlengkapan",
+          "subCode": "1",
+          "hierarchyCode": "1",
+          "hierarchyPath": [
+            "Umum & Perlengkapan"
+          ]
         }
       ],
       "badges": [
         "STRUKTURAL",
-        "ADMIN"
+        "VERIFIKATOR"
       ],
-      "unitName": "Bagian Umum dan Kepegawaian",
-      "createdAt": "2026-09-08T16:24:43.994Z",
-      "updatedAt": "2026-09-08T16:24:44.007Z",
+      "unitName": "Umum & Perlengkapan",
+      "createdAt": "2026-09-09T16:42:51.187Z",
+      "updatedAt": "2026-09-09T16:42:51.201Z",
       "credentialStatus": "ACTIVE"
     }
   },
@@ -81,7 +85,7 @@
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788514115722,
-      "lastActiveAt": 1788514124627,
+      "lastActiveAt": 1788972168466,
       "revoked": false,
       "userAgent": "curl/7.88.1",
       "ip": "127.0.0.1"
@@ -294,6 +298,15 @@
       "username": "arman",
       "createdAt": 1788884683994,
       "lastActiveAt": 1788884683994,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "bcbc3fae-62bd-4df6-bd39-57600e273078": {
+      "sessionId": "bcbc3fae-62bd-4df6-bd39-57600e273078",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788972171187,
+      "lastActiveAt": 1788972171187,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     }

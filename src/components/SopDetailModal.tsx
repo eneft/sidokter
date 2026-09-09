@@ -39,7 +39,7 @@ import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { triggerFileDownload, openDocumentPreview } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
-import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
+import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from '../lib/authService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 
@@ -1632,7 +1632,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       clonedRoot.classList.add('pdf-export-document');
 
-      const response = await fetch('/api/pdf', {
+      let response = await fetch('/api/pdf', {
         method: 'POST',
         headers: {
           'Accept': 'application/pdf',
@@ -1659,6 +1659,40 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
         })
       });
+
+      // If server session expired or was unauthenticated, auto-refresh and retry once
+      if (response.status === 401) {
+        try {
+          const refreshedToken = await getCurrentAuthToken(true);
+          const refreshedSession = await refreshUserSessionProfile();
+          const activeToken = refreshedToken || (await getCurrentAuthToken());
+          const activeSession = refreshedSession || getPersistedClientSession();
+
+          if (activeToken || activeSession?.sessionId) {
+            response = await fetch('/api/pdf', {
+              method: 'POST',
+              headers: {
+                'Accept': 'application/pdf',
+                'Content-Type': 'application/json',
+                ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+                ...(activeSession?.sessionId ? { 'X-Session-Id': activeSession.sessionId } : {}),
+                ...(activeSession?.authUid ? { 'X-Soegiri-Auth-Uid': activeSession.authUid } : {})
+              },
+              body: JSON.stringify({
+                html: clonedRoot.outerHTML,
+                css: cssParts.join('\n'),
+                baseUrl: window.location.origin,
+                authUid: activeSession?.authUid || authUid,
+                sopNumber: sop.sopNumber,
+                title: previewTitle,
+                filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
+              })
+            });
+          }
+        } catch (refreshErr) {
+          console.warn('[SOP Detail] Session auto-refresh failed:', refreshErr);
+        }
+      }
 
       if (!response.ok) {
         let message = `PDF gagal dibuat (HTTP ${response.status}).`;

@@ -67,10 +67,6 @@ import {
 } from './lib/authService';
 
 // Components
-import { Header } from './components/Header';
-import { DashboardStats } from './components/DashboardStats';
-import { SopFilterBar } from './components/SopFilterBar';
-import { SopTable } from './components/SopTable';
 import { UploadSopModal } from './components/UploadSopModal';
 import { SopDetailModal } from './components/SopDetailModal';
 import { EditSopModal } from './components/EditSopModal';
@@ -92,35 +88,10 @@ import { LoginPage } from './components/LoginPage';
 import { UserView } from './components/UserView';
 import { UserManagementModal } from './components/UserManagementModal';
 import { SecurityAccountPanel } from './components/SecurityAccountPanel';
-import { HospitalLogo } from './components/HospitalLogo';
 import { MasterDataModal } from './components/MasterDataModal';
 import { BackupRestorePanel } from './components/BackupRestorePanel';
 import { MaintenancePage } from './components/MaintenancePage';
 import { MaintenanceModal } from './components/MaintenanceModal';
-import { SKPage } from './components/SKPage';
-import { MOUPage } from './components/MOUPage';
-import { AdminLibraryPage } from './components/AdminLibraryPage';
-import { DashboardOverviewPage } from './components/DashboardOverviewPage';
-import { FinalLibraryPage } from './components/FinalLibraryPage';
-import { AdminHubPage } from './components/AdminHubPage';
-import { 
-  Home, 
-  FileText, 
-  Plus, 
-  Users, 
-  ShieldCheck, 
-  LogOut, 
-  Menu, 
-  X, 
-  Database, 
-  DatabaseBackup, 
-  Wrench,
-  Printer,
-  Calendar,
-  Sparkles,
-  Layers,
-  BookOpen
-} from 'lucide-react';
 
 export default function App() {
   // Auth & Session State with Cryptographic Per-Device Sessions
@@ -173,32 +144,46 @@ export default function App() {
   // cross-device persistent login. Server-side session registry remains authoritative; each device/tab gets its own session.
   useEffect(() => {
     let cancelled = false;
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setIsSessionRestoring(false);
+    }, 4000);
+
     (async () => {
-      const persisted = getPersistedClientSession();
-      if (!persisted) {
-        if (!cancelled) setIsSessionRestoring(false);
-        return;
-      }
+      try {
+        const persisted = getPersistedClientSession();
+        if (!persisted) {
+          if (!cancelled) setIsSessionRestoring(false);
+          return;
+        }
 
-      const valid = await validatePersistedClientSession(persisted);
-      if (cancelled) return;
-
-      if (valid) {
-        const refreshed = await refreshUserSessionProfile(persisted);
+        const valid = await validatePersistedClientSession(persisted);
         if (cancelled) return;
-        if (refreshed) {
-          setSessionKey(Date.now());
-          setUserSession(refreshed);
+
+        if (valid) {
+          const refreshed = await refreshUserSessionProfile(persisted);
+          if (cancelled) return;
+          if (refreshed) {
+            setSessionKey(Date.now());
+            setUserSession(refreshed);
+          } else {
+            clearPersistedClientSession();
+          }
         } else {
           clearPersistedClientSession();
         }
-      } else {
+      } catch (err) {
+        console.warn('Session restoration failed:', err);
         clearPersistedClientSession();
+      } finally {
+        clearTimeout(safetyTimer);
+        if (!cancelled) setIsSessionRestoring(false);
       }
-      setIsSessionRestoring(false);
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
   }, []);
 
 

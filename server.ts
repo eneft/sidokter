@@ -4,6 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { generatePdf } from './server/pdfRenderer';
 import { handleAuthApi, verifyServerSession } from './server/authHandler';
+import { handleStorageUpload, handleStorageDownload, handleStorageDelete } from './server/storageHandler';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -29,8 +30,10 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SOEGIRI_DOC
 // Dedicated internal auth endpoints: /api/auth and /api/authApi
 app.all(['/api/auth', '/api/authApi', '/api/auth/:action', '/api/authApi/:action'], handleAuthApi);
 
-// SPO binaries are stored exclusively in Firebase Cloud Storage via the storageApi function.
-// No local /api/storage filesystem endpoint is registered here.
+// File storage endpoints for document uploads & secure streaming
+app.post('/api/storage/upload', handleStorageUpload);
+app.get(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDownload);
+app.delete(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDelete);
 
 
 app.post('/api/pdf', async (req, res) => {
@@ -78,23 +81,11 @@ app.post('/api/pdf', async (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'custom'
+      server: { middlewareMode: true, hmr: false },
+      appType: 'spa'
     });
 
     app.use(vite.middlewares);
-
-    app.use('*', async (req, res, next) => {
-      const url = req.originalUrl;
-      try {
-        let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
-        template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-      } catch (e) {
-        vite.ssrFixStacktrace(e as Error);
-        next(e);
-      }
-    });
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
