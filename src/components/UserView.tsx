@@ -499,6 +499,10 @@ export const UserView: React.FC<UserViewProps> = ({
   });
 
   const handleIssueNumber = async () => {
+    if (userSession.role !== 'admin') {
+      onShowToast?.('error', 'Akses Ditolak', 'Hanya Administrator yang dapat menerbitkan nomor.');
+      return;
+    }
     if (!onIssueSopNumber || !hasValidUserAssignment) return;
     if (!issueTitle.trim()) { onShowToast?.('error', 'Data Belum Lengkap', 'Judul SPO wajib diisi.'); return; }
     if (!issueEffectiveDate) { onShowToast?.('error', 'Data Belum Lengkap', 'Tanggal berlaku wajib diisi.'); return; }
@@ -1169,41 +1173,45 @@ export const UserView: React.FC<UserViewProps> = ({
                   <span>+ SPO Baru</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubmitError(null);
-                    setIssueTitle('');
-                    setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
-                    setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
-                    setShowIssueNumberModal(true);
-                  }}
-                  disabled={isIssuingNumber}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
-                >
-                  <FileCheck2 className="w-4 h-4" />
-                  <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
-                </button>
+                {userSession.role === 'admin' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubmitError(null);
+                        setIssueTitle('');
+                        setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
+                        setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
+                        setShowIssueNumberModal(true);
+                      }}
+                      disabled={isIssuingNumber}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                    >
+                      <FileCheck2 className="w-4 h-4" />
+                      <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const rows = await getAllNumberReservations();
-                    const allowed = userSession.role === 'admin' ? true : null;
-                    const visible = rows
-                      .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
-                      .filter((row) => allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))
-                      .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
-                    setIssuedNumberRegister(visible);
-                    setIssuedNumberSearch('');
-                    setShowIssuedNumbers(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
-                >
-                  <ListOrdered className="w-4 h-4" />
-                  <span>Nomor Terbit</span>
-                  <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const rows = await getAllNumberReservations();
+                        const allowed = userSession.role === 'admin' ? true : null;
+                        const visible = rows
+                          .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
+                          .filter((row) => allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))
+                          .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
+                        setIssuedNumberRegister(visible);
+                        setIssuedNumberSearch('');
+                        setShowIssuedNumbers(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                    >
+                      <ListOrdered className="w-4 h-4" />
+                      <span>Nomor Terbit</span>
+                      <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -2245,7 +2253,7 @@ export const UserView: React.FC<UserViewProps> = ({
 
 
       {/* Nomor Terbit Modal */}
-      {showIssuedNumbers && (
+      {userSession.role === 'admin' && showIssuedNumbers && (
         <div className="fixed inset-0 z-[75] bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowIssuedNumbers(false); }}>
           <div className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
@@ -2301,19 +2309,21 @@ export const UserView: React.FC<UserViewProps> = ({
       )}
 
       {/* Issue SOP Number Modal */}
-      <IssueSopNumberModal
-        open={showIssueNumberModal}
-        title={issueTitle}
-        effectiveDate={issueEffectiveDate}
-        hierarchyOptions={issueHierarchyOptions}
-        selectedHierarchyId={issueHierarchyId}
-        isIssuingNumber={isIssuingNumber}
-        onTitleChange={setIssueTitle}
-        onEffectiveDateChange={setIssueEffectiveDate}
-        onHierarchyChange={setIssueHierarchyId}
-        onClose={() => setShowIssueNumberModal(false)}
-        onSubmit={handleIssueNumber}
-      />
+      {userSession.role === 'admin' && (
+        <IssueSopNumberModal
+          open={showIssueNumberModal}
+          title={issueTitle}
+          effectiveDate={issueEffectiveDate}
+          hierarchyOptions={issueHierarchyOptions}
+          selectedHierarchyId={issueHierarchyId}
+          isIssuingNumber={isIssuingNumber}
+          onTitleChange={setIssueTitle}
+          onEffectiveDateChange={setIssueEffectiveDate}
+          onHierarchyChange={setIssueHierarchyId}
+          onClose={() => setShowIssueNumberModal(false)}
+          onSubmit={handleIssueNumber}
+        />
+      )}
 
       {/* Success Modal */}
       {isSuccessModalOpen && latestCreatedSop && (

@@ -947,45 +947,49 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
                   <span>+ SPO Baru</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubmitError(null);
-                    setIssueTitle('');
-                    setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
-                    setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
-                    setShowIssueNumberModal(true);
-                  }}
-                  disabled={isIssuingNumber}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
-                >
-                  <FileCheck2 className="w-3.5 h-3.5" />
-                  <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
-                </button>
+                {userSession.role === 'admin' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubmitError(null);
+                        setIssueTitle('');
+                        setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
+                        setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
+                        setShowIssueNumberModal(true);
+                      }}
+                      disabled={isIssuingNumber}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                    >
+                      <FileCheck2 className="w-3.5 h-3.5" />
+                      <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const rows = await getAllNumberReservations();
-                    const allowed = userSession.role === 'admin';
-                    setIssuedNumberRegister(
-                      rows
-                        .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) && (allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase())))
-                        .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)))
-                    );
-                    setShowIssuedNumbers(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
-                >
-                  <ListOrdered className="w-3.5 h-3.5" />
-                  <span>Nomor Terbit</span>
-                  <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const rows = await getAllNumberReservations();
+                        const allowed = userSession.role === 'admin';
+                        setIssuedNumberRegister(
+                          rows
+                            .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) && (allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase())))
+                            .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)))
+                        );
+                        setShowIssuedNumbers(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                    >
+                      <ListOrdered className="w-3.5 h-3.5" />
+                      <span>Nomor Terbit</span>
+                      <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
             {/* Nomor Terbit: modal, bukan dropdown */}
-            {showIssuedNumbers && (
+            {userSession.role === 'admin' && showIssuedNumbers && (
               <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="issued-number-title">
                 <button type="button" aria-label="Tutup Nomor Terbit" onClick={() => setShowIssuedNumbers(false)} className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px] cursor-default" />
                 <div className="relative w-full max-w-3xl max-h-[82vh] rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
@@ -1850,19 +1854,21 @@ export const PetugasView: React.FC<PetugasViewProps> = ({
 
 
       {/* Issue SOP Number Modal */}
-      <IssueSopNumberModal
-        open={showIssueNumberModal}
-        title={issueTitle}
-        effectiveDate={issueEffectiveDate}
-        hierarchyOptions={issueHierarchyOptions}
-        selectedHierarchyId={issueHierarchyId}
-        isIssuingNumber={isIssuingNumber}
-        onTitleChange={setIssueTitle}
-        onEffectiveDateChange={setIssueEffectiveDate}
-        onHierarchyChange={setIssueHierarchyId}
-        onClose={() => setShowIssueNumberModal(false)}
-        onSubmit={handleIssueNumber}
-      />
+      {userSession.role === 'admin' && (
+        <IssueSopNumberModal
+          open={showIssueNumberModal}
+          title={issueTitle}
+          effectiveDate={issueEffectiveDate}
+          hierarchyOptions={issueHierarchyOptions}
+          selectedHierarchyId={issueHierarchyId}
+          isIssuingNumber={isIssuingNumber}
+          onTitleChange={setIssueTitle}
+          onEffectiveDateChange={setIssueEffectiveDate}
+          onHierarchyChange={setIssueHierarchyId}
+          onClose={() => setShowIssueNumberModal(false)}
+          onSubmit={handleIssueNumber}
+        />
+      )}
 
       {/* Success Modal */}
       {isSuccessModalOpen && latestCreatedSop && (
