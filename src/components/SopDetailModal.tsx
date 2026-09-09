@@ -93,7 +93,7 @@ const PreviewMetadata: React.FC<{ sop: SopDocument; kind: 'BARU' | 'EKSISTING' |
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border ${sop.status === 'AKTIF' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : sop.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>{status}</span>
       </div>
       <div className="px-4 sm:px-5 py-4 space-y-3">
-        <div><div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Judul SPO</div><h3 className="mt-0.5 text-base sm:text-lg font-extrabold leading-snug text-slate-900">{sop.title || 'Tanpa Judul SPO'}</h3></div>
+        <div><div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Judul SPO</div><h3 className="mt-0.5 text-[12px] font-extrabold leading-snug text-slate-900">{sop.title || 'Tanpa Judul SPO'}</h3></div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Nomor SPO</span><span className="mt-0.5 block font-mono text-[11px] font-bold text-blue-900 break-words leading-tight">{sop.sopNumber || '-'}</span></div>
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Pengusul</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposer}</span></div>
@@ -1630,6 +1630,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         }
       });
 
+      // Crucial: remove all measurement artifacts, no-print elements, and hidden nodes
+      clonedRoot.querySelectorAll('.no-print, .sop-measure-root, [data-measure-page], [aria-hidden="true"]').forEach(node => node.remove());
+
       clonedRoot.classList.add('pdf-export-document');
 
       let response = await fetch('/api/pdf', {
@@ -1696,16 +1699,20 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       if (!response.ok) {
         let message = `PDF gagal dibuat (HTTP ${response.status}).`;
+        const rawText = await response.text().catch(() => '');
         try {
-          const payload = await response.json();
+          const payload = JSON.parse(rawText);
           if (payload?.message) {
             message = payload.detail && payload.detail !== payload.message
-              ? `${payload.message} — ${payload.detail}`
+              ? `${payload.message} (${payload.detail})`
               : payload.message;
+          } else if (rawText) {
+            message += ` ${rawText.slice(0, 300)}`;
           }
         } catch {
-          const raw = await response.text().catch(() => '');
-          if (raw) message += ` ${raw.slice(0, 500)}`;
+          if (rawText) {
+            message += ` ${rawText.slice(0, 300)}`;
+          }
         }
         throw new Error(message);
       }
@@ -1734,7 +1741,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       window.setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (error: any) {
       console.error('Direct PDF generation failed:', error);
-      alert(error?.message || 'PDF gagal dibuat. Silakan coba lagi.');
+      const userMsg = error?.message || 'PDF gagal dibuat. Silakan coba lagi.';
+      const shouldFallback = window.confirm(
+        `${userMsg}\n\nIngin membuka pratinjau cetak / simpan PDF melalui browser sekarang?`
+      );
+      if (shouldFallback) {
+        handlePrintOfficialSop();
+      }
     } finally {
       setIsPdfGenerating(false);
     }

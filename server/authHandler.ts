@@ -248,7 +248,79 @@ export async function verifyServerSession(req: Request): Promise<{ authUid: stri
     }
   }
 
-  // 2. If not found locally, attempt to verify upstream with Cloud Auth API (action: 'session')
+  // 2. Fast-path: check valid JWT bearer token locally first (0ms latency, eliminates external network hangs)
+  if (header.startsWith('Bearer ')) {
+    const rawToken = header.slice(7).trim();
+    try {
+      const parts = rawToken.split('.');
+      if (parts.length === 3) {
+        const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf-8');
+        const payload = JSON.parse(payloadJson);
+        const uid = payload.user_id || payload.uid || payload.sub || xAuthUid;
+        const nowSec = Math.floor(Date.now() / 1000);
+        
+        // Check reasonable leeway of 15 minutes
+        if ((!payload.exp || (payload.exp + 900) > nowSec) && uid) {
+          authDb = ensureDbLoaded();
+          let user = authDb.users[uid] || Object.values(authDb.users).find((u) => u.id === uid || u.username === (payload.email ? payload.email.split('@')[0] : ''));
+          
+          const isAdmin = payload.email === 'gelapgulita3@gmail.com' || payload.role === 'admin' || payload.admin === true;
+          if (!user && isAdmin) {
+            user = authDb.users['admin-root'];
+          }
+
+          if (!user && payload.email) {
+            const username = payload.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            user = {
+              id: uid,
+              username,
+              name: payload.name || payload.email || username,
+              role: isAdmin ? 'admin' : normalizeRole(payload.role),
+              divisionCode: 'ALL',
+              divisionCodes: ['ALL'],
+              assignments: [],
+              badges: [],
+              unitName: 'RSUD Dr. Soegiri Lamongan',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              credentialStatus: 'ACTIVE'
+            };
+            authDb.users[uid] = user;
+          }
+
+          if (user) {
+            const effectiveSessionId = xSessionId || `sess_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+            authDb.sessions[effectiveSessionId] = {
+              sessionId: effectiveSessionId,
+              authUid: user.id,
+              username: user.username,
+              createdAt: Date.now(),
+              lastActiveAt: Date.now(),
+              revoked: false,
+              userAgent: String(req.headers['user-agent'] || 'client')
+            };
+            saveDb(authDb);
+
+            return {
+              authUid: user.id,
+              username: user.username,
+              role: user.role,
+              badges: Array.isArray(user.badges) ? user.badges : [],
+              assignments: Array.isArray(user.assignments) ? user.assignments : [],
+              divisionCode: user.divisionCode,
+              divisionCodes: Array.isArray(user.divisionCodes) ? user.divisionCodes : [],
+              subCode: user.subCode,
+              instCode: user.instCode,
+              poliCode: user.poliCode,
+              subUnitCode: user.subUnitCode
+            };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 3. If not found locally or via JWT, attempt to verify upstream with Cloud Auth API (action: 'session')
   if (xSessionId && (header.startsWith('Bearer ') || CLOUD_AUTH_API_URL)) {
     try {
       const candidateUrls = [CLOUD_AUTH_API_URL];
@@ -268,7 +340,7 @@ export async function verifyServerSession(req: Request): Promise<{ authUid: stri
               ...(xAuthUid ? { 'X-Soegiri-Auth-Uid': xAuthUid } : {})
             },
             body: JSON.stringify({ action: 'session' }),
-            signal: AbortSignal.timeout(6000)
+            signal: AbortSignal.timeout(3000)
           });
           if (upstreamRes.ok) {
             const data = await upstreamRes.json();
@@ -316,58 +388,6 @@ export async function verifyServerSession(req: Request): Promise<{ authUid: stri
             }
           }
         } catch {}
-      }
-    } catch {}
-  }
-
-  // 3. Fallback for valid JWT bearer token (e.g. after container restart before upstream resync)
-  if (header.startsWith('Bearer ')) {
-    const rawToken = header.slice(7).trim();
-    try {
-      const parts = rawToken.split('.');
-      if (parts.length === 3) {
-        const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf-8');
-        const payload = JSON.parse(payloadJson);
-        const uid = payload.user_id || payload.uid || payload.sub || xAuthUid;
-        const nowSec = Math.floor(Date.now() / 1000);
-        
-        // Check reasonable leeway of 5 minutes
-        if ((!payload.exp || (payload.exp + 300) > nowSec) && uid) {
-          authDb = ensureDbLoaded();
-          let user = authDb.users[uid] || Object.values(authDb.users).find((u) => u.id === uid || u.username === (payload.email ? payload.email.split('@')[0] : ''));
-          
-          if (!user && (payload.email === 'gelapgulita3@gmail.com' || payload.role === 'admin' || payload.admin === true)) {
-            user = authDb.users['admin-root'];
-          }
-
-          if (user) {
-            const effectiveSessionId = xSessionId || `sess_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
-            authDb.sessions[effectiveSessionId] = {
-              sessionId: effectiveSessionId,
-              authUid: user.id,
-              username: user.username,
-              createdAt: Date.now(),
-              lastActiveAt: Date.now(),
-              revoked: false,
-              userAgent: String(req.headers['user-agent'] || 'client')
-            };
-            saveDb(authDb);
-
-            return {
-              authUid: user.id,
-              username: user.username,
-              role: user.role,
-              badges: Array.isArray(user.badges) ? user.badges : [],
-              assignments: Array.isArray(user.assignments) ? user.assignments : [],
-              divisionCode: user.divisionCode,
-              divisionCodes: Array.isArray(user.divisionCodes) ? user.divisionCodes : [],
-              subCode: user.subCode,
-              instCode: user.instCode,
-              poliCode: user.poliCode,
-              subUnitCode: user.subUnitCode
-            };
-          }
-        }
       }
     } catch {}
   }

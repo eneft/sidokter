@@ -13,7 +13,7 @@
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
       "createdAt": "2026-09-04T21:05:00.379Z",
-      "updatedAt": "2026-09-08T15:56:32.479Z",
+      "updatedAt": "2026-09-09T18:27:33.881Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -67,8 +67,8 @@
         "VERIFIKATOR"
       ],
       "unitName": "Umum & Perlengkapan",
-      "createdAt": "2026-09-09T16:42:51.187Z",
-      "updatedAt": "2026-09-09T16:42:51.201Z",
+      "createdAt": "2026-09-09T18:36:12.866Z",
+      "updatedAt": "2026-09-09T18:36:12.878Z",
       "credentialStatus": "ACTIVE"
     }
   },
@@ -85,7 +85,7 @@
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788514115722,
-      "lastActiveAt": 1788972168466,
+      "lastActiveAt": 1788979112181,
       "revoked": false,
       "userAgent": "curl/7.88.1",
       "ip": "127.0.0.1"
@@ -305,10 +305,73 @@
       "sessionId": "bcbc3fae-62bd-4df6-bd39-57600e273078",
       "authUid": "usr-1788261994005-ss3t",
       "username": "arman",
-      "createdAt": 1788972171187,
-      "lastActiveAt": 1788972171187,
+      "createdAt": 1788973073179,
+      "lastActiveAt": 1788973073179,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "c2c5fa58-3e38-4a04-b1d4-ccb618eae7b9": {
+      "sessionId": "c2c5fa58-3e38-4a04-b1d4-ccb618eae7b9",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788973162705,
+      "lastActiveAt": 1788973162705,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "ab3cb850-8ae5-4524-a8b7-d743a7518179": {
+      "sessionId": "ab3cb850-8ae5-4524-a8b7-d743a7518179",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788974932538,
+      "lastActiveAt": 1788974932538,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "c2cacc44-a0d5-4d9b-8032-ed83ea38c734": {
+      "sessionId": "c2cacc44-a0d5-4d9b-8032-ed83ea38c734",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788975861283,
+      "lastActiveAt": 1788975861283,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "89981799-82ce-4d88-af66-324d9aefe630": {
+      "sessionId": "89981799-82ce-4d88-af66-324d9aefe630",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "37f4ea4e-63db-427b-8918-3409efdb0494": {
+      "sessionId": "37f4ea4e-63db-427b-8918-3409efdb0494",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "803e436d-f1b5-4451-88aa-42428d01a618": {
+      "sessionId": "803e436d-f1b5-4451-88aa-42428d01a618",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1788978972866,
+      "lastActiveAt": 1788978972866,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "sess_1788979011597_63ebcb051e98b570": {
+      "sessionId": "sess_1788979011597_63ebcb051e98b570",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788979011597,
+      "lastActiveAt": 1788979011597,
+      "revoked": false,
+      "userAgent": "node"
     }
   },
   "auditLogs": []

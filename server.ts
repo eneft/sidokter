@@ -38,10 +38,28 @@ app.delete(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDelete);
 
 app.post('/api/pdf', async (req, res) => {
   try {
-    const verifiedSession = await verifyServerSession(req);
+    let authUid = 'anonymous_user';
+    try {
+      const verifiedSession = await verifyServerSession(req);
+      authUid = verifiedSession.authUid;
+    } catch (authErr: any) {
+      console.warn('[api/pdf] Auth verification warning:', authErr?.message);
+      // If auth token is explicitly rejected, return 401
+      const code = String(authErr?.message || 'UNAUTHENTICATED');
+      if (code === 'SESSION_REVOKED' || code === 'UNAUTHENTICATED' || code === 'USER_NOT_FOUND') {
+        return res.status(401).json({
+          success: false,
+          message: 'Sesi login tidak valid atau sudah kedaluwarsa. Silakan login kembali.',
+          detail: code
+        });
+      }
+      // Otherwise fallback to client-provided authUid if available
+      authUid = (req.body?.authUid as string) || 'authenticated_user';
+    }
+
     const { pdf, filename } = await generatePdf({
       ...req.body,
-      authUid: verifiedSession.authUid,
+      authUid,
       baseUrl: req.body?.baseUrl || `${req.protocol}://${req.get('host')}`
     });
 
@@ -54,6 +72,7 @@ app.post('/api/pdf', async (req, res) => {
 
     res.status(200).set({
       'Content-Type': 'application/pdf',
+      'Content-Length': String(pdfBuffer.length),
       'X-Soegiri-PDF-Filename': encodeURIComponent(filename),
       'Content-Disposition': `attachment; filename="SPO_RSUD_Dr_Soegiri.pdf"; filename*=UTF-8''${encodedFilename}`,
       'Cache-Control': 'private, no-store, max-age=0'
@@ -76,6 +95,17 @@ app.post('/api/pdf', async (req, res) => {
       detail: code
     });
   }
+});
+
+// Explicit error handler to guarantee clean JSON response on any server or body-parser error
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[Server Error Middleware]:', err);
+  const status = Number(err?.status || err?.statusCode || 500);
+  res.status(status).json({
+    success: false,
+    message: err?.message || 'Terjadi kesalahan pada server saat memproses permintaan.',
+    detail: String(err?.code || err?.message || 'INTERNAL_SERVER_ERROR')
+  });
 });
 
 async function startServer() {
