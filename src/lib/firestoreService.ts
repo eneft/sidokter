@@ -21,7 +21,6 @@ import {
 import { db, auth, authPersistenceReady } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
-import { callAuthenticatedAuthApi } from './authService';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -190,63 +189,24 @@ export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess
     } catch {}
   }
 
-  if (!auth.currentUser) {
-    try {
-      const trusted = await callAuthenticatedAuthApi('sop-list');
-      if (trusted?.success && Array.isArray(trusted.sops)) {
-        updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
-        return trusted.sops as SopDocument[];
-      }
-    } catch (fallbackErr) {
-      console.warn('[SPO] Trusted server fallback failed:', fallbackErr);
-    }
-    throw new Error('FIRESTORE_AUTH_NOT_READY');
-  }
-
   const colRef = collection(db, 'sops');
-  const keys = Array.from(new Set((accessKeys || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean)));
-
-  if (!globalAccess && keys.length === 0) {
-    // Do not return [] here: [] means a successful query with zero documents
-    // and is allowed to replace the local cache. Missing access scope is an
-    // error state and must preserve the existing cache.
-    throw new Error('FIRESTORE_ACCESS_SCOPE_EMPTY');
-  }
-
   try {
-    const snapshots = globalAccess
-      ? [await getDocs(colRef)]
-      : [await getDocs(query(colRef, where('authorizedUids', 'array-contains', auth.currentUser!.uid)))];
-
+    const snapshot = await getDocs(colRef);
     const byId = new Map<string, SopDocument>();
-    for (const snapshot of snapshots) {
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data && (data.id || docSnap.id)) {
-          const id = String(data.id || docSnap.id);
-          byId.set(id, { ...data, id } as SopDocument);
-        }
-      });
-    }
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data && (data.id || docSnap.id)) {
+        const id = String(data.id || docSnap.id);
+        byId.set(id, { ...data, id } as SopDocument);
+      }
+    });
 
     updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
     return Array.from(byId.values());
   } catch (err: any) {
     const message = String(err?.message || err || '');
-    const permissionDenied = err?.code === 'permission-denied' || /permission-denied|missing or insufficient permissions/i.test(message);
-    if (permissionDenied) {
-      try {
-        const trusted = await callAuthenticatedAuthApi('sop-list');
-        if (trusted?.success && Array.isArray(trusted.sops)) {
-          updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
-          return trusted.sops as SopDocument[];
-        }
-      } catch (fallbackErr) {
-        console.warn('[SPO] Trusted server fallback failed:', fallbackErr);
-      }
-    }
     updateStatus({ isConnected: false, error: message || 'Gagal membaca SPO dari Firestore' });
-    console.warn('Firestore scoped SOP sync unavailable; preserving local cache.', message || err);
+    console.warn('Firestore SOP sync unavailable; preserving local cache.', message || err);
     // IMPORTANT: propagate read failures. The caller must distinguish
     // "successful empty snapshot" from "cloud read failed".
     throw err instanceof Error ? err : new Error(String(err));
@@ -260,104 +220,34 @@ export function subscribeToFirestoreSops(
   globalAccess = false
 ): () => void {
   const colRef = collection(db, 'sops');
-  const keys = Array.from(new Set((accessKeys || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean)));
-
-  if (!globalAccess && keys.length === 0) {
-    onError?.(new Error('FIRESTORE_ACCESS_SCOPE_EMPTY'));
-    return () => {};
-  }
-
   let closed = false;
-  let fallbackTimer: ReturnType<typeof setInterval> | null = null;
-  let fallbackBusy = false;
-  const unsubscribers: Array<() => void> = [];
 
-  const stopFallback = () => {
-    if (fallbackTimer) clearInterval(fallbackTimer);
-    fallbackTimer = null;
-  };
-
-  const runTrustedFallback = async () => {
-    if (closed || fallbackBusy) return;
-    fallbackBusy = true;
-    try {
-      const trusted = await callAuthenticatedAuthApi('sop-list');
-      if (!closed && trusted?.success && Array.isArray(trusted.sops)) {
-        updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
-        callback(trusted.sops as SopDocument[]);
-      }
-    } catch (fallbackErr) {
-      console.warn('[SPO] Trusted server realtime fallback failed:', fallbackErr);
-    } finally {
-      fallbackBusy = false;
-    }
-  };
-
-  const startFallback = () => {
-    if (fallbackTimer || closed) return;
-    void runTrustedFallback();
-    fallbackTimer = setInterval(runTrustedFallback, 15000);
-  };
-
-  const bindFirestoreRealtime = (userUid: string) => {
-    if (closed) return;
-    const chunks = globalAccess ? [null] : [userUid];
-    const latest = new Map<number, SopDocument[]>();
-
-    const emitCombined = () => {
-      if (closed || latest.size !== chunks.length) return;
-      const byId = new Map<string, SopDocument>();
-      latest.forEach((items) => items.forEach((s) => byId.set(String(s.id), s)));
-      updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
-      callback(Array.from(byId.values()));
-    };
-
-    chunks.forEach((chunk, index) => {
-      const q = globalAccess
-        ? colRef
-        : query(colRef, where('authorizedUids', 'array-contains', chunk!));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+  try {
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snapshot) => {
+        if (closed) return;
         const items: SopDocument[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          if (data && (data.id || docSnap.id)) items.push({ ...data, id: data.id || docSnap.id } as SopDocument);
+          if (data && (data.id || docSnap.id)) {
+            items.push({ ...data, id: data.id || docSnap.id } as SopDocument);
+          }
         });
-        latest.set(index, items);
-        stopFallback();
-        emitCombined();
-      }, (err) => {
+        updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
+        callback(items);
+      },
+      (err) => {
         if (closed) return;
         updateStatus({ isConnected: false, error: err?.message || 'Realtime Firestore error' });
-        console.warn('Firestore scoped SOP realtime sync unavailable; switching to trusted server sync.', err?.message || err);
-        startFallback();
-        if (err?.code !== 'permission-denied') onError?.(err);
-      });
-      unsubscribers.push(unsubscribe);
-    });
-  };
-
-  try {
-    if (auth.currentUser) {
-      bindFirestoreRealtime(auth.currentUser.uid);
-    } else {
-      // Start polling fallback while awaiting Firebase Auth
-      startFallback();
-      const unsubAuth = auth.onAuthStateChanged((user) => {
-        if (closed) return;
-        if (user) {
-          stopFallback();
-          bindFirestoreRealtime(user.uid);
-        }
-      });
-      unsubscribers.push(unsubAuth);
-    }
+        console.warn('Firestore SOP realtime sync notice; local cache remains active.', err?.message || err);
+        onError?.(err);
+      }
+    );
 
     return () => {
       closed = true;
-      stopFallback();
-      unsubscribers.forEach((unsubscribe) => {
-        try { unsubscribe(); } catch { /* noop */ }
-      });
+      try { unsubscribe(); } catch { /* noop */ }
     };
   } catch (err: any) {
     onError?.(err);

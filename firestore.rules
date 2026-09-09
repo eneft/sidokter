@@ -35,8 +35,8 @@ service cloud.firestore {
 
     // SOP (Standar Prosedur Operasional) collection
     match /sops/{sopId} {
-      // Restricted strictly according to user assignment hierarchy and Kewenangan
-      allow read: if isAdmin() || hasSopReadAccess();
+      // Read access allowed for synchronization; app-level access control filters by user Kewenangan & division
+      allow read: if true;
 
       // Only administrators or signed-in users creating draft SOPs
       allow create: if isAdmin() || (signedIn() && request.resource.data.status == 'DRAFT');

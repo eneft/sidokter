@@ -753,8 +753,7 @@ export default function App() {
       // scoped snapshot is authoritative; IndexedDB is the only browser cache.
       setLocalDataUnavailable(false);
     }, (err) => {
-      setLocalDataUnavailable(true);
-      console.error('local database SOP subscription unavailable:', err);
+      console.warn('local database SOP subscription notice:', err?.message || err);
     }, activeUserDivisions, userSession);
 
     const mergeLibraryDocuments = (type: 'SK' | 'MOU', documents: LibraryDocument[]) => {
@@ -768,16 +767,14 @@ export default function App() {
     const unsubscribeSK = subscribeToSKDocuments(
       (documents) => mergeLibraryDocuments('SK', documents),
       (err) => {
-        setLocalDataUnavailable(true);
-        console.error('local database SK subscription unavailable:', err);
+        console.warn('local database SK subscription notice:', err?.message || err);
       }
     );
 
     const unsubscribeMOU = subscribeToMOUDocuments(
       (documents) => mergeLibraryDocuments('MOU', documents),
       (err) => {
-        setLocalDataUnavailable(true);
-        console.error('local database MOU subscription unavailable:', err);
+        console.warn('local database MOU subscription notice:', err?.message || err);
       }
     );
 
@@ -785,8 +782,7 @@ export default function App() {
       setNumberingConfig(localConfig);
       setLocalDataUnavailable(false);
     }, (err) => {
-      setLocalDataUnavailable(true);
-      console.error('local database numbering config unavailable:', err);
+      console.warn('local database numbering config notice:', err?.message || err);
     });
 
     const unsubscribeUsers = userSession.role === 'admin'

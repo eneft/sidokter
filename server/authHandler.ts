@@ -271,6 +271,10 @@ export async function handleAuthApi(req: Request, res: Response) {
     ? pathSegment
     : (req.body?.action || pathSegment);
 
+  if (action === 'sop-list') {
+    return res.status(404).json({ success: false, message: 'Endpoint sop-list tidak digunakan. SPO disinkronkan langsung via Firestore/IndexedDB.' });
+  }
+
   try {
     // Forward auth requests to the live upstream Firebase Cloud Function.
     // This provides official RS256-signed Firebase Custom Tokens and synchronizes with Firestore.
