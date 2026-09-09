@@ -326,7 +326,68 @@ function getUserHierarchyClaims(user) {
       }
     }
   }
-  return { hierarchyKeys: Array.from(keys).slice(0, 30), globalHierarchyAccess: false };
+  // Do not truncate the authorization scope. Firestore queries are already
+  // batched at <=30 values, but every batch must still be covered by the
+  // authenticated user's claim; truncating here caused later query batches to
+  // fail Firestore Rules with "Missing or insufficient permissions" on a
+  // fresh device that had no local cache.
+  return { hierarchyKeys: Array.from(keys), globalHierarchyAccess: false };
+}
+
+
+function sopScopeFingerprint(hierarchyClaims) {
+  const payload = JSON.stringify({
+    keys: Array.from(new Set(hierarchyClaims?.hierarchyKeys || [])).sort(),
+    global: hierarchyClaims?.globalHierarchyAccess === true
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+async function reconcileSopReadIndexForUser(uid, user, force = false) {
+  const claims = getUserHierarchyClaims(user);
+  const fingerprint = sopScopeFingerprint(claims);
+  if (!force && String(user?.sopReadIndexFingerprint || '') === fingerprint && Number(user?.sopReadIndexVersion || 0) >= 4) {
+    return { changed: false, fingerprint };
+  }
+
+  const userKeys = new Set(claims.hierarchyKeys || []);
+  const global = claims.globalHierarchyAccess === true;
+  const snap = await db.collection('sops').get();
+  let batch = db.batch();
+  let writes = 0;
+  let changed = 0;
+  const commitIfNeeded = async () => {
+    if (writes) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  };
+
+  for (const d of snap.docs) {
+    const data = d.data() || {};
+    if (data.isNumberReservation) continue;
+    const accessKeys = new Set(Array.isArray(data.accessKeys) ? data.accessKeys.map(v => String(v).trim().toUpperCase()).filter(Boolean) : getSopAccessKeysServer(data));
+    const shouldHave = global || Array.from(accessKeys).some(k => userKeys.has(k));
+    const current = Array.isArray(data.authorizedUids) ? data.authorizedUids.map(String) : [];
+    const has = current.includes(String(uid));
+    if (shouldHave && !has) {
+      batch.update(d.ref, { authorizedUids: FieldValue.arrayUnion(String(uid)), accessBoundaryVersion: 4 });
+      writes++; changed++;
+    } else if (!shouldHave && has) {
+      batch.update(d.ref, { authorizedUids: FieldValue.arrayRemove(String(uid)), accessBoundaryVersion: 4 });
+      writes++; changed++;
+    }
+    if (writes >= 450) await commitIfNeeded();
+  }
+  await commitIfNeeded();
+  await db.collection(USERS).doc(uid).set({
+    sopAccessKeys: claims.hierarchyKeys,
+    sopGlobalAccess: claims.globalHierarchyAccess,
+    sopReadIndexFingerprint: fingerprint,
+    sopReadIndexVersion: 4
+  }, { merge: true });
+  return { changed: changed > 0, fingerprint, changedDocs: changed };
 }
 
 async function migrateSopAccessBoundary(req, res, context) {
@@ -525,11 +586,21 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
       await audit({ username, name: user.name, role: user.role, sessionId, event: 'LOGIN_SUCCESS', details: 'Login berhasil melalui trusted authentication service.' });
       const hierarchyClaims = getUserHierarchyClaims(user);
+      // Keep the complete SOP authorization scope server-authoritative in the
+      // user's Firestore profile. Custom Auth claims are intentionally kept
+      // small because Firebase custom claims have a strict payload limit.
+      // Firestore Rules read sopAccessKeys from this protected profile, while
+      // the client may still batch array-contains-any queries at <=30 keys.
+      await db.collection(USERS).doc(id).set({
+        sopAccessKeys: hierarchyClaims.hierarchyKeys,
+        sopGlobalAccess: hierarchyClaims.globalHierarchyAccess,
+        sopAccessVersion: 3
+      }, { merge: true });
+      await reconcileSopReadIndexForUser(id, { ...user, sopAccessKeys: hierarchyClaims.hierarchyKeys, sopGlobalAccess: hierarchyClaims.globalHierarchyAccess }, false);
       const customToken = await getAuth().createCustomToken(id, {
         role: user.role,
         username: user.username,
         sessionId,
-        hierarchyKeys: hierarchyClaims.hierarchyKeys,
         globalHierarchyAccess: hierarchyClaims.globalHierarchyAccess
       });
 
@@ -539,8 +610,19 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     const context = await requireAuth(req);
 
     if (action === 'session') {
+      // Refresh the server-authoritative SOP scope on every validated session
+      // request. This repairs older user profiles that predate sopAccessKeys
+      // and also makes assignment changes effective without relying on stale
+      // Firebase custom claims or a browser cache.
+      const sessionHierarchyClaims = getUserHierarchyClaims(context.user);
+      await context.ref.set({
+        sopAccessKeys: sessionHierarchyClaims.hierarchyKeys,
+        sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess,
+        sopAccessVersion: 3
+      }, { merge: true });
+      await reconcileSopReadIndexForUser(context.decoded.uid, { ...context.user, sopAccessKeys: sessionHierarchyClaims.hierarchyKeys, sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess }, false);
       const session = publicSession(
-        { id: context.decoded.uid, data: context.user },
+        { id: context.decoded.uid, data: { ...context.user, sopAccessKeys: sessionHierarchyClaims.hierarchyKeys, sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess } },
         context.decoded.sessionId,
         Number(context.user.sessionCreatedAt || Date.now())
       );
@@ -631,7 +713,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         updatedAt: new Date().toISOString()
       };
 
-      const update = { ...allowedProfile };
+      const profileHierarchyClaims = getUserHierarchyClaims(allowedProfile);
+      const update = {
+        ...allowedProfile,
+        sopAccessKeys: profileHierarchyClaims.hierarchyKeys,
+        sopGlobalAccess: profileHierarchyClaims.globalHierarchyAccess,
+        sopAccessVersion: 4
+      };
       if (password) {
         // Credentials are stored in a backend-only collection, never in users/.
         const salt = crypto.randomBytes(16);
@@ -652,6 +740,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         update.credentialStatus = existingCredential.data ? 'ACTIVE' : 'PASSWORD_REQUIRED';
       }
       await ref.set(update, { merge: true });
+      await reconcileSopReadIndexForUser(userId, { ...allowedProfile, ...update }, true);
       if (password) await revokeAllSessions(userId);
       await audit({
         username,

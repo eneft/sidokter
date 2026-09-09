@@ -111,34 +111,33 @@ export async function resolveViewableUrl(
 ): Promise<string | null> {
   if (!rawUrlOrPath) return null;
 
-  // 1. Local data/blob references are already self-contained.
-  if (rawUrlOrPath.startsWith('data:') || rawUrlOrPath.startsWith('blob:')) {
-    return rawUrlOrPath;
-  }
-
-  // 2. A durable remote reference is authoritative. Never let a browser-local
-  // cache shadow a valid cloud reference; otherwise PC-A can appear healthy
-  // while PC-B reports a missing document.
+  // 1. A durable Firebase/API reference is authoritative. Never let a
+  // browser-local cache shadow it.
   if (rawUrlOrPath.startsWith('http://') || rawUrlOrPath.startsWith('https://') || rawUrlOrPath.startsWith('/api/storage/')) {
     return rawUrlOrPath;
   }
 
-  // 3. Only use local cache as a legacy/offline fallback.
-  if (cacheKey) {
-    const cached = await getNamedFileFromLocalCache(cacheKey);
-    if (cached) return cached;
+  // 2. Data/blob URLs are only acceptable as an explicit upload/legacy payload.
+  if (rawUrlOrPath.startsWith('data:') || rawUrlOrPath.startsWith('blob:')) {
+    return rawUrlOrPath;
   }
 
-  // 3. If it's a legacy local reference (e.g. local://id)
+  // 3. Legacy local references may use the local cache, but only when the
+  // caller explicitly passes local://. A missing cloud reference must not
+  // silently become a PC-specific file.
   if (rawUrlOrPath.startsWith('local://')) {
     const id = rawUrlOrPath.replace('local://', '');
     const cached = await getNamedFileFromLocalCache(`library_${id}`) ||
                    await getNamedFileFromLocalCache(`cloud_${id}`);
-    if (cached) return cached;
-
-    return null;
+    return cached || null;
   }
 
-  // 4. Remote / Cloud URL
+  // 4. If no authoritative cloud reference exists, an optional cache key is
+  // allowed only for explicitly offline/legacy callers.
+  if (cacheKey && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    const cached = await getNamedFileFromLocalCache(cacheKey);
+    if (cached) return cached;
+  }
+
   return rawUrlOrPath;
 }

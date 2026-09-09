@@ -988,7 +988,7 @@ export function setupDocumentRealtimeWatcher({
     const sopsQuery = globalAccess
       ? sopsCollection
       : (scopedKeys.length > 0
-          ? query(sopsCollection, where('accessKeys', 'array-contains-any', scopedKeys.slice(0, 30)))
+          ? query(sopsCollection, where('authorizedUids', 'array-contains', auth.currentUser!.uid))
           : null);
 
     if (sopsQuery && auth.currentUser) {

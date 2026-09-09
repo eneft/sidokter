@@ -15,11 +15,12 @@ import {
   where,
   limit,
   Timestamp,
-  serverTimestamp
+  serverTimestamp,
+  deleteField
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
-import { getSopAccessKeys } from '../utils/soegiriStructure';
+import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -99,9 +100,50 @@ export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnEr
   try {
     if (!sop || !sop.id) return;
     updateStatus({ isSyncing: true });
+    const sopAccessKeys = getSopAccessKeys(sop);
+    // Keep the read index on each SOP aligned with the currently authenticated
+    // user's scope. The server also reconciles this index on session/user-save,
+    // while this ensures a newly-created draft is immediately visible to its owner.
+    const currentUid = auth.currentUser?.uid;
+    const currentSessionRaw = (() => {
+      try { return JSON.parse(sessionStorage.getItem('soegiri_sop_client_session_v3') || 'null'); } catch { return null; }
+    })();
+    const currentKeys = getUserHierarchyAccessKeys(currentSessionRaw);
+    const currentGlobal = currentSessionRaw?.role === 'admin' || currentSessionRaw?.assignments?.some((a:any) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL') || String(currentSessionRaw?.divisionCode || '').trim().toUpperCase() === 'ALL';
+
+    // Build a UID read index for the saved SOP. Firestore Rules can safely
+    // authorize `where(authorizedUids array-contains request.auth.uid)` because
+    // the query predicate directly matches the rule predicate. This avoids the
+    // non-provable dynamic hierarchy-array rule that caused mobile permission
+    // failures. Existing users are reconciled again by the backend session.
+    let authorizedUids: string[] = [];
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      for (const userSnap of usersSnapshot.docs) {
+        const userData: any = userSnap.data() || {};
+        const role = String(userData.role || '').trim().toLowerCase();
+        const isGlobal = role === 'admin' || String(userData.divisionCode || '').trim().toUpperCase() === 'ALL' ||
+          (Array.isArray(userData.divisionCodes) && userData.divisionCodes.some((v:any) => String(v || '').trim().toUpperCase() === 'ALL')) ||
+          (Array.isArray(userData.assignments) && userData.assignments.some((a:any) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL'));
+        const userKeys = getUserHierarchyAccessKeys({ ...userData, role: role === 'admin' ? 'admin' : 'user' });
+        if (isGlobal || sopAccessKeys.some((k) => userKeys.includes(k))) authorizedUids.push(String(userSnap.id));
+      }
+    } catch (indexError) {
+      console.warn('[SPO] Failed to build authorized UID index; falling back to current session owner only:', indexError);
+      if (currentUid && (currentGlobal || sopAccessKeys.some((k) => currentKeys.includes(k)))) authorizedUids = [currentUid];
+    }
+    authorizedUids = Array.from(new Set(authorizedUids));
+    // SPO binary payloads are never authoritative Firestore data. They must
+    // live in Firebase Cloud Storage. Explicitly delete legacy DataURL fields
+    // even when setDoc uses merge:true, otherwise an old browser-local payload
+    // can remain in Firestore forever and be mistaken for the real file.
     const cleanSop = sanitizeForFirestore({
       ...sop,
-      accessKeys: getSopAccessKeys(sop),
+      fileDataUrl: deleteField(),
+      signedScanDataUrl: deleteField(),
+      oldFileDataUrl: deleteField(),
+      accessKeys: sopAccessKeys,
+      ...(authorizedUids.length ? { authorizedUids } : {}),
       _syncedAt: new Date().toISOString()
     });
     const docRef = doc(db, 'sops', sop.id);
@@ -157,11 +199,7 @@ export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess
   try {
     const snapshots = globalAccess
       ? [await getDocs(colRef)]
-      : await Promise.all(
-          Array.from({ length: Math.ceil(keys.length / 30) }, (_, i) =>
-            getDocs(query(colRef, where('accessKeys', 'array-contains-any', keys.slice(i * 30, i * 30 + 30))))
-          )
-        );
+      : [await getDocs(query(colRef, where('authorizedUids', 'array-contains', auth.currentUser!.uid)))];
 
     const byId = new Map<string, SopDocument>();
     for (const snapshot of snapshots) {
@@ -205,10 +243,11 @@ export function subscribeToFirestoreSops(
       return () => {};
     }
 
-    // Firestore array-contains-any accepts max 30 comparison values. Use one
-    // listener per batch and combine snapshots. A successful empty combined
+    // Read authorization is indexed by Firebase Auth UID. This makes the
+    // Firestore query provably safe under Security Rules and avoids relying on
+    // dynamic hierarchy-array comparisons inside a collection query. A successful empty
     // result is authoritative; listener errors are NOT treated as empty data.
-    const chunks = globalAccess ? [null] : Array.from({ length: Math.ceil(keys.length / 30) }, (_, i) => keys.slice(i * 30, i * 30 + 30));
+    const chunks = globalAccess ? [null] : [auth.currentUser.uid];
     const latest = new Map<number, SopDocument[]>();
     const unsubscribers: Array<() => void> = [];
     let closed = false;
@@ -224,7 +263,7 @@ export function subscribeToFirestoreSops(
     chunks.forEach((chunk, index) => {
       const q = globalAccess
         ? colRef
-        : query(colRef, where('accessKeys', 'array-contains-any', chunk!));
+        : query(colRef, where('authorizedUids', 'array-contains', chunk!));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const items: SopDocument[] = [];
         snapshot.forEach((docSnap) => {

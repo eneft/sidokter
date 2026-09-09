@@ -224,9 +224,19 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
 
   const stopFirestoreSync = initFirestoreSopSync(userSession, (ok) => {
     if (disposed) return;
+
+    // When the browser is online, a Firestore failure must never make a stale
+    // PC-local cache look like the current authoritative SPO list. Local cache
+    // is only an offline continuity mechanism.
+    if (!ok && typeof navigator !== 'undefined' && navigator.onLine !== false) {
+      initialCloudSyncSettled = false;
+      onError?.(new Error('SPO cloud sync gagal. Data lokal tidak ditampilkan sebagai data terbaru.'));
+      return;
+    }
+
     initialCloudSyncSettled = true;
     // Cloud success: emit the exact authoritative snapshot now in IndexedDB.
-    // Cloud failure: emit local cache only as an explicit offline fallback.
+    // Offline: explicitly allow the last local cache for continuity.
     void emit();
   });
 
