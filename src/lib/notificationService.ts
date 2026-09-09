@@ -10,7 +10,6 @@ import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
 import { SopDocument, UserSession, UserAccount } from '../types';
 import { userCanAccessSop, getUserHierarchyAccessKeys, hasVerificatorBadge } from './soegiriStructure';
-import { subscribeToFirestoreSops } from './firestoreService';
 
 export type NotificationType =
   | 'activation'
@@ -135,18 +134,15 @@ function persistNotifications(notifications: AppNotification[]): void {
   } catch {}
 }
 
-export function clearNotificationDedupeSets(): void {
+function clearNotificationDedupeSets(): void {
   notifiedReviewDocIds.clear();
   notifiedAssignmentDocIds.clear();
   notifiedActivationDocIds.clear();
   notifiedProposalDocIds.clear();
-  emittedSideEffectEventKeys.clear();
 }
-export const clearDedupeSets = clearNotificationDedupeSets;
 
 function seedDedupeSetsFromNotifications(notifications: AppNotification[]): void {
   notifications.forEach((n) => {
-    if (n.hidden) return;
     const key = String(n.metadata?.eventKey || n.id || '').trim();
     if (!key) return;
     if (n.type === 'review') notifiedReviewDocIds.add(key);
@@ -173,6 +169,8 @@ function syncNotificationCloudListener(): void {
       .map((d) => d.data() as AppNotification)
       .filter((n) => n && typeof n.id === 'string' && typeof n.type === 'string');
 
+    // Seed dedupe from ALL cloud records, including hidden tombstones. This prevents
+    // a cleared event from being recreated by a second producer after reload or across devices.
     seedDedupeSetsFromNotifications(cloudItemsAll);
 
     const cloudItems = cloudItemsAll
@@ -192,7 +190,7 @@ function syncNotificationCloudListener(): void {
     notifySubscribers();
   }, (error) => {
     cloudNotificationReady = false;
-    if (error?.code !== 'permission-denied') console.info('Notification Firestore realtime sync unavailable; local notifications remain active.');
+    console.warn('Notification Firestore listener note:', error?.message || error);
   });
 }
 
@@ -742,7 +740,6 @@ export function clearNotifications(): void {
   const ref = notificationCollectionRef();
   const items = [...activeNotifications];
   activeNotifications = [];
-  clearDedupeSets();
   persistNotifications(activeNotifications);
   notifySubscribers();
   if (!ref) return;
@@ -818,52 +815,49 @@ export function getProposalNotificationMeta(sop: SopDocument, users?: UserAccoun
   if (category === 'RIVIU') {
     return {
       title: 'Usulan Hasil Riviu SPO',
-      message: `Usulan dari ${creatorLabel} (${unitLabel}): "${sop.title}" ${docNum} menunggu peninjauan dan pengesahan Admin.`
+      message: `${creatorLabel} (${unitLabel}) mengusulkan SPO pilihan (Hasil Riviu): "${sop.title}" ${docNum} menunggu persetujuan Admin.`
     };
   }
   if (category === 'EKSISTING') {
     return {
-      title: 'Usulan SPO Eksisting',
-      message: `Usulan dari ${creatorLabel} (${unitLabel}): "${sop.title}" ${docNum} menunggu peninjauan dan pengesahan Admin.`
+      title: 'Usulan Aktivasi SPO Eksisting',
+      message: `${creatorLabel} (${unitLabel}) mengusulkan SPO pilihan (Eksisting): "${sop.title}" ${docNum} menunggu persetujuan Admin.`
     };
   }
   return {
-    title: 'Usulan SPO Baru',
-    message: `Usulan dari ${creatorLabel} (${unitLabel}): "${sop.title}" ${docNum} menunggu peninjauan dan pengesahan Admin.`
+    title: 'Usulan Aktivasi SPO Baru',
+    message: `${creatorLabel} (${unitLabel}) mengusulkan SPO pilihan: "${sop.title}" ${docNum} menunggu persetujuan Admin.`
   };
 }
 
 export function getActivationNotificationMeta(sop: SopDocument): { title: string; message: string } {
   const category = getSopWorkflowCategory(sop);
   const unitLabel = sop.divisionName || sop.divisionCode || 'unit Anda';
-  const approverLabel = sop.activatedBy || 'Admin Tata Naskah & Direktur';
 
   if (category === 'RIVIU') {
     return {
-      title: 'Pengesahan Hasil Riviu SPO (Disahkan)',
-      message: `Hasil riviu SPO "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah resmi DISAHKAN oleh ${approverLabel} untuk ${unitLabel}. Dokumen berstatus AKTIF & resmi berlaku.`
+      title: 'Hasil Riviu SPO Disetujui & Aktif',
+      message: `Hasil riviu SPO "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah disetujui & diaktifkan oleh Admin untuk ${unitLabel}.`
     };
   }
   if (category === 'EKSISTING') {
     return {
-      title: 'Pengesahan SPO Eksisting (Disahkan)',
-      message: `SPO Eksisting "${sop.title}" (${sop.sopNumber || 'Eksisting'}) telah resmi DISAHKAN oleh ${approverLabel}. Dokumen berstatus AKTIF & resmi berlaku.`
+      title: 'SPO Eksisting Disetujui & Aktif',
+      message: `SPO Eksisting "${sop.title}" (${sop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`
     };
   }
   return {
-    title: 'Pengesahan SPO Baru (Disahkan)',
-    message: `SPO Baru "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah resmi DISAHKAN oleh ${approverLabel} untuk ${unitLabel}. Dokumen berstatus AKTIF & resmi berlaku.`
+    title: 'SPO Baru Disetujui & Aktif',
+    message: `SPO Baru "${sop.title}" (${sop.sopNumber || 'Resmi'}) telah disetujui & diaktifkan oleh Admin untuk ${unitLabel}.`
   };
 }
 
 function getActivationEventKey(sop: SopDocument): string {
-  const stamp = sop.activatedAt || sop.updatedAt || sop.activationRequestedAt || 'active';
-  return `activation:${sop.id}:${stamp}`;
+  return `activation:${sop.id}:${sop.activatedAt || 'active'}`;
 }
 
 function getProposalEventKey(sop: SopDocument): string {
-  const stamp = sop.activationRequestedAt || sop.updatedAt || 'draft';
-  return `proposal:${sop.id}:${stamp}`;
+  return `proposal:${sop.id}:${sop.activationRequestedAt || 'draft'}`;
 }
 
 function getAssignmentEventKey(sop: SopDocument): string {
@@ -891,6 +885,7 @@ const documentBroadcastChannel = typeof window !== 'undefined' && typeof Broadca
 /**
  * Robust check if a user is the proposer or creator of an SPO.
  * Checks UID, username, full name, and handles academic/medical title variations.
+ * Ensures activation notifications ONLY reach the specific proposing user.
  */
 export function isUserPengusulSop(sop: SopDocument, userSession: UserSession | null): boolean {
   if (!userSession || !sop) return false;
@@ -927,6 +922,7 @@ export function isUserPengusulSop(sop: SopDocument, userSession: UserSession | n
     if (sessionName && reqBy && (sessionName === reqBy || (cleanSessionName && cleanSessionName === cleanReqBy))) return true;
     if (cleanSessionName && cleanReqBy && cleanSessionName.length >= 4 && (cleanReqBy.includes(cleanSessionName) || cleanSessionName.includes(cleanReqBy))) return true;
 
+    // Has explicit requester metadata but this session does not match it -> NOT the proposer
     return false;
   }
 
@@ -937,45 +933,6 @@ export function isUserPengusulSop(sop: SopDocument, userSession: UserSession | n
   if (sessionName && creator && (sessionName === creator || (cleanSessionName && cleanSessionName === cleanCreator))) return true;
   if (cleanSessionName && cleanCreator && cleanSessionName.length >= 4 && (cleanCreator.includes(cleanSessionName) || cleanSessionName.includes(cleanCreator))) return true;
 
-  return false;
-}
-
-/**
- * Filter to ensure activation notifications reach only appropriate target roles:
- * - Proposing user
- * - Users in that division/unit hierarchy
- * - Excludes the Admin who performed the activation.
- */
-export function shouldReceiveActivationNotification(sop: SopDocument, userSession: UserSession | null): boolean {
-  if (!userSession || !sop) return false;
-  if (userSession.role === 'admin') return false;
-
-  if (isUserPengusulSop(sop, userSession)) return true;
-  if (userCanAccessSop(sop, userSession)) return true;
-
-  const userDiv = String(userSession.divisionCode || '').trim().toUpperCase();
-  const sopDiv = String(sop.divisionCode || '').trim().toUpperCase();
-  if (userDiv && sopDiv && (userDiv === sopDiv || userDiv === 'ALL')) return true;
-
-  if (Array.isArray(userSession.assignments) && userSession.assignments.some((a) => {
-    const code = String(a.divisionCode || '').trim().toUpperCase();
-    return code === 'ALL' || code === sopDiv;
-  })) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Filter to ensure proposal notifications reach only appropriate target roles:
- * - Admin
- * - Verifikator for that division
- */
-export function shouldReceiveProposalNotification(sop: SopDocument, userSession: UserSession | null): boolean {
-  if (!userSession || !sop) return false;
-  if (userSession.role === 'admin') return true;
-  if (hasVerificatorBadge(userSession) && userCanAccessSop(sop, userSession)) return true;
   return false;
 }
 
@@ -1015,50 +972,76 @@ export function setupDocumentRealtimeWatcher({
   const docStatusMap = new Map<string, string>();
   const docActivationReqMap = new Map<string, string>();
 
-  // 1. Listen only to the user's authorized/scoped SOP query.
+  // 1. Listen to Firestore 'sops' collection in real-time
   let unsubscribeFirestore: (() => void) | null = null;
   try {
-    const scopedKeys = getUserHierarchyAccessKeys(userSession);
-    const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
-      ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
-      : Array.isArray(userSession?.divisionCodes)
-        ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
-        : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
-    const hasStructuralBadge = Array.isArray(userSession?.badges)
-      && userSession!.badges!.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL');
-    const globalAccess = userSession?.role === 'admin' || hasAllHierarchyAssignment || hasStructuralBadge;
-
-    unsubscribeFirestore = subscribeToFirestoreSops(
-      (sops) => {
-        const currentIds = new Set(sops.map((s) => s.id));
+    const sopsCollection = collection(db, 'sops');
+    unsubscribeFirestore = onSnapshot(
+      sopsCollection,
+      (snapshot) => {
         if (isFirstSnapshot) {
-          sops.forEach((data) => {
-            initialKnownDocIds.add(data.id);
-            docStatusMap.set(data.id, data.status || '');
-            if (data.activationRequestedAt) docActivationReqMap.set(data.id, data.activationRequestedAt);
-
-            if (shouldReceiveActivationNotification(data, userSession) && data.status === 'AKTIF') {
-              const actKey = getActivationEventKey(data);
-              const alreadyNotified = notifiedActivationDocIds.has(actKey) || activeNotifications.some(
-                (n) => n.metadata?.eventKey === actKey || (n.type === 'activation' && n.documentId === data.id)
-              );
-              if (!alreadyNotified && (data.activatedAt || data.activationRequestedAt)) {
-                const meta = getActivationNotificationMeta(data);
-                processNotificationEvent({ type: 'activation', sop: data, eventKey: actKey, title: meta.title,
-                  message: meta.message, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(data) }, onToast);
+          // Record existing documents and baseline statuses
+          snapshot.docs.forEach((d) => {
+            initialKnownDocIds.add(d.id);
+            const data = d.data() as SopDocument;
+            if (data?.id) {
+              docStatusMap.set(data.id, data.status || '');
+              if (data.activationRequestedAt) {
+                docActivationReqMap.set(data.id, data.activationRequestedAt);
               }
-            }
 
-            if (shouldReceiveProposalNotification(data, userSession) && data.status === 'DRAFT' &&
-                (data.activationRequestedAt || data.activationRequestedBy || data.isLegacySop || data.isReviewDocument || data.jenis_spo === 'BARU')) {
-              const propKey = getProposalEventKey(data);
-              const alreadyNotified = notifiedProposalDocIds.has(propKey) || activeNotifications.some(
-                (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === data.id)) && !n.hidden
-              );
-              if (!alreadyNotified) {
-                const meta = getProposalNotificationMeta(data, currentUsersList);
-                processNotificationEvent({ type: 'proposal', sop: data, eventKey: propKey, title: meta.title,
-                  message: meta.message, actionLabel: 'Tinjau & Sahkan', onAction: () => onSelectDocument?.(data) }, onToast);
+              // Check if this document is an activated document proposed by this user that hasn't been notified yet
+              // (handles cases where admin activated the document while user was offline or in another session)
+              // NOTE: Notif pengaktifan HANYA masuk ke user pengusul, BUKAN ke semua user
+              const isAdmin = userSession.role === 'admin';
+              if (!isAdmin && data.status === 'AKTIF' && isUserPengusulSop(data, userSession)) {
+                const actKey = getActivationEventKey(data);
+                const alreadyNotified =
+                  notifiedActivationDocIds.has(actKey) ||
+                  activeNotifications.some(
+                    (n) => n.metadata?.eventKey === actKey || (n.type === 'activation' && n.documentId === data.id)
+                  );
+                if (!alreadyNotified && (data.activatedAt || data.activationRequestedAt)) {
+                  const meta = getActivationNotificationMeta(data);
+                  processNotificationEvent(
+                    {
+                      type: 'activation',
+                      sop: data,
+                      eventKey: actKey,
+                      title: meta.title,
+                      message: meta.message,
+                      actionLabel: 'Buka Dokumen',
+                      onAction: () => onSelectDocument?.(data)
+                    },
+                    onToast
+                  );
+                }
+              }
+
+              // Check if this document is an unapproved draft proposal for Admin that hasn't been notified yet
+              const canReceiveProposalNotif = isAdmin || (hasVerificatorBadge(userSession) && userCanAccessSop(data, userSession));
+              if (canReceiveProposalNotif && data.status === 'DRAFT' && (data.activationRequestedAt || data.activationRequestedBy || data.isLegacySop || data.isReviewDocument || data.jenis_spo === 'BARU')) {
+                const propKey = getProposalEventKey(data);
+                const alreadyNotified =
+                  notifiedProposalDocIds.has(propKey) ||
+                  activeNotifications.some(
+                    (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === data.id)) && !n.hidden
+                  );
+                if (!alreadyNotified) {
+                  const meta = getProposalNotificationMeta(data, currentUsersList);
+                  processNotificationEvent(
+                    {
+                      type: 'proposal',
+                      sop: data,
+                      eventKey: propKey,
+                      title: meta.title,
+                      message: meta.message,
+                      actionLabel: 'Tinjau & Sahkan',
+                      onAction: () => onSelectDocument?.(data)
+                    },
+                    onToast
+                  );
+                }
               }
             }
           });
@@ -1066,86 +1049,109 @@ export function setupDocumentRealtimeWatcher({
           return;
         }
 
-        // Scoped listener returns the current authorized set. Detect additions and modifications
-        // locally instead of subscribing to the entire /sops collection.
-        sops.forEach((sop) => {
-          if (!sop?.id) return;
+        snapshot.docChanges().forEach((change) => {
+          const sop = change.doc.data() as SopDocument;
+          if (!sop || !sop.id) return;
+
           const prevStatus = docStatusMap.get(sop.id);
           const prevActivationReq = docActivationReqMap.get(sop.id);
-          const changeType = prevStatus === undefined ? 'added' : 'modified';
           docStatusMap.set(sop.id, sop.status || '');
-          if (sop.activationRequestedAt) docActivationReqMap.set(sop.id, sop.activationRequestedAt);
+          if (sop.activationRequestedAt) {
+            docActivationReqMap.set(sop.id, sop.activationRequestedAt);
+          }
 
+          const isAdmin = userSession.role === 'admin';
           const inUserHierarchy = userCanAccessSop(sop, userSession);
-          if (shouldReceiveActivationNotification(sop, userSession) && sop.status === 'AKTIF') {
-            const isJustActivated = changeType === 'added' ||
+          const isPengusul = isUserPengusulSop(sop, userSession);
+
+          // EVENT 1 (HANYA USER PENGUSUL): Notif muncul kalau SPO disetujui & diaktifkan Admin
+          // Sesuai rules: Notif pengaktifan HANYA masuk ke user pengusul, BUKAN ke semua user
+          if (!isAdmin && isPengusul && sop.status === 'AKTIF') {
+            const isJustActivated =
               (prevStatus && prevStatus !== 'AKTIF') ||
-              (changeType === 'modified' && prevStatus === 'DRAFT') ||
-              Boolean(sop.activatedAt && (!prevStatus || prevStatus === 'DRAFT'));
+              (change.type === 'modified' && prevStatus === 'DRAFT') ||
+              (sop.activatedAt && (!prevStatus || prevStatus === 'DRAFT')) ||
+              (change.type === 'modified' && sop.status === 'AKTIF');
+
             const actKey = getActivationEventKey(sop);
-            if (isJustActivated && !notifiedActivationDocIds.has(actKey)) {
+            if (isJustActivated) {
               const meta = getActivationNotificationMeta(sop);
-              processNotificationEvent({ type: 'activation', sop, eventKey: actKey, title: meta.title,
-                message: meta.message, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
+              processNotificationEvent({
+                type: 'activation',
+                sop,
+                eventKey: actKey,
+                title: meta.title,
+                message: meta.message,
+                actionLabel: 'Buka Dokumen',
+                onAction: () => onSelectDocument?.(sop)
+              }, onToast);
             }
           }
 
-          if (shouldReceiveProposalNotification(sop, userSession) && sop.status === 'DRAFT') {
-            const isNewDraft = changeType === 'added';
-            const isActivationRequested = Boolean(sop.activationRequestedAt) && sop.activationRequestedAt !== prevActivationReq;
+          // EVENT 2 (ADMIN): Muncul kalau pengusul mengusulkan aktivasi SPO (status DRAFT baru atau ada usulan baru)
+          // Sesuai rules: Pengusul -> 🔔 Admin
+          const canReceiveProposalNotif = isAdmin || (hasVerificatorBadge(userSession) && userCanAccessSop(sop, userSession));
+          if (canReceiveProposalNotif && sop.status === 'DRAFT') {
+            const isNewDraft = change.type === 'added' && !initialKnownDocIds.has(sop.id);
+            const isActivationRequested =
+              Boolean(sop.activationRequestedAt) &&
+              sop.activationRequestedAt !== prevActivationReq;
             const hasProposalMeta = Boolean(sop.activationRequestedAt || sop.activationRequestedBy || sop.isLegacySop || sop.isReviewDocument || sop.jenis_spo === 'BARU');
+
             const propKey = getProposalEventKey(sop);
-            const alreadyNotified = notifiedProposalDocIds.has(propKey) || activeNotifications.some(
-              (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === sop.id)) && !n.hidden
-            );
+            const alreadyNotified =
+              notifiedProposalDocIds.has(propKey) ||
+              activeNotifications.some(
+                (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === sop.id)) && !n.hidden
+              );
+
             if ((isNewDraft || isActivationRequested || !alreadyNotified) && hasProposalMeta) {
               const meta = getProposalNotificationMeta(sop, currentUsersList);
-              processNotificationEvent({ type: 'proposal', sop, eventKey: propKey, title: meta.title,
-                message: meta.message, actionLabel: 'Tinjau & Sahkan', onAction: () => onSelectDocument?.(sop) }, onToast);
+              processNotificationEvent({
+                type: 'proposal',
+                sop,
+                eventKey: propKey,
+                title: meta.title,
+                message: meta.message,
+                actionLabel: 'Tinjau & Sahkan',
+                onAction: () => onSelectDocument?.(sop)
+              }, onToast);
             }
           }
 
-          if (changeType === 'added' && !initialKnownDocIds.has(sop.id)) {
+          // EVENT 3: NEW DOCUMENT ASSIGNMENT (Untuk divisi terkait saat dokumen aktif baru terbit)
+          if (change.type === 'added' && !initialKnownDocIds.has(sop.id)) {
             initialKnownDocIds.add(sop.id);
             const assignmentKey = getAssignmentEventKey(sop);
             if (inUserHierarchy && sop.status === 'AKTIF') {
               const divLabel = sop.divisionName || sop.divisionCode || 'Divisi Anda';
               const notifMsg = `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah ditugaskan ke unit/bidang ${divLabel}.`;
-              processNotificationEvent({ type: 'assignment', sop, eventKey: assignmentKey, title: 'Dokumen Baru Ditugaskan',
-                message: notifMsg, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
+              processNotificationEvent({ type: 'assignment', sop, eventKey: assignmentKey, title: 'Dokumen Baru Ditugaskan', message: notifMsg, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
             }
           }
 
-          if ((changeType === 'added' || changeType === 'modified') && inUserHierarchy && sop.status === 'AKTIF') {
+          // EVENT 4: PERIODIC REVIEW ALERT
+          if ((change.type === 'added' || change.type === 'modified') && inUserHierarchy && sop.status === 'AKTIF') {
             const reviewStatus = evaluatePeriodicReview(sop);
             if (reviewStatus.isDue) {
               const reviewEventKey = getReviewEventKey(sop, reviewStatus.dueDate);
               const notifMsg = `SPO "${sop.title}" (${sop.sopNumber}): ${reviewStatus.reason}`;
-              processNotificationEvent({ type: 'review', sop, eventKey: reviewEventKey, title: 'Perlu Riviu Berkala',
-                message: notifMsg, actionLabel: 'Tinjau Sekarang', dueDate: reviewStatus.dueDate,
-                isOverdue: reviewStatus.isOverdue, onAction: () => onSelectDocument?.(sop) }, onToast);
+              processNotificationEvent({
+                type: 'review', sop, eventKey: reviewEventKey,
+                title: 'Perlu Riviu Berkala', message: notifMsg,
+                actionLabel: 'Tinjau Sekarang', dueDate: reviewStatus.dueDate,
+                isOverdue: reviewStatus.isOverdue, onAction: () => onSelectDocument?.(sop)
+              }, onToast);
             }
           }
         });
-
-        // Track removals so a re-added document is treated as new.
-        for (const id of Array.from(initialKnownDocIds)) {
-          if (!currentIds.has(id)) {
-            docStatusMap.delete(id);
-            docActivationReqMap.delete(id);
-            initialKnownDocIds.delete(id);
-          }
-        }
       },
       (error) => {
-        if (error?.code === 'permission-denied') return;
-        console.info('Firestore realtime watcher notice:', error?.message || error);
-      },
-      scopedKeys,
-      globalAccess
+        console.warn('Firestore real-time notification listener note:', error?.message || error);
+      }
     );
-  } catch (error) {
-    console.info('Firestore realtime watcher unavailable; local data remains active.');
+  } catch (err) {
+    console.warn('Could not attach Firestore realtime listener:', err);
   }
 
   // 2. Local window & cross-tab event listener for immediate same-client / multi-tab responsiveness
@@ -1161,9 +1167,11 @@ export function setupDocumentRealtimeWatcher({
     const { type, document: sop, reason } = detail;
     const isAdmin = userSession.role === 'admin';
     const inUserHierarchy = userCanAccessSop(sop, userSession);
+    const isPengusul = isUserPengusulSop(sop, userSession);
 
     if (type === 'activation') {
-      if (!shouldReceiveActivationNotification(sop, userSession)) return;
+      // NOTE: Notifikasi pengaktifan HANYA untuk user pengusul, bukan semua user
+      if (isAdmin || !isPengusul) return;
       const eventKey = getActivationEventKey(sop);
       const meta = getActivationNotificationMeta(sop);
       const message = reason || meta.message;
@@ -1180,7 +1188,7 @@ export function setupDocumentRealtimeWatcher({
     }
 
     if (type === 'proposal') {
-      if (!shouldReceiveProposalNotification(sop, userSession)) return;
+      if (!isAdmin) return;
       const eventKey = getProposalEventKey(sop);
       const meta = getProposalNotificationMeta(sop, currentUsersList);
       const message = reason || meta.message;
@@ -1349,11 +1357,34 @@ export function scanDocumentsForActivations(
 
   setNotificationUserSession(userSession);
 
+  // Prune any legacy or invalid activation notifications for documents this user did not propose
+  if (sops.length > 0 && activeNotifications.some((n) => n.type === 'activation')) {
+    const sopsMap = new Map<string, SopDocument>();
+    sops.forEach((s) => {
+      if (s?.id) sopsMap.set(s.id, s);
+    });
+
+    const cleaned = activeNotifications.filter((n) => {
+      if (n.type !== 'activation' || !n.documentId) return true;
+      const targetSop = sopsMap.get(n.documentId);
+      if (!targetSop) return true;
+      return isUserPengusulSop(targetSop, userSession);
+    });
+
+    if (cleaned.length !== activeNotifications.length) {
+      activeNotifications = cleaned;
+      persistNotifications(activeNotifications);
+      notifySubscribers();
+    }
+  }
+
   const newlyActivatedDocs: SopDocument[] = [];
 
   for (const sop of sops) {
     if (!sop || sop.status !== 'AKTIF') continue;
-    if (!shouldReceiveActivationNotification(sop, userSession)) continue;
+    // NOTE: Notifikasi pengaktifan HANYA masuk ke user pengusul, bukan ke semua user
+    const isPengusul = isUserPengusulSop(sop, userSession);
+    if (!isPengusul) continue;
     if (!sop.activatedAt && !sop.activationRequestedAt) continue;
 
     const actKey = getActivationEventKey(sop);

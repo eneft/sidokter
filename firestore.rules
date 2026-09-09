@@ -1,87 +1,79 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Global fallback: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     function signedIn() {
       return request.auth != null;
     }
 
     function isAdmin() {
       return signedIn() && (
-        request.auth.token.email == 'abdurr9025@gmail.com' ||
-        (request.auth.token.email_verified == true && request.auth.token.email == 'abdurr9025@gmail.com') ||
+        request.auth.token.email == 'gelapgulita3@gmail.com' ||
         request.auth.token.role == 'admin' ||
-        request.auth.token.admin == true
+        request.auth.token.admin == true ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        )
       );
     }
 
-    function validSopTitle() {
-      return request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 300;
+    // Health / Connection check path
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
 
+    // SOP (Standar Prosedur Operasional) collection
     match /sops/{sopId} {
-      // Reading SOP documents is accessible to all hospital personnel and real-time listeners
+      // All users and hospital staff can read published & scoped SOPs
       allow read: if true;
 
-      // SOP writes are privileged operations. Client-side role/session data is
-      // not trusted by Firestore; Admin must be represented by Firebase custom
-      // claims (or the fixed bootstrap admin email below).
-      allow create, update: if isAdmin() && validSopTitle();
+      // Only administrators or signed-in users creating draft SOPs
+      allow create: if isAdmin() || (signedIn() && request.resource.data.status == 'DRAFT');
+      allow update: if isAdmin() || (signedIn() && resource.data.status == 'DRAFT');
       allow delete: if isAdmin();
     }
 
+    // Library documents (SK & MOU regulations)
     match /library_documents/{documentId} {
-      // SK and MOU legal repository documents
-      allow read: if true;
-      allow create, update: if isAdmin()
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0;
-      allow delete: if isAdmin();
-    }
-
-    match /system_config/{configId} {
-      // Numbering and operational system configuration
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
-    match /notifications/{userId}/items/{eventKey} {
-      // User-scoped notifications
-      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
-
-      allow create, update: if (signedIn() && request.auth.uid == userId) || isAdmin();
-
-      allow delete: if (signedIn() && request.auth.uid == userId) || isAdmin();
+    // System configuration (numbering, maintenance mode)
+    match /system_config/{configId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
     }
 
+    // Users directory
     match /users/{userId} {
-      // Directory of users and divisions for assignees and verification lookup
       allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Administrator registry
+    match /admins/{adminId} {
+      allow read: if signedIn();
       allow write: if isAdmin();
     }
 
+    // Private user notifications
+    match /notifications/{userId}/items/{eventKey} {
+      allow read, write: if isAdmin() || (signedIn() && request.auth.uid == userId);
+    }
+
+    // Audit logs: clients may append operational logs, but cannot tamper with or delete logs
     match /audit_logs/{logId} {
-      // Activity history: Admin may read, clients may append operational logs
       allow read: if isAdmin();
-      allow create: if signedIn();
+      allow create: if true;
       allow update, delete: if false;
-    }
-
-    match /user_credentials/{userId} {
-      // Credential storage is managed strictly on the server
-      allow read, write: if false;
-    }
-
-    match /session_states/{userId} {
-      allow read, write: if false;
-      match /sessions/{sessionId} {
-        allow read, write: if false;
-      }
-    }
-
-    match /auth_logs/{logId} {
-      allow read, write: if false;
     }
   }
 }

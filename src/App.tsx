@@ -2210,7 +2210,6 @@ export default function App() {
         onOpenSecurity={() => setIsSecurityOpen(true)}
         onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
         onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
-        onStandardizeAllNumbers={handleStandardizeAllSopNumbers}
       />
 
       {/* Modals */}

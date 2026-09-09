@@ -9,6 +9,7 @@ import {
   deleteDoc,
   getDocs,
   getDoc,
+  getDocFromServer,
   onSnapshot,
   query,
   where,
@@ -445,8 +446,12 @@ export async function logAuditToFirestore(audit: {
 export async function checkFirebaseConnection(): Promise<boolean> {
   try {
     updateStatus({ isSyncing: true });
-    const q = query(collection(db, 'sops'), limit(1));
-    await getDocs(q);
+    try {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+    } catch {
+      const q = query(collection(db, 'sops'), limit(1));
+      await getDocs(q);
+    }
     updateStatus({
       isConnected: true,
       isSyncing: false,
