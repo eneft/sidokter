@@ -1,5 +1,5 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
-import { deleteNamedFileFromLocalCache } from '../utils/fileStorage';
+import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache } from '../utils/fileStorage';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
 

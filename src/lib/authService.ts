@@ -182,6 +182,12 @@ export async function getCurrentAuthToken(forceRefresh=false){
   return getIdToken(forceRefresh);
 }
 
+/** Trusted server API call for operations that must use the SIDOKTER session
+ * and Firebase Admin SDK instead of relying on browser Firestore Rules. */
+export async function callAuthenticatedAuthApi(action:string, body:Record<string,any>={}){
+  return callAuthApi(action, body);
+}
+
 /** Login is performed only by the trusted Firebase Function. */
 export async function provisionInitialAdmin(setupSecret:string,password:string){
   const secret=String(setupSecret||''); const pass=String(password||'');

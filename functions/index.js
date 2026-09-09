@@ -629,6 +629,29 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       return json(res, 200, { success: true, session });
     }
 
+    if (action === 'sop-list') {
+      // Trusted server-side SOP read. This is the compatibility path for
+      // browsers/devices whose direct Firestore client authorization cannot
+      // evaluate the application session reliably. It uses the same hierarchy
+      // scope as the rest of SIDOKTER and never returns documents outside it.
+      const claims = getUserHierarchyClaims(context.user);
+      const global = context.user.role === 'admin' || claims.globalHierarchyAccess === true;
+      const userKeys = new Set(claims.hierarchyKeys || []);
+      const snap = await db.collection('sops').get();
+      const sops = [];
+      for (const d of snap.docs) {
+        const data = d.data() || {};
+        if (data.isNumberReservation) continue;
+        const accessKeys = new Set(Array.isArray(data.accessKeys)
+          ? data.accessKeys.map(v => String(v).trim().toUpperCase()).filter(Boolean)
+          : getSopAccessKeysServer(data));
+        if (global || Array.from(accessKeys).some(k => userKeys.has(k))) {
+          sops.push({ ...data, id: data.id || d.id });
+        }
+      }
+      return json(res, 200, { success: true, sops, source: 'trusted-server' });
+    }
+
     if (action === 'migrate-sop-access') {
       return await migrateSopAccessBoundary(req, res, context);
     }

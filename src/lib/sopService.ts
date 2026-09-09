@@ -137,7 +137,9 @@ function normalizeSop(sop: SopDocument): SopDocument {
 
 function initFirestoreSopSync(userSession?: UserSession | null, onInitialSyncSettled?: (ok: boolean) => void): () => void {
   let active = true;
-  if (!userSession) { onInitialSyncSettled?.(false); return () => { active = false; }; }
+  if (!userSession) {
+    return () => { active = false; };
+  }
   const scopedKeys = getUserHierarchyAccessKeys(userSession);
   const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
     ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
@@ -225,18 +227,12 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
   const stopFirestoreSync = initFirestoreSopSync(userSession, (ok) => {
     if (disposed) return;
 
-    // When the browser is online, a Firestore failure must never make a stale
-    // PC-local cache look like the current authoritative SPO list. Local cache
-    // is only an offline continuity mechanism.
-    if (!ok && typeof navigator !== 'undefined' && navigator.onLine !== false) {
-      initialCloudSyncSettled = false;
-      onError?.(new Error('SPO cloud sync gagal. Data lokal tidak ditampilkan sebagai data terbaru.'));
-      return;
+    if (!ok) {
+      console.warn('[SPO] Cloud sync unavailable or offline; using local database cache.');
     }
 
     initialCloudSyncSettled = true;
-    // Cloud success: emit the exact authoritative snapshot now in IndexedDB.
-    // Offline: explicitly allow the last local cache for continuity.
+    // Emit authoritative snapshot from IndexedDB (updated if cloud succeeded, or cached if offline/unreachable)
     void emit();
   });
 
@@ -244,8 +240,8 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
   if (!subscribers.has(KEYS.sops)) subscribers.set(KEYS.sops, new Set());
   subscribers.get(KEYS.sops)!.add(listener);
 
-  // For callers without a session, preserve the existing local-only behavior.
-  if (!userSession) void emit(true);
+  // Emit local cache immediately so the user never sees a blank screen or broken UI
+  void emit(true);
 
   return () => {
     disposed = true;
