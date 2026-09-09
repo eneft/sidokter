@@ -98,7 +98,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 )}
               </div>
               <p className="text-[11px] text-slate-500">
-                Aktivasi, usulan SPO, penugasan & jadwal riviu
+                Aktivasi, usulan SPO & riviu
               </p>
             </div>
           </div>
@@ -180,7 +180,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                SPO Disetujui ({countAssignment})
+                Disetujui ({countAssignment})
               </button>
             )}
 
@@ -194,7 +194,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Riviu Berkala ({countReview})
+                Riviu ({countReview})
               </button>
             )}
           </div>
@@ -232,7 +232,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               </div>
               <h4 className="font-semibold text-slate-700 text-xs">Belum ada pemberitahuan</h4>
               <p className="text-[11px] text-slate-400 mt-0.5 max-w-xs mx-auto">
-                Semua pembaruan aktivasi SPO, usulan, dan jadwal riviu akan tampil di sini.
+                Semua pembaruan persetujuan SPO, usulan, dan jadwal riviu akan tampil di sini.
               </p>
             </div>
           ) : (

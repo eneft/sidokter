@@ -1141,8 +1141,8 @@ export function setupDocumentRealtimeWatcher({
             const assignmentKey = getAssignmentEventKey(sop);
             if (inUserHierarchy && sop.status === 'AKTIF') {
               const divLabel = sop.divisionName || sop.divisionCode || 'Divisi Anda';
-              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah ditugaskan ke unit/bidang ${divLabel}.`;
-              processNotificationEvent({ type: 'assignment', sop, eventKey: assignmentKey, title: 'Dokumen Baru Ditugaskan', message: notifMsg, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
+              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah disetujui & disahkan untuk ${divLabel}.`;
+              processNotificationEvent({ type: 'assignment', sop, eventKey: assignmentKey, title: 'Dokumen Baru Disetujui', message: notifMsg, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
             }
           }
 
@@ -1227,8 +1227,8 @@ export function setupDocumentRealtimeWatcher({
       if (!inUserHierarchy) return;
       const eventKey = getAssignmentEventKey(sop);
       const divLabel = sop.divisionName || sop.divisionCode || 'Divisi Anda';
-      const message = reason || `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah ditugaskan ke unit/bidang ${divLabel}.`;
-      processNotificationEvent({ type, sop, eventKey, title: 'Dokumen Baru Ditugaskan', message, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
+      const message = reason || `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah disetujui & disahkan untuk ${divLabel}.`;
+      processNotificationEvent({ type, sop, eventKey, title: 'Dokumen Baru Disetujui', message, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
       return;
     }
 
