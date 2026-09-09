@@ -665,7 +665,10 @@ export function getUserHierarchyAccessKeys(userSession?: {
       }
     }
   }
-  return Array.from(keys).slice(0, 30);
+  // Do not truncate here. Firestore queries are batched in firestoreService.ts
+  // in groups of <=30 values. Truncating at this layer could silently hide
+  // valid hierarchy scopes and make two users/devices see different SPO sets.
+  return Array.from(keys);
 }
 
 /** Build document access keys including all hierarchy ancestors. */

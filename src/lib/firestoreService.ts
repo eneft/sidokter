@@ -71,9 +71,9 @@ function sanitizeForFirestore<T extends Record<string, any>>(obj: T): any {
   for (const [key, val] of Object.entries(obj)) {
     if (val === undefined) continue;
 
-    // Do not send huge data URLs to Firestore; local cache handles large binary storage
+    // Do not send huge data URLs to Firestore; Firebase Storage holds the durable binary.
     if (typeof val === 'string' && val.startsWith('data:') && val.length > 300000) {
-      clean[key] = '[LOCAL_STORAGE_BINARY]';
+      clean[key] = '[STORAGE_BINARY]';
       continue;
     }
 
@@ -95,7 +95,7 @@ function sanitizeForFirestore<T extends Record<string, any>>(obj: T): any {
    SOP (STANDAR PROSEDUR OPERASIONAL) FIRESTORE SYNC
 ========================================================================= */
 
-export async function saveSopToFirestore(sop: SopDocument): Promise<void> {
+export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnError?: boolean }): Promise<void> {
   try {
     if (!sop || !sop.id) return;
     updateStatus({ isSyncing: true });
@@ -118,6 +118,7 @@ export async function saveSopToFirestore(sop: SopDocument): Promise<void> {
       isSyncing: false,
       error: err?.message || 'Gagal sinkronisasi SPO ke Firestore'
     });
+    if (options?.throwOnError) throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -140,26 +141,47 @@ export async function deleteSopFromFirestore(id: string): Promise<void> {
 
 export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess = false): Promise<SopDocument[]> {
   // Never issue a Firestore SOP read before Firebase Auth is established.
-  // This prevents permission-denied noise during app bootstrap/logout transitions.
-  if (!auth.currentUser) return [];
+  // An unauthenticated bootstrap is NOT an empty cloud dataset.
+  if (!auth.currentUser) throw new Error('FIRESTORE_AUTH_NOT_READY');
+
+  const colRef = collection(db, 'sops');
+  const keys = Array.from(new Set((accessKeys || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean)));
+
+  if (!globalAccess && keys.length === 0) {
+    // Do not return [] here: [] means a successful query with zero documents
+    // and is allowed to replace the local cache. Missing access scope is an
+    // error state and must preserve the existing cache.
+    throw new Error('FIRESTORE_ACCESS_SCOPE_EMPTY');
+  }
+
   try {
-    const colRef = collection(db, 'sops');
-    const q = globalAccess
-      ? colRef
-      : accessKeys && accessKeys.length
-        ? query(colRef, where('accessKeys', 'array-contains-any', accessKeys.slice(0, 30)))
-        : null;
-    if (!q) return [];
-    const snapshot = await getDocs(q);
-    const sops: SopDocument[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data && (data.id || docSnap.id)) sops.push({ ...data, id: data.id || docSnap.id } as SopDocument);
-    });
-    return sops;
+    const snapshots = globalAccess
+      ? [await getDocs(colRef)]
+      : await Promise.all(
+          Array.from({ length: Math.ceil(keys.length / 30) }, (_, i) =>
+            getDocs(query(colRef, where('accessKeys', 'array-contains-any', keys.slice(i * 30, i * 30 + 30))))
+          )
+        );
+
+    const byId = new Map<string, SopDocument>();
+    for (const snapshot of snapshots) {
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data && (data.id || docSnap.id)) {
+          const id = String(data.id || docSnap.id);
+          byId.set(id, { ...data, id } as SopDocument);
+        }
+      });
+    }
+
+    updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
+    return Array.from(byId.values());
   } catch (err: any) {
-    if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP sync unavailable; local cache remains active.');
-    return [];
+    updateStatus({ isConnected: false, error: err?.message || 'Gagal membaca SPO dari Firestore' });
+    console.warn('Firestore scoped SOP sync unavailable; preserving local cache.', err?.message || err);
+    // IMPORTANT: propagate read failures. The caller must distinguish
+    // "successful empty snapshot" from "cloud read failed".
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -169,29 +191,65 @@ export function subscribeToFirestoreSops(
   accessKeys?: string[],
   globalAccess = false
 ): () => void {
-  if (!auth.currentUser) { callback([]); return () => {}; }
+  if (!auth.currentUser) {
+    onError?.(new Error('FIRESTORE_AUTH_NOT_READY'));
+    return () => {};
+  }
+
   try {
     const colRef = collection(db, 'sops');
-    const q = globalAccess
-      ? colRef
-      : accessKeys && accessKeys.length
-        ? query(colRef, where('accessKeys', 'array-contains-any', accessKeys.slice(0, 30)))
-        : null;
-    if (!q) { callback([]); return () => {}; }
-    return onSnapshot(q, (snapshot) => {
-      const sops: SopDocument[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data && (data.id || docSnap.id)) sops.push({ ...data, id: data.id || docSnap.id } as SopDocument);
+    const keys = Array.from(new Set((accessKeys || []).map((k) => String(k).trim().toUpperCase()).filter(Boolean)));
+
+    if (!globalAccess && keys.length === 0) {
+      onError?.(new Error('FIRESTORE_ACCESS_SCOPE_EMPTY'));
+      return () => {};
+    }
+
+    // Firestore array-contains-any accepts max 30 comparison values. Use one
+    // listener per batch and combine snapshots. A successful empty combined
+    // result is authoritative; listener errors are NOT treated as empty data.
+    const chunks = globalAccess ? [null] : Array.from({ length: Math.ceil(keys.length / 30) }, (_, i) => keys.slice(i * 30, i * 30 + 30));
+    const latest = new Map<number, SopDocument[]>();
+    const unsubscribers: Array<() => void> = [];
+    let closed = false;
+
+    const emitCombined = () => {
+      if (closed || latest.size !== chunks.length) return;
+      const byId = new Map<string, SopDocument>();
+      latest.forEach((items) => items.forEach((s) => byId.set(String(s.id), s)));
+      updateStatus({ isConnected: true, error: null, lastSync: new Date().toISOString() });
+      callback(Array.from(byId.values()));
+    };
+
+    chunks.forEach((chunk, index) => {
+      const q = globalAccess
+        ? colRef
+        : query(colRef, where('accessKeys', 'array-contains-any', chunk!));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const items: SopDocument[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data && (data.id || docSnap.id)) items.push({ ...data, id: data.id || docSnap.id } as SopDocument);
+        });
+        latest.set(index, items);
+        emitCombined();
+      }, (err) => {
+        if (closed) return;
+        updateStatus({ isConnected: false, error: err?.message || 'Realtime Firestore error' });
+        console.warn('Firestore scoped SOP realtime sync unavailable; preserving local cache.', err?.message || err);
+        onError?.(err);
       });
-      updateStatus({ isConnected: true, lastSync: new Date().toISOString() });
-      callback(sops);
-    }, (err) => {
-      if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP realtime sync unavailable; local cache remains active.');
-      onError?.(err);
+      unsubscribers.push(unsubscribe);
     });
-  } catch (err) {
-    if (err?.code !== 'permission-denied') console.info('Firestore scoped SOP listener unavailable; local cache remains active.');
+
+    return () => {
+      closed = true;
+      unsubscribers.forEach((unsubscribe) => {
+        try { unsubscribe(); } catch { /* noop */ }
+      });
+    };
+  } catch (err: any) {
+    onError?.(err);
     return () => {};
   }
 }

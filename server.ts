@@ -4,10 +4,9 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { generatePdf } from './server/pdfRenderer';
 import { handleAuthApi, verifyServerSession } from './server/authHandler';
-import { handleStorageUpload, handleStorageDownload, handleStorageDelete } from './server/storageHandler';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || '');
@@ -30,10 +29,8 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SOEGIRI_DOC
 // Dedicated internal auth endpoints: /api/auth and /api/authApi
 app.all(['/api/auth', '/api/authApi', '/api/auth/:action', '/api/authApi/:action'], handleAuthApi);
 
-// Cloud / Server File Storage for PDFs, scans, and attachments
-app.post('/api/storage/upload', handleStorageUpload);
-app.get('/api/storage/files/:id', handleStorageDownload);
-app.delete('/api/storage/files/:id', handleStorageDelete);
+// SPO binaries are stored exclusively in Firebase Cloud Storage via the storageApi function.
+// No local /api/storage filesystem endpoint is registered here.
 
 
 app.post('/api/pdf', async (req, res) => {

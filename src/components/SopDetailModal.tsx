@@ -37,7 +37,7 @@ import { formatBytes } from '../utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser, canUserActivateSop } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
-import { triggerFileDownload, openDocumentPreview, getFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
+import { triggerFileDownload, openDocumentPreview } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
@@ -249,93 +249,25 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       return;
     }
 
-    // 1. Direct object or synchronous cache properties
-    const directUrl =
-      sop.fileDataUrl ||
-      sop.signedScanDataUrl ||
-      sop.oldFileDataUrl ||
-      getFileFromLocalCache(sop.id, 'file') ||
-      getFileFromLocalCache(sop.id, 'signedScan') ||
-      getFileFromLocalCache(sop.id, 'oldFile');
-
-    if (directUrl) {
-      setResolvedLegacyFileUrl(directUrl);
+    // Firebase Cloud Storage is the only authoritative file source.
+    // Browser-local cache is intentionally NOT used for normal preview; otherwise
+    // PC-A can show a document that PC-B cannot access. Legacy records without a
+    // cloud reference must be repaired/migrated instead of silently falling back.
+    const cloudUrl = (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl;
+    if (cloudUrl) {
+      setResolvedLegacyFileUrl(cloudUrl);
       setIsLoadingLegacyFile(false);
       return;
     }
 
-    // 2. Fetch asynchronously from IndexedDB
-    setIsLoadingLegacyFile(true);
-    const loadFromIdb = async () => {
-      try {
-        const file1 = await getFileFromPersistentCacheAsync(sop.id, 'file');
-        if (file1 && !isCancelled) {
-          setResolvedLegacyFileUrl(file1);
-          setIsLoadingLegacyFile(false);
-          return;
-        }
-        const file2 = await getFileFromPersistentCacheAsync(sop.id, 'signedScan');
-        if (file2 && !isCancelled) {
-          setResolvedLegacyFileUrl(file2);
-          setIsLoadingLegacyFile(false);
-          return;
-        }
-        const file3 = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
-        if (file3 && !isCancelled) {
-          setResolvedLegacyFileUrl(file3);
-          setIsLoadingLegacyFile(false);
-          return;
-        }
-
-        // Check if cloud file URL is available on the document
-        const cloudUrl = (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl;
-        if (cloudUrl && !isCancelled) {
-          setResolvedLegacyFileUrl(cloudUrl);
-          setIsLoadingLegacyFile(false);
-          return;
-        }
-
-        // Check if server storage has file by ID
-        const serverUrls = [
-          `/api/storage/files/${sop.id}_file`,
-          `/api/storage/files/${sop.id}_signedScan`,
-          `/api/storage/files/${sop.id}_oldFile`,
-          `/api/storage/files/${sop.id}`
-        ];
-        for (const sUrl of serverUrls) {
-          try {
-            const persisted = getPersistedClientSession();
-            const headers: Record<string, string> = {};
-            if (persisted?.sessionId) headers['X-Session-Id'] = persisted.sessionId;
-            const head = await fetch(sUrl, { method: 'HEAD', headers });
-            if (head.ok && !isCancelled) {
-              setResolvedLegacyFileUrl(sUrl);
-              setIsLoadingLegacyFile(false);
-              return;
-            }
-          } catch {}
-        }
-      } catch (err) {
-        console.warn('Could not load persistent cache for SOP file:', err);
-      }
-      if (!isCancelled) {
-        setResolvedLegacyFileUrl(null);
-        setIsLoadingLegacyFile(false);
-      }
-    };
-
-    loadFromIdb();
-
+    setResolvedLegacyFileUrl(null);
+    setIsLoadingLegacyFile(false);
     return () => {
       isCancelled = true;
     };
-  }, [sop?.id, sop?.fileDataUrl, sop?.signedScanDataUrl, sop?.oldFileDataUrl, isOpen]);
+  }, [sop?.id, sop?.fileUrl, sop?.signedScanUrl, sop?.oldFileUrl, isOpen]);
 
-  const legacyFileUrl = resolvedLegacyFileUrl || (sop ? (
-    (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl ||
-    sop.signedScanDataUrl || sop.fileDataUrl || sop.oldFileDataUrl ||
-    getFileFromLocalCache(sop.id, 'file') || getFileFromLocalCache(sop.id, 'signedScan') || getFileFromLocalCache(sop.id, 'oldFile')
-  ) : null);
+  const legacyFileUrl = resolvedLegacyFileUrl;
   const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
 
@@ -343,10 +275,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const handleDownloadReviewEvidence = async () => {
     if (!sop) return;
     try {
-      let fileUrl = sop.oldFileDataUrl || getFileFromLocalCache(sop.id, 'oldFile');
-      if (!fileUrl) {
-        fileUrl = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
-      }
+      let fileUrl = (sop as any).oldFileUrl || null;
       if (!fileUrl) {
         fileUrl = (sop as any).oldFileUrl || null;
       }

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getPersistedClientSession } from '../lib/authService';
+import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { 
@@ -246,7 +246,9 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           // header to our own storage endpoint.
           if (effectiveFileUrl.startsWith('/api/storage/files/')) {
             const session = getPersistedClientSession();
+            const token = await getCurrentAuthToken();
             if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+            if (token) headers['Authorization'] = `Bearer ${token}`;
           }
           const res = await fetch(effectiveFileUrl, { headers });
           if (!res.ok) {

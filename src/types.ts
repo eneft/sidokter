@@ -156,7 +156,8 @@ export interface SopDocument {
   fileSize?: number; // in bytes
   fileType?: string;
   fileDataUrl?: string; // for uploaded file preview (Dokumen Baru / Hasil Review)
-  fileUrl?: string; // Permanent cloud/server storage URL
+  fileUrl?: string; // Firebase Storage API reference (authoritative binary)
+  storagePath?: string; // Firebase Cloud Storage object path (authoritative)
 
   // Jenis input SPO: Baru, Eksisting (lama tetapi masih berlaku), dan Riviu
   jenis_spo?: 'BARU' | 'EKSISTING' | 'RIVIU';
@@ -174,7 +175,8 @@ export interface SopDocument {
   oldFileSize?: number;
   oldFileType?: string;
   oldFileDataUrl?: string;
-  oldFileUrl?: string; // Permanent cloud/server storage URL for review evidence
+  oldFileUrl?: string; // Firebase Storage API reference for review evidence
+  oldStoragePath?: string; // Firebase Cloud Storage object path for review evidence
   reviewReason?: string;
   externalReviewSignedConfirmed?: boolean;
   isExampleOnly?: boolean; // Flag to indicate master template/example SOP visible only to Admin
@@ -200,7 +202,8 @@ export interface SopDocument {
   signedScanFileSize?: number;
   signedScanFileType?: string;
   signedScanDataUrl?: string; // File pindaian/scan dokumen fisik yang sudah bertandatangan Direktur
-  signedScanUrl?: string; // Permanent cloud/server storage URL for signed scan
+  signedScanUrl?: string; // Firebase Storage API reference for signed scan
+  signedScanStoragePath?: string; // Firebase Cloud Storage object path for signed scan
   
   // Custom metadata
   confidentialityLevel: 'Publik' | 'Internal' | 'Rahasia';

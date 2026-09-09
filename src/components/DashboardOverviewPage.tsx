@@ -188,7 +188,7 @@ export const DashboardOverviewPage: React.FC<
       let url: string | undefined;
       let fileName = row.fileName || `${row.type}.pdf`;
       if (row.type === 'SPO' && row.sop) {
-        url = row.sop.signedScanDataUrl || row.sop.fileDataUrl;
+        url = row.sop.signedScanUrl || row.sop.fileUrl;
         fileName = row.sop.signedScanFileName || row.sop.fileName || `${row.sop.sopNumber || 'SPO'}.pdf`;
       } else if (row.doc) {
         url = await (row.type === 'SK' ? getSKDocumentUrl(row.doc) : getMOUDocumentUrl(row.doc));

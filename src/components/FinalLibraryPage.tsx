@@ -324,7 +324,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
               <div className="divide-y divide-slate-100">
                 {filteredSops.map((sop) => {
                   const hasAttachment = Boolean(
-                    sop.fileDataUrl || sop.signedScanDataUrl || sop.fileName
+                    sop.fileUrl || sop.signedScanUrl || sop.fileName
                   );
                   return (
                     <div

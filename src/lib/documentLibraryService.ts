@@ -1,8 +1,9 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
-import { saveNamedFileToLocalCache, getNamedFileFromLocalCache, deleteNamedFileFromLocalCache, getFileFromPersistentCacheAsync } from '../utils/fileStorage';
+import { deleteNamedFileFromLocalCache } from '../utils/fileStorage';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
 
+import { getPersistedClientSession, getCurrentAuthToken } from './authService';
 const LIBRARY_KEY = 'soegiri_offline_library_v1';
 const subscribers = new Set<() => void>();
 let firestoreSyncInitialized = false;
@@ -52,20 +53,11 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
   if (file.size > 20 * 1024 * 1024) throw new Error('Ukuran PDF maksimal 20 MB.');
   if (!title.trim()) throw new Error('Judul dokumen wajib diisi.');
   const id = `library-${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-  
-  // Read Data URL for local fast cache
-  const dataUrl = await new Promise<string>((resolve,reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || ''));
-    r.onerror = () => reject(new Error('Gagal membaca file PDF.'));
-    r.readAsDataURL(file);
-  });
-  await saveNamedFileToLocalCache(`library_${id}`, dataUrl);
 
   // Upload to Cloud Server Storage so all other devices can access it permanently
   let cloudUrl = '';
   try {
-    const uploadRes = await uploadFileToCloudStorage(dataUrl, file.name, id);
+    const uploadRes = await uploadFileToCloudStorage(file, file.name, id);
     if (!uploadRes?.url) throw new Error('Cloud storage tidak mengembalikan URL file.');
     cloudUrl = uploadRes.url;
   } catch (uploadErr) {
@@ -113,28 +105,33 @@ export async function deleteDocument(document:LibraryDocument,actorRole?:UserRol
   // Delete from server storage if cloud url
   if (document.downloadUrl && document.downloadUrl.startsWith('/api/storage/files/')) {
     const fileId = document.downloadUrl.replace('/api/storage/files/', '');
-    void fetch(`/api/storage/files/${fileId}`, { method: 'DELETE' }).catch(() => {});
+    const session = getPersistedClientSession();
+    void getCurrentAuthToken().then((token) => fetch(`/api/storage/files/${fileId}`, {
+      method: 'DELETE',
+      headers: {
+        ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    })).catch(() => {});
   }
 }
 export async function getDocumentUrl(document: LibraryDocument): Promise<string | null> {
-  // Check local cache first
-  const named = await getNamedFileFromLocalCache(`library_${document.id}`);
-  if (named) return named;
-
-  const legacy = await getFileFromPersistentCacheAsync(document.id, 'file');
-  if (legacy) {
-    await saveNamedFileToLocalCache(`library_${document.id}`, legacy);
-    return legacy;
-  }
-
-  // Resolve cloud URL
-  const viewUrl = await resolveViewableUrl(document.downloadUrl || document.storagePath, `library_${document.id}`);
+  // Durable cloud reference is authoritative. Local cache is only a legacy/offline fallback.
+  const viewUrl = await resolveViewableUrl(document.downloadUrl || document.storagePath);
   if (viewUrl) return viewUrl;
 
   // Auto-check server storage with document id
   const fallbackServerUrl = `/api/storage/files/${document.id}`;
   try {
-    const head = await fetch(fallbackServerUrl, { method: 'HEAD' });
+    const session = getPersistedClientSession();
+    const token = await getCurrentAuthToken();
+    const head = await fetch(fallbackServerUrl, {
+      method: 'HEAD',
+      headers: {
+        ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    });
     if (head.ok) return fallbackServerUrl;
   } catch {}
 
@@ -155,7 +152,6 @@ export async function getLibraryFilesForBackup(type?: LibraryDocumentType): Prom
 export async function restoreLibraryDocuments(documents: LibraryDocument[], files: Record<string,string> = {}): Promise<void> {
   const valid = documents.filter((d) => d && (d.type === 'SK' || d.type === 'MOU'));
   saveDocuments(valid);
-  for (const d of valid) { const data = files[`library_${d.id}`]; if (data) await saveNamedFileToLocalCache(`library_${d.id}`, data); }
 }
 
 /**

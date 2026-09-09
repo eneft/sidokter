@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // SIDOKTER uses the authenticated storageApi Cloud Function for all file
+    // operations so that custom role/hierarchy/session checks remain enforced.
+    // Direct browser access is denied; the function uses Firebase Admin SDK.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

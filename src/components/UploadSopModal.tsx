@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
 import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
-import { saveFileToLocalCache } from '../utils/fileStorage';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -670,18 +669,6 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     }
 
     const newGeneratedId = `sop-${Date.now()}`;
-    // Keep a local cache for instant preview. Durable cloud upload is performed
-    // exactly once by saveSopToLocal/onSubmit, and is awaited before the SPO is
-    // considered successfully saved. This avoids publishing metadata without a
-    // permanent file URL.
-    if (fileDataUrl) {
-      saveFileToLocalCache(newGeneratedId, 'file', fileDataUrl);
-      saveFileToLocalCache(newGeneratedId, 'signedScan', fileDataUrl);
-    }
-    if (documentType === 'REVIEW' && oldFileDataUrl) {
-      saveFileToLocalCache(newGeneratedId, 'oldFile', oldFileDataUrl);
-    }
-
     // Lock synchronously immediately before the authoritative save.
     // This prevents two rapid clicks from creating two different SOP IDs.
     if (isSubmitting || submitLockRef.current) return;
@@ -707,16 +694,6 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       updatedAt: new Date().toISOString(),
       revisionHistory: []
     };
-
-    if (fullSop && fullSop.id !== newGeneratedId) {
-      if (fileDataUrl) {
-        saveFileToLocalCache(fullSop.id, 'file', fileDataUrl);
-        saveFileToLocalCache(fullSop.id, 'signedScan', fileDataUrl);
-      }
-      if (oldFileDataUrl || (documentType === 'LAMA' && fileDataUrl)) {
-        saveFileToLocalCache(fullSop.id, 'oldFile', (oldFileDataUrl || fileDataUrl)!);
-      }
-    }
 
     // Show success popup
     setLatestCreatedSop(fullSop);

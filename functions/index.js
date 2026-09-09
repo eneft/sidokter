@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 
 if (!process.env.AWS_EXECUTION_ENV) {
@@ -835,6 +836,146 @@ async function requirePdfSession(req) {
  * pagination authoritative while producing a real, searchable PDF (not an
  * image/canvas PDF).
  */
+
+const STORAGE_COLLECTION = 'storage_files';
+const STORAGE_MAX_BYTES = 15 * 1024 * 1024;
+const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+const storageBucket = getStorage().bucket();
+
+function storageCors(req, res) {
+  const origin = String(req.headers.origin || '');
+  const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
+    .split(',').map(v => v.trim()).filter(Boolean);
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
+  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const local = /^http:\/\/localhost:\d+$/;
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+  res.set('Vary', 'Origin');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+  res.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
+}
+
+function storageAccessKeys(session) {
+  const out = new Set();
+  const normalize = v => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  const assignments = Array.isArray(session.assignments) && session.assignments.length
+    ? session.assignments
+    : (Array.isArray(session.divisionCodes) && session.divisionCodes.length
+      ? session.divisionCodes.map(divisionCode => ({ divisionCode }))
+      : [{ divisionCode: session.divisionCode, subCode: session.subCode, instCode: session.instCode, poliCode: session.poliCode, subUnitCode: session.subUnitCode }]);
+  for (const a of assignments) {
+    const division = normalize(a?.divisionCode).toUpperCase();
+    if (!division) continue;
+    out.add(division);
+    const hierarchy = normalize(a?.hierarchyCode || a?.hierarchyPath?.filter(Boolean).join('.') || [a?.subCode, a?.instCode, a?.poliCode, a?.subUnitCode].filter(Boolean).join('.'));
+    if (hierarchy) {
+      const parts = hierarchy.split('.').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) out.add(`${division}|${parts.slice(0, i).join('.')}`);
+    }
+  }
+  return out;
+}
+
+async function requireStorageAuth(req) {
+  return requireAuth(req);
+}
+
+async function storageUpload(req, res) {
+  const context = await requireStorageAuth(req);
+  const { fileData, fileName, fileType, id: requestedId, resourceType } = req.body || {};
+  if (!fileData || typeof fileData !== 'string') return json(res, 400, { success:false, message:'fileData wajib disertakan.' });
+  const safeName = String(fileName || 'dokumen.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const id = String(requestedId || `file_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const mime = String(fileType || 'application/pdf');
+  if (!STORAGE_MIME.has(mime)) return json(res, 415, { success:false, message:'Jenis file tidak didukung.' });
+  const comma = fileData.indexOf(',');
+  const raw = comma >= 0 ? fileData.slice(comma + 1) : fileData;
+  let buffer;
+  try { buffer = Buffer.from(raw, 'base64'); } catch { return json(res, 400, { success:false, message:'Data file tidak valid.' }); }
+  if (!buffer.length || buffer.length > STORAGE_MAX_BYTES) return json(res, 413, { success:false, message:'Ukuran file tidak valid atau melebihi 15 MB.' });
+
+  const isAdmin = normalizeRole(context.user.role) === 'admin';
+  const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+  const type = String(resourceType || (id.includes('_signedScan') || id.includes('_oldFile') || id.includes('_file') ? 'SPO' : 'OTHER')).toUpperCase();
+  if ((type === 'SK' || type === 'MOU') && !(isAdmin || isStructural)) return json(res, 403, { success:false, message:'Akses upload SK/MOU ditolak.' });
+
+  const ext = path.extname(safeName) || (mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : '.jpg');
+  const objectPath = `sidokter/${type.toLowerCase()}/${id}${ext}`;
+  const file = storageBucket.file(objectPath);
+  await file.save(buffer, { resumable:false, metadata:{ contentType:mime, metadata:{ originalName:safeName, ownerUid:context.user.id, resourceType:type } } });
+  const meta = {
+    id, objectPath, originalName:safeName, mimeType:mime, size:buffer.length,
+    uploadedAt:new Date().toISOString(), resourceType:type, ownerUid:context.user.id,
+    accessKeys:Array.from(storageAccessKeys(context.user))
+  };
+  await db.collection(STORAGE_COLLECTION).doc(id).set(meta, { merge:true });
+  return json(res, 200, { success:true, fileId:id, url:`/api/storage/files/${id}`, storagePath:objectPath, fileName:safeName, fileSize:buffer.length, mimeType:mime });
+}
+
+async function storageDownload(req, res) {
+  const context = await requireStorageAuth(req);
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const snap = await db.collection(STORAGE_COLLECTION).doc(id).get();
+  if (!snap.exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  const meta = snap.data();
+  const isAdmin = normalizeRole(context.user.role) === 'admin';
+  const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+  const keys = storageAccessKeys(context.user);
+  const allowed = isAdmin || isStructural || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+  if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+  const file = storageBucket.file(meta.objectPath);
+  const [exists] = await file.exists();
+  if (!exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  const [fm] = await file.getMetadata();
+  res.set('Content-Type', fm.contentType || meta.mimeType || 'application/pdf');
+  res.set('Content-Length', String(fm.size || meta.size || 0));
+  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(meta.originalName || 'dokumen.pdf')}"`);
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('X-Content-Type-Options', 'nosniff');
+  if (req.method === 'HEAD') return res.status(200).end();
+  file.createReadStream().on('error', err => { if (!res.headersSent) res.status(500); }).pipe(res);
+}
+
+async function storageDelete(req, res) {
+  const context = await requireStorageAuth(req);
+  if (normalizeRole(context.user.role) !== 'admin') return json(res, 403, { success:false, message:'Akses hapus file ditolak. Hanya Admin Root.' });
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const ref = db.collection(STORAGE_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const meta = snap.data();
+    try { await storageBucket.file(meta.objectPath).delete({ ignoreNotFound:true }); } catch (e) { console.warn('[storage] delete object warning', e?.message || e); }
+    await ref.delete();
+  }
+  return json(res, 200, { success:true });
+}
+
+exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', timeoutSeconds:60, memory:'512MiB' }, async (req, res) => {
+  storageCors(req, res);
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  try {
+    const pathName = String(req.path || req.url || '');
+    if (req.method === 'POST' && /\/upload\/?$/.test(pathName)) return await storageUpload(req, res);
+    if ((req.method === 'GET' || req.method === 'HEAD') && /\/files\/[^/]+\/?$/.test(pathName)) {
+      const id = pathName.split('/').filter(Boolean).pop(); req.params = { id };
+      return await storageDownload(req, res);
+    }
+    if (req.method === 'DELETE' && /\/files\/[^/]+\/?$/.test(pathName)) {
+      const id = pathName.split('/').filter(Boolean).pop(); req.params = { id };
+      return await storageDelete(req, res);
+    }
+    return json(res, 404, { success:false, message:'Storage endpoint tidak ditemukan.' });
+  } catch (err) {
+    console.error('[storageApi]', err);
+    const code = String(err?.message || '');
+    const authError = ['UNAUTHENTICATED','USER_NOT_FOUND','SESSION_REVOKED','SESSION_EXPIRED','SESSION_REQUIRED'].includes(code);
+    return json(res, authError ? 401 : 500, { success:false, message:authError ? 'Sesi login tidak valid atau sudah dicabut. Silakan login kembali.' : (err?.message || 'Gagal mengakses Firebase Storage.'), code:authError ? code : 'STORAGE_ERROR' });
+  }
+});
+
 exports.pdfApi = onRequest({
   region: 'asia-southeast2',
   invoker: 'public',

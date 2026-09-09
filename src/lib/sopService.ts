@@ -8,6 +8,7 @@ import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
 import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
+import { getFileFromPersistentCacheAsync } from '../utils/fileStorage';
 
 const KEYS = {
   sops: 'soegiri_offline_sops_v1',
@@ -103,39 +104,10 @@ function idbDeleteSop(id: string): Promise<void> {
 async function getSops(): Promise<SopDocument[]> {
   const stored = await idbGetAllSops();
 
-  // One-time migration from the old localStorage implementation.
-  // After a successful migration, remove the old key so it can no longer
-  // consume localStorage quota.
-  if (!stored.length) {
-    try {
-      const backupRaw = localStorage.getItem('soegiri_sops_last_good');
-      if (backupRaw) {
-        const backupDocs = JSON.parse(backupRaw) as SopDocument[];
-        if (Array.isArray(backupDocs) && backupDocs.length) {
-          const normalized = backupDocs.map(normalizeSop);
-          await idbPutSops(normalized);
-          return normalized;
-        }
-      }
-    } catch {}
-
-    try {
-      const raw = localStorage.getItem(KEYS.sops);
-      if (raw) {
-        const legacy = JSON.parse(raw) as SopDocument[];
-        if (Array.isArray(legacy) && legacy.length) {
-          const normalized = legacy.map(normalizeSop);
-          await idbPutSops(normalized);
-          localStorage.removeItem(KEYS.sops);
-          return normalized;
-        }
-      }
-      if (raw !== null) localStorage.removeItem(KEYS.sops);
-    } catch {
-      // Do not let a malformed/oversized legacy value break the offline app.
-      try { localStorage.removeItem(KEYS.sops); } catch {}
-    }
-  }
+  // Normal reads never hydrate SPO from localStorage. Firestore is the
+  // authoritative source and IndexedDB is only its browser cache. Legacy
+  // localStorage migration is intentionally handled only by explicit backup/
+  // restore workflows, never during login or realtime synchronization.
 
   // Reservation nomor bukan dokumen SPO dan tidak boleh masuk ke daftar dokumen.
   return stored.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
@@ -163,9 +135,9 @@ function normalizeSop(sop: SopDocument): SopDocument {
 }
 
 
-function initFirestoreSopSync(userSession?: UserSession | null): () => void {
+function initFirestoreSopSync(userSession?: UserSession | null, onInitialSyncSettled?: (ok: boolean) => void): () => void {
   let active = true;
-  if (!userSession) return () => { active = false; };
+  if (!userSession) { onInitialSyncSettled?.(false); return () => { active = false; }; }
   const scopedKeys = getUserHierarchyAccessKeys(userSession);
   const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
     ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
@@ -185,24 +157,26 @@ function initFirestoreSopSync(userSession?: UserSession | null): () => void {
     const revision = ++cloudRevision;
     cloudApplyQueue = cloudApplyQueue.then(async () => {
       if (!active) return;
-      if (!Array.isArray(cloudSops) || cloudSops.length === 0) return;
+      if (!Array.isArray(cloudSops)) return;
 
-      const local = await idbGetAllSops();
       if (!active || revision < cloudRevision) return;
 
-      const localMap = new Map(local.map((s) => [s.id, s]));
-      for (const s of cloudSops) {
-        const exist = localMap.get(s.id);
-        const merged = { ...exist, ...s };
-        // Firestore deliberately replaces large DataURLs with this marker. Never
-        // let the marker erase a locally cached binary, but always preserve a
-        // durable cloud URL when one exists.
-        if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
-        if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-        if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-        localMap.set(s.id, merged);
-      }
-      await idbPutSops(Array.from(localMap.values()));
+      // Firestore is authoritative. The scoped query already contains the
+      // complete set this session is allowed to see, so replace the local
+      // cache instead of merging stale browser-only records into it.
+      // Firestore success is authoritative. Replace the browser cache with the
+      // exact successful cloud snapshot. Never merge stale IndexedDB records
+      // into cloud data and never preserve browser-only file binaries here.
+      // A successful [] is intentionally allowed to clear the cache; read errors
+      // never call this function because fetch/listener errors are propagated.
+      const authoritative = cloudSops.map((s) => {
+        const clean = { ...s } as any;
+        delete clean.fileDataUrl;
+        delete clean.signedScanDataUrl;
+        delete clean.oldFileDataUrl;
+        return normalizeSop(clean);
+      });
+      await idbPutSops(authoritative);
       if (active) notifySopSubscribers();
     }).catch((err) => {
       console.warn('[SPO sync] Failed applying cloud snapshot:', err);
@@ -210,21 +184,33 @@ function initFirestoreSopSync(userSession?: UserSession | null): () => void {
     return cloudApplyQueue;
   };
 
-  void fetchSopsFromFirestore(scopedKeys, globalAccess).then(applyCloudSops).catch(() => {});
+  void fetchSopsFromFirestore(scopedKeys, globalAccess)
+    .then((cloudSops) => applyCloudSops(cloudSops).then(() => onInitialSyncSettled?.(true)))
+    .catch((err) => {
+      // A failed cloud read is NOT an empty dataset. Keep the local cache for
+      // offline continuity, but explicitly mark the initial cloud sync as failed.
+      console.info('Firestore initial SOP sync unavailable; local cache fallback allowed:', err?.message || err);
+      onInitialSyncSettled?.(false);
+    });
 
   const unsubscribe = subscribeToFirestoreSops((cloudSops) => {
-    void applyCloudSops(cloudSops);
+    void applyCloudSops(cloudSops).then(() => onInitialSyncSettled?.(true));
   }, (err) => {
-    // Graceful offline fallback: local indexedDB cache remains authoritative
-    console.info('Firestore realtime sync notice (local database active):', err?.message || err);
+    // Graceful offline fallback: local IndexedDB cache is shown only after the
+    // cloud sync has explicitly failed. Never infer failure from an empty set.
+    console.info('Firestore realtime sync notice (local cache fallback):', err?.message || err);
+    onInitialSyncSettled?.(false);
   }, scopedKeys, globalAccess);
 
   return () => { active = false; unsubscribe(); };
 }
 
 export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?: (err: any) => void, divisionCodes?: string | string[], userSession?: UserSession | null) {
-  const stopFirestoreSync = initFirestoreSopSync(userSession);
-  const emit = async () => {
+  let initialCloudSyncSettled = !userSession;
+  let disposed = false;
+
+  const emit = async (force = false) => {
+    if (disposed || (!initialCloudSyncSettled && !force)) return;
     try {
       const normalized = Array.from(new Set((Array.isArray(divisionCodes) ? divisionCodes : [divisionCodes]).filter(Boolean).map(String)));
       const effective = normalized.filter((c) => c.toUpperCase() !== 'ALL').map((c) => c.toUpperCase());
@@ -236,12 +222,26 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
     } catch (e) { onError?.(e); }
   };
 
+  const stopFirestoreSync = initFirestoreSopSync(userSession, (ok) => {
+    if (disposed) return;
+    initialCloudSyncSettled = true;
+    // Cloud success: emit the exact authoritative snapshot now in IndexedDB.
+    // Cloud failure: emit local cache only as an explicit offline fallback.
+    void emit();
+  });
+
   const listener = () => { void emit(); };
   if (!subscribers.has(KEYS.sops)) subscribers.set(KEYS.sops, new Set());
   subscribers.get(KEYS.sops)!.add(listener);
-  void emit();
 
-  return () => { subscribers.get(KEYS.sops)?.delete(listener); stopFirestoreSync(); };
+  // For callers without a session, preserve the existing local-only behavior.
+  if (!userSession) void emit(true);
+
+  return () => {
+    disposed = true;
+    subscribers.get(KEYS.sops)?.delete(listener);
+    stopFirestoreSync();
+  };
 }
 
 export async function getAllSopsFromLocal(): Promise<SopDocument[]> { return getSops(); }
@@ -260,19 +260,19 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if (next.fileDataUrl?.startsWith('data:') && !next.fileUrl) {
     uploadTasks.push(
       uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`)
-        .then((res) => { next.fileUrl = res.url; })
+        .then((res) => { next.fileUrl = res.url; next.storagePath = res.storagePath; })
     );
   }
   if (next.signedScanDataUrl?.startsWith('data:') && !next.signedScanUrl) {
     uploadTasks.push(
       uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`)
-        .then((res) => { next.signedScanUrl = res.url; })
+        .then((res) => { next.signedScanUrl = res.url; next.signedScanStoragePath = res.storagePath; })
     );
   }
   if (next.oldFileDataUrl?.startsWith('data:') && !next.oldFileUrl) {
     uploadTasks.push(
       uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`)
-        .then((res) => { next.oldFileUrl = res.url; })
+        .then((res) => { next.oldFileUrl = res.url; next.oldStoragePath = res.storagePath; })
     );
   }
 
@@ -280,45 +280,115 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
     try {
       await Promise.all(uploadTasks);
     } catch (err) {
-      // Do not publish a SPO whose binary could not be made durable. The caller
-      // gets the error and can retry; local IndexedDB is not treated as the
-      // authoritative cross-device copy.
-      throw new Error(`File SPO gagal disimpan ke penyimpanan permanen: ${err instanceof Error ? err.message : String(err)}`);
+      // Never publish a SPO whose binary failed to reach Firebase Cloud Storage.
+      throw new Error(`File SPO gagal disimpan ke Firebase Cloud Storage: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
+  // IMPORTANT: once Firebase Storage has the binary, remove the DataURL from the
+  // authoritative/cached SOP record. The binary must never be required from a
+  // browser-local copy for normal operation. The upload service may retain an
+  // optional browser cache, but it is not part of the SOP source of truth.
+  if (next.fileUrl) delete next.fileDataUrl;
+  if (next.signedScanUrl) delete next.signedScanDataUrl;
+  if (next.oldFileUrl) delete next.oldFileDataUrl;
+
   const index = all.findIndex((s) => s.id === next.id);
+  const previous = index >= 0 ? all[index] : undefined;
   if (index >= 0) all[index] = next; else all.push(next);
+
+  // Persist to Firestore first. IndexedDB is a local cache, not the source of
+  // truth for a cross-device document. If the authoritative save fails, roll
+  // back the local cache so the UI cannot report a successful save that only
+  // exists on this browser.
+  try {
+    await saveSopToFirestore(next, { throwOnError: true });
+  } catch (err) {
+    const rollback = all.filter((s) => s.id !== next.id);
+    if (previous) rollback.push(previous);
+    await idbPutSops(rollback);
+    notifySopSubscribers();
+    throw err;
+  }
+
   await idbPutSops(all);
   notifySopSubscribers();
-  await saveSopToFirestore(next);
+}
+
+/**
+ * Repairs legacy SPO records that contain a local DataURL but have no durable
+ * storage URL. This is intentionally best-effort: if the original binary is
+ * no longer present in the current browser, the record is left untouched and
+ * can be flagged for manual re-upload rather than fabricating a file.
+ */
+export async function repairSopFileReferences(sop: SopDocument): Promise<SopDocument> {
+  const next = normalizeSop(sop);
+
+  // Legacy records may only have the binary in this browser's IndexedDB cache.
+  // Recover that binary before deciding that a durable reference is missing.
+  const candidates: Array<{ dataKey: 'fileDataUrl' | 'signedScanDataUrl' | 'oldFileDataUrl'; urlKey: 'fileUrl' | 'signedScanUrl' | 'oldFileUrl'; type: 'file' | 'signedScan' | 'oldFile'; suffix: string }> = [
+    { dataKey: 'fileDataUrl', urlKey: 'fileUrl', type: 'file', suffix: '.pdf' },
+    { dataKey: 'signedScanDataUrl', urlKey: 'signedScanUrl', type: 'signedScan', suffix: '_scan.pdf' },
+    { dataKey: 'oldFileDataUrl', urlKey: 'oldFileUrl', type: 'oldFile', suffix: '_legacy.pdf' },
+  ];
+
+  for (const c of candidates) {
+    if ((next as any)[c.urlKey]) continue;
+    let data = (next as any)[c.dataKey];
+    if (!(typeof data === 'string' && data.startsWith('data:'))) {
+      try {
+        data = await getFileFromPersistentCacheAsync(next.id, c.type);
+      } catch {
+        data = null;
+      }
+    }
+    if (typeof data === 'string' && data.startsWith('data:')) {
+      (next as any)[c.dataKey] = data;
+      const result = await uploadFileToCloudStorage(
+        data,
+        `${next.sopNumber || next.id}${c.suffix}`,
+        `${next.id}_${c.type}`
+      );
+      (next as any)[c.urlKey] = result.url;
+      const pathKey = c.urlKey === 'fileUrl' ? 'storagePath' : c.urlKey === 'signedScanUrl' ? 'signedScanStoragePath' : 'oldStoragePath';
+      (next as any)[pathKey] = result.storagePath;
+      delete (next as any)[c.dataKey];
+    }
+  }
+
+  const hasDurableBinary =
+    Boolean((next as any).fileUrl) ||
+    Boolean((next as any).signedScanUrl) ||
+    Boolean((next as any).oldFileUrl);
+
+  if (hasDurableBinary) {
+    await saveSopToFirestore(next, { throwOnError: true });
+  }
+  return next;
 }
 
 export async function restoreSopsToLocal(sops: SopDocument[]): Promise<void> {
   const normalized = sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
   await idbPutSops(normalized);
   notifySopSubscribers();
-  for (const item of normalized) {
-    void saveSopToFirestore(item);
-  }
 }
 
 export async function bulkUpdateSops(sops: SopDocument[], changedIds?: string[]): Promise<void> {
   const normalized = sops.filter((s) => !(s as any).isNumberReservation).map(normalizeSop);
   await idbPutSops(normalized);
   notifySopSubscribers();
-  const targetDocs = changedIds && changedIds.length > 0
-    ? normalized.filter((s) => changedIds.includes(s.id))
-    : normalized;
-  for (const item of targetDocs) {
-    void saveSopToFirestore(item);
-  }
+  // Firestore is authoritative. Callers that intentionally change SPOs must
+  // use saveSopToLocal(), which uploads binaries and commits metadata first.
+  // Never push an arbitrary local cache snapshot back to Firestore here.
 }
 
 export async function deleteSopFromLocal(id: string): Promise<void> {
+  // Cloud/Firestore deletion is authoritative. Do not remove the local cache
+  // first and then fire-and-forget the cloud delete; that can make one browser
+  // appear deleted while another browser still sees the document.
+  await deleteSopFromFirestore(id);
   await idbDeleteSop(id);
   notifySopSubscribers();
-  void deleteSopFromFirestore(id);
 }
 
 export async function deleteAllSops(): Promise<number> {

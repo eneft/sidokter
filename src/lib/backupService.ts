@@ -3,7 +3,7 @@
  * Service backup/restore terpusat untuk seluruh domain dokumen dan akun.
  */
 import { LibraryDocument, NumberingConfig, SopDocument, UserAccount } from '../types';
-import { getAllSopsFromLocal, restoreSopsToLocal, saveConfigToLocal, getAllNumberReservations, restoreNumberReservations, SopNumberReservation } from './sopService';
+import { getAllSopsFromLocal, restoreSopsToLocal, saveSopToLocal, saveConfigToLocal, getAllNumberReservations, restoreNumberReservations, SopNumberReservation } from './sopService';
 import { getAllUsersForBackup, restoreUsersFromBackup } from './accountService';
 import { restoreLibraryDocuments } from './documentLibraryService';
 import { getAllSKForBackup, getAllSKFilesForBackup } from './skService';
@@ -162,17 +162,26 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
   let sopAttachmentCount = 0;
   const allSopFiles = { ...sopFiles };
   for (const sop of sops) {
-    const mappings: Array<[string, string]> = [
-      ['file', `sop_file_cache_${sop.id}_file`],
-      ['oldFile', `sop_file_cache_${sop.id}_oldFile`],
-      ['signedScan', `sop_file_cache_${sop.id}_signedScan`]
+    const restored: any = { ...sop };
+    const mappings: Array<[string, string, string]> = [
+      ['file', `sop_file_cache_${sop.id}_file`, 'fileDataUrl'],
+      ['oldFile', `sop_file_cache_${sop.id}_oldFile`, 'oldFileDataUrl'],
+      ['signedScan', `sop_file_cache_${sop.id}_signedScan`, 'signedScanDataUrl']
     ];
-    for (const [kind, key] of mappings) {
-      const data = allSopFiles[key] || (sop as any)[kind === 'file' ? 'fileDataUrl' : kind === 'oldFile' ? 'oldFileDataUrl' : 'signedScanDataUrl'];
+    for (const [kind, key, field] of mappings) {
+      const data = allSopFiles[key] || restored[field];
       if (!data) continue;
+      // Keep a temporary recovery copy only while the authoritative cloud save
+      // is performed. Normal application operation never reads this cache first.
       await saveFileToLocalCache(sop.id, kind as any, data);
+      restored[field] = data;
       sopAttachmentCount++;
     }
+    // Restore is an explicit administrator operation. Commit each restored SPO
+    // through the same authoritative Firebase Storage -> Firestore pipeline used
+    // by normal saves, so a restore cannot leave data stranded on one PC.
+    await saveSopToLocal(restored as SopDocument);
+    Object.assign(sop, restored);
   }
 
   return { sops, sopNumberReservations, sk, mou, users, config, sopAttachmentCount, libraryFiles: Object.keys({ ...skFiles, ...mouFiles }).length, version };

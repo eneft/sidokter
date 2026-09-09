@@ -1,4 +1,4 @@
-import { getPersistedClientSession } from '../lib/authService';
+import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 
 /**
  * Utility for handling file downloads safely in all browser environments (including iframes & sandboxes)
@@ -83,9 +83,12 @@ export function triggerFileDownload(urlOrDataUrl: string, fileName: string): boo
     const safeFileName = (fileName || 'Dokumen_SPO.pdf')
       .replace(/[/\\?%*:|"<>]/g, '_')
       .replace(/\s+/g, '_');
-    void fetch(urlOrDataUrl, {
-      headers: session?.sessionId ? { 'X-Session-Id': session.sessionId } : undefined
-    }).then(async (res) => {
+    void getCurrentAuthToken().then((token) => fetch(urlOrDataUrl, {
+      headers: {
+        ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    })).then(async (res) => {
       if (!res.ok) throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
       const blobUrl = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');

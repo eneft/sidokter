@@ -42,9 +42,26 @@
         }
       },
       {
+        "source": "/api/storage",
+        "function": {
+          "functionId": "storageApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "/api/storage/**",
+        "function": {
+          "functionId": "storageApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
     ]
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

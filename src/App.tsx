@@ -29,7 +29,7 @@ import {
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasVerificatorBadge } from './utils/soegiriStructure';
-import { saveFileToLocalCache, deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
+import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -718,15 +718,10 @@ export default function App() {
     // established a trusted session.
     if (!userSession) return;
 
-    // Offline/quota fallback: keep the last successfully synchronized SOP list visible.
-    // This never writes anything to local database and never treats cache as authoritative.
-    try {
-      const cachedSops = localStorage.getItem('soegiri_sops_last_good');
-      if (cachedSops && (!sops || sops.length === 0)) {
-        const parsed = JSON.parse(cachedSops);
-        if (Array.isArray(parsed)) setSops(parsed.filter((sop: SopDocument) => isSopAccessibleByUser(sop, userSession)));
-      }
-    } catch {}
+    // Firestore is the authoritative source for SPO. Do not hydrate the UI
+    // from localStorage before the scoped Firestore listener has resolved;
+    // otherwise two PCs can display different stale document sets. IndexedDB
+    // remains an internal cache used by subscribeToSops after cloud sync/offline.
 
     const activeUserDivisions = userSession.role === 'user'
       ? (Array.isArray(userSession.assignments) && userSession.assignments.length
@@ -754,9 +749,8 @@ export default function App() {
       }
 
       setSops(localSops);
-      try {
-        localStorage.setItem('soegiri_sops_last_good', JSON.stringify(localSops));
-      } catch {}
+      // Do not maintain a second SPO snapshot in localStorage. The Firestore
+      // scoped snapshot is authoritative; IndexedDB is the only browser cache.
       setLocalDataUnavailable(false);
     }, (err) => {
       setLocalDataUnavailable(true);
@@ -1127,20 +1121,6 @@ export default function App() {
           ]
         };
 
-        if (finalSop.fileDataUrl) {
-          saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
-          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
-          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
-        }
-        if (finalSop.signedScanDataUrl) {
-          saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
-          saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
-          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
-        }
-        if (finalSop.oldFileDataUrl) {
-          saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
-        }
-
         await saveSopToLocal(finalSop);
         setSops((prev) => prev.map((s) => (s.id === replacedId ? finalSop : s)));
 
@@ -1200,12 +1180,6 @@ export default function App() {
             }
           ]
         };
-        if (reservedFinal.fileDataUrl) {
-          saveFileToLocalCache(reservedFinal.id, 'file', reservedFinal.fileDataUrl);
-          saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.fileDataUrl);
-          saveFileToLocalCache(reservedFinal.id, 'oldFile', reservedFinal.fileDataUrl);
-        }
-        if (reservedFinal.signedScanDataUrl) saveFileToLocalCache(reservedFinal.id, 'signedScan', reservedFinal.signedScanDataUrl);
         await saveSopToLocal(reservedFinal);
         await consumeNumberReservation(reservedTarget.id, reservedFinal.id);
         setSops((prev) => [reservedFinal, ...prev.filter((s) => s.id !== reservedFinal.id)]);
@@ -1253,20 +1227,6 @@ export default function App() {
           }
         ]
       };
-
-      if (finalSop.fileDataUrl) {
-        saveFileToLocalCache(finalSop.id, 'file', finalSop.fileDataUrl);
-        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.fileDataUrl);
-        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.fileDataUrl);
-      }
-      if (finalSop.signedScanDataUrl) {
-        saveFileToLocalCache(finalSop.id, 'signedScan', finalSop.signedScanDataUrl);
-        saveFileToLocalCache(finalSop.id, 'file', finalSop.signedScanDataUrl);
-        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.signedScanDataUrl);
-      }
-      if (finalSop.oldFileDataUrl) {
-        saveFileToLocalCache(finalSop.id, 'oldFile', finalSop.oldFileDataUrl);
-      }
 
       await saveSopToLocal(finalSop);
       if (systemReservationId) await consumeNumberReservation(systemReservationId, finalSop.id);
@@ -1383,12 +1343,6 @@ export default function App() {
     };
 
     // Cache physical files in local persistent storage
-    if (newSop.fileDataUrl) {
-      saveFileToLocalCache(newSop.id, 'file', newSop.fileDataUrl);
-    }
-    if (newSop.oldFileDataUrl) {
-      saveFileToLocalCache(newSop.id, 'oldFile', newSop.oldFileDataUrl);
-    }
 
     const finalSop = standardizeSopDocument(newSop);
 
@@ -1645,13 +1599,6 @@ export default function App() {
       ...(isLegacy ? { jenis_spo: 'EKSISTING' as const, documentType: 'LAMA' as const, isLegacySop: true } : {})
     };
 
-    if (finalUpdatedSop.fileDataUrl) {
-      saveFileToLocalCache(finalUpdatedSop.id, 'file', finalUpdatedSop.fileDataUrl);
-    }
-    if (finalUpdatedSop.oldFileDataUrl) {
-      saveFileToLocalCache(finalUpdatedSop.id, 'oldFile', finalUpdatedSop.oldFileDataUrl);
-    }
-
     setSops((prev) => prev.map((s) => (s.id === finalUpdatedSop.id ? finalUpdatedSop : s)));
     
     // Also update active detail view if it's currently open
@@ -1850,7 +1797,6 @@ export default function App() {
       signedScanDataUrl: activationData.signedScanDataUrl,
     };
     try {
-      if (activationData.signedScanDataUrl) await saveFileToLocalCache(sopId, 'signedScan', activationData.signedScanDataUrl);
       await saveSopToLocal(updated);
 
       // Sinkronkan nomor revisi pada SPO aktif yang menjadi objek Riviu.

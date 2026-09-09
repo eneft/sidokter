@@ -1,10 +1,10 @@
 /**
- * CLOUD STORAGE SERVICE - SIDOKTER SOEGIRI
- * Mengelola upload dan unduh file biner fisik (PDF, gambar, hasil scan)
- * ke penyimpanan cloud server agar file dapat diakses permanen dari semua perangkat.
+ * FIREBASE CLOUD STORAGE SERVICE - SIDOKTER SOEGIRI
+ * File biner SPO authoritative disimpan di Firebase Cloud Storage.
+ * Browser cache hanya optimasi/fallback legacy dan bukan sumber kebenaran.
  */
-import { saveNamedFileToLocalCache, getNamedFileFromLocalCache } from '../utils/fileStorage';
-import { getPersistedClientSession } from './authService';
+import { getNamedFileFromLocalCache } from '../utils/fileStorage';
+import { getPersistedClientSession, getCurrentAuthToken } from './authService';
 
 export interface UploadResult {
   success: boolean;
@@ -12,6 +12,7 @@ export interface UploadResult {
   url: string;
   fileName: string;
   fileSize: number;
+  storagePath?: string;
 }
 
 /**
@@ -41,12 +42,14 @@ export async function uploadFileToCloudStorage(
   }
 
   const session = getPersistedClientSession();
-  if (!session?.sessionId) throw new Error('Sesi login tidak valid. Silakan login kembali.');
+  const bearer = await getCurrentAuthToken();
+  if (!session?.sessionId || !bearer) throw new Error('Sesi login Firebase tidak valid. Silakan login kembali.');
   const response = await fetch('/api/storage/upload', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Session-Id': session.sessionId,
+      'Authorization': `Bearer ${bearer}`,
     },
     body: JSON.stringify({
       fileData: fileDataUrl,
@@ -62,12 +65,6 @@ export async function uploadFileToCloudStorage(
   }
 
   const result: UploadResult = await response.json();
-
-  // Cache locally as well for instant zero-latency preview
-  if (result.fileId && fileDataUrl) {
-    void saveNamedFileToLocalCache(`cloud_${result.fileId}`, fileDataUrl);
-    if (customId) void saveNamedFileToLocalCache(`library_${customId}`, fileDataUrl);
-  }
 
   return result;
 }
@@ -96,7 +93,7 @@ export async function ensureCloudFileUrl(
       return uploaded.url;
     } catch (err) {
       console.warn('[cloudStorage] Auto-upload to cloud storage failed:', err);
-      return input;
+      return null;
     }
   }
 
@@ -105,8 +102,8 @@ export async function ensureCloudFileUrl(
 
 /**
  * Resolves a document URL to a viewable URL.
- * Checks local IndexedDB/cache first for fast loading;
- * If not in local cache, uses the cloud URL and caches it locally in the background.
+ * A durable Firebase Storage reference is authoritative. Local IndexedDB/cache
+ * is used only for legacy/offline fallback when no durable reference exists.
  */
 export async function resolveViewableUrl(
   rawUrlOrPath: string | undefined | null,
@@ -114,15 +111,22 @@ export async function resolveViewableUrl(
 ): Promise<string | null> {
   if (!rawUrlOrPath) return null;
 
-  // 1. If we have a local cache key, check local cache first
+  // 1. Local data/blob references are already self-contained.
+  if (rawUrlOrPath.startsWith('data:') || rawUrlOrPath.startsWith('blob:')) {
+    return rawUrlOrPath;
+  }
+
+  // 2. A durable remote reference is authoritative. Never let a browser-local
+  // cache shadow a valid cloud reference; otherwise PC-A can appear healthy
+  // while PC-B reports a missing document.
+  if (rawUrlOrPath.startsWith('http://') || rawUrlOrPath.startsWith('https://') || rawUrlOrPath.startsWith('/api/storage/')) {
+    return rawUrlOrPath;
+  }
+
+  // 3. Only use local cache as a legacy/offline fallback.
   if (cacheKey) {
     const cached = await getNamedFileFromLocalCache(cacheKey);
     if (cached) return cached;
-  }
-
-  // 2. If it's a data URL or blob URL, return it directly
-  if (rawUrlOrPath.startsWith('data:') || rawUrlOrPath.startsWith('blob:')) {
-    return rawUrlOrPath;
   }
 
   // 3. If it's a legacy local reference (e.g. local://id)
@@ -131,13 +135,6 @@ export async function resolveViewableUrl(
     const cached = await getNamedFileFromLocalCache(`library_${id}`) ||
                    await getNamedFileFromLocalCache(`cloud_${id}`);
     if (cached) return cached;
-
-    // Check if available on server storage
-    const serverUrl = `/api/storage/files/${id}`;
-    try {
-      const headCheck = await fetch(serverUrl, { method: 'HEAD' });
-      if (headCheck.ok) return serverUrl;
-    } catch {}
 
     return null;
   }
