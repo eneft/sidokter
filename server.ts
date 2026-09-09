@@ -7,7 +7,7 @@ import { handleAuthApi, verifyServerSession } from './server/authHandler';
 import { handleStorageUpload, handleStorageDownload, handleStorageDelete } from './server/storageHandler';
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = 3000;
 
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || '');
