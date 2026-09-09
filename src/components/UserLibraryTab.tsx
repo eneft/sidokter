@@ -81,7 +81,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
   // 2. Secondary UI filters (Search, Status, and Category if admin/ALL)
   const filteredSops = accessibleSops.filter((s) => {
     // Category filter
-    if (selectedCategory !== 'ALL' && s.divisionCode !== selectedCategory) {
+    if (selectedCategory !== 'ALL' && String(s.divisionCode || '').trim().toUpperCase() !== String(selectedCategory || '').trim().toUpperCase()) {
       return false;
     }
     // Status filter

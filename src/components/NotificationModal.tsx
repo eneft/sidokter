@@ -166,7 +166,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Usulan SPO ({countProposal})
+                Usulan ({countProposal})
               </button>
             )}
 
@@ -180,7 +180,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     : 'text-slate-600 hover:bg-slate-200/70'
                 }`}
               >
-                Penugasan ({countAssignment})
+                SPO Disetujui ({countAssignment})
               </button>
             )}
 
@@ -307,7 +307,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                             : isProposal
                             ? 'Usulan SPO'
                             : isAssignment
-                            ? 'Penugasan'
+                            ? 'Disahkan'
                             : isReview
                             ? 'Riviu Berkala'
                             : 'Info'}

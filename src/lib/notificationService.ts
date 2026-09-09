@@ -976,8 +976,24 @@ export function setupDocumentRealtimeWatcher({
   let unsubscribeFirestore: (() => void) | null = null;
   try {
     const sopsCollection = collection(db, 'sops');
-    unsubscribeFirestore = onSnapshot(
-      sopsCollection,
+    const isAdmin = userSession.role === 'admin';
+    const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
+      ? userSession.assignments.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
+      : Array.isArray(userSession?.divisionCodes)
+        ? userSession.divisionCodes.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
+        : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
+    const globalAccess = isAdmin || hasAllHierarchyAssignment;
+    const scopedKeys = getUserHierarchyAccessKeys(userSession);
+
+    const sopsQuery = globalAccess
+      ? sopsCollection
+      : (scopedKeys.length > 0
+          ? query(sopsCollection, where('accessKeys', 'array-contains-any', scopedKeys.slice(0, 30)))
+          : null);
+
+    if (sopsQuery && auth.currentUser) {
+      unsubscribeFirestore = onSnapshot(
+        sopsQuery,
       (snapshot) => {
         if (isFirstSnapshot) {
           // Record existing documents and baseline statuses
@@ -1147,9 +1163,12 @@ export function setupDocumentRealtimeWatcher({
         });
       },
       (error) => {
-        console.warn('Firestore real-time notification listener note:', error?.message || error);
+        if (error?.code !== 'permission-denied') {
+          console.info('Firestore real-time notification listener note:', error?.message || error);
+        }
       }
     );
+    }
   } catch (err) {
     console.warn('Could not attach Firestore realtime listener:', err);
   }

@@ -108,6 +108,18 @@ async function getSops(): Promise<SopDocument[]> {
   // consume localStorage quota.
   if (!stored.length) {
     try {
+      const backupRaw = localStorage.getItem('soegiri_sops_last_good');
+      if (backupRaw) {
+        const backupDocs = JSON.parse(backupRaw) as SopDocument[];
+        if (Array.isArray(backupDocs) && backupDocs.length) {
+          const normalized = backupDocs.map(normalizeSop);
+          await idbPutSops(normalized);
+          return normalized;
+        }
+      }
+    } catch {}
+
+    try {
       const raw = localStorage.getItem(KEYS.sops);
       if (raw) {
         const legacy = JSON.parse(raw) as SopDocument[];
@@ -160,46 +172,34 @@ function initFirestoreSopSync(userSession?: UserSession | null): () => void {
     : Array.isArray(userSession?.divisionCodes)
       ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
       : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
-  const hasStructuralBadge = Array.isArray(userSession?.badges)
-    && userSession!.badges!.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL');
   const globalAccess = userSession?.role === 'admin'
-    || hasAllHierarchyAssignment
-    || hasStructuralBadge;
+    || hasAllHierarchyAssignment;
 
-  void fetchSopsFromFirestore(scopedKeys, globalAccess).then(async (cloudSops) => {
+  const applyCloudSops = async (cloudSops: SopDocument[]) => {
     if (!active) return;
+    if (!Array.isArray(cloudSops) || cloudSops.length === 0) {
+      // Never wipe local IndexedDB when cloud fetch is empty or offline
+      return;
+    }
     const local = await idbGetAllSops();
     if (!active) return;
     const localMap = new Map(local.map((s) => [s.id, s]));
-    const scoped = cloudSops.map((s) => {
+    for (const s of cloudSops) {
       const exist = localMap.get(s.id);
       const merged = { ...exist, ...s };
       if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
       if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
       if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      return merged;
-    });
-    await idbPutSops(scoped);
+      localMap.set(s.id, merged);
+    }
+    await idbPutSops(Array.from(localMap.values()));
     if (active) notifySopSubscribers();
-  }).catch(() => {});
+  };
 
-  const unsubscribe = subscribeToFirestoreSops(async (cloudSops) => {
-    if (!active) return;
-    const local = await idbGetAllSops();
-    if (!active) return;
-    const localMap = new Map(local.map((s) => [s.id, s]));
-    const scoped = cloudSops.map((s) => {
-      const exist = localMap.get(s.id);
-      const merged = { ...exist, ...s };
-      if (merged.fileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.fileDataUrl = exist?.fileDataUrl || undefined;
-      if (merged.signedScanDataUrl === '[LOCAL_STORAGE_BINARY]') merged.signedScanDataUrl = exist?.signedScanDataUrl || undefined;
-      if (merged.oldFileDataUrl === '[LOCAL_STORAGE_BINARY]') merged.oldFileDataUrl = exist?.oldFileDataUrl || undefined;
-      return merged;
-    });
-    // Replace, never merge, the local document set. This prevents a previous
-    // user's hierarchy cache from surviving a subsequent login on the same device.
-    await idbPutSops(scoped);
-    if (active) notifySopSubscribers();
+  void fetchSopsFromFirestore(scopedKeys, globalAccess).then(applyCloudSops).catch(() => {});
+
+  const unsubscribe = subscribeToFirestoreSops((cloudSops) => {
+    void applyCloudSops(cloudSops);
   }, (err) => {
     // Graceful offline fallback: local indexedDB cache remains authoritative
     console.info('Firestore realtime sync notice (local database active):', err?.message || err);

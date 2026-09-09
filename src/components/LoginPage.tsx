@@ -234,13 +234,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span className="login-brand-title-accent">KTER</span>
                 </div>
                 <h1 className="login-brand-system-name">
-                  Sistem Dokumen Terpadu
+                  Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan
                 </h1>
-                <p className="login-brand-hospital-sub">
-                  RSUD Dr. Soegiri Lamongan
-                </p>
                 <p className="login-brand-desc">
-                  Platform manajemen dokumen resmi rumah sakit yang memadukan tata kelola SPO, SK, MOU, dan regulasi internal dalam satu ekosistem digital yang terstandarisasi, aman, dan akuntabel.
+                  Platform resmi RSUD Dr. Soegiri Lamongan yang menghadirkan digitalisasi tata kelola dokumen melalui sistem yang terstandar, aman, dan terintegrasi. 
                 </p>
               </div>
 
@@ -252,7 +249,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </div>
                   <div className="login-feature-text">
                     <strong>Standardisasi SPO Terpadu</strong>
-                    <span>Penyusunan, verifikasi hirarki, dan validasi digital terpusat</span>
+                    <span>Penyusunan, verifikasi, dan validasi digital terpusat</span>
                   </div>
                 </div>
 
@@ -269,9 +266,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               {/* Bottom Hospital Footer Note */}
               <div className="login-brand-footer-note">
-                <span>{SOEGIRI_HOSPITAL_INFO.address}</span>
                 <span className="login-brand-footer-dot">•</span>
-                <span>Terakreditasi Paripurna KARS</span>
+                <span>Terakreditasi Paripurna</span>
               </div>
             </div>
           </aside>
@@ -291,7 +287,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <span className="text-[#0e294b]">SIDO</span>
                     <span className="text-[#009b83]">KTER</span>
                   </div>
-                  <div className="login-mobile-brand-sub">Sistem Dokumen Terpadu · RSUD Dr. Soegiri</div>
+                  <div className="login-mobile-brand-sub">Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan</div>
                 </div>
               </div>
 
@@ -366,14 +362,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <div className="login-help-content">
                     <div className="login-help-item">
                       <span className="login-help-badge">SIMRS / IT</span>
-                      <span>Pesawat Telp <strong>Ext. 114</strong></span>
+                      <span>Pesawat Telp <strong>Ext. 200</strong></span>
                     </div>
                     <div className="login-help-item">
-                      <span className="login-help-badge">Kepegawaian</span>
+                      <span className="login-help-badge">Bagian Umum & Kepegawaian</span>
                       <span>Gedung Manajemen Lt. 2</span>
                     </div>
                     <div className="login-help-subtext">
-                      Jam Pelayanan: Senin – Jumat (07.00 – 15.30 WIB)
+                      Jam Pelayanan: Senin – Jumat (07.00 – 14.00 WIB)
                     </div>
                   </div>
                 </div>
@@ -533,7 +529,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       {/* Clean Global Footer */}
       <footer id="login-auth-footer" className="login-page-footer">
-        © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v3.0
+        © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0
       </footer>
     </div>
   );

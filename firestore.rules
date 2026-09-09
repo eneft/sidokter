@@ -23,6 +23,18 @@ service cloud.firestore {
       );
     }
 
+    function hasHierarchyAccess() {
+      return signedIn() && (
+        request.auth.token.globalHierarchyAccess == true ||
+        (
+          request.auth.token.hierarchyKeys != null &&
+          request.auth.token.hierarchyKeys.size() > 0 &&
+          resource.data.accessKeys != null &&
+          resource.data.accessKeys.hasAny(request.auth.token.hierarchyKeys)
+        )
+      );
+    }
+
     // Health / Connection check path
     match /test/{docId} {
       allow read: if true;
@@ -31,8 +43,8 @@ service cloud.firestore {
 
     // SOP (Standar Prosedur Operasional) collection
     match /sops/{sopId} {
-      // All users and hospital staff can read published & scoped SOPs
-      allow read: if true;
+      // Restricted strictly according to user assignment hierarchy and Kewenangan
+      allow read: if isAdmin() || hasHierarchyAccess();
 
       // Only administrators or signed-in users creating draft SOPs
       allow create: if isAdmin() || (signedIn() && request.resource.data.status == 'DRAFT');

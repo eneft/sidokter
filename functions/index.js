@@ -293,10 +293,6 @@ function getSopAccessKeysServer(sop) {
 function getUserHierarchyClaims(user) {
   const role = normalizeRole(user?.role);
   if (role === 'admin') return { hierarchyKeys: [], globalHierarchyAccess: true };
-  const badges = Array.isArray(user?.badges) ? user.badges : [];
-  if (badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL')) {
-    return { hierarchyKeys: [], globalHierarchyAccess: true };
-  }
   const assignments = Array.isArray(user?.assignments) && user.assignments.length
     ? user.assignments
     : (Array.isArray(user?.divisionCodes) && user.divisionCodes.length
@@ -318,9 +314,16 @@ function getUserHierarchyClaims(user) {
   const keys = new Set();
   for (const a of assignments) {
     const division = String(a?.divisionCode || '').trim().toUpperCase();
-    if (!division) continue;
-    const hierarchy = normalizeHierarchyCode(a?.hierarchyCode || (Array.isArray(a?.hierarchyPath) ? a.hierarchyPath.filter(Boolean).join('.') : '') || [a?.subCode, a?.instCode, a?.poliCode, a?.subUnitCode].filter(Boolean).join('.'));
-    keys.add(hierarchy ? `${division}|${hierarchy}` : division);
+    if (!division || division === 'ALL') continue;
+    keys.add(division);
+    const rawHierarchy = a?.hierarchyCode || [a?.subCode, a?.instCode, a?.poliCode, a?.subUnitCode].filter(Boolean).join('.');
+    const hierarchy = normalizeHierarchyCode(rawHierarchy);
+    if (hierarchy) {
+      const parts = hierarchy.split('.').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) {
+        keys.add(`${division}|${parts.slice(0, i).join('.')}`);
+      }
+    }
   }
   return { hierarchyKeys: Array.from(keys).slice(0, 30), globalHierarchyAccess: false };
 }

@@ -413,6 +413,79 @@ export function getSoegiriHierarchyInfo(selection: SoegiriSelectionState) {
   return { label, path, conclusion: label, code };
 }
 
+export function parseHierarchyFromSopNumber(sopNumStr?: string): string {
+  if (!sopNumStr || !sopNumStr.trim()) return '';
+  const normalized = sopNumStr.trim().replace(/[-_]/g, '/');
+  let parts = normalized.split('/').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts[0].toUpperCase() === 'SPO' || parts[0].toUpperCase() === 'SOP') {
+    parts = parts.slice(1);
+  }
+  // Standard 4-part: [DIV] / [SUB] / [SEQ] / [YEAR] e.g. PEL / 1.1.3 / 001 / 2026 or PEL / 1.1 / 001 / 2026
+  if (parts.length === 4 && /^\d{4}$/.test(parts[3]) && /^\d{1,4}$/.test(parts[2])) {
+    return parts[1];
+  }
+  return '';
+}
+
+export function normalizeHierarchyCode(value?: string | null): string {
+  return String(value || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+}
+
+export function extractHierarchyCodeFromSop(sop?: {
+  divisionCode?: string;
+  subCode?: string;
+  instalasiCode?: string;
+  instCode?: string;
+  poliCode?: string;
+  subUnitCode?: string;
+  subHierarchyCode?: string;
+  sopNumber?: string;
+} | null): string {
+  if (!sop) return '';
+  if (sop.subHierarchyCode && typeof sop.subHierarchyCode === 'string' && sop.subHierarchyCode.trim()) {
+    return normalizeHierarchyCode(sop.subHierarchyCode);
+  }
+  const fromNum = parseHierarchyFromSopNumber(sop.sopNumber);
+  if (fromNum) return normalizeHierarchyCode(fromNum);
+
+  const pCode = String(sop.poliCode || sop.subUnitCode || '').trim();
+  const iCode = String(sop.instalasiCode || sop.instCode || '').trim();
+  const sCode = String(sop.subCode || '').trim();
+
+  if (pCode && pCode.includes('.')) return normalizeHierarchyCode(pCode);
+  if (iCode && iCode.includes('.')) {
+    return normalizeHierarchyCode(pCode ? `${iCode}.${pCode}` : iCode);
+  }
+  const parts = [sCode, iCode, pCode].filter(Boolean);
+  return normalizeHierarchyCode(parts.join('.'));
+}
+
+export function extractHierarchyCodeFromAssignment(assignment?: {
+  divisionCode?: string;
+  hierarchyCode?: string;
+  hierarchyPath?: string[];
+  subCode?: string;
+  instCode?: string;
+  poliCode?: string;
+  subUnitCode?: string;
+} | null): string {
+  if (!assignment) return '';
+  if (assignment.hierarchyCode && typeof assignment.hierarchyCode === 'string' && assignment.hierarchyCode.trim()) {
+    return normalizeHierarchyCode(assignment.hierarchyCode);
+  }
+  const pCode = String(assignment.poliCode || assignment.subUnitCode || '').trim();
+  const iCode = String(assignment.instCode || '').trim();
+  const sCode = String(assignment.subCode || '').trim();
+
+  if (pCode && pCode.includes('.')) return normalizeHierarchyCode(pCode);
+  if (iCode && iCode.includes('.')) {
+    return normalizeHierarchyCode(pCode ? `${iCode}.${pCode}` : iCode);
+  }
+  const parts = [sCode, iCode, pCode].filter(Boolean);
+  return normalizeHierarchyCode(parts.join('.'));
+}
+
 export function isSopAccessibleByUser(
   sop: {
     divisionCode: string;
@@ -446,42 +519,32 @@ export function isSopAccessibleByUser(
     subUnitCode?: string;
   } | null
 ): boolean {
-  if (!userSession) return false;
+  if (!userSession || !sop) return false;
   if (userSession.role === 'admin') return true;
-  if (hasStructuralBadge(userSession)) return !sop.isExampleOnly;
   if (sop.isExampleOnly) return false;
-
-  // Badge STRUKTURAL memiliki akses SPO global sesuai baseline SIDOKTER.
 
   const sopDivision = String(sop.divisionCode || '').trim().toUpperCase();
   if (!sopDivision) return false;
 
-  const sopHierarchy = String(
-    sop.subHierarchyCode ||
-    [sop.subCode, sop.instalasiCode || sop.instCode, sop.poliCode, sop.subUnitCode].filter(Boolean).join('.') ||
-    (sop.sopNumber?.split('/')[1]?.trim() || '')
-  ).trim();
-
-  const normalizeHierarchy = (value?: string) =>
-    String(value || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  const sopHierarchy = extractHierarchyCodeFromSop(sop);
 
   const isHierarchyWithin = (candidate: string, assigned: string) => {
-    const c = normalizeHierarchy(candidate);
-    const a = normalizeHierarchy(assigned);
+    const c = normalizeHierarchyCode(candidate);
+    const a = normalizeHierarchyCode(assigned);
+    // 1. If assigned to division root (empty assigned hierarchy), access to all SOPs in division
     if (!a) return true;
-    if (!c) return false;
-    return c === a || c.startsWith(`${a}.`);
+    // 2. If candidate is division-level SOP (empty candidate hierarchy), all units in division can see it
+    if (!c) return true;
+    // 3. Exact match
+    if (c === a) return true;
+    // 4. Candidate is a sub-unit/procedure under the assigned unit
+    if (c.startsWith(`${a}.`)) return true;
+    // 5. Candidate is an installation / section / parent policy governing this unit
+    if (a.startsWith(`${c}.`)) return true;
+    return false;
   };
 
-  const assignments: {
-    divisionCode: string;
-    subCode?: string;
-    instCode?: string;
-    poliCode?: string;
-    subUnitCode?: string;
-    hierarchyCode?: string;
-    hierarchyPath?: string[];
-  }[] = Array.isArray(userSession.assignments) && userSession.assignments.length
+  const assignments = Array.isArray(userSession.assignments) && userSession.assignments.length
     ? userSession.assignments
     : (Array.isArray(userSession.divisionCodes) && userSession.divisionCodes.length
       ? userSession.divisionCodes.map((code) => ({ divisionCode: code }))
@@ -494,17 +557,12 @@ export function isSopAccessibleByUser(
         }]);
 
   // ALL is a global scope assignment for both Admin and User accounts.
-  // It grants access to every SPO, while remaining a scope marker rather than
-  // a Firestore access-key value.
   if (assignments.some((a) => String(a.divisionCode || '').trim().toUpperCase() === 'ALL')) return true;
 
   return assignments.some((assignment) => {
-    if (String(assignment.divisionCode || '').trim().toUpperCase() !== sopDivision) return false;
-    const assignedHierarchy = normalizeHierarchy(
-      assignment.hierarchyCode ||
-      (assignment.hierarchyPath || []).filter(Boolean).join('.') ||
-      [assignment.subCode, assignment.instCode, assignment.poliCode, assignment.subUnitCode].filter(Boolean).join('.')
-    );
+    const assignDiv = String(assignment.divisionCode || '').trim().toUpperCase();
+    if (assignDiv !== sopDivision) return false;
+    const assignedHierarchy = extractHierarchyCodeFromAssignment(assignment);
     return isHierarchyWithin(sopHierarchy, assignedHierarchy);
   });
 }
@@ -560,12 +618,10 @@ export function canUserActivateSop(
   return false;
 }
 
-
 /**
  * Canonical Firestore access keys for a user hierarchy assignment.
- * A key is `DIVISION` for division-level access or `DIVISION|1.2.3` for a
- * specific hierarchy. Firestore rules use these keys as the authoritative
- * document boundary; UI filtering is only a secondary defense.
+ * A key is `DIVISION` for division-level access, or `DIVISION|1`, `DIVISION|1.1`,
+ * `DIVISION|1.1.3` covering all relevant hierarchy tiers.
  */
 export function getUserHierarchyAccessKeys(userSession?: {
   role: string;
@@ -577,7 +633,6 @@ export function getUserHierarchyAccessKeys(userSession?: {
 } | null): string[] {
   if (!userSession || userSession.role === 'admin') return [];
 
-  const normalize = (v?: string) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
   const assignments = Array.isArray(userSession.assignments) && userSession.assignments.length
     ? userSession.assignments
     : (Array.isArray(userSession.divisionCodes) && userSession.divisionCodes.length
@@ -600,12 +655,15 @@ export function getUserHierarchyAccessKeys(userSession?: {
   for (const assignment of assignments) {
     const division = String(assignment.divisionCode || '').trim().toUpperCase();
     if (!division || division === 'ALL') continue;
-    const hierarchy = normalize(
-      (assignment as any).hierarchyCode ||
-      ((assignment as any).hierarchyPath || []).filter(Boolean).join('.') ||
-      [assignment.subCode, assignment.instCode, assignment.poliCode, assignment.subUnitCode].filter(Boolean).join('.')
-    );
-    keys.add(hierarchy ? `${division}|${hierarchy}` : division);
+    // Always add division key so user can access division-level SPOs
+    keys.add(division);
+    const hierarchy = extractHierarchyCodeFromAssignment(assignment);
+    if (hierarchy) {
+      const parts = hierarchy.split('.').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) {
+        keys.add(`${division}|${parts.slice(0, i).join('.')}`);
+      }
+    }
   }
   return Array.from(keys).slice(0, 30);
 }
@@ -614,16 +672,13 @@ export function getUserHierarchyAccessKeys(userSession?: {
 export function getSopAccessKeys(sop: { divisionCode?: string; subHierarchyCode?: string; subCode?: string; instalasiCode?: string; instCode?: string; poliCode?: string; subUnitCode?: string; sopNumber?: string }): string[] {
   const division = String(sop.divisionCode || '').trim().toUpperCase();
   if (!division) return [];
-  const normalize = (v?: string) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
-  const hierarchy = normalize(
-    sop.subHierarchyCode ||
-    [sop.subCode, sop.instalasiCode || sop.instCode, sop.poliCode, sop.subUnitCode].filter(Boolean).join('.') ||
-    (sop.sopNumber?.split('/')[1]?.trim() || '')
-  );
+  const hierarchy = extractHierarchyCodeFromSop(sop);
   const keys = [division];
   if (hierarchy) {
     const parts = hierarchy.split('.').filter(Boolean);
-    for (let i = 1; i <= parts.length; i++) keys.push(`${division}|${parts.slice(0, i).join('.')}`);
+    for (let i = 1; i <= parts.length; i++) {
+      keys.push(`${division}|${parts.slice(0, i).join('.')}`);
+    }
   }
   return Array.from(new Set(keys));
 }

@@ -449,8 +449,10 @@ export async function checkFirebaseConnection(): Promise<boolean> {
     try {
       await getDocFromServer(doc(db, 'test', 'connection'));
     } catch {
-      const q = query(collection(db, 'sops'), limit(1));
-      await getDocs(q);
+      const cfgSnap = await getDoc(doc(db, 'system_config', 'maintenance'));
+      if (!cfgSnap.exists()) {
+        await getDoc(doc(db, 'test', 'connection'));
+      }
     }
     updateStatus({
       isConnected: true,
