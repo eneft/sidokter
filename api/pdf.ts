@@ -666,145 +666,189 @@ ${pdfDocumentHtml}
   }
 }
 
-import { verifyServerSession as internalVerifySession } from '../server/authHandler';
+const CANONICAL_FIREBASE_PDF_API =
+  'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/pdfApi';
 
-async function verifyServerSession(req: any) {
-  try {
-    return await internalVerifySession(req);
-  } catch (err: any) {
-    const header = String(req.headers?.authorization || '');
-    const xAuthUid = String(req.headers?.['x-soegiri-auth-uid'] || req.headers?.['x-user-id'] || '');
-    if (xAuthUid) {
-      return { authUid: xAuthUid, username: 'user', role: 'user' };
-    }
-    if (header.startsWith('Bearer ')) {
-      const token = header.slice(7).trim();
-      if (token) return { authUid: token.replace(/^session-/, ''), username: 'user', role: 'user' };
-    }
-    throw err;
+const PRIMARY_CLOUD_PDF_API_URL = 'https://pdfapi-n7zygxitla-et.a.run.app';
+
+const UPSTREAM_PDF_URLS = Array.from(new Set([
+  CANONICAL_FIREBASE_PDF_API,
+  PRIMARY_CLOUD_PDF_API_URL,
+  process.env.FIREBASE_PDF_API,
+  process.env.PDF_API_URL,
+  process.env.UPSTREAM_PDF_API_URL,
+  process.env.VITE_PDF_API_URL
+].filter(u => typeof u === 'string' && u.startsWith('http')) as string[]));
+
+async function parseRequestBody(req: any): Promise<Record<string, any>> {
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
   }
+  if (typeof req.body === 'string' && req.body.trim()) {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
+  }
+  if (req.readableEnded || req.complete || typeof req.on !== 'function') {
+    return {};
+  }
+  return new Promise((resolve) => {
+    const chunks: any[] = [];
+    const timer = setTimeout(() => resolve({}), 4000);
+
+    req.on('data', (chunk: any) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on('end', () => {
+      clearTimeout(timer);
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        resolve({});
+      }
+    });
+    req.on('error', () => {
+      clearTimeout(timer);
+      resolve({});
+    });
+  });
 }
 
-export default async function handler(
-  req: any,
-  res: any
-) {
+export default async function handler(req: any, res: any) {
+  const origin = String(req.headers?.origin || '*');
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type,Accept,Authorization,X-Session-Id,X-Soegiri-Session-Id,X-Soegiri-Auth-Uid,X-User-Username'
+  );
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+
   if (req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
+    return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
     return res.status(405).json({
       success: false,
-      message: 'Method Not Allowed',
+      message: 'Method Not Allowed'
     });
   }
 
+  let body: Record<string, any> = {};
   try {
-    const verifiedSession = await verifyServerSession(req);
-    const body = { ...(req.body || {}), authUid: verifiedSession.authUid };
+    body = await parseRequestBody(req);
+  } catch {
+    body = {};
+  }
 
-    const protocol =
-      String(
-        req.headers[
-          'x-forwarded-proto'
-        ] || 'https'
-      )
-        .split(',')[0]
-        .trim();
+  const forwardHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/pdf, application/json'
+  };
+  if (req.headers?.authorization) forwardHeaders.Authorization = String(req.headers.authorization);
+  if (req.headers?.['x-session-id']) {
+    forwardHeaders['X-Session-Id'] = String(req.headers['x-session-id']);
+    forwardHeaders['X-Soegiri-Session-Id'] = String(req.headers['x-session-id']);
+  }
+  if (req.headers?.['x-soegiri-session-id']) {
+    forwardHeaders['X-Soegiri-Session-Id'] = String(req.headers['x-soegiri-session-id']);
+    if (!forwardHeaders['X-Session-Id']) forwardHeaders['X-Session-Id'] = String(req.headers['x-soegiri-session-id']);
+  }
+  if (req.headers?.['x-soegiri-auth-uid']) forwardHeaders['X-Soegiri-Auth-Uid'] = String(req.headers['x-soegiri-auth-uid']);
+  if (req.headers?.['x-user-id']) forwardHeaders['X-Soegiri-Auth-Uid'] = String(req.headers['x-user-id']);
+  if (req.headers?.['x-user-username']) forwardHeaders['X-User-Username'] = String(req.headers['x-user-username']);
+  if (req.headers?.['user-agent']) forwardHeaders['User-Agent'] = String(req.headers['user-agent']);
 
-    const host =
-      String(
-        req.headers.host || ''
-      ).trim();
+  const protocol = String(req.headers?.['x-forwarded-proto'] || 'https').split(',')[0].trim();
+  const host = String(req.headers?.host || '').trim();
+  const baseUrl = body.baseUrl || (host ? `${protocol}://${host}` : '');
+  const bodyPayload = { ...body, baseUrl };
+  const bodyJson = JSON.stringify(bodyPayload);
 
-    const baseUrl =
-      body.baseUrl ||
-      (
-        host
-          ? `${protocol}://${host}`
-          : ''
-      );
+  let lastError: any = null;
 
-    const {
-      pdf,
-      filename,
-    } =
-      await generatePdf({
-        ...body,
-        baseUrl,
-      });
+  // 1. Try upstream dedicated PDF Cloud Services (Firebase Cloud Functions / Cloud Run)
+  for (const upstreamUrl of UPSTREAM_PDF_URLS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 45000);
 
-    const encodedFilename =
-      encodeURIComponent(
-        filename
-      ).replace(
-        /['()]/g,
-        '%27'
-      );
+      const upstreamRes = await fetch(upstreamUrl, {
+        method: 'POST',
+        headers: forwardHeaders,
+        body: bodyJson,
+        signal: controller.signal
+      }).finally(() => clearTimeout(timer));
 
+      const contentType = String(upstreamRes.headers.get('content-type') || '');
+      if (upstreamRes.ok && (contentType.includes('application/pdf') || contentType.includes('octet-stream'))) {
+        const arrayBuf = await upstreamRes.arrayBuffer();
+        const pdfBuf = Buffer.from(arrayBuf);
+        if (pdfBuf.length >= 5 && pdfBuf.subarray(0, 5).toString('ascii') === '%PDF-') {
+          const upstreamDisp = upstreamRes.headers.get('content-disposition');
+          const upstreamPdfName = upstreamRes.headers.get('x-soegiri-pdf-filename');
+          const filename = safePdfFilename(body.filename || body.title || body.sopNumber);
+          const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, '%27');
+
+          res.status(200);
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader(
+            'Content-Disposition',
+            upstreamDisp || `attachment; filename="SPO_RSUD_Dr_Soegiri.pdf"; filename*=UTF-8''${encodedFilename}`
+          );
+          if (upstreamPdfName) res.setHeader('X-Soegiri-PDF-Filename', upstreamPdfName);
+          res.setHeader('Content-Length', String(pdfBuf.length));
+          return res.send(pdfBuf);
+        }
+      }
+
+      // If upstream returned explicit auth/forbidden error, propagate it
+      if (upstreamRes.status === 401 || upstreamRes.status === 403 || upstreamRes.status === 400) {
+        const text = await upstreamRes.text().catch(() => '');
+        try {
+          const jsonPayload = JSON.parse(text);
+          return res.status(upstreamRes.status).json(jsonPayload);
+        } catch {
+          return res.status(upstreamRes.status).send(text);
+        }
+      }
+
+      console.warn(`[api/pdf] Upstream ${upstreamUrl} returned HTTP ${upstreamRes.status}`);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[api/pdf] Upstream ${upstreamUrl} failed:`, err?.message);
+    }
+  }
+
+  // 2. Fallback to local Chromium renderer
+  try {
+    const { pdf, filename } = await generatePdf(bodyPayload);
+    const pdfBuffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+    if (pdfBuffer.length < 5 || pdfBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      throw new Error('PDF_RENDER_INVALID_OUTPUT');
+    }
+
+    const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, '%27');
     res.status(200);
-
-    res.setHeader(
-      'Content-Type',
-      'application/pdf'
-    );
-
+    res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="SPO_RSUD_Dr_Soegiri.pdf"; filename*=UTF-8''${encodedFilename}`
     );
-
-    res.setHeader(
-      'X-Soegiri-PDF-Filename',
-      encodeURIComponent(
-        filename
-      )
-    );
-
-    res.setHeader(
-      'Cache-Control',
-      'private, no-store, max-age=0'
-    );
-
-    return res.send(pdf);
-
-  } catch (error: any) {
-    console.error(
-      '[api/pdf] PDF generation failed:',
-      error
-    );
-
-    const code =
-      String(
-        error?.message ||
-        'PDF_RENDER_ERROR'
-      );
-
-    const status =
-      code === 'UNAUTHENTICATED' ||
-      code === 'USER_NOT_FOUND' ||
-      code === 'SESSION_REVOKED' ||
-      code === 'SESSION_REQUIRED' ||
-      code.includes('SESSION') ||
-      code.startsWith('auth/')
-        ? 401
-        : code === 'FORBIDDEN'
-          ? 403
-          : 500;
-
-    return res.status(
-      status
-    ).json({
+    res.setHeader('X-Soegiri-PDF-Filename', encodeURIComponent(filename));
+    res.setHeader('Content-Length', String(pdfBuffer.length));
+    return res.send(pdfBuffer);
+  } catch (localErr: any) {
+    console.error('[api/pdf] Local PDF fallback failed:', localErr);
+    const errCode = String(localErr?.message || lastError?.message || 'PDF_GENERATION_FAILED');
+    return res.status(500).json({
       success: false,
-
-      message:
-        status === 401
-          ? 'Sesi login tidak valid atau sudah dicabut. Silakan login kembali.'
-          : `PDF gagal dibuat: ${code}`,
-
-      detail: code,
+      message: 'PDF gagal dibuat: ' + errCode,
+      detail: errCode
     });
   }
 }

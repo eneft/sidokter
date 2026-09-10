@@ -3,6 +3,16 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "outputDirectory": "dist",
+  "functions": {
+    "api/pdf.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    },
+    "api/auth.ts": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
       "source": "/api/auth/:path*",

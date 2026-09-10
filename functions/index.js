@@ -917,19 +917,21 @@ function pdfCors(req, res) {
     .split(',').map(v => v.trim()).filter(Boolean);
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
   const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin))) {
     res.set('Access-Control-Allow-Origin', origin);
+    res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Soegiri-Auth-Uid, X-Soegiri-Session-Id, X-Session-Id, X-User-Username');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
 async function requirePdfSession(req) {
   const header = String(req.headers.authorization || '');
-  const xSessionId = String(req.headers['x-session-id'] || '');
-  const xAuthUid = String(req.headers['x-soegiri-auth-uid'] || '');
+  const xSessionId = String(req.headers['x-session-id'] || req.headers['x-soegiri-session-id'] || '');
+  const xAuthUid = String(req.headers['x-soegiri-auth-uid'] || req.headers['x-user-id'] || '');
 
   let uid = '';
   let sessionId = xSessionId;

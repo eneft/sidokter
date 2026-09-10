@@ -1635,86 +1635,107 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       clonedRoot.classList.add('pdf-export-document');
 
-      let response = await fetch('/api/pdf', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/pdf',
+      const buildAuthHeaders = async (forceRefresh = false) => {
+        const token = await getCurrentAuthToken(forceRefresh).catch(() => null);
+        const persisted = getPersistedClientSession();
+        if (!token && !persisted?.sessionId) {
+          throw new Error('Sesi login tidak valid. Silakan login kembali.');
+        }
+        return {
+          'Accept': 'application/pdf, application/json',
           'Content-Type': 'application/json',
-          ...(await (async () => {
-            const token = await getCurrentAuthToken().catch(() => null);
-            const persisted = getPersistedClientSession();
-            if (!token && !persisted?.sessionId) {
-              throw new Error('Sesi login tidak valid. Silakan login kembali.');
-            }
-            return {
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              ...(persisted?.sessionId ? { 'X-Session-Id': persisted.sessionId } : {}),
-              ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
-              ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
-            };
-          })())
-        },
-        body: JSON.stringify({
-          html: clonedRoot.outerHTML,
-          css: cssParts.join('\n'),
-          baseUrl: window.location.origin,
-          authUid,
-          sopNumber: sop.sopNumber,
-          title: previewTitle,
-          filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
-        })
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(persisted?.sessionId ? { 'X-Session-Id': persisted.sessionId, 'X-Soegiri-Session-Id': persisted.sessionId } : {}),
+          ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
+          ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
+        };
+      };
+
+      const pdfPayload = JSON.stringify({
+        html: clonedRoot.outerHTML,
+        css: cssParts.join('\n'),
+        baseUrl: window.location.origin,
+        authUid,
+        sopNumber: sop.sopNumber,
+        title: previewTitle,
+        filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
       });
 
-      // If server session expired or was unauthenticated, auto-refresh and retry once
-      if (response.status === 401) {
-        try {
-          const refreshedToken = await getCurrentAuthToken(true);
-          const refreshedSession = await refreshUserSessionProfile();
-          const activeToken = refreshedToken || (await getCurrentAuthToken());
-          const activeSession = refreshedSession || getPersistedClientSession();
+      const candidateEndpoints = [
+        '/api/pdf',
+        'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/pdfApi',
+        'https://pdfapi-n7zygxitla-et.a.run.app'
+      ];
 
-          if (activeToken || activeSession?.sessionId) {
-            response = await fetch('/api/pdf', {
-              method: 'POST',
-              headers: {
-                'Accept': 'application/pdf',
-                'Content-Type': 'application/json',
-                ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
-                ...(activeSession?.sessionId ? { 'X-Session-Id': activeSession.sessionId } : {}),
-                ...(activeSession?.authUid ? { 'X-Soegiri-Auth-Uid': activeSession.authUid } : {})
-              },
-              body: JSON.stringify({
-                html: clonedRoot.outerHTML,
-                css: cssParts.join('\n'),
-                baseUrl: window.location.origin,
-                authUid: activeSession?.authUid || authUid,
-                sopNumber: sop.sopNumber,
-                title: previewTitle,
-                filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
-              })
-            });
+      let response: Response | null = null;
+      let lastFailureMsg = '';
+
+      for (const endpoint of candidateEndpoints) {
+        try {
+          const headers = await buildAuthHeaders(false);
+          let res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: pdfPayload
+          });
+
+          // If session expired, refresh once and retry
+          if (res.status === 401) {
+            try {
+              await refreshUserSessionProfile().catch(() => undefined);
+              const refreshedHeaders = await buildAuthHeaders(true);
+              res = await fetch(endpoint, {
+                method: 'POST',
+                headers: refreshedHeaders,
+                body: pdfPayload
+              });
+            } catch (err) {
+              console.warn('[PDF Download] Token refresh attempt failed:', err);
+            }
           }
-        } catch (refreshErr) {
-          console.warn('[SOP Detail] Session auto-refresh failed:', refreshErr);
+
+          if (res.ok) {
+            response = res;
+            break;
+          }
+
+          // If 401 or 403, don't fall through to next endpoint as auth issue applies everywhere
+          if (res.status === 401 || res.status === 403) {
+            response = res;
+            break;
+          }
+
+          const rawErr = await res.text().catch(() => '');
+          lastFailureMsg = `HTTP ${res.status}: ${rawErr.slice(0, 200)}`;
+          console.warn(`[PDF Download] Endpoint ${endpoint} failed with ${res.status}`);
+        } catch (fetchErr: any) {
+          lastFailureMsg = fetchErr?.message || 'Gagal menghubungi server PDF';
+          console.warn(`[PDF Download] Endpoint ${endpoint} request failed:`, fetchErr);
         }
       }
 
-      if (!response.ok) {
-        let message = `PDF gagal dibuat (HTTP ${response.status}).`;
-        const rawText = await response.text().catch(() => '');
-        try {
-          const payload = JSON.parse(rawText);
-          if (payload?.message) {
-            message = payload.detail && payload.detail !== payload.message
-              ? `${payload.message} (${payload.detail})`
-              : payload.message;
-          } else if (rawText) {
-            message += ` ${rawText.slice(0, 300)}`;
+      if (!response || !response.ok) {
+        let message = `PDF gagal dibuat. Silakan coba kembali sesaat lagi.`;
+        if (response) {
+          const rawText = await response.text().catch(() => '');
+          try {
+            const payload = JSON.parse(rawText);
+            if (payload?.message) {
+              message = payload.detail && payload.detail !== payload.message
+                ? `${payload.message} (${payload.detail})`
+                : payload.message;
+            } else if (rawText) {
+              message = `PDF gagal dibuat (${rawText.slice(0, 250)})`;
+            }
+          } catch {
+            if (rawText && !rawText.includes('<!DOCTYPE html>')) {
+              message = `PDF gagal dibuat: ${rawText.slice(0, 250)}`;
+            } else if (lastFailureMsg) {
+              message = `PDF gagal dibuat: ${lastFailureMsg}`;
+            }
           }
-        } catch {
-          if (rawText) {
-            message += ` ${rawText.slice(0, 300)}`;
-          }
+        } else if (lastFailureMsg) {
+          message = `PDF gagal dibuat: ${lastFailureMsg}`;
         }
         throw new Error(message);
       }
