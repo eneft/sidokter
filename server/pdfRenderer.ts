@@ -229,14 +229,13 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
     console.log('[PDF] Launching Chromium:', executablePath);
     const chromium = await getChromium();
     const rawChromiumArgs = Array.isArray(chromium?.args) ? chromium.args : [];
-    // Filter problematic container flags
+    // CRITICAL: --single-process causes renderer crash / "Target closed" in Puppeteer container environments
     const safeChromiumArgs = rawChromiumArgs.filter(
-      (arg: string) => !arg.includes('single-process') && !arg.includes('in-process-gpu')
+      (arg: string) => !arg.includes('single-process')
     );
 
     browser = await puppeteer.launch({
-      headless: true,
-      pipe: true,
+      headless: 'shell',
       executablePath,
       defaultViewport: chromium?.defaultViewport || { width: 1280, height: 900 },
       args: [
@@ -262,7 +261,7 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
         if (document.fonts?.ready) {
           await Promise.race([
             document.fonts.ready,
-            new Promise((resolve) => setTimeout(resolve, 2000))
+            new Promise((resolve) => setTimeout(resolve, 3000))
           ]).catch(() => undefined);
         }
         if (document.fonts?.load) {
@@ -277,6 +276,8 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
             // Non-fatal font load fallback
           }
         }
+        const probe = document.querySelector('#printable-sop-official-document') as HTMLElement | null;
+        if (probe) console.log('[PDF] Resolved font:', getComputedStyle(probe).fontFamily);
 
         const imgPromises = Array.from(document.images || []).map((img) => {
           if (img.complete) return Promise.resolve();
@@ -293,21 +294,12 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
     }
 
     try {
-      await Promise.race([
-        page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, 200);
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  clearTimeout(timer);
-                  resolve();
-                });
-              });
-            })
-        ),
-        new Promise((resolve) => setTimeout(resolve, 400))
-      ]);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+      );
     } catch (rafErr) {
       console.warn('[PDF] Non-fatal RAF wait warning:', rafErr);
     }
@@ -316,8 +308,7 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
       format: 'A4',
       printBackground: true,
       preferCSSPageSize: true,
-      margin: { top: 0, right: 0, bottom: 0, left: 0 },
-      timeout: 30000
+      margin: { top: 0, right: 0, bottom: 0, left: 0 }
     });
 
     const pdf = Buffer.from(pdfBytes);
