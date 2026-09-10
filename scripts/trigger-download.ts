@@ -12,7 +12,7 @@ async function run() {
   const firstSession = Object.values(db.sessions)[0] as any;
 
   // Let's launch puppeteer and load an actual SOP in the browser
-  const chromium = await getChromium();
+  const chromium: any = await getChromium();
   const execPath = await chromium.executablePath();
   const rawArgs = Array.isArray(chromium.args) ? chromium.args : [];
   const safeArgs = rawArgs.filter(a => !a.includes('single-process') && !a.includes('in-process-gpu'));

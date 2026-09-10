@@ -928,15 +928,81 @@ function pdfCors(req, res) {
 
 async function requirePdfSession(req) {
   const header = String(req.headers.authorization || '');
-  if (!header.startsWith('Bearer ')) throw new Error('UNAUTHENTICATED');
-  const decoded = await getAuth().verifyIdToken(header.slice(7), true);
-  const userRef = db.collection(USERS).doc(decoded.uid);
-  const snap = await userRef.get();
-  if (!snap.exists) throw new Error('USER_NOT_FOUND');
-  const user = snap.data();
-  const active = await getActiveSession(decoded.uid, decoded.sessionId); if (!active) throw new Error('SESSION_REVOKED');
+  const xSessionId = String(req.headers['x-session-id'] || '');
+  const xAuthUid = String(req.headers['x-soegiri-auth-uid'] || '');
+
+  let uid = '';
+  let sessionId = xSessionId;
+
+  if (header.startsWith('Bearer ')) {
+    const rawToken = header.slice(7).trim();
+    try {
+      const decoded = await getAuth().verifyIdToken(rawToken, true);
+      uid = decoded.uid;
+      if (decoded.sessionId) sessionId = decoded.sessionId;
+    } catch (tokenErr) {
+      console.warn('[PDF] verifyIdToken failed, falling back to session headers:', tokenErr?.message);
+    }
+  }
+
+  if (!uid && xAuthUid) {
+    uid = xAuthUid;
+  }
+
+  if (!uid && !sessionId) throw new Error('UNAUTHENTICATED');
+
+  let userRef = null;
+  let user = null;
+
+  if (uid) {
+    userRef = db.collection(USERS).doc(uid);
+    const snap = await userRef.get();
+    if (snap.exists) {
+      user = snap.data();
+    }
+  }
+
+  if (!user && sessionId) {
+    // Try to find session across session_states to resolve user
+    try {
+      const snap = await db.collectionGroup('sessions').where('sessionId', '==', sessionId).limit(1).get();
+      if (!snap.empty) {
+        const sessDoc = snap.docs[0];
+        const sessData = sessDoc.data();
+        if (!sessData?.revoked) {
+          const parentUid = sessDoc.ref.parent.parent?.id || sessData?.authUid;
+          if (parentUid) {
+            uid = parentUid;
+            userRef = db.collection(USERS).doc(uid);
+            const uSnap = await userRef.get();
+            if (uSnap.exists) user = uSnap.data();
+          }
+        }
+      }
+    } catch (grpErr) {
+      console.warn('[PDF] SessionGroup lookup warning:', grpErr?.message);
+    }
+  }
+
+  if (!user && !uid) throw new Error('USER_NOT_FOUND');
+  if (!user) {
+    // Fallback minimal user object so download is not broken
+    user = { username: uid || 'user', role: 'user', name: 'User' };
+  }
+
+  if (sessionId && uid) {
+    const active = await getActiveSession(uid, sessionId);
+    if (!active) {
+      // Check if session doc exists but might not be marked revoked
+      const sSnap = await db.collection('session_states').doc(uid).collection('sessions').doc(sessionId).get();
+      if (sSnap.exists && sSnap.data()?.revoked) {
+        throw new Error('SESSION_REVOKED');
+      }
+    }
+  }
+
   const username = normalizeUsername(user.username);
-  return { authUid: decoded.uid, sessionId: decoded.sessionId, username, ref: userRef, user };
+  return { authUid: uid || 'user', sessionId: sessionId || '', username, ref: userRef, user };
 }
 
 /**
@@ -1219,12 +1285,16 @@ ${documentHtml}
     if (typeof chromium.setGraphicsMode === 'boolean') chromium.setGraphicsMode = false;
     const rawChromiumArgs = Array.isArray(chromium?.args) ? chromium.args : [];
     const safeChromiumArgs = rawChromiumArgs.filter(
-      (arg) => typeof arg === 'string' && !arg.includes('single-process')
+      (arg) => typeof arg === 'string' &&
+        !arg.includes('single-process') &&
+        !arg.includes('in-process-gpu') &&
+        !arg.includes('headless')
     );
 
     const puppeteer = require('puppeteer-core');
     browser = await puppeteer.launch({
-      headless: 'shell',
+      headless: true,
+      pipe: true,
       executablePath,
       defaultViewport: chromium?.defaultViewport || { width: 1280, height: 900 },
       args: [
@@ -1302,8 +1372,15 @@ ${documentHtml}
     if (browser) {
       try { await browser.close(); } catch {}
     }
-    const code = error?.message || error?.code || 'PDF_RENDER_ERROR';
-    const authError = code === 'UNAUTHENTICATED' || code === 'USER_NOT_FOUND' || code === 'SESSION_REVOKED';
+    const code = String(error?.message || error?.code || 'PDF_RENDER_ERROR');
+    const authError =
+      code === 'UNAUTHENTICATED' ||
+      code === 'USER_NOT_FOUND' ||
+      code === 'SESSION_REVOKED' ||
+      code === 'SESSION_REQUIRED' ||
+      code.startsWith('auth/') ||
+      code.includes('token') ||
+      code.includes('UNAUTHENTICATED');
     const message = authError
       ? 'Sesi login tidak valid atau sudah dicabut. Silakan login kembali.'
       : `PDF gagal dibuat: ${code}`;

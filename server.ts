@@ -57,10 +57,12 @@ app.post('/api/pdf', async (req, res) => {
       authUid = (req.body?.authUid as string) || 'authenticated_user';
     }
 
+    const host = req.get('host');
+    const computedBase = host ? `${req.protocol}://${host}` : 'http://localhost:3000';
     const { pdf, filename } = await generatePdf({
       ...req.body,
       authUid,
-      baseUrl: req.body?.baseUrl || `${req.protocol}://${req.get('host')}`
+      baseUrl: req.body?.baseUrl || computedBase
     });
 
     const pdfBuffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);

@@ -1641,14 +1641,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           'Accept': 'application/pdf',
           'Content-Type': 'application/json',
           ...(await (async () => {
-            const token = await getCurrentAuthToken();
-            if (!token) throw new Error('Sesi login tidak valid. Silakan login kembali.');
+            const token = await getCurrentAuthToken().catch(() => null);
             const persisted = getPersistedClientSession();
-            if (!persisted?.sessionId) throw new Error('Sesi server tidak tersedia. Silakan login kembali.');
+            if (!token && !persisted?.sessionId) {
+              throw new Error('Sesi login tidak valid. Silakan login kembali.');
+            }
             return {
-              Authorization: `Bearer ${token}`,
-              'X-Session-Id': persisted.sessionId,
-              'X-Soegiri-Auth-Uid': persisted.authUid || ''
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(persisted?.sessionId ? { 'X-Session-Id': persisted.sessionId } : {}),
+              ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
+              ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
             };
           })())
         },

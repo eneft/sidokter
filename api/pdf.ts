@@ -282,14 +282,8 @@ async function generatePdf(body: any) {
   }
 
   const baseUrl = String(
-    body?.baseUrl || ''
+    body?.baseUrl || 'http://localhost:3000'
   ).replace(/\/$/, '');
-
-  if (!baseUrl) {
-    throw new Error(
-      'Alamat aplikasi untuk aset dokumen tidak tersedia.'
-    );
-  }
 
   const bookmanCss = getBookmanFontFaceCss();
   const pdfDocumentHtml = inlineLocalPdfImages(documentHtml);
@@ -474,12 +468,16 @@ ${pdfDocumentHtml}
     const safeChromiumArgs =
       rawChromiumArgs.filter(
         (arg: string) =>
-          !arg.includes('single-process')
+          typeof arg === 'string' &&
+          !arg.includes('single-process') &&
+          !arg.includes('in-process-gpu') &&
+          !arg.includes('headless')
       );
 
     browser =
       await puppeteer.launch({
-        headless: 'shell',
+        headless: true,
+        pipe: true,
 
         executablePath,
 
@@ -787,7 +785,10 @@ export default async function handler(
     const status =
       code === 'UNAUTHENTICATED' ||
       code === 'USER_NOT_FOUND' ||
-      code === 'SESSION_REVOKED'
+      code === 'SESSION_REVOKED' ||
+      code === 'SESSION_REQUIRED' ||
+      code.includes('SESSION') ||
+      code.startsWith('auth/')
         ? 401
         : code === 'FORBIDDEN'
           ? 403

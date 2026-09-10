@@ -8,7 +8,7 @@ async function getChromium() {
 }
 
 async function run() {
-  const chromium = await getChromium();
+  const chromium: any = await getChromium();
   const execPath = await chromium.executablePath();
   const rawArgs = Array.isArray(chromium.args) ? chromium.args : [];
   const safeArgs = rawArgs.filter(a => !a.includes('single-process') && !a.includes('in-process-gpu'));

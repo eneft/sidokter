@@ -199,8 +199,7 @@ export async function generatePdf(body: any) {
     throw new Error('Ukuran dokumen terlalu besar untuk dibuat PDF.');
   }
 
-  const baseUrl = String(body?.baseUrl || '').replace(/\/$/, '');
-  if (!baseUrl) throw new Error('Alamat aplikasi untuk aset dokumen tidak tersedia.');
+  const baseUrl = String(body?.baseUrl || 'http://localhost:3000').replace(/\/$/, '');
 
   const bookmanCss = getBookmanFontFaceCss();
   const pdfDocumentHtml = inlineLocalPdfImages(documentHtml);
@@ -229,9 +228,12 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
     console.log('[PDF] Launching Chromium:', executablePath);
     const chromium = await getChromium();
     const rawChromiumArgs = Array.isArray(chromium?.args) ? chromium.args : [];
-    // Filter problematic container flags
+    // Filter problematic container flags and headless conflict
     const safeChromiumArgs = rawChromiumArgs.filter(
-      (arg: string) => !arg.includes('single-process') && !arg.includes('in-process-gpu')
+      (arg: string) => typeof arg === 'string' &&
+        !arg.includes('single-process') &&
+        !arg.includes('in-process-gpu') &&
+        !arg.includes('headless')
     );
 
     browser = await puppeteer.launch({
