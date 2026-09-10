@@ -1699,12 +1699,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             break;
           }
 
-          // If 401 or 403, don't fall through to next endpoint as auth issue applies everywhere
-          if (res.status === 401 || res.status === 403) {
-            response = res;
-            break;
-          }
-
           const rawErr = await res.text().catch(() => '');
           lastFailureMsg = `HTTP ${res.status}: ${rawErr.slice(0, 200)}`;
           console.warn(`[PDF Download] Endpoint ${endpoint} failed with ${res.status}`);

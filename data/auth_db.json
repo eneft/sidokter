@@ -67,8 +67,8 @@
         "VERIFIKATOR"
       ],
       "unitName": "Umum & Perlengkapan",
-      "createdAt": "2026-09-10T09:45:24.921Z",
-      "updatedAt": "2026-09-10T09:45:24.942Z",
+      "createdAt": "2026-09-10T09:48:32.318Z",
+      "updatedAt": "2026-09-10T09:48:32.329Z",
       "credentialStatus": "ACTIVE"
     }
   },
@@ -405,7 +405,7 @@
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788555900379,
-      "lastActiveAt": 1788555900379,
+      "lastActiveAt": 1789034080227,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     },
@@ -422,8 +422,8 @@
       "sessionId": "18cb0d37-a4f3-4b74-8a95-cfb81b7b194a",
       "authUid": "usr-1788261994005-ss3t",
       "username": "arman",
-      "createdAt": 1789033524921,
-      "lastActiveAt": 1789033524921,
+      "createdAt": 1789033564423,
+      "lastActiveAt": 1789033564423,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     },
@@ -444,6 +444,15 @@
       "lastActiveAt": 1789033529034,
       "revoked": false,
       "userAgent": "curl/7.88.1"
+    },
+    "2adf0fe7-f94a-44c6-beea-8067d18e1d72": {
+      "sessionId": "2adf0fe7-f94a-44c6-beea-8067d18e1d72",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1789033712318,
+      "lastActiveAt": 1789033712318,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     }
   },
   "auditLogs": []

@@ -753,7 +753,7 @@ export default async function handler(req: any, res: any) {
   for (const upstreamUrl of UPSTREAM_PDF_URLS) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 45000);
+      const timer = setTimeout(() => controller.abort(), 8000);
 
       const upstreamRes = await fetch(upstreamUrl, {
         method: 'POST',
@@ -784,18 +784,7 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      // If upstream returned explicit auth/forbidden error, propagate it
-      if (upstreamRes.status === 401 || upstreamRes.status === 403 || upstreamRes.status === 400) {
-        const text = await upstreamRes.text().catch(() => '');
-        try {
-          const jsonPayload = JSON.parse(text);
-          return res.status(upstreamRes.status).json(jsonPayload);
-        } catch {
-          return res.status(upstreamRes.status).send(text);
-        }
-      }
-
-      console.warn(`[api/pdf] Upstream ${upstreamUrl} returned HTTP ${upstreamRes.status}`);
+      console.warn(`[api/pdf] Upstream ${upstreamUrl} returned HTTP ${upstreamRes.status}, continuing to local fallback...`);
     } catch (err: any) {
       lastError = err;
       console.warn(`[api/pdf] Upstream ${upstreamUrl} failed:`, err?.message);
