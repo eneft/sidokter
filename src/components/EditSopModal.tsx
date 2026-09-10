@@ -772,6 +772,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   unitTerkait={unitTerkait}
                   onUnitTerkaitChange={setUnitTerkait}
                   missingSections={validationMessage}
+                  showSignatureAndStamp={status === 'AKTIF'}
                 />
               </div>
             </div>

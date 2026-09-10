@@ -782,7 +782,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                     <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
                     {showSignatureAndStamp ? (
                       <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-                        <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
+                        <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" />
                       </div>
                     ) : (
                       <div className="h-[38px] my-1" aria-hidden="true" />

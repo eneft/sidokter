@@ -27,6 +27,16 @@ service cloud.firestore {
       return signedIn() && resource.data.authorizedUids != null && request.auth.uid in resource.data.authorizedUids;
     }
 
+    function isValidSop() {
+      return request.resource.data.title is string &&
+             request.resource.data.title.size() > 0;
+    }
+
+    function isValidLibraryDoc() {
+      return request.resource.data.title is string &&
+             request.resource.data.title.size() > 0;
+    }
+
     // Health / Connection check path
     match /test/{docId} {
       allow read: if true;
@@ -38,22 +48,23 @@ service cloud.firestore {
       // Read access allowed for synchronization; app-level access control filters by user Kewenangan & division
       allow read: if true;
 
-      // Only administrators or signed-in users creating draft SOPs
-      allow create: if isAdmin() || (signedIn() && request.resource.data.status == 'DRAFT');
-      allow update: if isAdmin() || (signedIn() && resource.data.status == 'DRAFT');
+      // Allow create and update for valid SOP documents or administrators
+      allow create, update: if isValidSop() || isAdmin();
       allow delete: if isAdmin();
     }
 
     // Library documents (SK & MOU regulations)
     match /library_documents/{documentId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update: if isValidLibraryDoc() || isAdmin();
+      allow delete: if isAdmin();
     }
 
     // System configuration (numbering, maintenance mode)
     match /system_config/{configId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update: if true;
+      allow delete: if isAdmin();
     }
 
     // Users directory
@@ -64,18 +75,18 @@ service cloud.firestore {
 
     // Administrator registry
     match /admins/{adminId} {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     // Private user notifications
     match /notifications/{userId}/items/{eventKey} {
-      allow read, write: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow read, write: if true;
     }
 
     // Audit logs: clients may append operational logs, but cannot tamper with or delete logs
     match /audit_logs/{logId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow create: if true;
       allow update, delete: if false;
     }

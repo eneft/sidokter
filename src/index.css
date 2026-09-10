@@ -1611,6 +1611,13 @@ button, a, input, select, textarea {
   .sop-measure-root {
     display: none !important;
   }
+
+  .sop-scaled-page-wrap {
+    display: contents !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
 }
 /* Direct PDF/export table grid: preserve the complete official SPO table. */
 #printable-sop-official-document.pdf-export-document .sop-official-table {

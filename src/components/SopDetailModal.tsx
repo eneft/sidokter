@@ -378,47 +378,55 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       let inlineBuffer = '';
 
       const pushInlineBuffer = () => {
-        if (inlineBuffer.trim()) {
-          blocks.push(inlineBuffer);
+        const trimmed = inlineBuffer.trim();
+        if (trimmed) {
+          // If the buffered text is already wrapped in a block tag, push as is; otherwise wrap in <p>
+          if (/^<(p|div|h[1-6]|table|ol|ul|blockquote)/i.test(trimmed)) {
+            blocks.push(trimmed);
+          } else {
+            blocks.push(`<p>${trimmed}</p>`);
+          }
         }
         inlineBuffer = '';
       };
 
-      Array.from(doc.body.childNodes).forEach((node) => {
+      const hasBlockDescendant = (el: Element) => {
+        return Boolean(el.querySelector('p, ol, ul, table, blockquote, pre, h1, h2, h3, h4, h5, h6, section, article, div, figure, hr'));
+      };
+
+      const processNode = (node: Node) => {
         if (node.nodeType === Node.TEXT_NODE) {
           if ((node.textContent || '').length > 0) inlineBuffer += node.textContent || '';
           return;
         }
 
         if (node.nodeType !== Node.ELEMENT_NODE) return;
-        const el = node as Element;
+        const el = node as HTMLElement;
         const tag = el.tagName.toLowerCase();
 
+        // Top-level or nested lists: emit as complete list block
         if (/^(ol|ul)$/i.test(tag)) {
           pushInlineBuffer();
-          const items = Array.from(el.children).filter(
-            (child) => child.tagName.toLowerCase() === 'li'
-          ) as HTMLElement[];
-
-          if (items.length > 0) {
-            // IMPORTANT: keep ONE logical list as ONE flow unit.
-            // Splitting every <li> into a separate block destroys the list
-            // hierarchy at pagination boundaries and makes a new page look
-            // like a new list that starts again at 1. The pagination engine
-            // below is responsible for splitting a long list only when the
-            // actual A4 capacity requires it, while carrying the list start
-            // number forward.
-            blocks.push(el.outerHTML);
-          } else {
-            blocks.push(el.outerHTML);
-          }
+          blocks.push(el.outerHTML);
           return;
         }
 
-        if (/^(table|img|figure|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article)$/i.test(tag)) {
+        // Distinct block structures
+        if (/^(table|img|figure|blockquote|pre|h1|h2|h3|h4|h5|h6|hr)$/i.test(tag)) {
           pushInlineBuffer();
           blocks.push(el.outerHTML);
-        } else if (tag === 'p') {
+          return;
+        }
+
+        if (tag === 'p') {
+          // If a paragraph contains nested block tags (common in rich editors), unwrap
+          if (hasBlockDescendant(el)) {
+            pushInlineBuffer();
+            Array.from(el.childNodes).forEach(processNode);
+            pushInlineBuffer();
+            return;
+          }
+
           pushInlineBuffer();
           const innerHtml = el.innerHTML;
           // If paragraph has double line breaks, split into paragraphs
@@ -432,37 +440,23 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           } else {
             blocks.push(el.outerHTML);
           }
-        } else if (tag === 'div') {
-          const childNodes = Array.from(el.childNodes);
-          const blockChildren = childNodes.filter((child) =>
-            child.nodeType === Node.ELEMENT_NODE &&
-            /^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div)$/i.test((child as Element).tagName)
-          ) as Element[];
-          const hasMeaningfulDirectText = childNodes.some((child) =>
-            child.nodeType === Node.TEXT_NODE && Boolean((child.textContent || '').trim())
-          );
-
-          if (blockChildren.length >= 1 && !hasMeaningfulDirectText) {
-            pushInlineBuffer();
-            blockChildren.forEach((child) => {
-              const childTag = child.tagName.toLowerCase();
-              if (/^(ol|ul)$/i.test(childTag)) {
-                // Keep nested/top-level lists intact as one logical hierarchy.
-                // Do NOT turn each <li> into a separate flow block.
-                blocks.push(child.outerHTML);
-              } else {
-                blocks.push(child.outerHTML);
-              }
-            });
-          } else {
-            pushInlineBuffer();
-            blocks.push(el.outerHTML);
-          }
-        } else {
-          inlineBuffer += el.outerHTML;
+          return;
         }
-      });
 
+        // If tag is div, section, or any wrapper tag (span/font) that contains block descendants:
+        // Recursively unpack children so that headings, paragraphs, and lists become independent flow blocks!
+        if (/^(div|section|article|main|header|footer)$/i.test(tag) || hasBlockDescendant(el)) {
+          pushInlineBuffer();
+          Array.from(el.childNodes).forEach(processNode);
+          pushInlineBuffer();
+          return;
+        }
+
+        // Pure inline element without block descendants (span, b, strong, em, etc.)
+        inlineBuffer += el.outerHTML;
+      };
+
+      Array.from(doc.body.childNodes).forEach(processNode);
       pushInlineBuffer();
 
       const meaningfulBlocks = blocks.filter((block) => {
@@ -630,9 +624,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
         const headerHeight = header.getBoundingClientRect().height;
         const publicationHeight = publication.getBoundingClientRect().height;
-        // Optimal safety buffer (16px) guarantees that table cells and padding
-        // never overflow past the 10mm A4 boundary while maximizing printable space.
-        const safety = 16;
+        // Optimal safety buffer (24px) guarantees that table cells and padding
+        // never overflow past the 20mm A4 boundary while maximizing printable space.
+        const safety = 24;
         const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
         const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
         const normalCapacity = bodyCapacity;
@@ -673,8 +667,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           host.style.fontFamily = 'Bookman Old Style, Bookman, Georgia, serif';
           host.style.fontSize = '12pt';
           host.style.lineHeight = '1.5';
-          host.style.width = template ? `${template.getBoundingClientRect().width || 480}px` : '480px';
-          host.className = 'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+          // Fallback width 415px corresponds precisely to 72% content column of A4 (160mm printable width * 0.72 - cell padding)
+          const measuredWidth = template ? template.getBoundingClientRect().width : 0;
+          host.style.width = measuredWidth && measuredWidth > 280 && measuredWidth < 550 ? `${measuredWidth}px` : '415px';
+          host.className = 'font-bookman text-black rich-text-output rich-text-document-content sop-batang-tubuh-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
           if (template?.parentElement) {
             template.parentElement.appendChild(host);
           } else {
@@ -751,7 +747,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           if (words.length < 8) return [element.outerHTML];
 
           const host = createMeasureHost(template);
-          const safetyLimit = Math.max(1, maxHeight - 4);
+          const safetyLimit = Math.max(1, maxHeight - 10);
           const buildCandidate = (startWord: number, endWord: number): string => {
             const range = ownerDocument.createRange();
             range.setStart(words[startWord].node, words[startWord].start);
@@ -816,7 +812,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             const first = elements[0];
             if (!first) return [source];
 
-            const safetyLimit = Math.max(1, maxHeight - 4);
+            const safetyLimit = Math.max(1, maxHeight - 10);
             const host = createMeasureHost(template);
             const fits = (candidate: string) => {
               host.innerHTML = candidate;
@@ -866,7 +862,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               const listAttrs = Array.from(first.attributes)
                 .filter((attr) => {
                   const n = attr.name.toLowerCase();
-                  return !(isOl && n === 'start') && n !== 'data-sop-list-continuation' && n !== 'data-sop-continuation-number';
+                  return !(isOl && n === 'start') && n !== 'style' && n !== 'data-sop-list-continuation' && n !== 'data-sop-continuation-number';
                 })
                 .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
                 .join('');
@@ -876,7 +872,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 const itemsWithContinuationMarker = continuation
                   ? itemHtmls.map((itemHtml) => itemHtml.replace(/^<li\b/i, '<li data-sop-continuation-li="true"'))
                   : itemHtmls;
-                return `<${listTag}${listAttrs}${isOl && !continuation ? ` start="${number}"` : ''}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${number}"` : ''}>${itemsWithContinuationMarker.join('')}</${listTag}>`;
+                const counterStyle = isOl ? ` style="counter-reset: sop-list ${number - 1};--sop-start-offset: ${number - 1};"` : '';
+                return `<${listTag}${listAttrs}${isOl && !continuation ? ` start="${number}"` : ''}${counterStyle}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${number}"` : ''}>${itemsWithContinuationMarker.join('')}</${listTag}>`;
               };
 
               if (items.length > 0) {
@@ -1117,6 +1114,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           // Only the first fragment of a section pays the table border/padding.
           const chrome = startsNewSectionRow ? chromeBySection(block.section) : 0;
           const needed = flowHeights[index] + chrome;
+
+          // Orphan heading protection: If this block is a heading/title (e.g. "B. APABILA TERJADI KEHILANGAN", "1. PENDAHULUAN")
+          // and there is a subsequent block in the same section, ensure there is room for the heading AND at least one line of content.
+          // Otherwise, start a new page so the heading is not left isolated at the very bottom of the page.
+          if (currentPageBlocks.length > 0 && index + 1 < flowBlocks.length && flowBlocks[index + 1].section === block.section) {
+            const plain = (block.html || '').replace(/<[^>]+>/g, '').trim();
+            const isHeadingLike = plain.length > 0 && plain.length <= 120 && (
+              /^([A-Z]\.|\d+\.|\bBAB\b|[A-Z\s]{4,})/i.test(plain) ||
+              /^<h[1-6]/i.test(block.html.trim())
+            );
+            if (isHeadingLike && (used + needed + 45 > capacity)) {
+              commitCurrentPageAndStartNext();
+              continue;
+            }
+          }
 
           if (currentPageBlocks.length > 0 && used + needed > capacity) {
             const remaining = capacity - used - chrome;
@@ -1437,7 +1449,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         >
           <div className="flex flex-col items-center justify-center">
             <HospitalLogo imgClassName="w-[56px] h-[56px]" className="mb-1" />
-            <div className="font-extrabold text-xs sm:text-sm leading-tight tracking-tight uppercase font-bookman text-black">
+            <div className="font-extrabold text-[13px] leading-tight tracking-tight uppercase font-bookman text-black">
               <div>RSUD Dr. SOEGIRI</div>
               <div>LAMONGAN</div>
             </div>
@@ -1448,7 +1460,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           className="p-2 text-center align-middle bg-white"
           style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
         >
-          <div className="font-extrabold text-sm sm:text-[15px] uppercase tracking-tight font-bookman text-black leading-tight break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]">
+          <div className="font-extrabold text-[14px] uppercase tracking-tight font-bookman text-black leading-tight break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]">
             {(sop.title || 'JUDUL STANDAR PROSEDUR OPERASIONAL').toUpperCase()}
           </div>
         </td>
@@ -1456,19 +1468,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       <tr className="text-center">
         <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
           <div className="font-bold text-[11px] uppercase font-bookman text-black">NO. DOKUMEN</div>
-          <div className="font-bold text-xs sm:text-sm font-bookman text-black mt-1 break-words [overflow-wrap:break-word] [word-break:normal]">
+          <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words [overflow-wrap:break-word] [word-break:normal]">
             {sop.sopNumber || '/……./….. /2026'}
           </div>
         </td>
         <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
           <div className="font-bold text-[11px] uppercase font-bookman text-black">NO. REVISI</div>
-          <div className="font-bold text-xs sm:text-sm font-bookman text-black mt-1 break-words">
+          <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words">
             {sop.revisionNumber || sop.version || (getStandardJenisSpo(sop) === 'RIVIU' ? '01' : '00')}
           </div>
         </td>
         <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
           <div className="font-bold text-[11px] uppercase font-bookman text-black">HALAMAN</div>
-          <div className="font-bold text-xs sm:text-sm font-bookman text-black mt-1">{pageNumber} / {pageTotal}</div>
+          <div className="font-bold text-[12px] font-bookman text-black mt-1">{pageNumber} / {pageTotal}</div>
         </td>
       </tr>
     </thead>
@@ -1484,24 +1496,24 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       </td>
       <td className="p-1.5 text-center align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
         <div className="text-[11px] font-bookman text-black">Tanggal terbit</div>
-        <div className="font-bold text-xs sm:text-sm font-bookman text-black mt-1 break-words">{sop.effectiveDate || '…………….2026'}</div>
+        <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words">{sop.effectiveDate || '…………….2026'}</div>
       </td>
       <td colSpan={2} className="p-1.5 text-center align-top bg-white relative overflow-visible" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-        <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
+        <div className="font-bold text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
         {showSignatureAndStamp ? (
-          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
+          <div className="relative -my-5 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+            <DirectorSignature className="h-[100px] w-auto max-w-[260px]" />
           </div>
         ) : (
           <div className="h-[38px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Dokumen Diarsipkan)</div>
         )}
         <div className="relative z-0 space-y-0.5">
-          <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
-          <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">
+          <div className="font-bold text-[13px] underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
+          <div className="text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">
             {(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}
           </div>
-          <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
+          <div className="font-bold text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
         </div>
       </td>
     </tr>
@@ -1609,29 +1621,22 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       // PDF MUST use the real A4 page nodes, never the responsive screen-scale
       // wrappers used by the preview. Those wrappers can contain an inline
       // transform: scale(...) which makes Chromium shrink/offset the entire
-      // official document and destroys the intended A4 structure. Unwrap any
-      // wrapper whose only purpose is responsive preview scaling.
-      clonedRoot.querySelectorAll('.sop-scaled-page-wrap').forEach(wrapper => {
-        const page = wrapper.querySelector('.sop-preview-page');
-        if (page && wrapper.parentNode) {
-          wrapper.parentNode.insertBefore(page, wrapper);
-          wrapper.remove();
-        }
-      });
+      // official document and destroys the intended A4 structure.
+      // Extract ONLY clean A4 pages from clonedRoot, stripping ALL preview scaling wrappers.
+      const pageNodes = Array.from(clonedRoot.querySelectorAll<HTMLElement>('.sop-preview-page'));
+      if (pageNodes.length > 0) {
+        clonedRoot.innerHTML = '';
+        pageNodes.forEach((page) => {
+          page.style.removeProperty('transform');
+          page.style.removeProperty('transform-origin');
+          page.style.removeProperty('margin-bottom');
+          page.style.margin = '0 auto';
+          clonedRoot.appendChild(page);
+        });
+      }
 
-      // Remove any remaining responsive transform/margin styles from export
-      // wrappers while preserving the exact A4 page dimensions/padding.
-      clonedRoot.querySelectorAll('[style]').forEach((node) => {
-        const el = node as HTMLElement;
-        if (el.style.transform || el.style.marginBottom) {
-          el.style.removeProperty('transform');
-          el.style.removeProperty('transform-origin');
-          el.style.removeProperty('margin-bottom');
-        }
-      });
-
-      // Crucial: remove all measurement artifacts, no-print elements, and hidden nodes
-      clonedRoot.querySelectorAll('.no-print, .sop-measure-root, [data-measure-page], [aria-hidden="true"]').forEach(node => node.remove());
+      // Crucial: remove all measurement artifacts and no-print elements
+      clonedRoot.querySelectorAll('.no-print, .sop-measure-root, [data-measure-page]').forEach(node => node.remove());
 
       clonedRoot.classList.add('pdf-export-document');
 
@@ -2056,7 +2061,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       <div className="py-2 flex flex-col items-center justify-center">
                         {showSignatureAndStamp ? (
                           <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-                            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px] object-contain mix-blend-multiply opacity-95" />
+                            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" />
                           </div>
                         ) : (
                           <div className="h-[44px] flex items-center justify-center text-slate-400 italic text-xs">
@@ -2122,7 +2127,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     }}
                   >
                     <table
-                      className="sop-official-table w-full border-collapse font-bookman text-black text-xs sm:text-sm bg-white table-fixed"
+                      className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
                       data-measure-table="true"
                       style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
                     >
@@ -2216,7 +2221,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       )}
 
                       <table
-                        className="sop-official-table w-full border-collapse font-bookman text-black text-xs sm:text-sm bg-white table-fixed"
+                        className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
                         style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
                       >
                         <colgroup>
@@ -2256,7 +2261,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     return (
                       <div
                         key={`sop-scaled-page-wrap-${pageIndex}`}
-                        className="w-full flex flex-col items-center justify-center overflow-x-auto touch-pan-x"
+                        className="sop-scaled-page-wrap w-full flex flex-col items-center justify-center overflow-x-auto touch-pan-x"
                         style={{
                           height: `${Math.ceil(1122 * effectiveScale) + 12}px`,
                           minHeight: `${Math.ceil(1122 * effectiveScale) + 12}px`

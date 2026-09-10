@@ -71,7 +71,9 @@ export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
  * Baru/Riviu tetap harus menampilkan TTD + stempel pada naskah final.
  */
 export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): boolean {
-  if (!sop || sop.status !== 'AKTIF') return false;
+  if (!sop) return false;
+  const status = String(sop.status || '').trim().toUpperCase();
+  if (status !== 'AKTIF') return false;
 
   const jenis = String(
     sop.jenis_spo ||
@@ -86,10 +88,9 @@ export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): 
     sop.documentType === 'LAMA' ||
     sop.isLegacySop === true;
 
-  // Existing PDF keeps its original signed/physical document and must not
-  // receive a new overlay. Existing DOCX is different: DOCX is only an import
-  // source for the LiveForm, so its approved final document follows the same
-  // TTD + stempel rule as SPO Baru.
+  // Existing DOCX is an import source that produces the official generated A4 layout
+  // with Director signature and hospital stamp.
+  // Raw uploaded legacy PDF without live content keeps the physical scanned signature without overlay.
   if (isExisting && !isRiviu) {
     const isExistingDocx =
       sop.existingSourceFormat === 'DOCX' ||
@@ -97,8 +98,19 @@ export function shouldShowSignatureAndStamp(sop?: Partial<SopDocument> | null): 
       String(sop.fileType || '').toLowerCase().includes('msword') ||
       String(sop.fileName || '').toLowerCase().endsWith('.docx') ||
       String(sop.fileName || '').toLowerCase().endsWith('.doc');
-    return isExistingDocx;
+
+    const hasLiveContent = Boolean(
+      (sop.prosedur && sop.prosedur.trim().length > 0) ||
+      (sop.pengertian && sop.pengertian.trim().length > 0)
+    );
+
+    // Only skip if strictly a raw legacy PDF without DOCX or live text content
+    if (!isExistingDocx && !hasLiveContent && Boolean(sop.fileUrl || sop.fileDataUrl || sop.storagePath)) {
+      return false;
+    }
+    return true;
   }
 
-  return jenis === 'BARU' || isRiviu;
+  // All active SPO Baru, Riviu, and standard active documents receive official TTD + stamp
+  return true;
 }

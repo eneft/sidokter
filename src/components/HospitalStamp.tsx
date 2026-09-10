@@ -19,9 +19,8 @@ export const HospitalStamp: React.FC<HospitalStampProps> = ({
 
   return (
     <div
-      className={`relative inline-block select-none overflow-hidden ${className}`}
+      className={`relative inline-block select-none ${className}`}
       style={sizeStyle}
-      aria-hidden="true"
     >
       <img
         src="/logo_soegiri_stamp.png"

@@ -29,8 +29,8 @@ export const DirectorSignature: React.FC<DirectorSignatureProps> = ({
       {/* Stempel Cap Basah Resmi RSUD Dr. Soegiri - Posisi di sebelah kiri, overlap tanda tangan */}
       {showStamp && (
         <div
-          className={`absolute -left-6 sm:-left-8 top-1/2 -translate-y-1/2 pointer-events-none z-20 mix-blend-multiply opacity-92 -rotate-[6deg] ${
-            stampClassName || 'w-20 h-20 sm:w-[92px] sm:h-[92px]'
+          className={`absolute -left-7 top-1/2 -translate-y-1/2 pointer-events-none z-20 mix-blend-multiply opacity-95 -rotate-[6deg] ${
+            stampClassName || 'w-[88px] h-[88px]'
           }`}
           title="Stempel Basah Resmi RSUD Dr. Soegiri Lamongan"
         >
