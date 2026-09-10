@@ -227,31 +227,19 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
 
     console.log('[PDF] Launching Chromium:', executablePath);
     const chromium = await getChromium();
-    const rawChromiumArgs = Array.isArray(chromium?.args) ? chromium.args : [];
-    // Filter problematic container flags and headless conflict
-    const safeChromiumArgs = rawChromiumArgs.filter(
-      (arg: string) => typeof arg === 'string' &&
-        !arg.includes('single-process') &&
-        !arg.includes('in-process-gpu') &&
-        !arg.includes('headless')
-    );
 
     browser = await puppeteer.launch({
-      headless: true,
-      pipe: true,
-      executablePath,
-      defaultViewport: chromium?.defaultViewport || { width: 1280, height: 900 },
-      args: [
-        ...safeChromiumArgs,
+      args: chromium?.args || [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-first-run',
-        '--no-zygote',
-        '--disable-extensions',
-        '--font-render-hinting=none'
-      ]
+        '--no-zygote'
+      ],
+      defaultViewport: chromium?.defaultViewport || { width: 1280, height: 900 },
+      executablePath,
+      headless: 'shell'
     });
 
     const page = await browser.newPage();
@@ -295,21 +283,14 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
     }
 
     try {
-      await Promise.race([
-        page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, 200);
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  clearTimeout(timer);
-                  resolve();
-                });
-              });
-            })
-        ),
-        new Promise((resolve) => setTimeout(resolve, 400))
-      ]);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => resolve())
+            )
+          )
+      );
     } catch (rafErr) {
       console.warn('[PDF] Non-fatal RAF wait warning:', rafErr);
     }

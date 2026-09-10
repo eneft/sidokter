@@ -460,46 +460,24 @@ ${pdfDocumentHtml}
     const chromium =
       await getChromium();
 
-    const rawChromiumArgs =
-      Array.isArray(chromium?.args)
-        ? chromium.args
-        : [];
-
-    const safeChromiumArgs =
-      rawChromiumArgs.filter(
-        (arg: string) =>
-          typeof arg === 'string' &&
-          !arg.includes('single-process') &&
-          !arg.includes('in-process-gpu') &&
-          !arg.includes('headless')
-      );
-
     browser =
       await puppeteer.launch({
-        headless: true,
-        pipe: true,
-
-        executablePath,
-
+        args: chromium?.args || [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote'
+        ],
         defaultViewport:
           chromium?.defaultViewport ||
           {
             width: 1280,
             height: 900,
           },
-
-        args: [
-          ...safeChromiumArgs,
-
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-extensions',
-          '--font-render-hinting=none',
-        ],
+        executablePath,
+        headless: 'shell'
       });
 
     const page =
