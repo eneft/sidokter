@@ -85,7 +85,7 @@
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788514115722,
-      "lastActiveAt": 1788981285637,
+      "lastActiveAt": 1789030485718,
       "revoked": false,
       "userAgent": "curl/7.88.1",
       "ip": "127.0.0.1"
@@ -378,7 +378,7 @@
       "authUid": "usr-1788261994005-ss3t",
       "username": "arman",
       "createdAt": 1788979423508,
-      "lastActiveAt": 1788979423508,
+      "lastActiveAt": 1789030726819,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     }
