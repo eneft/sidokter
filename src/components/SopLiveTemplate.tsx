@@ -132,7 +132,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
       if (file.type.startsWith('image/')) {
         const dataUrl = await compressImageToDataUrl(file);
         if (dataUrl) {
-          const figureHtml = `<figure data-align="center" data-width="80%" style="text-align: center; margin: 8px auto; max-width: 100%;"><img src="${dataUrl}" style="max-width: 100%; height: auto; border-radius: 4px;" alt="Lampiran Bagan SPO" /><figcaption style="font-size: 11px; color: #64748b; margin-top: 4px; font-family: Bookman Old Style, serif;">Gambar / Bagan Alur</figcaption></figure><p><br></p>`;
+          const figureHtml = `<figure class="my-3 figure-wrapper figure-wrap-top-bottom cursor-pointer select-none" data-wrap="top-bottom" data-width="75%" data-align="center" contenteditable="false" style="display: block; margin: 12px auto; text-align: center; max-width: 75%; clear: both; cursor: pointer; position: relative;"><img src="${dataUrl}" data-local-image="true" alt="Lampiran Bagan SPO" draggable="false" style="width: 100%; height: auto; border: none; border-radius: 0; display: inline-block; box-shadow: none; cursor: pointer; pointer-events: auto;" /><figcaption style="font-size: 11px; color: #64748b; margin-top: 4px; font-family: Bookman Old Style, serif;">Gambar / Bagan Alur</figcaption></figure><p><br></p>`;
           if (activeTableSection === 'pengertian') onPengertianChange((pengertian || '') + figureHtml);
           else if (activeTableSection === 'tujuan') onTujuanChange((tujuan || '') + figureHtml);
           else if (activeTableSection === 'kebijakan') onKebijakanChange((kebijakan || '') + figureHtml);
@@ -141,6 +141,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           else if (activeTableSection === 'unitTerkait') onUnitTerkaitChange((unitTerkait || '') + figureHtml);
         }
       }
+    }
+    if (tableFileInputRef.current) {
+      tableFileInputRef.current.value = '';
     }
   };
 

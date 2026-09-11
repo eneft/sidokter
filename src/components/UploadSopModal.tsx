@@ -274,6 +274,18 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+                     file.name.toLowerCase().endsWith('.doc') ||
+                     file.type?.includes('wordprocessingml') ||
+                     file.type?.includes('msword');
+
+      if (isDocx) {
+        // File .docx hanya untuk diekstrak datanya ke formulir naskah SPO, bukan untuk disimpan ke Cloud Storage
+        handleDocxUpload(e);
+        e.target.value = '';
+        return;
+      }
+
       setSelectedFile(file);
       if (!title) {
         const cleanName = file.name
@@ -407,8 +419,9 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         alert("Silakan masukkan Nomor SPO Lama yang sudah ada.");
         return;
       }
-      if (!selectedFile && !fileDataUrl) {
-        alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah Berkas Dokumen SPO Resmi yang sudah ditandatangani Direktur!");
+      const hasExtractedDocx = Boolean(parsedDocxSummary) || (pengertian.trim().length > 0 && prosedur.trim().length > 0);
+      if (!selectedFile && !fileDataUrl && !hasExtractedDocx) {
+        alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah berkas scan PDF resmi bertanda tangan Direktur, atau lakukan ekstraksi naskah dari berkas Word (.docx)!");
         return;
       }
 
@@ -574,6 +587,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     const cat = (categories || []).find((c) => c.code === selectedCatCode) || categories?.[0];
     const effectiveYear = new Date(effectiveDate || '2026').getFullYear();
 
+    const isDocx = (selectedFile?.name || '').toLowerCase().endsWith('.docx') ||
+                   (selectedFile?.name || '').toLowerCase().endsWith('.doc') ||
+                   Boolean(parsedDocxSummary);
+
+    const resolvedFileDataUrl = isDocx ? undefined : fileDataUrl;
+
     const newSopDoc: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> = {
       sopNumber: finalSopNumber,
       sequenceNumber: finalSeqNum,
@@ -630,10 +649,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       direkturNip: SOEGIRI_HOSPITAL_INFO.director.nip,
       direkturPangkat: SOEGIRI_HOSPITAL_INFO.director.rank,
 
-      fileName: documentType === 'LAMA' ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : (selectedFile ? selectedFile.name : `SPO_${selectedCatCode}_${subHierarchyCode || '0'}_${finalSeqNum ? String(finalSeqNum).padStart(3, '0') : 'BARU'}.pdf`),
-      fileSize: selectedFile ? selectedFile.size : 1250000,
-      fileType: selectedFile ? selectedFile.type : 'application/pdf',
-      fileDataUrl,
+      fileName: documentType === 'LAMA' ? (isDocx ? `SPO_${selectedCatCode}_${manualLegacyNumber.trim() || 'LAMA'}.pdf` : (selectedFile?.name || 'Dokumen_SPO_Lama.pdf')) : (selectedFile ? selectedFile.name : `SPO_${selectedCatCode}_${subHierarchyCode || '0'}_${finalSeqNum ? String(finalSeqNum).padStart(3, '0') : 'BARU'}.pdf`),
+      fileSize: selectedFile && !isDocx ? selectedFile.size : 1250000,
+      fileType: selectedFile && !isDocx ? selectedFile.type : 'application/pdf',
+      fileDataUrl: resolvedFileDataUrl,
       confidentialityLevel: 'Internal',
       locationOrFolder: `SPO Eksisting ${effectiveYear} / ${activeCategory?.name || 'Sentral'}`,
 
@@ -644,10 +663,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       // replace a Draft/new-format record and the final type is normalized to BARU.
       // Existing PDF is authoritative; this flag survives the final save so
       // SopDetailModal never falls back to the generated A4 template.
-      isExistingReplacement: documentType === 'LAMA',
+      isExistingReplacement: documentType === 'LAMA' && !isDocx,
       isReviewDocument: documentType === 'REVIEW',
       isLegacySop: documentType === 'LAMA',
-      existingSourceFormat: documentType === 'LAMA' ? ((selectedFile?.name || '').toLowerCase().endsWith('.docx') || selectedFile?.type?.includes('wordprocessingml') || selectedFile?.type?.includes('msword') ? 'DOCX' : 'PDF') : undefined,
+      existingSourceFormat: documentType === 'LAMA' ? (isDocx ? 'DOCX' : 'PDF') : undefined,
       legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
       oldSopNumber: documentType === 'REVIEW' ? oldSopNumber.trim() : undefined,
       reviewReason: documentType === 'REVIEW' ? reviewReason.trim() : undefined,
@@ -656,10 +675,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       oldFileSize: documentType === 'REVIEW' ? selectedOldFile?.size : undefined,
       oldFileType: documentType === 'REVIEW' ? selectedOldFile?.type : undefined,
       oldFileDataUrl: documentType === 'REVIEW' ? oldFileDataUrl : undefined,
-      signedScanFileName: documentType === 'LAMA' ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : undefined,
-      signedScanFileSize: documentType === 'LAMA' ? selectedFile?.size : undefined,
-      signedScanFileType: documentType === 'LAMA' ? selectedFile?.type || 'application/pdf' : undefined,
-      signedScanDataUrl: documentType === 'LAMA' ? fileDataUrl : undefined,
+      signedScanFileName: documentType === 'LAMA' && !isDocx ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : undefined,
+      signedScanFileSize: documentType === 'LAMA' && !isDocx ? selectedFile?.size : undefined,
+      signedScanFileType: documentType === 'LAMA' && !isDocx ? selectedFile?.type || 'application/pdf' : undefined,
+      signedScanDataUrl: documentType === 'LAMA' && !isDocx ? resolvedFileDataUrl : undefined,
     };
 
     // Hard marker: Existing submissions may consume only an existing Draft/issued number.
@@ -1454,7 +1473,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-purple-600" />
-                        Pilih Berkas SPO Resmi Yang Sudah Bertanda Tangan Direktur (PDF / DOCX / Gambar) <span className="text-rose-500">*</span>
+                        Pilih Berkas SPO Resmi Yang Sudah Bertanda Tangan Direktur (PDF / Scan Gambar) <span className="text-rose-500">*</span>
                       </span>
                       {selectedFile && (
                         <button
@@ -1472,7 +1491,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     <input
                       id="admin-upload-file-input"
                       type="file"
-                      accept=".pdf,.doc,.docx,image/*"
+                      accept=".pdf,application/pdf,image/png,image/jpeg"
                       onChange={handleFileChange}
                       className="text-xs text-slate-700 w-full file:mr-3 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
                     />
@@ -1483,7 +1502,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                       </div>
                     ) : (
                       <p className="text-[11px] text-purple-900 font-medium">
-                        * Unggah pindaian/scan dokumen SPO lama resmi yang sudah bertanda tangan Direktur RSUD Dr. Soegiri untuk langsung dipratinjau dan diunduh di sistem.
+                        * Unggah pindaian/scan dokumen SPO lama resmi yang sudah bertanda tangan Direktur RSUD Dr. Soegiri (PDF/Gambar). Untuk naskah Word (.docx), gunakan tombol 'Upload Draft DOCX' untuk mengekstrak naskah ke formulir A4.
                       </p>
                     )}
                   </div>

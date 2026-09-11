@@ -252,10 +252,48 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
 
 export async function getAllSopsFromLocal(): Promise<SopDocument[]> { return getSops(); }
 
+/**
+ * Helper to identify Word (.docx / .doc) binaries and DataURLs.
+ * Dokumen Word (.docx) pada input SPO hanya digunakan untuk ekstraksi data (parsing teks naskah),
+ * BUKAN untuk disimpan atau diunggah sebagai file biner ke Cloud Storage.
+ */
+function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string): boolean {
+  if (fileName && (fileName.toLowerCase().endsWith('.docx') || fileName.toLowerCase().endsWith('.doc'))) return true;
+  if (fileType && (fileType.toLowerCase().includes('wordprocessingml') || fileType.toLowerCase().includes('msword') || fileType.toLowerCase().includes('officedocument'))) return true;
+  if (dataUrl && (
+    dataUrl.startsWith('data:application/vnd.openxmlformats-officedocument') ||
+    dataUrl.startsWith('data:application/msword') ||
+    dataUrl.startsWith('data:application/x-msword') ||
+    dataUrl.startsWith('data:application/x-zip-compressed')
+  )) return true;
+  return false;
+}
+
 export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
+
+  // Aturan Rumah Sakit: File .docx hanya untuk ekstraksi data naskah SPO (Pengertian, Tujuan,
+  // Kebijakan, Prosedur, Alur, Unit Terkait), bukan untuk disimpan ke Cloud Storage.
+  // Jika terdapat fileDataUrl berupa docx, bersihkan agar tidak dikirim ke endpoint storage.
+  if (isDocxBinaryData(next.fileDataUrl, next.fileName, next.fileType)) {
+    delete next.fileDataUrl;
+    if (next.fileName && (next.fileName.toLowerCase().endsWith('.docx') || next.fileName.toLowerCase().endsWith('.doc'))) {
+      next.fileName = `${next.sopNumber || next.id}.pdf`;
+      next.fileType = 'application/pdf';
+    }
+  }
+  if (isDocxBinaryData(next.signedScanDataUrl, next.signedScanFileName, next.signedScanFileType)) {
+    delete next.signedScanDataUrl;
+    if (next.signedScanFileName && (next.signedScanFileName.toLowerCase().endsWith('.docx') || next.signedScanFileName.toLowerCase().endsWith('.doc'))) {
+      next.signedScanFileName = `${next.sopNumber || next.id}_scan.pdf`;
+      next.signedScanFileType = 'application/pdf';
+    }
+  }
+  if (isDocxBinaryData(next.oldFileDataUrl, next.oldFileName, next.oldFileType)) {
+    delete next.oldFileDataUrl;
+  }
 
   // IMPORTANT: file upload is part of the authoritative save. The old code
   // started uploads in the background and immediately wrote Firestore, so the
@@ -349,6 +387,11 @@ export async function repairSopFileReferences(sop: SopDocument): Promise<SopDocu
       }
     }
     if (typeof data === 'string' && data.startsWith('data:')) {
+      if (isDocxBinaryData(data, (next as any)[c.urlKey === 'fileUrl' ? 'fileName' : 'signedScanFileName'], (next as any)[c.urlKey === 'fileUrl' ? 'fileType' : 'signedScanFileType'])) {
+        // File docx tidak diunggah ke storage
+        delete (next as any)[c.dataKey];
+        continue;
+      }
       (next as any)[c.dataKey] = data;
       const result = await uploadFileToCloudStorage(
         data,

@@ -1074,6 +1074,35 @@ ol[type="1"], [style*="list-style-type: decimal"], [style*="list-style-type:deci
   margin-bottom: 12px !important;
 }
 
+.rich-text-editor-content .figure-wrapper[data-wrap="top-bottom"][data-align="left"],
+.rich-text-output .figure-wrapper[data-wrap="top-bottom"][data-align="left"] {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  text-align: left !important;
+}
+
+.rich-text-editor-content .figure-wrapper[data-wrap="top-bottom"][data-align="center"],
+.rich-text-output .figure-wrapper[data-wrap="top-bottom"][data-align="center"] {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: center !important;
+}
+
+.rich-text-editor-content .figure-wrapper[data-wrap="top-bottom"][data-align="right"],
+.rich-text-output .figure-wrapper[data-wrap="top-bottom"][data-align="right"] {
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  text-align: right !important;
+}
+
+.rich-text-document-content::after,
+.rich-text-output::after,
+.rich-text-editor-content::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
 /* 3. IN FRONT OF TEXT (ABSOLUTE Z-INDEX 10) */
 .rich-text-editor-content .figure-wrapper[data-wrap="in-front"],
 .rich-text-output .figure-wrapper[data-wrap="in-front"] {

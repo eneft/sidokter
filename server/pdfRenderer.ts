@@ -217,6 +217,16 @@ html,body{margin:0!important;padding:0!important;width:210mm!important;backgroun
 #printable-sop-official-document.pdf-export-document .sop-official-table>thead{display:table-header-group!important}
 #printable-sop-official-document.pdf-export-document .sop-official-table>tbody{display:table-row-group!important}
 #printable-sop-official-document.pdf-export-document .sop-official-table td,#printable-sop-official-document.pdf-export-document .sop-official-table th{display:table-cell!important;border:1px solid #000!important;box-sizing:border-box!important;vertical-align:top!important;word-break:normal!important;overflow-wrap:break-word!important;word-wrap:break-word!important;hyphens:none!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+.figure-wrapper{position:relative!important;box-sizing:border-box!important;max-width:100%!important}
+.figure-wrapper img{width:100%!important;height:auto!important;display:block!important;border-radius:2px!important}
+.figure-wrapper[data-wrap="top-bottom"]{display:block!important;clear:both!important;float:none!important;margin-top:10px!important;margin-bottom:10px!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="left"]{margin-left:0!important;margin-right:auto!important;text-align:left!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="center"]{margin-left:auto!important;margin-right:auto!important;text-align:center!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="right"]{margin-left:auto!important;margin-right:0!important;text-align:right!important}
+.figure-wrapper[data-wrap="square"][data-align="left"],.figure-wrapper[data-wrap="square"]:not([data-align="right"]):not([data-align="center"]){float:left!important;margin:4px 18px 10px 0!important;clear:none!important}
+.figure-wrapper[data-wrap="square"][data-align="right"]{float:right!important;margin:4px 0 10px 18px!important;clear:none!important}
+.figure-wrapper[data-wrap="inline"]{display:inline-block!important;vertical-align:middle!important;float:none!important;clear:none!important;margin:2px 6px!important}
+.rich-text-document-content::after,.rich-text-output::after{content:"";display:table;clear:both}
 .no-print{display:none!important}
 </style></head><body>${pdfDocumentHtml}</body></html>`;
 

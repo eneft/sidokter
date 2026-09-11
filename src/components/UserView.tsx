@@ -588,7 +588,9 @@ export const UserView: React.FC<UserViewProps> = ({
         setRevisionNumber(parsed.revisionNumber);
       }
 
-      setSelectedFile(file);
+      // Aturan: Dokumen .docx hanya digunakan untuk mengekstrak data naskah SPO,
+      // BUKAN untuk disimpan atau diunggah sebagai berkas biner ke Firebase Cloud Storage.
+      setSelectedFile(null);
 
       setParsedDocxSummary({
         fileName: file.name,
@@ -683,8 +685,20 @@ export const UserView: React.FC<UserViewProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if ((documentType === 'LAMA' || documentType === 'REVIEW') && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf') && !file.name.toLowerCase().endsWith('.docx') && !file.name.toLowerCase().endsWith('.doc')) {
-        onShowToast?.('error', 'Format File Salah', documentType === 'REVIEW' ? 'SPO rujukan Riviu dari luar aplikasi wajib berupa file PDF atau Word (.docx).' : 'SPO Eksisting wajib berupa file PDF asli atau Word (.docx).');
+      const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+                     file.name.toLowerCase().endsWith('.doc') ||
+                     file.type?.includes('wordprocessingml') ||
+                     file.type?.includes('msword');
+
+      // Dokumen Word (.docx) di formulir SPO hanya untuk ekstraksi data naskah, bukan untuk disimpan
+      if (isDocx) {
+        handleDocxUpload(e);
+        e.target.value = '';
+        return;
+      }
+
+      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        onShowToast?.('error', 'Format File Salah', 'Dokumen fisik/scan SPO resmi wajib berupa file PDF asli.');
         e.target.value = '';
         return;
       }
@@ -991,13 +1005,13 @@ export const UserView: React.FC<UserViewProps> = ({
         documentType: isLegacy ? 'LAMA' : (isReview ? 'RIVIU' : 'BARU'),
         jenis_spo: isLegacy ? 'EKSISTING' : (isReview ? 'RIVIU' : 'BARU'),
         isLegacySop: isLegacy ? true : false,
-        existingSourceFormat: isLegacy ? ((selectedFile?.name || '').toLowerCase().endsWith('.docx') || selectedFile?.type?.includes('wordprocessingml') || selectedFile?.type?.includes('msword') ? 'DOCX' : 'PDF') : undefined,
+        existingSourceFormat: isLegacy ? (existingMode === 'docx' || Boolean(parsedDocxSummary) ? 'DOCX' : 'PDF') : undefined,
         legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
         // but preview must use the uploaded original PDF instead of generating the official template.
-        isExistingReplacement: isLegacy && Boolean(matchedExistingDoc),
+        isExistingReplacement: isLegacy && existingMode === 'pdf' && Boolean(matchedExistingDoc),
         pengertian: pengertian.trim() || (isLegacy ? matchedExistingDoc?.pengertian : undefined) || undefined,
         tujuan: tujuan.trim() || (isLegacy ? matchedExistingDoc?.tujuan : undefined) || undefined,
         kebijakan: kebijakan.trim() || (isLegacy ? matchedExistingDoc?.kebijakan : undefined) || undefined,
@@ -1040,7 +1054,14 @@ export const UserView: React.FC<UserViewProps> = ({
         (sopData as any).externalReviewSignedConfirmed = externalReviewSignedConfirmed;
       }
 
-      if (selectedFile) {
+      const isDocxFile = selectedFile && (
+        selectedFile.name.toLowerCase().endsWith('.docx') ||
+        selectedFile.name.toLowerCase().endsWith('.doc') ||
+        selectedFile.type?.includes('wordprocessingml') ||
+        selectedFile.type?.includes('msword')
+      );
+
+      if (selectedFile && !isDocxFile) {
         const reader = new FileReader();
         const dataUrlPromise = new Promise<string>((resolve, reject) => {
           reader.onload = () => resolve(reader.result as string);
@@ -1068,9 +1089,14 @@ export const UserView: React.FC<UserViewProps> = ({
         } else {
           sopData.fileName = selectedFile.name;
           sopData.fileSize = selectedFile.size;
-          sopData.fileType = selectedFile.type;
+          sopData.fileType = selectedFile.type || 'application/pdf';
           sopData.fileDataUrl = dataUrl;
         }
+      } else if (isLegacy && (existingMode === 'docx' || Boolean(parsedDocxSummary))) {
+        sopData.fileName = `SPO_${finalDivCode}_${cleanNum || 'EKSISTING'}.pdf`;
+        sopData.fileType = 'application/pdf';
+        delete sopData.fileDataUrl;
+        delete sopData.signedScanDataUrl;
       }
 
       const created = await onAddSop(sopData);
@@ -1858,20 +1884,20 @@ export const UserView: React.FC<UserViewProps> = ({
 
                             {/* Kolom Kanan: Pratinjau PDF Asli */}
                             <div className="lg:col-span-7 rounded-xl border border-slate-300 bg-slate-900 overflow-hidden shadow-xs flex flex-col h-[520px]">
-                              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-800 text-slate-200 border-b border-slate-700">
-                                <div className="flex items-center gap-2 text-xs font-bold">
-                                  <Eye className="w-4 h-4 text-purple-400" />
-                                  <span>Pratinjau PDF Dokumen Asli</span>
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-white text-black border-b border-slate-200" style={{ backgroundColor: '#ffffff' }}>
+                                <div className="flex items-center gap-2 text-xs font-bold text-black">
+                                  <Eye className="w-4 h-4 text-[#8506ff]" />
+                                  <span className="text-black" style={{ color: '#000000' }}>Pratinjau PDF Dokumen Asli</span>
                                 </div>
                                 {pdfPreviewUrl && (
                                   <a
                                     href={pdfPreviewUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-300 hover:text-white"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#8506ff] hover:text-purple-800"
                                   >
-                                    <span>Buka Tab Baru</span>
-                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span style={{ color: '#8506ff' }}>Buka Tab Baru</span>
+                                    <ExternalLink className="w-3.5 h-3.5 text-[#8506ff]" />
                                   </a>
                                 )}
                               </div>

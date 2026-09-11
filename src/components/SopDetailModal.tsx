@@ -594,6 +594,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
         const root = measureRootRef.current;
+        if (root) {
+          const images = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+          await Promise.all(images.map((img: HTMLImageElement) => img.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                const done = () => { img.removeEventListener('load', done); img.removeEventListener('error', done); resolve(); };
+                img.addEventListener('load', done, { once: true });
+                img.addEventListener('error', done, { once: true });
+              })
+          ));
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+
         if (!root) return;
 
         // Preserve the original logical-list identity throughout the entire
@@ -626,7 +639,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         const publicationHeight = publication.getBoundingClientRect().height;
         // Optimal safety buffer (24px) guarantees that table cells and padding
         // never overflow past the 20mm A4 boundary while maximizing printable space.
-        const safety = 24;
+        const safety = 6;
         const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
         const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
         const normalCapacity = bodyCapacity;
@@ -667,10 +680,12 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           host.style.fontFamily = 'Bookman Old Style, Bookman, Georgia, serif';
           host.style.fontSize = '12pt';
           host.style.lineHeight = '1.5';
-          // Fallback width 415px corresponds precisely to 72% content column of A4 (160mm printable width * 0.72 - cell padding)
+          host.style.padding = '0';
+          host.style.margin = '0';
+          host.style.border = 'none';
           const measuredWidth = template ? template.getBoundingClientRect().width : 0;
-          host.style.width = measuredWidth && measuredWidth > 280 && measuredWidth < 550 ? `${measuredWidth}px` : '415px';
-          host.className = 'font-bookman text-black rich-text-output rich-text-document-content sop-batang-tubuh-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+          host.style.width = measuredWidth && measuredWidth > 200 && measuredWidth < 650 ? `${measuredWidth}px` : '415px';
+          host.className = 'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
           if (template?.parentElement) {
             template.parentElement.appendChild(host);
           } else {
@@ -712,9 +727,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
          * Split an oversized rich-text element by word boundaries WITHOUT using
          * textContent() as the source of the rendered fragment. Range.cloneContents()
          * keeps the original inline/block markup, attributes and nested formatting.
-         * This helper is page-agnostic: it is invoked whenever the current page has
-         * insufficient capacity, regardless of whether the break happens on page 2,
-         * 3, 4, or any later page.
          */
         const splitElementPreservingMarkup = (
           element: HTMLElement,
@@ -743,11 +755,11 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             }
           });
 
-          // If too few words, keep intact to prevent awkward orphan words
-          if (words.length < 8) return [element.outerHTML];
+          // If too few words, keep intact
+          if (words.length < 4) return [element.outerHTML];
 
           const host = createMeasureHost(template);
-          const safetyLimit = Math.max(1, maxHeight - 10);
+          const safetyLimit = Math.max(1, maxHeight - 1);
           const buildCandidate = (startWord: number, endWord: number): string => {
             const range = ownerDocument.createRange();
             range.setStart(words[startWord].node, words[startWord].start);
@@ -778,13 +790,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
           host.remove();
 
-          // Require at least 4 words in the first chunk to avoid orphan fragments,
-          // and don't split if all words fit
-          if (best < 4 || best >= words.length) {
+          if (best < 2 || best >= words.length) {
             return [element.outerHTML];
           }
 
-          // Return strictly 2 chunks: what fits on current page, and all remaining text intact
           const chunk0 = buildCandidate(0, best);
           const chunk1 = buildCandidate(best, words.length);
           return [chunk0, chunk1];
@@ -812,7 +821,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             const first = elements[0];
             if (!first) return [source];
 
-            const safetyLimit = Math.max(1, maxHeight - 10);
+            const safetyLimit = Math.max(1, maxHeight - 1);
             const host = createMeasureHost(template);
             const fits = (candidate: string) => {
               host.innerHTML = candidate;
@@ -843,12 +852,60 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   elements.slice(fitCount).map((el) => el.outerHTML).join('')
                 ];
               }
-              // If not even the first element fits, don't split it into a tiny space
+              // If the first element itself is taller than the remaining space,
+              // try the same content-driven splitter on that element
+              if (fitCount === 0 && elements.length > 0 && maxHeight >= 20) {
+                const firstParts = splitHtmlForCapacity(elements[0].outerHTML, maxHeight, template);
+                if (firstParts.length > 1) {
+                  return [firstParts[0], [firstParts[1], ...elements.slice(1).map((el) => el.outerHTML)].join('')];
+                }
+              }
               return [source];
             }
 
+            // Table splitting row-by-row: allows procedures or tables to continue naturally to next page
+            if (first.tagName.toLowerCase() === 'table') {
+              const table = first;
+              const thead = table.querySelector('thead');
+              const theadHtml = thead ? thead.outerHTML : '';
+              const allRows = Array.from(table.querySelectorAll('tr'));
+              const bodyRows = allRows.filter((r) => !thead || !thead.contains(r));
+
+              if (bodyRows.length > 1) {
+                if (fits(table.outerHTML)) {
+                  host.remove();
+                  return [source];
+                }
+
+                const tableTag = 'table';
+                const tableAttrs = Array.from(table.attributes)
+                  .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
+                  .join('');
+
+                const makeTable = (rowHtmls: string[], includeThead = true) => {
+                  return `<${tableTag}${tableAttrs}>${includeThead ? theadHtml : ''}<tbody>${rowHtmls.join('')}</tbody></${tableTag}>`;
+                };
+
+                let fitCount = 0;
+                for (let i = 0; i < bodyRows.length; i++) {
+                  const candidate = makeTable(bodyRows.slice(0, i + 1).map((r) => r.outerHTML), true);
+                  if (fits(candidate)) {
+                    fitCount = i + 1;
+                  } else {
+                    break;
+                  }
+                }
+
+                if (fitCount > 0 && fitCount < bodyRows.length) {
+                  host.remove();
+                  const firstTable = makeTable(bodyRows.slice(0, fitCount).map((r) => r.outerHTML), true);
+                  const secondTable = makeTable(bodyRows.slice(fitCount).map((r) => r.outerHTML), Boolean(theadHtml));
+                  return [firstTable, secondTable];
+                }
+              }
+            }
+
             // Ordered/unordered lists: keep list structure and ONLY split at WHOLE <li> item boundaries.
-            // Never break within an individual list item unless that single item is taller than an entire page.
             if (/^(ol|ul)$/i.test(first.tagName)) {
               const isOl = first.tagName.toLowerCase() === 'ol';
               const explicitStart = isOl
@@ -898,30 +955,35 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 if (fitCount > 0 && fitCount < items.length) {
                   host.remove();
                   const firstPart = makeList(items.slice(0, fitCount).map((el) => el.outerHTML), 0);
-                  const remainingPart = makeList(items.slice(fitCount).map((el) => el.outerHTML), fitCount);
+                  const remainingPart = makeList(items.slice(fitCount).map((el) => el.outerHTML), fitCount, false, explicitStart + fitCount);
                   return [firstPart, remainingPart];
                 }
 
                 // Case 2: Not even the first item fits in maxHeight
                 if (fitCount === 0) {
-                  // Only if we have a single item that is itself taller than an entire page capacity
-                  // would we attempt to split inside that single item.
-                  if (items.length === 1 && maxHeight > 400) {
-                    const item = items[0];
-                    const itemParts = splitElementPreservingMarkup(
-                      item,
-                      maxHeight,
-                      (fragment, isFirstChunk) => {
-                        const li = item.cloneNode(false) as HTMLElement;
-                        li.removeAttribute('id');
-                        li.innerHTML = '';
-                        li.appendChild(fragment);
-                        return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
-                      },
-                      template
-                    );
+                  const item = items[0];
+                  const itemParts = splitElementPreservingMarkup(
+                    item,
+                    maxHeight,
+                    (fragment, isFirstChunk) => {
+                      const li = item.cloneNode(false) as HTMLElement;
+                      li.removeAttribute('id');
+                      li.innerHTML = '';
+                      li.appendChild(fragment);
+                      return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
+                    },
+                    template
+                  );
+                  if (itemParts.length > 1) {
+                    const firstPart = itemParts[0];
+                    const restItemParts = itemParts.slice(1);
+                    const remainingItems = items.slice(1).map((el) => el.outerHTML);
+                    const continuation = [
+                      ...restItemParts,
+                      ...(remainingItems.length ? [makeList(remainingItems, 1, false, explicitStart + 1)] : [])
+                    ].join('');
                     host.remove();
-                    if (itemParts.length > 1) return itemParts;
+                    return [firstPart, continuation];
                   }
                   host.remove();
                   return [source];
@@ -929,6 +991,89 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
                 host.remove();
                 return [source];
+              }
+            }
+
+            // Descendant lists (nested inside divs/sections)
+            const descendantLists = Array.from(doc.body.querySelectorAll('ol, ul')).filter((list) => {
+              let parent = list.parentElement;
+              while (parent && parent !== doc.body) {
+                if (/^(ol|ul)$/i.test(parent.tagName)) return false;
+                parent = parent.parentElement;
+              }
+              return true;
+            }) as HTMLElement[];
+
+            if (descendantLists.length > 0 && !/^(ol|ul)$/i.test(first.tagName)) {
+              const targetList = descendantLists[0];
+
+              let surroundingHeight = 0;
+              try {
+                const surrounding = doc.body.cloneNode(true) as HTMLElement;
+                const surroundingLists = Array.from(surrounding.querySelectorAll('ol, ul')).filter((list) => {
+                  let parent = list.parentElement;
+                  while (parent && parent !== surrounding) {
+                    if (/^(ol|ul)$/i.test(parent.tagName)) return false;
+                    parent = parent.parentElement;
+                  }
+                  return true;
+                }) as HTMLElement[];
+                const surroundingTarget = surroundingLists[0];
+                if (surroundingTarget) {
+                  surroundingTarget.innerHTML = '';
+                  const surroundingHost = createMeasureHost(template);
+                  surroundingHost.innerHTML = surrounding.innerHTML;
+                  surroundingHeight = surroundingHost.getBoundingClientRect().height;
+                  surroundingHost.remove();
+                }
+              } catch {
+                surroundingHeight = 0;
+              }
+
+              const listCapacity = Math.max(1, maxHeight - surroundingHeight);
+              const listParts = splitHtmlForCapacity(targetList.outerHTML, listCapacity, template);
+
+              if (listParts.length > 1) {
+                const makeFragmentWithList = (replacement: string) => {
+                  const cloned = doc.body.cloneNode(true) as HTMLElement;
+                  const lists = Array.from(cloned.querySelectorAll('ol, ul')).filter((list) => {
+                    let parent = list.parentElement;
+                    while (parent && parent !== cloned) {
+                      if (/^(ol|ul)$/i.test(parent.tagName)) return false;
+                      parent = parent.parentElement;
+                    }
+                    return true;
+                  }) as HTMLElement[];
+                  const target = lists[0];
+                  if (!target) return cloned.innerHTML;
+                  const replacementDoc = parser.parseFromString(replacement, 'text/html');
+                  const replacementNodes = Array.from(replacementDoc.body.childNodes).map((node) =>
+                    cloned.ownerDocument.importNode(node, true)
+                  );
+                  const parent = target.parentNode;
+                  if (!parent) return cloned.innerHTML;
+                  const marker = cloned.ownerDocument.createDocumentFragment();
+                  replacementNodes.forEach((node) => marker.appendChild(node));
+                  parent.replaceChild(marker, target);
+                  return cloned.innerHTML;
+                };
+
+                let chosenFirst = '';
+                let chosenSecond = '';
+                for (let i = listParts.length - 1; i >= 1; i--) {
+                  const firstCandidate = makeFragmentWithList(listParts.slice(0, i).join(''));
+                  if (fits(firstCandidate)) {
+                    chosenFirst = firstCandidate;
+                    const secondReplacement = listParts.slice(i).join('');
+                    chosenSecond = makeFragmentWithList(secondReplacement);
+                    break;
+                  }
+                }
+
+                if (chosenFirst && chosenSecond) {
+                  host.remove();
+                  return [chosenFirst, chosenSecond];
+                }
               }
             }
 
@@ -989,9 +1134,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               }
             }
 
-            // Single paragraph or element: only split if there's substantial room (>= 60px)
+            // Single paragraph or element: split by word boundary preserving markup
             if (!fits(source)) {
-              if (maxHeight < 60) {
+              if (maxHeight < 24) {
                 host.remove();
                 return [source];
               }
@@ -1018,49 +1163,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           }
         };
 
-        // First normalize blocks that exceed a full printable body.
-        const oversized = contentHeights.some((h, i) => {
-          const capacity = normalCapacity - sectionChrome(flowLayoutBlocks[i].section, i);
-          return h > Math.max(1, capacity);
-        });
-
-        if (oversized) {
-          const expanded: OfficialBlock[] = [];
-          let changed = false;
-
-          flowLayoutBlocks.forEach((block, index) => {
-            const capacityForBlock = normalCapacity - sectionChrome(block.section, index);
-            if (contentHeights[index] > Math.max(1, capacityForBlock)) {
-              const parts = splitHtmlForCapacity(
-                block.html,
-                Math.max(1, capacityForBlock),
-                measuredContent[index] || null
-              );
-              if (parts.length > 1) {
-                changed = true;
-                parts.forEach((html, partIndex) => {
-                  expanded.push({
-                    ...block,
-                    id: `${block.id}-flow-${partIndex}`,
-                    html: forceLogicalListMetadata(html, block)
-                  });
-                });
-              } else {
-                expanded.push(block);
-              }
-            } else {
-              expanded.push(block);
-            }
-          });
-
-          if (changed && !cancelled) {
-            setLayoutBlocks(expanded);
-            setOfficialPages([]);
-            return;
-          }
-        }
-
         // FLOW PAGINATION:
+        // Purely content-driven, natural page breaks. No forced section breaks.
+        // A section continues seamlessly across pages when space permits.
         const pages: OfficialBlock[][] = [];
         const flowBlocks: OfficialBlock[] = [...flowLayoutBlocks];
         const flowHeights: number[] = [...contentHeights];
@@ -1080,11 +1185,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         let currentSection: OfficialBlock['section'] | null = null;
         let detectedPageBreaks = 0;
 
-        // One and only one transition point for a natural A4 page break. The
-        // paginator never knows or cares whether this is page 2, 3, 4, etc.;
-        // every page uses the exact same reset rules.
+        const hasVisibleContent = (blocks: OfficialBlock[]) => {
+          return blocks.some((b) => {
+            const raw = (b.html || '').trim();
+            if (!raw) return false;
+            if (/<(img|table|svg|figure|iframe)\b/i.test(raw)) return true;
+            const text = raw.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '').trim();
+            return text.length > 0;
+          });
+        };
+
         const commitCurrentPageAndStartNext = () => {
-          if (currentPageBlocks.length) {
+          if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
             pages.push(currentPageBlocks);
             detectedPageBreaks += 1;
           }
@@ -1109,41 +1221,23 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           guard += 1;
           const block = flowBlocks[index];
           const startsNewSectionRow = currentPageBlocks.length === 0 || block.section !== currentSection;
-          // A continuation fragment of the same section is rendered inside the
-          // SAME table row/cell. Therefore it has no additional row chrome.
-          // Only the first fragment of a section pays the table border/padding.
           const chrome = startsNewSectionRow ? chromeBySection(block.section) : 0;
           const needed = flowHeights[index] + chrome;
 
-          // Orphan heading protection: If this block is a heading/title (e.g. "B. APABILA TERJADI KEHILANGAN", "1. PENDAHULUAN")
-          // and there is a subsequent block in the same section, ensure there is room for the heading AND at least one line of content.
-          // Otherwise, start a new page so the heading is not left isolated at the very bottom of the page.
-          if (currentPageBlocks.length > 0 && index + 1 < flowBlocks.length && flowBlocks[index + 1].section === block.section) {
-            const plain = (block.html || '').replace(/<[^>]+>/g, '').trim();
-            const isHeadingLike = plain.length > 0 && plain.length <= 120 && (
-              /^([A-Z]\.|\d+\.|\bBAB\b|[A-Z\s]{4,})/i.test(plain) ||
-              /^<h[1-6]/i.test(block.html.trim())
-            );
-            if (isHeadingLike && (used + needed + 45 > capacity)) {
-              commitCurrentPageAndStartNext();
-              continue;
-            }
-          }
-
-          if (currentPageBlocks.length > 0 && used + needed > capacity) {
+          // Check if this block exceeds remaining capacity on the current page
+          if (used + needed > capacity) {
             const remaining = capacity - used - chrome;
             const template = measuredContent[Math.min(index, measuredContent.length - 1)] || null;
 
-            // If there's enough room (>= 35px) on the current A4 page, attempt to split
-            // this block so that as much content as possible fills the remaining A4 space!
-            if (remaining >= 35 && template) {
+            // Content-driven: if space remains on the current page (>= 20px), fill it as much as possible!
+            if (remaining >= 20 && template) {
               const parts = splitHtmlForCapacity(block.html, remaining, template);
               if (parts.length > 1) {
                 const firstPart = parts[0];
                 const restParts = parts.slice(1);
                 const firstHeight = measureFlowPart(firstPart, template);
-
                 const firstNeeded = firstHeight + chrome;
+
                 if (firstHeight > 0 && used + firstNeeded <= capacity) {
                   const fittedFirstBlock = {
                     ...block,
@@ -1173,12 +1267,61 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               }
             }
 
-            // A natural page boundary has been detected. Commit the current
-            // page and apply the same reset for EVERY subsequent page.
+            // Current page already has content and cannot fit more of this block:
+            // Naturally commit current page and continue on next page!
+            if (currentPageBlocks.length > 0) {
+              commitCurrentPageAndStartNext();
+              continue;
+            }
+
+            // If currentPageBlocks is empty (fresh page) and block is taller than the whole page:
+            if (currentPageBlocks.length === 0 && capacity >= 40 && template) {
+              const pageRemaining = capacity - chrome;
+              const parts = splitHtmlForCapacity(block.html, pageRemaining, template);
+              if (parts.length > 1) {
+                const firstPart = parts[0];
+                const restParts = parts.slice(1);
+                const firstHeight = measureFlowPart(firstPart, template);
+                const firstNeeded = firstHeight + chrome;
+
+                const fittedFirstBlock = {
+                  ...block,
+                  id: `${block.id}-fit-1`,
+                  html: forceLogicalListMetadata(firstPart, block)
+                };
+                flowBlocks[index] = fittedFirstBlock;
+                flowHeights[index] = firstHeight;
+
+                const continuationBlocks = restParts.map((html, partIndex) => ({
+                  ...block,
+                  id: `${block.id}-fit-${partIndex + 2}`,
+                  html: forceLogicalListMetadata(html, block)
+                }));
+                const continuationHeights = continuationBlocks.map((part) =>
+                  measureFlowPart(part.html, template)
+                );
+                flowBlocks.splice(index + 1, 0, ...continuationBlocks);
+                flowHeights.splice(index + 1, 0, ...continuationHeights);
+
+                currentPageBlocks.push(fittedFirstBlock);
+                used += firstNeeded;
+                currentSection = block.section;
+                index += 1;
+                commitCurrentPageAndStartNext();
+                continue;
+              }
+            }
+
+            // Indivisible block fallback
+            currentPageBlocks.push(block);
+            used += needed;
+            currentSection = block.section;
+            index += 1;
             commitCurrentPageAndStartNext();
             continue;
           }
 
+          // Content fits comfortably on current page
           currentPageBlocks.push(block);
           used += needed;
           currentSection = block.section;
@@ -1189,21 +1332,14 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           throw new Error('Pagination SPO berhenti karena batas pengaman tercapai.');
         }
 
-        if (currentPageBlocks.length) pages.push(currentPageBlocks);
-        const nonEmptyPages = pages.filter((page) => page.length > 0);
-
-        // Invariant: every page boundary above is produced by the same flow
-        // transition. This keeps pagination page-number agnostic and prevents
-        // a fix intended for page 2 from becoming a different rule on page 3+.
-        if (detectedPageBreaks > 0 && nonEmptyPages.length !== detectedPageBreaks + 1) {
-          console.warn('Pagination SPO: jumlah boundary halaman tidak konsisten.');
+        if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
+          pages.push(currentPageBlocks);
         }
+        const validPages = pages.filter((page) => page.length > 0 && hasVisibleContent(page));
+        const finalPages = validPages.length > 0 ? validPages : [flowBlocks];
 
         if (!cancelled) {
-          // Final pass: numbering is based on logical document order across all sections,
-          // not on individual HTML fragments. This prevents page 2 (and subsequent pages)
-          // from restarting at 1 even when the pagination engine created a new <ol>.
-          setOfficialPages(normalizeOfficialPages(nonEmptyPages));
+          setOfficialPages(normalizeOfficialPages(finalPages));
           setIsPaginatingOfficial(false);
         }
       } catch (error) {

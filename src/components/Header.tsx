@@ -143,20 +143,6 @@ export const Header: React.FC<HeaderProps> = ({
             })}
           </nav>
 
-          {/* Firebase Cloud Sync Status */}
-          <div className="px-3.5 pb-1">
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-emerald-50/60 border border-emerald-100 text-[10px]">
-              <span className="flex items-center gap-1.5 font-bold text-slate-700">
-                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                Firebase Cloud
-              </span>
-              <span className="flex items-center gap-1 font-semibold text-emerald-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {fbStatus.isSyncing ? 'Sinkronisasi...' : 'Terhubung'}
-              </span>
-            </div>
-          </div>
-
           {/* User Profile Card & Logout at Bottom */}
           <div className="p-3.5 border-t border-slate-100">
             <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100/80">

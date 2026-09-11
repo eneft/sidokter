@@ -33,6 +33,13 @@ import {
   Maximize,
   Maximize2,
   Minimize2,
+  Rows,
+  PanelLeft,
+  PanelRight,
+  ZoomIn,
+  ZoomOut,
+  Minus,
+  Plus,
 } from 'lucide-react';
 
 export type WordWrapMode =
@@ -209,7 +216,7 @@ const normalizePastedRichText = (source: string): string => {
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -219,10 +226,11 @@ const normalizePastedRichText = (source: string): string => {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike',
       'ol', 'ul', 'li', 'div', 'span', 'sub', 'sup',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote'
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
+      'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align'],
-    ALLOW_DATA_ATTR: false,
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align'],
+    ALLOW_DATA_ATTR: true,
   });
 
   return normalized
@@ -787,7 +795,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
     // Mark active class
     if (editorRef.current) {
-      editorRef.current.querySelectorAll('.figure-wrapper').forEach((f) => f.classList.remove('figure-selected'));
+      editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
     figure.classList.add('figure-selected');
   }, []);
@@ -797,7 +805,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     setFigureRect(null);
     setShowWrapTextMenu(false);
     if (editorRef.current) {
-      editorRef.current.querySelectorAll('.figure-wrapper').forEach((f) => f.classList.remove('figure-selected'));
+      editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
   }, []);
 
@@ -809,9 +817,43 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const handleNativePointerDown = (e: MouseEvent | PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      const figure = target.closest('.figure-wrapper') as HTMLElement | null;
+
+      // Check if target is inside an existing figure or is an image
+      let figure = (target.closest('.figure-wrapper') || target.closest('figure')) as HTMLElement | null;
+
+      // If user clicked directly on an <img> not yet wrapped in a figure
+      if (!figure && target.tagName === 'IMG' && editor.contains(target)) {
+        const parent = target.parentElement;
+        if (parent && parent !== editor && (parent.tagName === 'FIGURE' || parent.classList.contains('figure-wrapper'))) {
+          figure = parent;
+        } else {
+          // Dynamically wrap bare img into an interactive figure-wrapper
+          const wrapper = document.createElement('figure');
+          wrapper.className = 'my-3 figure-wrapper figure-wrap-top-bottom cursor-pointer select-none';
+          wrapper.setAttribute('data-wrap', 'top-bottom');
+          wrapper.setAttribute('data-width', '75%');
+          wrapper.setAttribute('data-align', 'center');
+          wrapper.contentEditable = 'false';
+          wrapper.style.cssText = 'display: block; margin: 12px auto; text-align: center; max-width: 75%; clear: both; cursor: pointer; position: relative;';
+          target.parentNode?.insertBefore(wrapper, target);
+          wrapper.appendChild(target);
+          target.style.cssText = 'width: 100%; height: auto; border: none; border-radius: 0; display: inline-block; box-shadow: none; cursor: pointer; pointer-events: auto;';
+          figure = wrapper;
+          handleInput();
+        }
+      }
 
       if (figure && editor.contains(figure)) {
+        // Ensure figure has the interactive classes and attributes
+        if (!figure.classList.contains('figure-wrapper')) {
+          figure.classList.add('figure-wrapper', 'figure-wrap-top-bottom', 'cursor-pointer', 'select-none');
+          figure.setAttribute('contenteditable', 'false');
+          if (!figure.getAttribute('data-wrap')) figure.setAttribute('data-wrap', 'top-bottom');
+          if (!figure.getAttribute('data-width')) figure.setAttribute('data-width', '75%');
+          if (!figure.getAttribute('data-align')) figure.setAttribute('data-align', 'center');
+          handleInput();
+        }
+
         if (e.button === 2) {
           // Right click
           return;
@@ -820,7 +862,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         e.stopPropagation();
         selectFigureElement(figure);
         setContextMenu(null);
-      } else if (!target.closest('.figure-wrapper') && !target.closest('.figure-control-overlay') && !target.closest('.figure-context-menu') && !target.closest('.figure-quick-toolbar')) {
+      } else if (!target.closest('.figure-wrapper') && !target.closest('figure') && !target.closest('img') && !target.closest('.figure-control-overlay') && !target.closest('.figure-context-menu') && !target.closest('.figure-quick-toolbar')) {
         clearFigureSelection();
         setContextMenu(null);
       }
@@ -829,7 +871,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const handleNativeContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      const figure = target.closest('.figure-wrapper') as HTMLElement | null;
+      let figure = (target.closest('.figure-wrapper') || target.closest('figure')) as HTMLElement | null;
+      if (!figure && target.tagName === 'IMG' && editor.contains(target)) {
+        figure = (target.parentElement?.closest('.figure-wrapper') || target.parentElement?.closest('figure')) as HTMLElement | null;
+      }
       const overlay = target.closest('.figure-control-overlay') as HTMLElement | null;
 
       if ((figure && editor.contains(figure)) || (overlay && selectedFigure)) {
@@ -910,37 +955,40 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       fig.style.display = 'block';
       fig.style.clear = 'both';
       fig.style.float = 'none';
+      fig.style.width = `${widthNum}%`;
+      fig.style.maxWidth = `${widthNum}%`;
       if (align === 'left') {
-        fig.style.margin = '12px auto 12px 0';
+        fig.style.margin = '10px auto 10px 0';
         fig.style.textAlign = 'left';
       } else if (align === 'right') {
-        fig.style.margin = '12px 0 12px auto';
+        fig.style.margin = '10px 0 10px auto';
         fig.style.textAlign = 'right';
       } else {
-        fig.style.margin = '12px auto';
+        fig.style.margin = '10px auto';
         fig.style.textAlign = 'center';
       }
     } else if (mode === 'square' || mode === 'tight' || mode === 'through') {
       fig.style.display = 'block';
       fig.style.clear = 'none';
+      const maxWrapWidth = Math.min(widthNum, 60);
       if (align === 'right') {
         fig.style.float = 'right';
-        fig.style.margin = '4px 0 8px 16px';
-        fig.style.width = `${Math.min(widthNum, 60)}%`;
-        fig.style.maxWidth = `${Math.min(widthNum, 60)}%`;
+        fig.style.margin = '6px 0 12px 18px';
+        fig.style.width = `${maxWrapWidth}%`;
+        fig.style.maxWidth = `${maxWrapWidth}%`;
       } else if (align === 'center') {
         fig.style.float = 'none';
         fig.style.clear = 'both';
         fig.style.margin = '10px auto';
         fig.style.textAlign = 'center';
-        fig.style.width = 'auto';
+        fig.style.width = `${widthNum}%`;
         fig.style.maxWidth = `${widthNum}%`;
       } else {
         // default left
         fig.style.float = 'left';
-        fig.style.margin = '4px 16px 8px 0';
-        fig.style.width = `${Math.min(widthNum, 60)}%`;
-        fig.style.maxWidth = `${Math.min(widthNum, 60)}%`;
+        fig.style.margin = '6px 18px 12px 0';
+        fig.style.width = `${maxWrapWidth}%`;
+        fig.style.maxWidth = `${maxWrapWidth}%`;
       }
     } else if (mode === 'inline') {
       fig.style.display = 'inline-block';
@@ -948,6 +996,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       fig.style.margin = '4px 8px';
       fig.style.float = 'none';
       fig.style.clear = 'none';
+      fig.style.width = `${Math.min(widthNum, 50)}%`;
+      fig.style.maxWidth = `${Math.min(widthNum, 50)}%`;
     }
   };
 
@@ -961,11 +1011,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const currentWidth = figureRect?.percentWidth || 75;
     selectedFigure.setAttribute('data-width', `${currentWidth}%`);
 
-    const align = customAlign || (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center';
+    const align = customAlign || (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (mode === 'square' ? 'left' : 'center');
 
     // Reset base properties
     selectedFigure.style.maxWidth = `${currentWidth}%`;
-    selectedFigure.style.width = 'auto';
+    selectedFigure.style.width = `${currentWidth}%`;
     selectedFigure.style.float = 'none';
     selectedFigure.style.clear = 'both';
     selectedFigure.style.marginLeft = 'auto';
@@ -985,6 +1035,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         selectedFigure.style.margin = '4px 8px';
         selectedFigure.style.float = 'none';
         selectedFigure.style.clear = 'none';
+        selectedFigure.style.width = `${Math.min(currentWidth, 50)}%`;
         selectedFigure.style.maxWidth = `${Math.min(currentWidth, 50)}%`;
         break;
 
@@ -1030,9 +1081,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const clamped = Math.min(Math.max(percent, 10), 100);
     selectedFigure.setAttribute('data-width', `${clamped}%`);
     selectedFigure.style.maxWidth = `${clamped}%`;
-    if (currentWrapMode === 'square' || currentWrapMode === 'tight' || currentWrapMode === 'through') {
-      selectedFigure.style.width = `${clamped}%`;
-    }
+    selectedFigure.style.width = `${clamped}%`;
+    const align = (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (currentWrapMode === 'square' ? 'left' : 'center');
+    applyFigureAlignment(selectedFigure, align, currentWrapMode);
     handleInput();
     updateFigureRect();
   };
@@ -1263,11 +1314,25 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     const deltaX = e.clientX - startX;
     const deltaY = e.clientY - startY;
 
+    const align = selectedFigure.getAttribute('data-align') || 'center';
+
     let newWidthPx = startWidthPx;
     if (handle === 'se' || handle === 'ne' || handle === 'e') {
-      newWidthPx = startWidthPx + deltaX * 2;
+      if (align === 'left' || currentWrapMode === 'square') {
+        newWidthPx = startWidthPx + deltaX;
+      } else if (align === 'right') {
+        newWidthPx = startWidthPx - deltaX;
+      } else {
+        newWidthPx = startWidthPx + deltaX * 2;
+      }
     } else if (handle === 'sw' || handle === 'nw' || handle === 'w') {
-      newWidthPx = startWidthPx - deltaX * 2;
+      if (align === 'right') {
+        newWidthPx = startWidthPx - deltaX;
+      } else if (align === 'left' || currentWrapMode === 'square') {
+        newWidthPx = startWidthPx - deltaX;
+      } else {
+        newWidthPx = startWidthPx - deltaX * 2;
+      }
     } else if (handle === 's') {
       const scaleFactor = 1 + (deltaY / Math.max(startHeightPx, 20));
       newWidthPx = startWidthPx * scaleFactor;
@@ -1277,15 +1342,13 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     }
 
     let percent = Math.round((newWidthPx / editorWidthPx) * 100);
-    percent = Math.min(Math.max(percent, 10), 100);
+    percent = Math.min(Math.max(percent, 15), 100);
 
     setLivePercent(percent);
 
     selectedFigure.style.maxWidth = `${percent}%`;
+    selectedFigure.style.width = `${percent}%`;
     selectedFigure.setAttribute('data-width', `${percent}%`);
-    if (currentWrapMode === 'square' || currentWrapMode === 'tight' || currentWrapMode === 'through') {
-      selectedFigure.style.width = `${percent}%`;
-    }
     updateFigureRect();
   };
 
@@ -1296,9 +1359,14 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     } catch {
       // ignore
     }
+    const finalPercent = livePercent;
     isResizingRef.current = null;
     setLivePercent(null);
+    if (finalPercent) {
+      applyFigurePercentWidth(finalPercent);
+    }
     handleInput();
+    updateFigureRect();
   };
 
   // --- MS WORD STYLE ROTATION ENGINE (TOP CIRCULAR HANDLE) ---
@@ -1500,6 +1568,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
           // 2. Active selection in editor
           if (!inserted) {
+            restoreSavedSelection();
             const selection = window.getSelection();
             if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
               const range = selection.getRangeAt(0);
@@ -1531,10 +1600,16 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     handleInput();
 
     if (lastInsertedFigure) {
-      const figToSelect = lastInsertedFigure;
       setTimeout(() => {
-        selectFigureElement(figToSelect);
-      }, 50);
+        if (!editorRef.current) return;
+        const allFigures = editorRef.current.querySelectorAll('.figure-wrapper, figure');
+        const targetFig = (lastInsertedFigure && editorRef.current.contains(lastInsertedFigure))
+          ? lastInsertedFigure
+          : (allFigures.length > 0 ? (allFigures[allFigures.length - 1] as HTMLElement) : null);
+        if (targetFig) {
+          selectFigureElement(targetFig);
+        }
+      }, 100);
     }
 
     if (errors.length > 0) {
@@ -1940,9 +2015,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         {/* TOOLBAR — compact editor controls without an intrusive toggle */}
         {(!hideToolbar || isFullscreen) && (
           <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar touch-pan-x text-slate-700 select-none shrink-0">
-          {!selectedFigure ? (
-            <>
-              {/* Riwayat Undo/Redo */}
+            {/* Riwayat Undo/Redo */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
                   type="button"
@@ -2196,157 +2269,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                   {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
                 </button>
               </div>
-            </>
-          ) : (
-            <>
-              {/* PICTURE TOOLS — Ultra-Compact & Streamlined */}
-              <div className="flex items-center gap-1 w-full">
-                <span
-                  className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold bg-indigo-600 text-white shrink-0"
-                  title="Picture Tools Aktif"
-                >
-                  <ImageIcon className="w-2.5 h-2.5" />
-                  <span>Foto</span>
-                </span>
-
-                <div className="w-px h-3 bg-indigo-200 mx-0.5 shrink-0" />
-
-                {/* Alignment buttons */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (!selectedFigure) return;
-                      applyFigureAlignment(selectedFigure, 'left', 'top-bottom');
-                      handleInput();
-                      updateFigureRect();
-                    }}
-                    title="Rata Kiri"
-                    className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                      selectedFigure?.getAttribute('data-align') === 'left'
-                        ? 'bg-white border border-indigo-300 text-indigo-700'
-                        : 'hover:bg-slate-200/80 text-slate-700'
-                    }`}
-                  >
-                    <AlignLeft className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (!selectedFigure) return;
-                      applyFigureAlignment(selectedFigure, 'center', 'top-bottom');
-                      handleInput();
-                      updateFigureRect();
-                    }}
-                    title="Rata Tengah"
-                    className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                      selectedFigure?.getAttribute('data-align') === 'center' || !selectedFigure?.getAttribute('data-align')
-                        ? 'bg-white border border-indigo-300 text-indigo-700'
-                        : 'hover:bg-slate-200/80 text-slate-700'
-                    }`}
-                  >
-                    <AlignCenter className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (!selectedFigure) return;
-                      applyFigureAlignment(selectedFigure, 'right', 'top-bottom');
-                      handleInput();
-                      updateFigureRect();
-                    }}
-                    title="Rata Kanan"
-                    className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                      selectedFigure?.getAttribute('data-align') === 'right'
-                        ? 'bg-white border border-indigo-300 text-indigo-700'
-                        : 'hover:bg-slate-200/80 text-slate-700'
-                    }`}
-                  >
-                    <AlignRight className="w-3 h-3" />
-                  </button>
-                </div>
-
-                <div className="w-px h-3 bg-indigo-200 mx-0.5 shrink-0" />
-
-                {/* Size dropdown */}
-                <div className="flex items-center shrink-0">
-                  <select
-                    value={selectedFigure?.getAttribute('data-width') || '100%'}
-                    onChange={(e) => {
-                      if (!selectedFigure) return;
-                      const pct = e.target.value;
-                      selectedFigure.setAttribute('data-width', pct);
-                      selectedFigure.style.width = pct;
-                      selectedFigure.style.maxWidth = '100%';
-                      selectedFigure.style.height = 'auto';
-                      handleInput();
-                      updateFigureRect();
-                    }}
-                    className="h-5.5 text-[9px] font-semibold text-slate-700 bg-white border border-slate-200 rounded px-1 py-0 focus:outline-none focus:border-indigo-400 cursor-pointer"
-                    title="Ukuran Gambar"
-                  >
-                    <option value="25%">25%</option>
-                    <option value="50%">50%</option>
-                    <option value="75%">75%</option>
-                    <option value="100%">100%</option>
-                  </select>
-                </div>
-
-                <div className="w-px h-3 bg-indigo-200 mx-0.5 shrink-0" />
-
-                {/* Reset & Delete */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (!selectedFigure) return;
-                      selectedFigure.style.width = '';
-                      selectedFigure.style.maxWidth = '100%';
-                      selectedFigure.style.height = 'auto';
-                      selectedFigure.style.margin = '8px auto';
-                      selectedFigure.style.float = 'none';
-                      selectedFigure.style.clear = 'both';
-                      selectedFigure.setAttribute('data-width', '100%');
-                      selectedFigure.setAttribute('data-align', 'center');
-                      handleInput();
-                      updateFigureRect();
-                    }}
-                    title="Reset Ukuran & Posisi"
-                    className="w-5.5 h-5.5 min-w-[22px] p-0.5 rounded hover:bg-slate-200/80 text-slate-600 cursor-pointer flex items-center justify-center transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={deleteSelectedFigure}
-                    title="Hapus Gambar"
-                    className="w-5.5 h-5.5 min-w-[22px] p-0.5 rounded bg-rose-50 text-rose-600 hover:bg-rose-100 cursor-pointer flex items-center justify-center transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-
-                {/* Return to Text Tools */}
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => clearFigureSelection()}
-                  title="Kembali ke Text Tools"
-                  className="ml-auto h-5.5 px-1.5 text-[9px] font-medium inline-flex items-center gap-1 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer shrink-0"
-                >
-                  <Type className="w-2.5 h-2.5" />
-                  <span>Teks</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+          </div>
         )}
 
         {/* CONTENT EDITABLE AREA */}
@@ -2379,36 +2302,380 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
         )}
 
-        {/* SIMPLE IMAGE SELECTION + RESIZE: drag sudut untuk mengubah ukuran */}
-        {selectedFigure && figureRect && (
+        {/* INTERACTIVE IMAGE SELECTION + 6 RESIZE HANDLES + FLOATING QUICK ACTION BAR */}
+        {/* INTERACTIVE IMAGE SELECTION + 6 RESIZE HANDLES + FLOATING QUICK ACTION BAR */}
+        {selectedFigure && figureRect && (() => {
+          const containerW = containerRef.current ? containerRef.current.clientWidth : 700;
+          const currentPct = figureRect.percentWidth || parseInt(selectedFigure.getAttribute('data-width') || '75', 10) || 75;
+          const currentAlign = (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (currentWrapMode === 'top-bottom' ? 'center' : 'left');
+
+          // Clamped positioning to avoid clipping or overflowing container boundaries
+          const toolbarWidth = 195;
+          const idealCenter = figureRect.left + (figureRect.width / 2);
+          const maxLeft = Math.max(4, containerW - toolbarWidth - 4);
+          const clampedLeft = Math.max(4, Math.min(maxLeft, idealCenter - (toolbarWidth / 2)));
+
+          const isNearTop = figureRect.top < 32;
+          const clampedTop = isNearTop
+            ? figureRect.top + figureRect.height + 3
+            : Math.max(2, figureRect.top - 26);
+
+          return (
+            <>
+              {/* 1. SELECTION BOX & RESIZE HANDLES OVERLAY */}
+              <div
+                className="figure-control-overlay pointer-events-none absolute z-30 border border-indigo-500 rounded-xs"
+                style={{
+                  top: `${figureRect.top}px`,
+                  left: `${figureRect.left}px`,
+                  width: `${figureRect.width}px`,
+                  height: `${figureRect.height}px`,
+                }}
+              >
+                {/* LIVE SIZE INDICATOR BADGE WHEN RESIZING */}
+                {livePercent !== null && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
+                    <div className="bg-indigo-950/90 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded shadow border border-indigo-400/30 flex items-center gap-1 backdrop-blur-xs">
+                      <span>Ukuran:</span>
+                      <span className="text-amber-300 font-extrabold">{livePercent}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 6 RESIZE HANDLES (4 Corners + 2 Sides) */}
+                {(['nw', 'ne', 'sw', 'se', 'w', 'e'] as const).map((dir) => {
+                  const positionClass = {
+                    nw: '-left-1 -top-1 cursor-nwse-resize',
+                    ne: '-right-1 -top-1 cursor-nesw-resize',
+                    sw: '-bottom-1 -left-1 cursor-nesw-resize',
+                    se: '-bottom-1 -right-1 cursor-nwse-resize',
+                    w: '-left-1 top-1/2 -translate-y-1/2 cursor-ew-resize',
+                    e: '-right-1 top-1/2 -translate-y-1/2 cursor-ew-resize',
+                  }[dir];
+                  return (
+                    <div
+                      key={dir}
+                      onPointerDown={(e) => handleResizeStart(e, dir)}
+                      onPointerMove={handleResizeMove}
+                      onPointerUp={handleResizeEnd}
+                      onPointerCancel={handleResizeEnd}
+                      title={`Ubah ukuran (${dir.toUpperCase()})`}
+                      className={`pointer-events-auto absolute h-1.5 w-1.5 rounded-[1px] border border-indigo-600 bg-white shadow-2xs hover:scale-125 transition-transform ${positionClass}`}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* 2. FLOATING PICTURE TOOLS — ULTRA-COMPACT MICRO BAR */}
+              <div
+                className="figure-quick-toolbar pointer-events-auto absolute z-40 bg-white text-slate-700 shadow-md border border-slate-200/90 rounded-md px-1 py-0.5 flex items-center gap-0.5 select-none animate-in fade-in zoom-in-95 duration-75"
+                style={{
+                  top: `${clampedTop}px`,
+                  left: `${clampedLeft}px`,
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Posisi: Tengah (Normal), Kiri (Bungkus), Kanan (Bungkus) */}
+                <div className="flex items-center gap-0.5 shrink-0 bg-slate-100/70 p-0.5 rounded">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      applyWordWrapMode('top-bottom', 'center');
+                      applyFigureAlignment(selectedFigure, 'center', 'top-bottom');
+                      handleInput();
+                      updateFigureRect();
+                    }}
+                    title="Tengah / Normal SPO (Baris Baru)"
+                    className={`w-4.5 h-4.5 rounded transition-all cursor-pointer flex items-center justify-center shrink-0 ${
+                      currentWrapMode === 'top-bottom' && currentAlign === 'center'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'hover:bg-white text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <AlignCenter className="w-2.5 h-2.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      applyWordWrapMode('square', 'left');
+                      applyFigureAlignment(selectedFigure, 'left', 'square');
+                      handleInput();
+                      updateFigureRect();
+                    }}
+                    title="Bungkus Teks di Kanan (Gambar Kiri)"
+                    className={`w-4.5 h-4.5 rounded transition-all cursor-pointer flex items-center justify-center shrink-0 ${
+                      currentWrapMode === 'square' && currentAlign === 'left'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'hover:bg-white text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <PanelLeft className="w-2.5 h-2.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      applyWordWrapMode('square', 'right');
+                      applyFigureAlignment(selectedFigure, 'right', 'square');
+                      handleInput();
+                      updateFigureRect();
+                    }}
+                    title="Bungkus Teks di Kiri (Gambar Kanan)"
+                    className={`w-4.5 h-4.5 rounded transition-all cursor-pointer flex items-center justify-center shrink-0 ${
+                      currentWrapMode === 'square' && currentAlign === 'right'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'hover:bg-white text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <PanelRight className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+
+                <div className="w-px h-2.5 bg-slate-200 mx-0.5 shrink-0" />
+
+                {/* Ukuran: - | % | + */}
+                <div className="flex items-center gap-0.5 shrink-0 bg-slate-100/70 p-0.5 rounded">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFigurePercentWidth(Math.max(10, currentPct - 5))}
+                    title="Perkecil (-5%)"
+                    className="w-4 h-4 rounded hover:bg-white text-slate-600 hover:text-slate-900 flex items-center justify-center cursor-pointer transition-colors shrink-0"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      const next = currentPct >= 100 ? 25 : currentPct >= 75 ? 100 : currentPct >= 50 ? 75 : 50;
+                      applyFigurePercentWidth(next);
+                    }}
+                    title="Klik untuk ganti ukuran (25% → 50% → 75% → 100%)"
+                    className="px-1 py-0.5 rounded text-[9px] font-bold text-indigo-700 hover:bg-white transition-all cursor-pointer tabular-nums"
+                  >
+                    {currentPct}%
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFigurePercentWidth(Math.min(100, currentPct + 5))}
+                    title="Perbesar (+5%)"
+                    className="w-4 h-4 rounded hover:bg-white text-slate-600 hover:text-slate-900 flex items-center justify-center cursor-pointer transition-colors shrink-0"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+
+                <div className="w-px h-2.5 bg-slate-200 mx-0.5 shrink-0" />
+
+                {/* Aksi: Reset, Hapus, Selesai */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      selectedFigure.style.width = '75%';
+                      selectedFigure.style.maxWidth = '75%';
+                      selectedFigure.style.height = 'auto';
+                      selectedFigure.style.margin = '10px auto';
+                      selectedFigure.style.float = 'none';
+                      selectedFigure.style.clear = 'both';
+                      selectedFigure.style.textAlign = 'center';
+                      selectedFigure.setAttribute('data-width', '75%');
+                      selectedFigure.setAttribute('data-align', 'center');
+                      selectedFigure.setAttribute('data-wrap', 'top-bottom');
+                      setCurrentWrapMode('top-bottom');
+                      handleInput();
+                      updateFigureRect();
+                    }}
+                    title="Reset Posisi Normal (75% Tengah)"
+                    className="w-4.5 h-4.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 cursor-pointer flex items-center justify-center transition-colors shrink-0"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={deleteSelectedFigure}
+                    title="Hapus Gambar (Delete)"
+                    className="w-4.5 h-4.5 rounded hover:bg-rose-50 text-rose-500 hover:text-rose-700 cursor-pointer flex items-center justify-center transition-colors shrink-0"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => clearFigureSelection()}
+                    title="Selesai Edit Gambar"
+                    className="w-4.5 h-4.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer flex items-center justify-center transition-colors shrink-0"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* RIGHT CLICK CONTEXT MENU FOR IMAGES */}
+        {contextMenu && (
           <div
-            className="figure-control-overlay pointer-events-none absolute z-40 border border-indigo-500"
-            style={{
-              top: `${figureRect.top}px`,
-              left: `${figureRect.left}px`,
-              width: `${figureRect.width}px`,
-              height: `${figureRect.height}px`,
-            }}
+            className="figure-context-menu fixed z-50 bg-white border border-slate-200 rounded-lg shadow-2xl py-1.5 w-60 text-slate-700 text-xs font-sans divide-y divide-slate-100 select-none animate-in fade-in zoom-in-95 duration-100"
+            style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {(['nw', 'ne', 'sw', 'se'] as const).map((dir) => {
-              const positionClass = {
-                nw: '-left-1.5 -top-1.5 cursor-nwse-resize',
-                ne: '-right-1.5 -top-1.5 cursor-nesw-resize',
-                sw: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
-                se: '-bottom-1.5 -right-1.5 cursor-nwse-resize',
-              }[dir];
-              return (
-                <div
-                  key={dir}
-                  onPointerDown={(e) => handleResizeStart(e, dir)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeEnd}
-                  onPointerCancel={handleResizeEnd}
-                  title="Ubah ukuran gambar"
-                  className={`pointer-events-auto absolute h-3 w-3 rounded-full border border-indigo-600 bg-white shadow-sm ${positionClass}`}
-                />
-              );
-            })}
+            {/* Header */}
+            <div className="px-3 py-1 text-[11px] font-bold text-indigo-900 uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-indigo-600" />
+                Format Gambar
+              </span>
+              <span className="text-[10px] text-slate-500 font-normal">{figureRect?.percentWidth || 75}%</span>
+            </div>
+
+            {/* Wrap Modes */}
+            <div className="py-1">
+              <div className="px-3 py-0.5 text-[10px] font-semibold text-slate-400">Aliran Teks (Wrap)</div>
+              <button
+                type="button"
+                onClick={() => {
+                  applyWordWrapMode('top-bottom');
+                  setContextMenu(null);
+                }}
+                className={`w-full text-left px-3 py-1.5 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer transition-colors ${currentWrapMode === 'top-bottom' ? 'bg-indigo-50/70 font-semibold text-indigo-700' : 'text-slate-700'}`}
+              >
+                <Rows className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Atas-Bawah (Baris Tersendiri)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyWordWrapMode('square', 'left');
+                  setContextMenu(null);
+                }}
+                className={`w-full text-left px-3 py-1.5 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer transition-colors ${currentWrapMode === 'square' && (selectedFigure?.getAttribute('data-align') === 'left' || !selectedFigure?.getAttribute('data-align')) ? 'bg-indigo-50/70 font-semibold text-indigo-700' : 'text-slate-700'}`}
+              >
+                <PanelLeft className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Bungkus Kiri (Teks di Kanan)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyWordWrapMode('square', 'right');
+                  setContextMenu(null);
+                }}
+                className={`w-full text-left px-3 py-1.5 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer transition-colors ${currentWrapMode === 'square' && selectedFigure?.getAttribute('data-align') === 'right' ? 'bg-indigo-50/70 font-semibold text-indigo-700' : 'text-slate-700'}`}
+              >
+                <PanelRight className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Bungkus Kanan (Teks di Kiri)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyWordWrapMode('inline');
+                  setContextMenu(null);
+                }}
+                className={`w-full text-left px-3 py-1.5 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer transition-colors ${currentWrapMode === 'inline' ? 'bg-indigo-50/70 font-semibold text-indigo-700' : 'text-slate-700'}`}
+              >
+                <Type className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Sejajar Teks (Inline)</span>
+              </button>
+            </div>
+
+            {/* Posisi Alignment */}
+            <div className="py-1">
+              <div className="px-3 py-0.5 text-[10px] font-semibold text-slate-400">Posisi (Align)</div>
+              <div className="grid grid-cols-3 gap-1 px-3 py-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedFigure) {
+                      applyFigureAlignment(selectedFigure, 'left', currentWrapMode);
+                      handleInput();
+                      updateFigureRect();
+                    }
+                    setContextMenu(null);
+                  }}
+                  className={`px-2 py-1 text-center rounded text-[11px] font-medium cursor-pointer transition-colors ${selectedFigure?.getAttribute('data-align') === 'left' ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-indigo-50 text-slate-700'}`}
+                >
+                  Kiri
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedFigure) {
+                      applyFigureAlignment(selectedFigure, 'center', currentWrapMode);
+                      handleInput();
+                      updateFigureRect();
+                    }
+                    setContextMenu(null);
+                  }}
+                  className={`px-2 py-1 text-center rounded text-[11px] font-medium cursor-pointer transition-colors ${selectedFigure?.getAttribute('data-align') === 'center' || (!selectedFigure?.getAttribute('data-align') && currentWrapMode === 'top-bottom') ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-indigo-50 text-slate-700'}`}
+                >
+                  Tengah
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedFigure) {
+                      applyFigureAlignment(selectedFigure, 'right', currentWrapMode);
+                      handleInput();
+                      updateFigureRect();
+                    }
+                    setContextMenu(null);
+                  }}
+                  className={`px-2 py-1 text-center rounded text-[11px] font-medium cursor-pointer transition-colors ${selectedFigure?.getAttribute('data-align') === 'right' ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-indigo-50 text-slate-700'}`}
+                >
+                  Kanan
+                </button>
+              </div>
+            </div>
+
+            {/* Ukuran Presets */}
+            <div className="py-1">
+              <div className="px-3 py-0.5 text-[10px] font-semibold text-slate-400">Ukuran Cepat</div>
+              <div className="flex items-center justify-between px-3 py-1 gap-1">
+                {[25, 33, 50, 75, 100].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      applyFigurePercentWidth(pct);
+                      setContextMenu(null);
+                    }}
+                    className={`flex-1 py-1 text-center rounded text-[10px] font-bold cursor-pointer transition-colors ${(figureRect?.percentWidth || 75) === pct ? 'bg-indigo-600 text-white' : 'bg-slate-100 hover:bg-indigo-50 text-slate-700'}`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Hapus */}
+            <div className="py-1">
+              <button
+                type="button"
+                onClick={() => {
+                  deleteSelectedFigure();
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-rose-50 flex items-center gap-2 text-rose-600 font-medium cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus Gambar</span>
+              </button>
+            </div>
           </div>
         )}
 
