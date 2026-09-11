@@ -225,8 +225,12 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
     const session=buildSession(result.session);
     persistClientSession(session);
     if (session.role === 'admin') {
-      // One-time server migration adds the Firestore hierarchy boundary to legacy SPOs.
-      void callAuthApi('migrate-sop-access').catch(() => {});
+      try {
+        if (!sessionStorage.getItem('soegiri_sop_migrated_v2')) {
+          sessionStorage.setItem('soegiri_sop_migrated_v2', 'true');
+          void callAuthApi('migrate-sop-access').catch(() => {});
+        }
+      } catch {}
     }
     await recordAuditLog({username:session.username,name:session.name,role:session.role,event:'LOGIN_SUCCESS',sessionId:session.sessionId,details:'Login melalui trusted server authentication.'});
     return{success:true,session,message:result.message||'Login berhasil.'};
