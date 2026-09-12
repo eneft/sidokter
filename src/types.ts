@@ -219,6 +219,7 @@ export interface SopDocument {
 export type MainMenuTab = 'dashboard' | 'spo' | 'sk' | 'mou' | 'library' | 'profile' | 'admin';
 
 export type LibraryDocumentType = 'SK' | 'MOU';
+export type SkCategory = 'POKOK' | 'PERUBAHAN';
 
 export interface LibraryDocument {
   id: string;
@@ -238,6 +239,15 @@ export interface LibraryDocument {
   createdAt: string;
   updatedAt: string;
   uploadedBy?: string;
+
+  // Fitur SK Perubahan (Revisi Kebijakan & Aturan)
+  isRevisionSK?: boolean;          // Menandakan naskah ini adalah SK Perubahan
+  skCategory?: SkCategory;         // 'POKOK' (Penetapan awal) | 'PERUBAHAN' (Revisi aturan/kebijakan)
+  originalSkId?: string;           // Referensi ID SK terdahulu jika tersimpan di sistem
+  originalSkNumber?: string;       // Nomor SK terdahulu yang diubah (e.g. 188/012/KEP/413.204/2024)
+  originalSkTitle?: string;        // Judul SK terdahulu yang direvisi
+  revisionReason?: string;         // Dasar perubahan kebijakan dan aturan
+  revisionType?: string;           // Sifat perubahan (e.g. Perubahan Diktum/Pasal, Perubahan Susunan Tim, Penyesuaian Regulasi Nasional, dll)
 }
 
 export type JenisSpo = 'BARU' | 'EKSISTING' | 'RIVIU';

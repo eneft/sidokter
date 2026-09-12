@@ -5,9 +5,12 @@ import {
   Eye, 
   Check, 
   Lock,
+  PlusCircle,
+  HelpCircle
 } from 'lucide-react';
 import { SopDocument, UserSession } from '../types';
 import { SOEGIRI_MASTER_CATEGORIES, isSopAccessibleByUser } from '../utils/soegiriStructure';
+import { AdminTooltip } from './AdminTooltip';
 
 interface UserLibraryTabProps {
   sops: SopDocument[];
@@ -114,40 +117,52 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Kewenangan Filter - multi-hierarchy aware */}
-          <div className="relative w-full sm:min-w-[240px] sm:w-auto">
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              disabled={isRestricted && assignedDivCodes.length <= 1}
-              className={`w-full text-xs border rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                isRestricted && assignedDivCodes.length <= 1
-                  ? 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed'
-                  : 'bg-white border-slate-300 text-slate-700'
-              }`}
-            >
-              <option value="ALL">Semua Kewenangan ({assignmentSummary.length || assignedDivCodes.length})</option>
-              {assignedDivCodes.map((code) => {
-                const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
-                return (
-                  <option key={code} value={code}>
-                    [{code}] {cat?.name || code}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          <AdminTooltip
+            title="Filter Kewenangan Unit"
+            content="Saring daftar SPO berdasarkan bidang kewenangan atau unit kerja yang ditugaskan ke akun Anda."
+            side="bottom"
+          >
+            <div className="relative w-full sm:min-w-[240px] sm:w-auto">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                disabled={isRestricted && assignedDivCodes.length <= 1}
+                className={`w-full text-xs border rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                  isRestricted && assignedDivCodes.length <= 1
+                    ? 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed'
+                    : 'bg-white border-slate-300 text-slate-700'
+                }`}
+              >
+                <option value="ALL">Semua Kewenangan ({assignmentSummary.length || assignedDivCodes.length})</option>
+                {assignedDivCodes.map((code) => {
+                  const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
+                  return (
+                    <option key={code} value={code}>
+                      [{code}] {cat?.name || code}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </AdminTooltip>
 
           {/* Status Filter */}
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-700 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          <AdminTooltip
+            title="Filter Status Dokumen"
+            content="Filter berdasarkan status: Draft (belum aktif), Aktif (telah diverifikasi dan berlaku), atau Diarsipkan."
+            side="bottom"
           >
-            <option value="ALL">Semua Status</option>
-            <option value="DRAFT">Draft</option>
-            <option value="AKTIF">Aktif</option>
-            <option value="DIARSIPKAN">Diarsipkan</option>
-          </select>
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-700 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="ALL">Semua Status</option>
+              <option value="DRAFT">Draft</option>
+              <option value="AKTIF">Aktif</option>
+              <option value="DIARSIPKAN">Diarsipkan</option>
+            </select>
+          </AdminTooltip>
 
         </div>
       </div>
@@ -166,13 +181,19 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
         </div>
 
         {searchQuery && (
-          <button
-            type="button"
-            onClick={() => setSearchQuery('')}
-            className="text-emerald-700 hover:underline font-medium cursor-pointer"
+          <AdminTooltip
+            title="Bersihkan Pencarian"
+            content="Kembalikan daftar untuk menampilkan seluruh naskah SPO tanpa filter kata kunci."
+            side="top"
           >
-            Reset Pencarian
-          </button>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-emerald-700 hover:underline font-medium cursor-pointer"
+            >
+              Reset Pencarian
+            </button>
+          </AdminTooltip>
         )}
       </div>
 
@@ -192,13 +213,20 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
                 : 'Belum ada naskah SPO yang terdaftar dalam sistem.'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onSwitchToInputTab}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm inline-flex items-center gap-2 cursor-pointer"
+          <AdminTooltip
+            title="Input SPO Baru"
+            content="Mulai susun naskah SPO baru atau unggah scan arsip SPO lama untuk unit Anda."
+            side="top"
           >
-            <span>Input SPO Baru Sekarang</span>
-          </button>
+            <button
+              type="button"
+              onClick={onSwitchToInputTab}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm inline-flex items-center gap-2 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Input SPO Baru Sekarang</span>
+            </button>
+          </AdminTooltip>
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
@@ -226,14 +254,19 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
                     </div>
 
                     <div className="min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => onViewDetail(sop)}
-                        className="block max-w-full text-left font-semibold text-sm text-slate-800 hover:text-emerald-700 hover:underline underline-offset-2 truncate md:whitespace-normal md:overflow-visible cursor-pointer"
-                        title="Buka Preview SPO"
+                      <AdminTooltip
+                        title="Buka Lembar SPO"
+                        content={`Klik untuk melihat naskah lengkap, riwayat revisi, dan lembar pengesahan ${sop.title}.`}
+                        side="top"
                       >
-                        {sop.title || 'Tanpa Judul SPO'}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => onViewDetail(sop)}
+                          className="block max-w-full text-left font-semibold text-sm text-slate-800 hover:text-emerald-700 hover:underline underline-offset-2 truncate md:whitespace-normal md:overflow-visible cursor-pointer"
+                        >
+                          {sop.title || 'Tanpa Judul SPO'}
+                        </button>
+                      </AdminTooltip>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -255,14 +288,20 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
                     </div>
 
                     <div className="flex md:justify-end">
-                      <button
-                        type="button"
-                        onClick={() => onViewDetail(sop)}
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs w-full md:w-auto"
+                      <AdminTooltip
+                        title="Buka SPO"
+                        content="Tinjau detail naskah, cetak register, verifikasi status, atau unduh berkas."
+                        side="left"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Buka SPO</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => onViewDetail(sop)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs w-full md:w-auto"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Buka SPO</span>
+                        </button>
+                      </AdminTooltip>
                     </div>
                   </div>
                 </div>

@@ -65,6 +65,9 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
     throw uploadErr instanceof Error ? uploadErr : new Error('Gagal mengunggah file ke cloud storage.');
   }
 
+  const isRevisionSK = Boolean(metadata?.isRevisionSK || metadata?.skCategory === 'PERUBAHAN');
+  const skCategory = metadata?.skCategory || (isRevisionSK ? 'PERUBAHAN' : 'POKOK');
+
   const now = new Date().toISOString();
   const document: LibraryDocument = {
     id,
@@ -83,7 +86,15 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
     downloadUrl: cloudUrl,
     createdAt: now,
     updatedAt: now,
-    uploadedBy
+    uploadedBy,
+    // SK Perubahan fields
+    isRevisionSK: type === 'SK' ? isRevisionSK : undefined,
+    skCategory: type === 'SK' ? skCategory : undefined,
+    originalSkId: type === 'SK' && metadata?.originalSkId ? String(metadata.originalSkId).trim() : undefined,
+    originalSkNumber: type === 'SK' && metadata?.originalSkNumber ? String(metadata.originalSkNumber).trim() : undefined,
+    originalSkTitle: type === 'SK' && metadata?.originalSkTitle ? String(metadata.originalSkTitle).trim() : undefined,
+    revisionReason: type === 'SK' && metadata?.revisionReason ? String(metadata.revisionReason).trim() : undefined,
+    revisionType: type === 'SK' && metadata?.revisionType ? String(metadata.revisionType).trim() : undefined
   };
   saveDocuments([...getDocuments(), document]);
   void saveLibraryDocToFirestore(document);

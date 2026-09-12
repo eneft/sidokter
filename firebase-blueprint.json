@@ -34,6 +34,13 @@
         "fileSize": { "type": "number", "description": "Ukuran berkas dalam byte", "required": false },
         "effectiveDate": { "type": "string", "description": "Tanggal berlaku", "required": false },
         "expiryDate": { "type": "string", "description": "Tanggal kedaluwarsa", "required": false },
+        "isRevisionSK": { "type": "boolean", "description": "Penanda bahwa dokumen adalah SK Perubahan", "required": false },
+        "skCategory": { "type": "string", "description": "Kategori SK: POKOK atau PERUBAHAN", "required": false },
+        "originalSkId": { "type": "string", "description": "ID referensi SK lama yang direvisi", "required": false },
+        "originalSkNumber": { "type": "string", "description": "Nomor SK lama yang direvisi", "required": false },
+        "originalSkTitle": { "type": "string", "description": "Judul SK lama yang direvisi", "required": false },
+        "revisionReason": { "type": "string", "description": "Dasar atau alasan perubahan kebijakan dan aturan", "required": false },
+        "revisionType": { "type": "string", "description": "Sifat atau fokus perubahan (diktum, personalia, regulasi baru)", "required": false },
         "createdAt": { "type": "string", "description": "Waktu pembuatan ISO 8601", "required": true },
         "updatedAt": { "type": "string", "description": "Waktu pembaruan ISO 8601", "required": true },
         "uploadedBy": { "type": "string", "description": "Petugas pengunggah", "required": false }
