@@ -1,6 +1,7 @@
 import React from 'react';
 import { DatabaseBackup, Download, Upload, X, RotateCcw, CheckCircle2, ShieldCheck, FileSpreadsheet, Lock, Layers, BookOpen, AlertCircle } from 'lucide-react';
 import { UserSession } from '../types';
+import { AdminTooltip } from './AdminTooltip';
 
 interface BackupRestorePanelProps {
   isOpen?: boolean;
@@ -84,14 +85,16 @@ export const BackupRestorePanel: React.FC<BackupRestorePanelProps> = ({
             </p>
           </div>
           <div className="mt-6 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onBackup}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Unduh File Backup Sekarang (.JSON)</span>
-            </button>
+            <AdminTooltip content="Ekspor instan seluruh dokumen SPO, SK, MOU, buku nomor, dan akun pengguna dalam file arsip JSON terenkapsulasi." title="Unduh Snapshot JSON" side="top" className="w-full">
+              <button
+                type="button"
+                onClick={onBackup}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Unduh File Backup Sekarang (.JSON)</span>
+              </button>
+            </AdminTooltip>
           </div>
         </div>
 
@@ -113,24 +116,26 @@ export const BackupRestorePanel: React.FC<BackupRestorePanelProps> = ({
             )}
           </div>
           <div className="mt-6 pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onRestore}
-              disabled={isRestoring}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 text-xs font-bold transition-colors disabled:opacity-60 cursor-pointer"
-            >
-              {isRestoring ? (
-                <>
-                  <RotateCcw className="w-4 h-4 animate-spin" />
-                  <span>Sedang Memulihkan Sistem...</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4" />
-                  <span>Pilih File Backup untuk Restore</span>
-                </>
-              )}
-            </button>
+            <AdminTooltip content="Pilih file snapshot .JSON resmi untuk memulihkan seluruh data sistem ke keadaan sebelumnya." title="Restore Snapshot" side="top" className="w-full">
+              <button
+                type="button"
+                onClick={onRestore}
+                disabled={isRestoring}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 text-xs font-bold transition-colors disabled:opacity-60 cursor-pointer"
+              >
+                {isRestoring ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>Sedang Memulihkan Sistem...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    <span>Pilih File Backup untuk Restore</span>
+                  </>
+                )}
+              </button>
+            </AdminTooltip>
           </div>
         </div>
       </div>

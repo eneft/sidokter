@@ -37,7 +37,9 @@ function readCache():UserAccount[] {
   try {
     const raw = localStorage.getItem(USERS_PROFILE_CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map((u:any)=>sanitizeProfile(u)).filter(Boolean) as UserAccount[] : [];
+    return Array.isArray(parsed)
+      ? (parsed.map((u:any)=>sanitizeProfile(u)).filter(Boolean) as UserAccount[]).filter(u => u.id !== 'usr-admin-default')
+      : [];
   } catch { return []; }
 }
 
@@ -154,6 +156,15 @@ export async function saveUserToLocal(user:UserAccount):Promise<void> {
 export async function deleteUserFromLocal(userId:string):Promise<void> {
   const result=await deleteManagedUser(userId);
   if(!result?.success) throw new Error(result?.message || 'Gagal menghapus akun.');
+  try {
+    const { doc, deleteDoc } = await import('firebase/firestore');
+    const { db } = await import('./firebase');
+    await deleteDoc(doc(db, 'users', userId));
+  } catch (firestoreErr) {
+    console.warn('[accountService] Firestore user deletion notice:', firestoreErr);
+  }
+  const cached = readCache().filter(u => u.id !== userId);
+  writeCache(cached);
   await syncUsersWithFirestore();
 }
 

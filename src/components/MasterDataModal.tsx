@@ -13,6 +13,7 @@ import {
 import { SOEGIRI_MASTER_CATEGORIES, SoegiriCategory, SoegiriHierarchyNode } from '../utils/soegiriStructure';
 import { getNodeChildren } from '../utils/hierarchyTree';
 import { getHierarchyMaster, saveHierarchyMaster } from '../lib/hierarchyService';
+import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
 
 interface Props { 
   isOpen: boolean; 
@@ -81,22 +82,24 @@ const TreeNode: React.FC<{
         <span className="text-xs font-semibold text-slate-800 truncate">{node.name}</span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => onAdd(path)}
-          title="Tambah sub-hirarki (+)"
-          className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-700 hover:border-emerald-200 border border-transparent transition-colors cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(path, node)}
-          title="Hapus hirarki (-)"
-          className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-600 hover:border-rose-200 border border-transparent transition-colors cursor-pointer"
-        >
-          <Minus className="w-3.5 h-3.5" />
-        </button>
+        <AdminTooltip content={`Tambah sub-hirarki baru di bawah node [${node.code}] ${node.name}.`} title="Tambah Cabang" side="left">
+          <button
+            type="button"
+            onClick={() => onAdd(path)}
+            className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-700 hover:border-emerald-200 border border-transparent transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </AdminTooltip>
+        <AdminTooltip content={`Hapus hirarki [${node.code}] ${node.name} beserta seluruh sub-cabangnya.`} title="Hapus Cabang" side="left">
+          <button
+            type="button"
+            onClick={() => onDelete(path, node)}
+            className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-600 hover:border-rose-200 border border-transparent transition-colors cursor-pointer"
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+        </AdminTooltip>
       </div>
     </div>
     {getNodeChildren(node).map(child => (
@@ -344,7 +347,10 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">Master Data & Hirarki SPO</h2>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                Master Data & Hirarki SPO
+                <AdminHelpHint text="Struktur hirarki ini dipakai untuk klasifikasi penomoran dokumen SPO, pembagian departemen, dan batasan hak akses staf rumah sakit." />
+              </h2>
               <p className="text-xs text-slate-500 mt-0.5">Kelola Bagian/Bidang dan struktur cabang unit kerja penomoran naskah.</p>
             </div>
           </div>
@@ -369,21 +375,22 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <Building2 className="w-4 h-4 text-emerald-600" />
                 <span>Bagian / Bidang</span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAddingCategory(true);
-                  setParent(null);
-                  setDeleteTarget(null);
-                  setDeleteCategoryTarget(null);
-                  setMessage('');
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-2xs transition-all cursor-pointer"
-                title="Tambah Bagian/Bidang Baru"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah</span>
-              </button>
+              <AdminTooltip content="Buat Bagian, Bidang, Komite, atau Satuan kerja baru pada tingkat atas." title="Tambah Bagian/Bidang" side="left">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingCategory(true);
+                    setParent(null);
+                    setDeleteTarget(null);
+                    setDeleteCategoryTarget(null);
+                    setMessage('');
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-2xs transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah</span>
+                </button>
+              </AdminTooltip>
             </div>
 
             {/* Inline Add Category Form */}
@@ -518,14 +525,16 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   </p>
                 </div>
 
-                <button 
-                  type="button" 
-                  onClick={() => startAdd([])} 
-                  className="px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-700 shadow-2xs transition-all cursor-pointer shrink-0 self-start sm:self-center"
-                >
-                  <Plus className="w-3.5 h-3.5" /> 
-                  <span>Tambah Sub-Hirarki (+)</span>
-                </button>
+                <AdminTooltip content={`Tambah sub-cabang hirarki tingkat pertama langsung di bawah [${selected?.code}] ${selected?.name}.`} title="Tambah Cabang" side="left">
+                  <button 
+                    type="button" 
+                    onClick={() => startAdd([])} 
+                    className="px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-700 shadow-2xs transition-all cursor-pointer shrink-0 self-start sm:self-center"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 
+                    <span>Tambah Sub-Hirarki (+)</span>
+                  </button>
+                </AdminTooltip>
               </div>
 
               {/* Hierarchy Tree Viewer */}

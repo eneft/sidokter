@@ -42,6 +42,7 @@ import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRe
 import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from '../lib/authService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
+import { AdminTooltip } from './AdminTooltip';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -1934,73 +1935,99 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
             {/* EDIT DOKUMEN / UBAH NOMOR */}
             {(Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession))) && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onEdit(sop);
-                }}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-300 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
-                title="Edit data SPO atau ubah nomor registrasi"
+              <AdminTooltip
+                title="Edit & Registrasi Nomor"
+                content="Perbarui isi dokumen SPO atau sesuaikan nomor registrasi naskah."
+                side="bottom"
               >
-                <Edit3 className="w-3.5 h-3.5 text-blue-800" />
-                <span className="hidden sm:inline">Edit / Ubah Nomor</span>
-                <span className="sm:hidden">Edit</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onEdit(sop);
+                  }}
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-300 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-blue-800" />
+                  <span className="hidden sm:inline">Edit / Ubah Nomor</span>
+                  <span className="sm:hidden">Edit</span>
+                </button>
+              </AdminTooltip>
             )}
 
             {/* DOWNLOAD PDF RESMI — hanya untuk SPO Baru/Riviu */}
             {!isExisting && (
-              <button
-                type="button"
-                onClick={handleDownloadDirectPdf}
-                disabled={isPdfGenerating || isPaginatingOfficial}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
-                title="Simpan Naskah Standar SPO sebagai PDF A4"
+              <AdminTooltip
+                title="Simpan PDF Standar Resmi"
+                content="Generate berkas PDF berstandar cetak A4 sesuai format baku RSUD Dr. Soegiri."
+                side="bottom"
               >
-                {isPdfGenerating ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5" />
-                )}
-                <span className="hidden sm:inline">{isPdfGenerating ? 'Membuat PDF…' : 'Simpan PDF'}</span>
-                <span className="sm:hidden">{isPdfGenerating ? '...' : 'PDF'}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadDirectPdf}
+                  disabled={isPdfGenerating || isPaginatingOfficial}
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
+                >
+                  {isPdfGenerating ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden sm:inline">{isPdfGenerating ? 'Membuat PDF…' : 'Simpan PDF'}</span>
+                  <span className="sm:hidden">{isPdfGenerating ? '...' : 'PDF'}</span>
+                </button>
+              </AdminTooltip>
             )}
 
             {/* PREVIEW PDF ASLI — khusus SPO Eksisting */}
             {isExisting && legacyFileUrl && (
-              <button
-                type="button"
-                onClick={() => setIsFullscreenDocOpen(true)}
-                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
-                title="Pratinjau PDF asli SPO Eksisting"
+              <AdminTooltip
+                title="Buka PDF Asli"
+                content="Pratinjau naskah PDF asli bertanda tangan fisik basah pada tampilan layar penuh."
+                side="bottom"
               >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Preview PDF</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreenDocOpen(true)}
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Preview PDF</span>
+                </button>
+              </AdminTooltip>
             )}
 
             {!isExisting && (
-              <button
-                type="button"
-                onClick={handlePrintOfficialSop}
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[36px]"
-                title="Cetak Fisik / Buka Print Preview Browser"
+              <AdminTooltip
+                title="Cetak Naskah"
+                content="Kirim dokumen langsung ke jendela cetak peramban atau mesin pencetak fisik."
+                side="bottom"
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Cetak</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handlePrintOfficialSop}
+                  className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[36px]"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Cetak</span>
+                </button>
+              </AdminTooltip>
             )}
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:bg-slate-200 rounded-xl transition-colors cursor-pointer ml-1 min-h-[36px] min-w-[36px] flex items-center justify-center"
+            <AdminTooltip
               title="Tutup Pratinjau"
+              content="Tutup dialog pratinjau dan kembali ke katalog naskah."
+              side="bottom"
             >
-              <X className="w-5 h-5" />
-            </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:bg-slate-200 rounded-xl transition-colors cursor-pointer ml-1 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                aria-label="Tutup Pratinjau"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </AdminTooltip>
           </div>
         </div>
 
@@ -2323,35 +2350,52 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                           style={{ lineHeight: 1 }}
                           aria-label="Kontrol preview dokumen"
                         >
-                          <button
-                            type="button"
-                            onClick={() => setMobileViewMode('a4')}
-                            className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
-                              mobileViewMode === 'a4' ? 'bg-slate-100 text-indigo-700' : 'text-slate-500 hover:text-slate-800'
-                            }`}
-                            title="Lembar A4"
+                          <AdminTooltip
+                            title="Tata Letak A4"
+                            content="Tampilkan lembar resmi sesuai proporsi kertas cetak A4."
+                            side="bottom"
                           >
-                            A4
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMobileViewMode('reader')}
-                            className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
-                              mobileViewMode === 'reader' ? 'bg-slate-100 text-teal-700' : 'text-slate-500 hover:text-slate-800'
-                            }`}
-                            title="Mode baca HP"
-                          >
-                            HP
-                          </button>
-                          {mobileViewMode === 'a4' && (
                             <button
                               type="button"
-                              onClick={() => setZoomScale(zoomScale === 'fit' ? 1.0 : 'fit')}
-                              className="px-1.5 py-1 rounded text-[9px] font-semibold text-slate-500 hover:text-indigo-700 transition-colors cursor-pointer"
-                              title="Ganti Fit / 100%"
+                              onClick={() => setMobileViewMode('a4')}
+                              className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
+                                mobileViewMode === 'a4' ? 'bg-slate-100 text-indigo-700' : 'text-slate-500 hover:text-slate-800'
+                              }`}
                             >
-                              {zoomScale === 'fit' ? `Fit ${Math.round(fitScale * 100)}%` : `${Math.round((zoomScale as number) * 100)}%`}
+                              A4
                             </button>
+                          </AdminTooltip>
+
+                          <AdminTooltip
+                            title="Mode Baca HP"
+                            content="Format baca responsif yang nyaman untuk layar smartphone."
+                            side="bottom"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setMobileViewMode('reader')}
+                              className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
+                                mobileViewMode === 'reader' ? 'bg-slate-100 text-teal-700' : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                            >
+                              HP
+                            </button>
+                          </AdminTooltip>
+
+                          {mobileViewMode === 'a4' && (
+                            <AdminTooltip
+                              title="Skala Lembar"
+                              content="Beralih antara tampilan pas lebar layar (Fit) atau ukuran asli (100%)."
+                              side="bottom"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setZoomScale(zoomScale === 'fit' ? 1.0 : 'fit')}
+                                className="px-1.5 py-1 rounded text-[9px] font-semibold text-slate-500 hover:text-indigo-700 transition-colors cursor-pointer"
+                              >
+                                {zoomScale === 'fit' ? `Fit ${Math.round(fitScale * 100)}%` : `${Math.round((zoomScale as number) * 100)}%`}
+                              </button>
+                            </AdminTooltip>
                           )}
                         </div>
                       )}
@@ -2475,55 +2519,81 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
             <div className="flex items-center gap-2">
               {canUserActivateSop(sop, userSession) && sop.status === 'DRAFT' && onActivateSop && (
-                <button
-                  onClick={() => onActivateSop(sop)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-sm"
-                  title={isExisting ? "Setujui dan Aktifkan Dokumen SPO Eksisting" : "Aktivasi Dokumen SPO"}
+                <AdminTooltip
+                  title={isExisting ? "Setujui & Terbitkan Naskah" : "Aktivasi Dokumen SPO Resmi"}
+                  content={isExisting ? "Validasi arsip SPO eksisting dan ubah status menjadi AKTIF." : "Sahkan naskah standar SPO ini agar resmi berlaku di RSUD Dr. Soegiri."}
+                  side="top"
                 >
-                  <Stamp className="w-3.5 h-3.5" />
-                  <span>{isExisting ? 'Setujui Dokumen' : 'Aktivasi Dokumen'}</span>
-                </button>
+                  <button
+                    onClick={() => onActivateSop(sop)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-sm"
+                  >
+                    <Stamp className="w-3.5 h-3.5" />
+                    <span>{isExisting ? 'Setujui Dokumen' : 'Aktivasi Dokumen'}</span>
+                  </button>
+                </AdminTooltip>
               )}
 
               {!canUserActivateSop(sop, userSession) && sop.status === 'DRAFT' && (
                 sop.activationRequestedAt ? (
-                  <span
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/80 rounded-xl"
-                    title={`Diusulkan oleh ${sop.activationRequestedBy || 'Pengguna'} pada ${new Date(sop.activationRequestedAt).toLocaleDateString('id-ID')}`}
+                  <AdminTooltip
+                    title="Menunggu Persetujuan"
+                    content={`Naskah telah diusulkan oleh ${sop.activationRequestedBy || 'Pengguna'} pada ${new Date(sop.activationRequestedAt).toLocaleDateString('id-ID')}. Menunggu pengesahan Admin.`}
+                    side="top"
                   >
-                    <Clock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Menunggu Persetujuan Admin</span>
-                  </span>
+                    <span
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/80 rounded-xl cursor-default"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Menunggu Persetujuan Admin</span>
+                    </span>
+                  </AdminTooltip>
                 ) : onProposeActivation ? (
-                  <button
-                    type="button"
-                    onClick={() => onProposeActivation(sop)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 rounded-xl transition-colors cursor-pointer shadow-sm"
-                    title="Usulkan Dokumen SPO untuk disetujui dan diaktifkan"
+                  <AdminTooltip
+                    title="Usulkan Pengesahan SPO"
+                    content="Kirimkan naskah draf ini ke administrator / Direktur untuk ditinjau dan diaktifkan."
+                    side="top"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Usulkan Aktivasi</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onProposeActivation(sop)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 rounded-xl transition-colors cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Usulkan Aktivasi</span>
+                    </button>
+                  </AdminTooltip>
                 ) : null
               )}
 
               {(userSession?.role === 'admin' || canUserActivateSop(sop, userSession)) && onDelete && (
-                <button
-                  onClick={() => onDelete(sop)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
-                  title="Hapus Dokumen SPO"
+                <AdminTooltip
+                  title="Hapus Naskah SPO"
+                  content="Hapus dokumen SPO ini secara permanen dari pangkalan data."
+                  side="top"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Hapus</span>
-                </button>
+                  <button
+                    onClick={() => onDelete(sop)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus</span>
+                  </button>
+                </AdminTooltip>
               )}
 
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors cursor-pointer"
+              <AdminTooltip
+                title="Tutup Modal"
+                content="Tutup tampilan pratinjau dokumen."
+                side="top"
               >
-                Tutup
-              </button>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </AdminTooltip>
             </div>
           </div>
 

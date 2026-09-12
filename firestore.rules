@@ -69,8 +69,7 @@ service cloud.firestore {
 
     // Users directory
     match /users/{userId} {
-      allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Administrator registry

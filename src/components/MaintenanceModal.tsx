@@ -11,6 +11,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { MaintenanceMode } from '../lib/maintenanceService';
+import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
 
 interface MaintenanceModalProps {
   isOpen: boolean;
@@ -89,7 +90,10 @@ export const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
               <Wrench className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Pengaturan Mode Pemeliharaan</h2>
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                Pengaturan Mode Pemeliharaan
+                <AdminHelpHint text="Saat mode ini aktif, seluruh akses pengguna non-admin diblokir dengan tampilan pengumuman server. Administrator tetap dapat login dan bekerja secara normal." />
+              </h2>
               <p className="text-xs text-slate-400">Kontrol akses global dan pemeliharaan sistem realtime</p>
             </div>
           </div>
@@ -146,26 +150,31 @@ export const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
               </div>
 
               {/* Switch Switcher */}
-              <button
-                type="button"
-                onClick={() => setEnabled(!enabled)}
-                className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${
-                  enabled ? 'bg-amber-500' : 'bg-slate-300'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                    enabled ? 'translate-x-7' : 'translate-x-0'
+              <AdminTooltip content={enabled ? "Klik untuk mematikan mode pemeliharaan dan membuka akses user kembali." : "Klik untuk mengaktifkan pemeliharaan dan mengunci akses user."} title="Sakelar Pemeliharaan" side="left">
+                <button
+                  type="button"
+                  onClick={() => setEnabled(!enabled)}
+                  className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${
+                    enabled ? 'bg-amber-500' : 'bg-slate-300'
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      enabled ? 'translate-x-7' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </AdminTooltip>
             </div>
           </div>
 
           {/* Maintenance Message */}
           <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-              <span>Pesan Penjelasan Pemeliharaan</span>
+            <label className="text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                Pesan Penjelasan Pemeliharaan
+                <AdminHelpHint text="Teks ini akan dibaca oleh seluruh petugas saat mencoba membuka sistem yang sedang dalam masa perbaikan." />
+              </span>
               <span className="text-[11px] font-normal text-slate-500">Akan tampil di layar pengguna</span>
             </label>
             <textarea
@@ -185,14 +194,15 @@ export const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
             </label>
             <div className="space-y-1.5">
               {PRESET_MESSAGES.map((preset, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => setMessage(preset)}
-                  className="w-full text-left text-[11px] px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-900 transition-all text-slate-700 font-medium"
-                >
-                  "{preset}"
-                </button>
+                <AdminTooltip key={idx} content="Klik untuk menyalin teks pengumuman ini ke kolom pesan pemeliharaan." title="Terapkan Template" side="top" className="w-full">
+                  <button
+                    type="button"
+                    onClick={() => setMessage(preset)}
+                    className="w-full text-left text-[11px] px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-900 transition-all text-slate-700 font-medium cursor-pointer"
+                  >
+                    "{preset}"
+                  </button>
+                </AdminTooltip>
               ))}
             </div>
           </div>
@@ -221,27 +231,29 @@ export const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
             >
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-md flex items-center gap-2 ${
-                enabled 
-                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' 
-                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
-              } disabled:opacity-60`}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Menyimpan...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{enabled ? 'Simpan & Aktifkan Pemeliharaan' : 'Simpan & Buka Akses Normal'}</span>
-                </>
-              )}
-            </button>
+            <AdminTooltip content={enabled ? "Simpan pesan dan aktifkan mode pemeliharaan secara realtime di Firestore." : "Simpan dan buka kembali akses login untuk seluruh pengguna."} title="Konfirmasi Perubahan Status" side="top">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-md flex items-center gap-2 cursor-pointer ${
+                  enabled 
+                    ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' 
+                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                } disabled:opacity-60`}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{enabled ? 'Simpan & Aktifkan Pemeliharaan' : 'Simpan & Buka Akses Normal'}</span>
+                  </>
+                )}
+              </button>
+            </AdminTooltip>
           </div>
 
         </form>

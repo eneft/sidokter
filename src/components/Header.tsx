@@ -8,6 +8,7 @@ import { HospitalLogo } from './HospitalLogo';
 import { subscribeToFirebaseStatus, FirebaseConnectionStatus } from '../lib/firestoreService';
 import { subscribeToNotifications, AppNotification } from '../lib/notificationService';
 import { NotificationModal } from './NotificationModal';
+import { AdminTooltip } from './AdminTooltip';
 
 interface HeaderProps {
   activeTab: MainMenuTab;
@@ -60,6 +61,33 @@ export const Header: React.FC<HeaderProps> = ({
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const navDescriptions: Record<string, { title: string; desc: string }> = {
+    dashboard: {
+      title: 'Dashboard Utama',
+      desc: 'Statistik naskah, grafik dokumen aktif, dan daftar pencarian arsip terpadu.'
+    },
+    spo: {
+      title: 'Standar Prosedur Operasional',
+      desc: 'Katalog naskah SPO unit Anda, pengajuan SPO baru, dan pratinjau lembar resmi.'
+    },
+    sk: {
+      title: 'Surat Keputusan Direktur',
+      desc: 'Koleksi SK Direktur RSUD Dr. Soegiri yang telah disahkan beserta berkas PDF.'
+    },
+    mou: {
+      title: 'Perjanjian Kerjasama (MOU)',
+      desc: 'Daftar nota kesepahaman dan kemitraan resmi rumah sakit dengan pihak eksternal.'
+    },
+    admin: {
+      title: 'Portal Administrator',
+      desc: 'Akses penuh ke manajemen user, master data organisasi, keamanan, dan pemeliharaan.'
+    },
+    profile: {
+      title: 'Profil Pengguna',
+      desc: 'Lihat data wewenang unit kerja Anda dan kelola pembaruan kata sandi akun.'
+    }
+  };
+
   const userItems: Array<{ id: MainMenuTab; label: string; icon: React.ComponentType<{className?: string}>; count?: number }> = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
@@ -89,20 +117,25 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsNotificationOpen(true)}
-              className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-              title="Pemberitahuan Sistem"
-              aria-label="Pemberitahuan Sistem"
+            <AdminTooltip
+              title="Notifikasi Sistem"
+              content="Informasi pembaruan naskah, pengumuman rumah sakit, dan pengajuan aktivasi SPO."
+              side="bottom"
             >
-              <Bell className="w-4.5 h-4.5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
+                aria-label="Pemberitahuan Sistem"
+              >
+                <Bell className="w-4.5 h-4.5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+            </AdminTooltip>
           </div>
 
           {/* Navigation Menu */}
@@ -113,32 +146,40 @@ export const Header: React.FC<HeaderProps> = ({
             {userItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
+              const info = navDescriptions[item.id];
               return (
-                <button
+                <AdminTooltip
                   key={item.id}
-                  type="button"
-                  onClick={() => handleSelect(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all text-left cursor-pointer group ${
-                    active
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
+                  title={info?.title || item.label}
+                  content={info?.desc || `Buka menu ${item.label}`}
+                  side="right"
+                  className="w-full"
                 >
-                  <Icon className={`w-4.5 h-4.5 shrink-0 transition-transform group-hover:scale-105 ${active ? 'text-white' : 'text-slate-400 group-hover:text-emerald-600'}`} />
-                  <span className="flex-1 text-xs">{item.label}</span>
-                  {typeof item.count === 'number' && item.count >= 0 && (
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-black min-w-5 text-center transition-colors ${
-                        active
-                          ? 'bg-white/20 text-white'
-                          : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-800'
-                      }`}
-                    >
-                      {item.count}
-                    </span>
-                  )}
-                  {active && <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(item.id)}
+                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all text-left cursor-pointer group ${
+                      active
+                        ? 'bg-emerald-600 text-white shadow-xs font-black'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className={`w-4.5 h-4.5 shrink-0 transition-transform group-hover:scale-105 ${active ? 'text-white' : 'text-slate-400 group-hover:text-emerald-600'}`} />
+                    <span className="flex-1 text-xs">{item.label}</span>
+                    {typeof item.count === 'number' && item.count >= 0 && (
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-black min-w-5 text-center transition-colors ${
+                          active
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-800'
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                    {active && <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />}
+                  </button>
+                </AdminTooltip>
               );
             })}
           </nav>
@@ -159,25 +200,36 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   )}
                   {hasAdminAccess && (
-                    <button
-                      type="button"
-                      onClick={() => handleSelect('admin')}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-[9px] font-black tracking-wide shadow-xs transition-colors cursor-pointer"
-                      title="Buka Portal Administrator"
+                    <AdminTooltip
+                      title="Konsol Administrator"
+                      content="Buka portal penuh pengelolaan sistem untuk akun administrator."
+                      side="top"
                     >
-                      <ShieldCheck className="w-3 h-3" /> Administrator UI →
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelect('admin')}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-[9px] font-black tracking-wide shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3 h-3" /> Administrator UI →
+                      </button>
+                    </AdminTooltip>
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onLogout}
-                title="Keluar dari Akun"
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+              <AdminTooltip
+                title="Keluar Akun"
+                content="Keluar dari sesi akun SIDOKTER dengan aman."
+                side="top"
               >
-                <LogOut className="w-4 h-4" />
-              </button>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  aria-label="Keluar dari Akun"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </AdminTooltip>
             </div>
           </div>
         </aside>
@@ -304,20 +356,25 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsNotificationOpen(true)}
-            className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-            title="Pemberitahuan Sistem"
-            aria-label="Pemberitahuan Sistem"
+          <AdminTooltip
+            title="Notifikasi Sistem"
+            content="Informasi pembaruan naskah, pengumuman rumah sakit, dan pengajuan aktivasi SPO."
+            side="bottom"
           >
-            <Bell className="w-4.5 h-4.5" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => setIsNotificationOpen(true)}
+              className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
+              aria-label="Pemberitahuan Sistem"
+            >
+              <Bell className="w-4.5 h-4.5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          </AdminTooltip>
         </div>
 
         <nav className="flex-1 p-3.5 space-y-1.5 overflow-y-auto">
@@ -325,35 +382,104 @@ export const Header: React.FC<HeaderProps> = ({
           {adminItems.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
+            const info = navDescriptions[item.id];
             return (
-              <button key={item.id} type="button" onClick={() => handleSelect(item.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all text-left cursor-pointer group ${active ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-                <Icon className={`w-4.5 h-4.5 shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-emerald-600'}`} />
-                <span className="flex-1 text-xs">{item.label}</span>
-                {typeof item.count === 'number' && item.count >= 0 && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black min-w-5 text-center ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-800'}`}>{item.count}</span>
-                )}
-                {active && <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />}
-              </button>
+              <AdminTooltip
+                key={item.id}
+                title={info?.title || item.label}
+                content={info?.desc || `Buka menu ${item.label}`}
+                side="right"
+                className="w-full"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSelect(item.id)}
+                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold transition-all text-left cursor-pointer group ${
+                    active ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`w-4.5 h-4.5 shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-emerald-600'}`} />
+                  <span className="flex-1 text-xs">{item.label}</span>
+                  {typeof item.count === 'number' && item.count >= 0 && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black min-w-5 text-center ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-800'}`}>{item.count}</span>
+                  )}
+                  {active && <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />}
+                </button>
+              </AdminTooltip>
             );
           })}
 
           <div className="px-3 pt-6 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400">Administrasi</div>
-          <button type="button" onClick={onOpenUserManagement} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
-            <ShieldCheck className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Manajemen User</span>
-          </button>
-          <button type="button" onClick={onOpenMasterData} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
-            <Database className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Master Hirarki & Unit</span>
-          </button>
-          <button type="button" onClick={onOpenSecurity} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
-            <Lock className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Security</span>
-          </button>
-          <button type="button" onClick={onOpenBackupRestore} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
-            <Database className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Backup & Restore</span>
-          </button>
-          <button type="button" onClick={onOpenMaintenance} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer">
-            <Wrench className="w-4.5 h-4.5 text-slate-400" /><span className="flex-1">Mode Pemeliharaan</span>
-          </button>
+          
+          <AdminTooltip content="Kelola akun petugas unit, penugasan multi-hirarki, reset sandi, dan status verifikator." title="Manajemen User" side="right" className="w-full">
+            <button 
+              type="button" 
+              onClick={onOpenUserManagement} 
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer group transition-colors"
+            >
+              <ShieldCheck className="w-4.5 h-4.5 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block leading-tight">Manajemen User</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Akun & hak akses petugas</span>
+              </div>
+            </button>
+          </AdminTooltip>
+
+          <AdminTooltip content="Atur bagan organisasi rumah sakit (Bidang, Bagian, Instalasi, Poli, dan Ruangan)." title="Master Hirarki" side="right" className="w-full">
+            <button 
+              type="button" 
+              onClick={onOpenMasterData} 
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer group transition-colors"
+            >
+              <Database className="w-4.5 h-4.5 text-slate-400 group-hover:text-emerald-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block leading-tight">Master Hirarki & Unit</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Struktur unit kerja Soegiri</span>
+              </div>
+            </button>
+          </AdminTooltip>
+
+          <AdminTooltip content="Audit riwayat login pengguna, pantau perangkat aktif, dan putus sesi mencurigakan." title="Keamanan & Audit" side="right" className="w-full">
+            <button 
+              type="button" 
+              onClick={onOpenSecurity} 
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer group transition-colors"
+            >
+              <Lock className="w-4.5 h-4.5 text-slate-400 group-hover:text-blue-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block leading-tight">Security</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Audit sesi & log login</span>
+              </div>
+            </button>
+          </AdminTooltip>
+
+          <AdminTooltip content="Unduh cadangan database lengkap dalam format JSON atau pulihkan arsip sebelumnya." title="Cadangan Data" side="right" className="w-full">
+            <button 
+              type="button" 
+              onClick={onOpenBackupRestore} 
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer group transition-colors"
+            >
+              <Database className="w-4.5 h-4.5 text-slate-400 group-hover:text-teal-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block leading-tight">Backup & Restore</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Ekspor & pemulihan JSON</span>
+              </div>
+            </button>
+          </AdminTooltip>
+
+          <AdminTooltip content="Kunci akses sistem untuk pengguna biasa dan tampilkan pesan pemeliharaan server." title="Mode Pemeliharaan" side="right" className="w-full">
+            <button 
+              type="button" 
+              onClick={onOpenMaintenance} 
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 text-left cursor-pointer group transition-colors"
+            >
+              <Wrench className="w-4.5 h-4.5 text-slate-400 group-hover:text-rose-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block leading-tight">Mode Pemeliharaan</span>
+                <span className="block text-[10px] text-slate-400 font-normal">Pengumuman & status server</span>
+              </div>
+            </button>
+          </AdminTooltip>
         </nav>
 
         {/* Firebase Cloud Sync Status */}
@@ -377,7 +503,20 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="text-xs font-black text-slate-800 truncate leading-tight">{userSession?.name || 'Administrator'}</div>
               <div className="text-[10px] text-emerald-700 font-bold truncate mt-0.5">Administrator</div>
             </div>
-            <button type="button" onClick={onLogout} title="Keluar dari Akun" className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"><LogOut className="w-4 h-4" /></button>
+            <AdminTooltip
+              title="Keluar Akun"
+              content="Keluar dari sesi akun SIDOKTER dengan aman."
+              side="top"
+            >
+              <button
+                type="button"
+                onClick={onLogout}
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                aria-label="Keluar dari Akun"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </AdminTooltip>
           </div>
         </div>
       </aside>
@@ -423,11 +562,42 @@ export const Header: React.FC<HeaderProps> = ({
               return <button key={item.id} type="button" onClick={() => handleSelect(item.id)} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-left cursor-pointer ${active ? 'bg-emerald-600 text-white font-black' : 'text-slate-700 hover:bg-slate-100'}`}><Icon className="w-4.5 h-4.5" /><span className="flex-1">{item.label}</span>{typeof item.count === 'number' && <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{item.count}</span>}</button>;
             })}
             <div className="pt-3 mt-2 border-t border-slate-100 space-y-1.5">
-              <button type="button" onClick={onOpenUserManagement} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><ShieldCheck className="w-4.5 h-4.5" /><span className="flex-1">Manajemen User</span></button>
-              <button type="button" onClick={onOpenMasterData} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Database className="w-4.5 h-4.5" /><span className="flex-1">Master Hirarki & Unit</span></button>
-              <button type="button" onClick={onOpenSecurity} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Lock className="w-4.5 h-4.5" /><span className="flex-1">Security</span></button>
-              <button type="button" onClick={onOpenBackupRestore} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Database className="w-4.5 h-4.5" /><span className="flex-1">Backup & Restore</span></button>
-              <button type="button" onClick={onOpenMaintenance} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left"><Wrench className="w-4.5 h-4.5" /><span className="flex-1">Mode Pemeliharaan</span></button>
+              <div className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Alat Administrasi</div>
+              <button type="button" onClick={onOpenUserManagement} title="Kelola data akun dan penugasan unit kerja" className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left">
+                <ShieldCheck className="w-4.5 h-4.5 text-indigo-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="block leading-tight">Manajemen User</span>
+                  <span className="block text-[10px] text-slate-400 font-normal">Akun & hak akses petugas</span>
+                </div>
+              </button>
+              <button type="button" onClick={onOpenMasterData} title="Kelola struktur hierarki unit rumah sakit" className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left">
+                <Database className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="block leading-tight">Master Hirarki & Unit</span>
+                  <span className="block text-[10px] text-slate-400 font-normal">Struktur unit kerja Soegiri</span>
+                </div>
+              </button>
+              <button type="button" onClick={onOpenSecurity} title="Audit riwayat login dan pantau sesi aktif" className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left">
+                <Lock className="w-4.5 h-4.5 text-blue-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="block leading-tight">Security</span>
+                  <span className="block text-[10px] text-slate-400 font-normal">Audit sesi & log login</span>
+                </div>
+              </button>
+              <button type="button" onClick={onOpenBackupRestore} title="Unduh arsip atau pulihkan database JSON" className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left">
+                <Database className="w-4.5 h-4.5 text-teal-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="block leading-tight">Backup & Restore</span>
+                  <span className="block text-[10px] text-slate-400 font-normal">Ekspor & pemulihan JSON</span>
+                </div>
+              </button>
+              <button type="button" onClick={onOpenMaintenance} title="Aktifkan mode pemeliharaan sistem" className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 text-left">
+                <Wrench className="w-4.5 h-4.5 text-rose-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="block leading-tight">Mode Pemeliharaan</span>
+                  <span className="block text-[10px] text-slate-400 font-normal">Pengumuman & status server</span>
+                </div>
+              </button>
             </div>
             <button type="button" onClick={onLogout} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 text-left"><LogOut className="w-4.5 h-4.5" /><span>Keluar Akun</span></button>
           </nav>

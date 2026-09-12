@@ -74,6 +74,7 @@ import { DocumentViewer } from './DocumentViewer';
 import { AdminHubPage } from './AdminHubPage';
 import IssueSopNumberModal from './IssueSopNumberModal';
 import { getAllNumberReservations, SopNumberReservation } from '../lib/sopService';
+import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
 
 interface UserViewProps {
   userSession: UserSession;
@@ -1188,54 +1189,72 @@ export const UserView: React.FC<UserViewProps> = ({
 
               {/* Subtabs Switcher */}
               <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    openSpoInput();
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all cursor-pointer"
+                <AdminTooltip
+                  title="+ SPO Baru"
+                  content="Mulai buat pengajuan SPO baru, registrasi SPO lama/eksisting, atau revisi SPO riviu."
+                  side="bottom"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>+ SPO Baru</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openSpoInput();
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all cursor-pointer"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ SPO Baru</span>
+                  </button>
+                </AdminTooltip>
 
                 {userSession.role === 'admin' && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSubmitError(null);
-                        setIssueTitle('');
-                        setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
-                        setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
-                        setShowIssueNumberModal(true);
-                      }}
-                      disabled={isIssuingNumber}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                    <AdminTooltip
+                      title="Terbitkan Nomor Resmi"
+                      content="Terbitkan alokasi nomor register SPO resmi secara langsung untuk kebutuhan fisik/mendesak."
+                      side="bottom"
                     >
-                      <FileCheck2 className="w-4 h-4" />
-                      <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubmitError(null);
+                          setIssueTitle('');
+                          setIssueEffectiveDate(new Date().toISOString().split('T')[0]);
+                          setIssueHierarchyId(issueHierarchyOptions[0]?.id || '');
+                          setShowIssueNumberModal(true);
+                        }}
+                        disabled={isIssuingNumber}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black transition-all cursor-pointer"
+                      >
+                        <FileCheck2 className="w-4 h-4" />
+                        <span>{isIssuingNumber ? 'Menerbitkan...' : 'Terbitkan Nomor'}</span>
+                      </button>
+                    </AdminTooltip>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const rows = await getAllNumberReservations();
-                        const allowed = userSession.role === 'admin' ? true : null;
-                        const visible = rows
-                          .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
-                          .filter((row) => allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))
-                          .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
-                        setIssuedNumberRegister(visible);
-                        setIssuedNumberSearch('');
-                        setShowIssuedNumbers(true);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                    <AdminTooltip
+                      title="Buku Register Nomor"
+                      content="Lihat daftar seluruh nomor SPO yang telah dialokasikan dan status penggunaannya."
+                      side="bottom"
                     >
-                      <ListOrdered className="w-4 h-4" />
-                      <span>Nomor Terbit</span>
-                      <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const rows = await getAllNumberReservations();
+                          const allowed = userSession.role === 'admin' ? true : null;
+                          const visible = rows
+                            .filter((row) => row.status === 'RESERVED' && (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose))
+                            .filter((row) => allowed || userDivisionCodes.map((code) => String(code).toUpperCase()).includes(String(row.divisionCode || '').toUpperCase()))
+                            .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
+                          setIssuedNumberRegister(visible);
+                          setIssuedNumberSearch('');
+                          setShowIssuedNumbers(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                      >
+                        <ListOrdered className="w-4 h-4" />
+                        <span>Nomor Terbit</span>
+                        <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center">{issuedNumberRegister.length}</span>
+                      </button>
+                    </AdminTooltip>
                   </>
                 )}
               </div>
@@ -1261,13 +1280,19 @@ export const UserView: React.FC<UserViewProps> = ({
                       Lengkapi jenis dokumen, unit kerja, dan rincian SPO.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setSpoSubTab('list')}
-                    className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 shrink-0"
+                  <AdminTooltip
+                    title="Batal Pengisian"
+                    content="Tutup formulir dan kembali ke daftar naskah SPO tanpa menyimpan."
+                    side="left"
                   >
-                    Batal
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setSpoSubTab('list')}
+                      className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 shrink-0 cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                  </AdminTooltip>
                 </div>
 
                 {submitError && (
@@ -1285,23 +1310,47 @@ export const UserView: React.FC<UserViewProps> = ({
                           <FileText className="w-4 h-4" />
                         </span>
                         <span>1. Jenis Dokumen SPO</span>
+                        <AdminHelpHint text="Pilih jenis alur SPO sesuai kebutuhan: baru (penomoran otomatis), eksisting (arsip scan tanda tangan), atau riviu (pembaruan tahunan)." />
                       </h3>
                       {workflowStep >= 2 && documentTypeChosen && <span className="text-[10px] font-bold text-emerald-700 shrink-0">✓ Selesai</span>}
                     </div>
                     {workflowStep === 1 ? (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <button type="button" onClick={() => startDocumentWorkflow('BARU')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'BARU' ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20 text-emerald-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                          <FileText className="w-5 h-5 shrink-0 text-emerald-600" />
-                          <div><div className="text-xs font-black">SPO Baru (2026)</div><div className="text-[10px] text-slate-400">Penomoran otomatis</div></div>
-                        </button>
-                        <button type="button" onClick={() => startDocumentWorkflow('LAMA')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'LAMA' ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20 text-purple-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                          <BookOpen className="w-5 h-5 shrink-0 text-purple-600" />
-                          <div><div className="text-xs font-black">SPO Eksisting</div><div className="text-[10px] text-slate-400">Scan PDF sah bertandatangan</div></div>
-                        </button>
-                        <button type="button" onClick={() => startDocumentWorkflow('REVIEW')} className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'REVIEW' ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/20 text-amber-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                          <RefreshCw className="w-5 h-5 shrink-0 text-amber-600" />
-                          <div><div className="text-xs font-black">SPO Riviu</div><div className="text-[10px] text-slate-400">Revisi berkala / tahunan</div></div>
-                        </button>
+                        <AdminTooltip
+                          title="SPO Baru Format 2026"
+                          content="Penyusunan naskah prosedur baru dengan format standar RSUD Dr. Soegiri dan penomoran otomatis."
+                          side="top"
+                          className="w-full"
+                        >
+                          <button type="button" onClick={() => startDocumentWorkflow('BARU')} className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'BARU' ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20 text-emerald-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                            <FileText className="w-5 h-5 shrink-0 text-emerald-600" />
+                            <div><div className="text-xs font-black">SPO Baru (2026)</div><div className="text-[10px] text-slate-400">Penomoran otomatis</div></div>
+                          </button>
+                        </AdminTooltip>
+
+                        <AdminTooltip
+                          title="SPO Lama / Scan Asli"
+                          content="Pendaftaran arsip SPO fisik yang sudah ada dan bertanda tangan Direktur (unggah PDF scan asli)."
+                          side="top"
+                          className="w-full"
+                        >
+                          <button type="button" onClick={() => startDocumentWorkflow('LAMA')} className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'LAMA' ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20 text-purple-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                            <BookOpen className="w-5 h-5 shrink-0 text-purple-600" />
+                            <div><div className="text-xs font-black">SPO Eksisting</div><div className="text-[10px] text-slate-400">Scan PDF sah bertandatangan</div></div>
+                          </button>
+                        </AdminTooltip>
+
+                        <AdminTooltip
+                          title="SPO Hasil Riviu"
+                          content="Pembaruan atau kaji ulang berkala dari SPO eksisting sebelumnya dengan nomor revisi baru."
+                          side="top"
+                          className="w-full"
+                        >
+                          <button type="button" onClick={() => startDocumentWorkflow('REVIEW')} className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 ${documentTypeChosen && documentType === 'REVIEW' ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/20 text-amber-950' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                            <RefreshCw className="w-5 h-5 shrink-0 text-amber-600" />
+                            <div><div className="text-xs font-black">SPO Riviu</div><div className="text-[10px] text-slate-400">Revisi berkala / tahunan</div></div>
+                          </button>
+                        </AdminTooltip>
                       </div>
                     ) : (
                       <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/40 px-3.5 py-2.5">
@@ -2187,27 +2236,46 @@ export const UserView: React.FC<UserViewProps> = ({
                   {/* Final action hanya boleh muncul setelah tahap 3 tercapai. */}
                   {workflowStep >= 3 && (
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
-                      <button type="button" onClick={goBackWorkflow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-1.5 py-1">← Kembali</button>
+                      <AdminTooltip
+                        title="Kembali ke Langkah Sebelumnya"
+                        content="Kembali ke pemilihan unit atau jenis naskah untuk melakukan penyesuaian data."
+                        side="top"
+                      >
+                        <button type="button" onClick={goBackWorkflow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1.5 rounded-lg hover:bg-slate-100 cursor-pointer">← Kembali</button>
+                      </AdminTooltip>
                       <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setSpoSubTab('list')}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-1.5 py-1 cursor-pointer"
+                        <AdminTooltip
+                          title="Batal Pengisian"
+                          content="Batalkan pengisian formulir dan kembali ke daftar naskah SPO."
+                          side="top"
                         >
-                          Batal
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || !hasValidUserAssignment}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-black shadow-xs cursor-pointer"
+                          <button
+                            type="button"
+                            onClick={() => setSpoSubTab('list')}
+                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 px-2 py-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+                          >
+                            Batal
+                          </button>
+                        </AdminTooltip>
+
+                        <AdminTooltip
+                          title="Daftarkan & Usulkan"
+                          content="Simpan draf naskah SPO ke pangkalan data dan kirimkan usulan pengesahan ke verifikator/Direktur."
+                          side="top"
                         >
-                          {isSubmitting ? 'Menyimpan...' : (
-                            <>
-                              <PlusCircle className="w-4 h-4" />
-                              <span>Daftarkan & Usulkan SPO</span>
-                            </>
-                          )}
-                        </button>
+                          <button
+                            type="submit"
+                            disabled={isSubmitting || !hasValidUserAssignment}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-black shadow-xs cursor-pointer"
+                          >
+                            {isSubmitting ? 'Menyimpan...' : (
+                              <>
+                                <PlusCircle className="w-4 h-4" />
+                                <span>Daftarkan & Usulkan SPO</span>
+                              </>
+                            )}
+                          </button>
+                        </AdminTooltip>
                       </div>
                     </div>
                   )}

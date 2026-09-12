@@ -939,8 +939,8 @@ export async function handleAuthApi(req: Request, res: Response) {
       const userId = String(req.body?.userId || '').trim();
       if (!userId) return res.status(400).json({ message: 'User ID wajib diisi.' });
 
-      if (userId === activeAuth.user.id) {
-        return res.status(400).json({ message: 'Tidak dapat menghapus akun Anda sendiri saat sedang aktif.' });
+      if (userId === activeAuth.user.id || userId === 'admin-root' || authDb.users[userId]?.username === 'admin') {
+        return res.status(400).json({ message: 'Tidak dapat menghapus akun Administrator Root utama.' });
       }
 
       delete authDb.users[userId];

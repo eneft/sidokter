@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, KeyRound, LogOut, Monitor, ShieldCheck, Smartphone, X } from 'lucide-react';
 import { LoginAuditLog, UserSession } from '../types';
 import { changeUserPassword, fetchRecentAuditLogs, revokeAllUserSessions } from '../lib/authService';
+import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
 
 interface SecurityAccountPanelProps {
   isOpen: boolean;
@@ -91,10 +92,14 @@ export const SecurityAccountPanel: React.FC<SecurityAccountPanelProps> = ({ isOp
       <div className="w-full max-w-5xl max-h-[92vh] overflow-y-auto bg-slate-50 rounded-2xl shadow-2xl border border-slate-200">
         <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 py-4 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2 text-slate-900 font-bold"><ShieldCheck className="w-5 h-5 text-emerald-600" /> Keamanan Akun</div>
+            <div className="flex items-center gap-2 text-slate-900 font-bold">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <span>Keamanan Akun</span>
+              <AdminHelpHint text="Menu audit keamanan memantau aktivitas autentikasi, status penguncian akun (lockout), dan riwayat sesi staf." />
+            </div>
             <p className="text-xs text-slate-500 mt-1">Kelola kata sandi, sesi aktif, dan riwayat keamanan akun.</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -105,7 +110,9 @@ export const SecurityAccountPanel: React.FC<SecurityAccountPanelProps> = ({ isOp
                 <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Kata sandi saat ini" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" required />
                 <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Kata sandi baru" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" required />
                 <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Ulangi kata sandi baru" className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" required />
-                <button disabled={busy} className="w-full rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{busy ? 'Memproses...' : 'Simpan Kata Sandi'}</button>
+                <AdminTooltip content="Perbarui kata sandi akun Anda dan catat log perubahan keamanan ke sistem." title="Ganti Kata Sandi" side="top" className="w-full">
+                  <button disabled={busy} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors cursor-pointer">{busy ? 'Memproses...' : 'Simpan Kata Sandi'}</button>
+                </AdminTooltip>
               </form>
             </section>
 
@@ -114,7 +121,9 @@ export const SecurityAccountPanel: React.FC<SecurityAccountPanelProps> = ({ isOp
               <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3">
                 <div><div className="text-sm font-semibold text-slate-900">Perangkat ini</div><div className="text-xs text-emerald-700">Sesi aktif • {userSession.username}</div></div><CheckCircle2 className="w-5 h-5 text-emerald-600" />
               </div>
-              <button onClick={handleRevokeAll} disabled={busy} className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><LogOut className="w-4 h-4" />Keluar dari Semua Perangkat</button>
+              <AdminTooltip content="Hentikan sesi login akun ini di semua browser atau perangkat lain yang sedang terbuka." title="Cabut Sesi Global" side="top" className="w-full">
+                <button onClick={handleRevokeAll} disabled={busy} className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition-colors cursor-pointer"><LogOut className="w-4 h-4" />Keluar dari Semua Perangkat</button>
+              </AdminTooltip>
               <p className="mt-2 text-[11px] text-slate-500">Tindakan ini juga akan mengeluarkan Anda dari perangkat yang sedang digunakan.</p>
             </section>
           </div>

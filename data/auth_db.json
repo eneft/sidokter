@@ -13,7 +13,7 @@
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
       "createdAt": "2026-09-04T21:05:00.379Z",
-      "updatedAt": "2026-09-11T10:57:35.883Z",
+      "updatedAt": "2026-09-12T08:52:23.806Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -67,8 +67,8 @@
         "VERIFIKATOR"
       ],
       "unitName": "Umum & Perlengkapan",
-      "createdAt": "2026-09-10T09:48:32.318Z",
-      "updatedAt": "2026-09-10T09:48:32.329Z",
+      "createdAt": "2026-09-12T08:35:24.112Z",
+      "updatedAt": "2026-09-12T08:35:24.126Z",
       "credentialStatus": "ACTIVE"
     }
   },
@@ -465,6 +465,51 @@
     },
     "d63f281f-e43c-4c68-a974-651434198692": {
       "sessionId": "d63f281f-e43c-4c68-a974-651434198692",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "2d2bca3e-ab38-4f3f-94ac-3b74c19be5ae": {
+      "sessionId": "2d2bca3e-ab38-4f3f-94ac-3b74c19be5ae",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1789202124112,
+      "lastActiveAt": 1789202124112,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "fcb33ce6-3f18-446e-91cc-f2596f8c525c": {
+      "sessionId": "fcb33ce6-3f18-446e-91cc-f2596f8c525c",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "41f5b413-79a3-44ee-b8f5-9e0eef49a576": {
+      "sessionId": "41f5b413-79a3-44ee-b8f5-9e0eef49a576",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "b338b1f9-fb2b-4546-b065-628168ee92ef": {
+      "sessionId": "b338b1f9-fb2b-4546-b065-628168ee92ef",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1788555900379,
+      "lastActiveAt": 1788555900379,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "1b89f6a8-4e92-4da8-9eab-54e026dace1a": {
+      "sessionId": "1b89f6a8-4e92-4da8-9eab-54e026dace1a",
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788555900379,
