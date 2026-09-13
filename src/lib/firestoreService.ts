@@ -394,31 +394,10 @@ function normalizeUserBadges(value: unknown): UserAccount['badges'] {
 ========================================================================= */
 
 export async function saveUserToFirestore(user: UserAccount): Promise<void> {
-  try {
-    const docId = user.id || `usr-${user.username}`;
-    const rawPayload: any = {
-      id: docId,
-      username: (user.username || '').toLowerCase().trim(),
-      name: user.name || user.username,
-      role: String(user.role || '').toLowerCase() === 'admin' ? 'admin' : 'user',
-      unitName: user.unitName || '',
-      divisionCode: user.divisionCode || 'ALL',
-      divisionCodes: Array.isArray(user.divisionCodes) ? user.divisionCodes : (user.divisionCode ? [user.divisionCode] : ['ALL']),
-      assignments: Array.isArray(user.assignments) ? user.assignments : [],
-      badges: normalizeUserBadges(user.badges) || [],
-      subCode: user.subCode || null,
-      instCode: user.instCode || null,
-      poliCode: user.poliCode || null,
-      subUnitCode: user.subUnitCode || null,
-      credentialStatus: user.credentialStatus || 'ACTIVE',
-      createdAt: user.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    const cleanPayload = JSON.parse(JSON.stringify(rawPayload));
-    await setDoc(doc(db, 'users', docId), cleanPayload, { merge: true });
-  } catch (err) {
-    console.warn('[firestoreService] saveUserToFirestore notice:', err);
-  }
+  // Deprecated for account writes. Credentials are managed exclusively by authApi.
+  // Kept as a compatibility no-op so legacy callers cannot accidentally write hashes.
+  void user;
+  return;
 }
 
 export async function fetchUsersFromFirestore(): Promise<UserAccount[]> {

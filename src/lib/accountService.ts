@@ -150,34 +150,6 @@ export function subscribeToUsers(onData:(users:UserAccount[])=>void,onError?:(er
 export async function saveUserToLocal(user:UserAccount):Promise<void> {
   const result=await saveManagedUser(user);
   if(!result?.success) throw new Error(result?.message || 'Gagal menyimpan akun.');
-  try {
-    const { doc, setDoc } = await import('firebase/firestore');
-    const { db } = await import('./firebase');
-    const docId = user.id || `usr-${user.username}`;
-    const rawPayload: any = {
-      id: docId,
-      username: (user.username || '').toLowerCase().trim(),
-      name: user.name || user.username,
-      role: (user.role || 'user').toLowerCase(),
-      unitName: user.unitName || '',
-      divisionCode: user.divisionCode || 'ALL',
-      divisionCodes: Array.isArray(user.divisionCodes) ? user.divisionCodes : (user.divisionCode ? [user.divisionCode] : ['ALL']),
-      assignments: Array.isArray(user.assignments) ? user.assignments : [],
-      badges: Array.isArray(user.badges) ? user.badges : [],
-      subCode: user.subCode || null,
-      instCode: user.instCode || null,
-      poliCode: user.poliCode || null,
-      subUnitCode: user.subUnitCode || null,
-      credentialStatus: user.credentialStatus || 'ACTIVE',
-      createdAt: user.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    // Deep strip all undefined values to ensure Firestore schema validity
-    const cleanPayload = JSON.parse(JSON.stringify(rawPayload));
-    await setDoc(doc(db, 'users', docId), cleanPayload, { merge: true });
-  } catch (firestoreErr) {
-    console.warn('[accountService] Firestore user profile sync notice:', firestoreErr);
-  }
   await syncUsersWithFirestore();
 }
 
