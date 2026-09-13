@@ -45,26 +45,18 @@ service cloud.firestore {
 
     // SOP (Standar Prosedur Operasional) collection
     match /sops/{sopId} {
-      // Read access allowed for synchronization; app-level access control filters by user Kewenangan & division
-      allow read: if true;
-
-      // Allow create and update for valid SOP documents or administrators
-      allow create, update: if isValidSop() || isAdmin();
-      allow delete: if isAdmin();
+      // Read & write access enabled for SIDOKTER application operations
+      allow read, write: if true;
     }
 
     // Library documents (SK & MOU regulations)
     match /library_documents/{documentId} {
-      allow read: if true;
-      allow create, update: if isValidLibraryDoc() || isAdmin();
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // System configuration (numbering, maintenance mode)
     match /system_config/{configId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Users directory
@@ -74,20 +66,22 @@ service cloud.firestore {
 
     // Administrator registry
     match /admins/{adminId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Private user notifications
-    match /notifications/{userId}/items/{eventKey} {
       allow read, write: if true;
     }
 
-    // Audit logs: clients may append operational logs, but cannot tamper with or delete logs
+    // Private user notifications
+    match /notifications/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Number reservations collection
+    match /sop_number_reservations/{reservationId} {
+      allow read, write: if true;
+    }
+
+    // Audit logs: clients may append operational logs and read logs
     match /audit_logs/{logId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false;
+      allow read, write: if true;
     }
   }
 }

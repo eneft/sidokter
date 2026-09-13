@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0880840770",
-  "appId": "1:389867531744:web:2f20559513b67a190a0f85",
-  "apiKey": "AIzaSyAIO7NxurNpfx1PvXwm9gtOtmIupAhtWBg",
-  "authDomain": "gen-lang-client-0880840770.firebaseapp.com",
+  "projectId": "sidokter-soegiri",
+  "appId": "1:1045796948737:web:e7b2be38c0ab2ddcc72900",
+  "apiKey": "AIzaSyBHKkE652N-c-uFdoLIzjr3NRM3B7exov4",
+  "authDomain": "sidokter-soegiri.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3",
-  "storageBucket": "gen-lang-client-0880840770.firebasestorage.app",
-  "messagingSenderId": "389867531744",
+  "storageBucket": "sidokter-soegiri.firebasestorage.app",
+  "messagingSenderId": "1045796948737",
   "measurementId": "",
-  "oAuthClientId": "389867531744-0u28amv59c1r6rieur8ak0puorr84gtk.apps.googleusercontent.com",
+  "oAuthClientId": "1045796948737-0tbh4s1b7psi7jk00l6p4c3opf8npro9.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

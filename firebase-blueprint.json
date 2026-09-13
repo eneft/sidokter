@@ -47,6 +47,17 @@
       },
       "rules": "public read; admin or valid document create/update; admin delete"
     },
+    "sop_number_reservations": {
+      "description": "Koleksi nomor reservasi SPO",
+      "fields": {
+        "id": { "type": "string", "description": "ID unik reservasi", "required": true },
+        "sopNumber": { "type": "string", "description": "Nomor SPO reservasi", "required": true },
+        "divisionCode": { "type": "string", "description": "Kode divisi", "required": true },
+        "status": { "type": "string", "description": "Status reservasi (RESERVED, CONSUMED)", "required": true },
+        "createdAt": { "type": "string", "description": "Waktu pembuatan ISO 8601", "required": true }
+      },
+      "rules": "public read; public write"
+    },
     "users": {
       "description": "Koleksi akun pengguna dan administrator tata naskah",
       "fields": {

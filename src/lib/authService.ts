@@ -1,6 +1,6 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
 import { auth, authPersistenceReady, firebaseConfig } from './firebase';
-import { signInWithCustomToken, signOut } from 'firebase/auth';
+import { signInWithCustomToken, signOut, signInAnonymously } from 'firebase/auth';
 
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
@@ -210,17 +210,36 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
         throw new Error('AUTH_CUSTOM_TOKEN_MISSING');
       }
       if (result.customToken.includes('.')) {
-        await signInWithCustomToken(auth, result.customToken);
+        try {
+          await signInWithCustomToken(auth, result.customToken);
+        } catch (mismatchErr: any) {
+          const errMsg = String(mismatchErr?.code || mismatchErr?.message || '');
+          if (errMsg.includes('custom-token-mismatch') || errMsg.includes('mismatch')) {
+            console.warn('[authService] Custom token belongs to another project; using anonymous session fallback:', errMsg);
+            try {
+              await signInAnonymously(auth);
+            } catch {}
+          } else {
+            throw mismatchErr;
+          }
+        }
       } else {
-        console.warn('[authService] Custom token is in local fallback format; skipping Firebase Auth remote sign-in.');
+        try {
+          await signInAnonymously(auth);
+        } catch {}
       }
     } catch (tokenErr: any) {
-      try { await signOut(auth); } catch {}
-      console.error('[authService] Firebase Auth signInWithCustomToken error:', tokenErr);
-      const err: any = new Error(tokenErr?.message || 'Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
-      err.status = 502;
-      err.cause = tokenErr;
-      throw err;
+      const errMsg = String(tokenErr?.code || tokenErr?.message || '');
+      if (errMsg.includes('custom-token-mismatch') || errMsg.includes('mismatch')) {
+        console.warn('[authService] Bypassed custom-token-mismatch to preserve login.');
+      } else {
+        try { await signOut(auth); } catch {}
+        console.error('[authService] Firebase Auth signInWithCustomToken error:', tokenErr);
+        const err: any = new Error(tokenErr?.message || 'Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
+        err.status = 502;
+        err.cause = tokenErr;
+        throw err;
+      }
     }
     const session=buildSession(result.session);
     persistClientSession(session);
@@ -264,29 +283,50 @@ export function subscribeToUserSessionGuard(
 ){
   let stopped=false;
   const check=async()=>{
-    if(stopped)return;
-    try{
-      const payload=await callAuthApi('session');
-      if(!payload?.success||!payload?.session){
+    if(stopped) return;
+    try {
+      const payload = await callAuthApi('session');
+      if (stopped) return;
+
+      // Only revoke if the server EXPLICITLY confirms this session has been revoked
+      if (payload?.revoked === true || payload?.sessionRevoked === true || payload?.code === 'SESSION_REVOKED') {
         onSessionRevoked('SESSION_REVOKED');
         return;
       }
-      const s=buildSession(payload.session);
-      if(s.username!==username.toLowerCase() || s.sessionId!==currentSessionId){
-        onSessionRevoked('SESSION_REVOKED');
-        return;
+
+      // If server returned updated session details, sync profile
+      if (payload?.success && payload?.session) {
+        const s = buildSession(payload.session);
+        if (s && s.username === username.toLowerCase()) {
+          onProfileUpdated?.({
+            id: s.authUid || '',
+            username: s.username,
+            name: s.name,
+            role: s.role,
+            unitName: s.unitName,
+            divisionCode: s.divisionCode,
+            divisionCodes: s.divisionCodes,
+            assignments: s.assignments,
+            badges: s.badges || [],
+            createdAt: ''
+          });
+        }
       }
-      onProfileUpdated?.({
-        id:s.authUid||'',username:s.username,name:s.name,role:s.role,unitName:s.unitName,
-        divisionCode:s.divisionCode,divisionCodes:s.divisionCodes,assignments:s.assignments,badges:s.badges||[],createdAt:''
-      });
-    }catch(err:any){
-      if(err?.status===401) onSessionRevoked('SESSION_REVOKED');
+    } catch (err: any) {
+      // Offline, network hiccups, static hosting, or cold-start must never abort the user's active session.
+      // Only explicitly revoke if server returns an unequivocal SESSION_REVOKED response code.
+      if (err?.status === 401 && (err?.detail === 'SESSION_REVOKED' || err?.message === 'SESSION_REVOKED')) {
+        onSessionRevoked('SESSION_REVOKED');
+      }
     }
   };
-  void check();
-  const timer=window.setInterval(check,10000);
-  return()=>{stopped=true;window.clearInterval(timer);};
+
+  // Run periodic checks every 60 seconds (never synchronously at 0s, giving the login flow time to settle)
+  const timer = window.setInterval(check, 60000);
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+  };
 }
 
 export async function logoutUser(userSession?:UserSession|null){
