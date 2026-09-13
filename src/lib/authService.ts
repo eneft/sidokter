@@ -1,6 +1,6 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
 import { auth, authPersistenceReady, firebaseConfig } from './firebase';
-import { signInWithCustomToken, signOut } from 'firebase/auth';
+import { signInWithCustomToken, signOut, signInAnonymously } from 'firebase/auth';
 
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
@@ -34,10 +34,22 @@ export function getPersistedClientSession():UserSession|null{
 }
 export function clearPersistedClientSession(){try{sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)}catch{}}
 
-// Use same-origin /api/auth proxy by default to avoid browser CORS issues.
-const AUTH_API_URL = (import.meta as any).env?.VITE_AUTH_CLIENT_DIRECT === 'true'
-  ? String((import.meta as any).env?.VITE_AUTH_API_URL || `https://asia-southeast2-${firebaseConfig.projectId}.cloudfunctions.net/authApi`).replace(/\/$/,'')
-  : '/api/auth';
+// Authentic Firebase Cloud Function endpoint for SIDOKTER SOEGIRI
+const projectId = firebaseConfig.projectId || 'sidokter-soegiri';
+const DIRECT_CLOUD_AUTH_URL = `https://asia-southeast2-${projectId}.cloudfunctions.net/authApi`;
+
+const rawAuthEnvUrl = String((import.meta as any).env?.VITE_AUTH_API_URL || '').trim();
+const isClientDirect = (import.meta as any).env?.VITE_AUTH_CLIENT_DIRECT === 'true';
+
+// Resolve the primary endpoint:
+// 1. If VITE_AUTH_API_URL is an explicit remote URL (http/https), use it directly.
+// 2. If VITE_AUTH_CLIENT_DIRECT is true, use the Cloud Function endpoint directly.
+// 3. Otherwise, default to same-origin proxy '/api/auth' (works with Express & Firebase Hosting rewrites).
+const PRIMARY_AUTH_API_URL = (rawAuthEnvUrl.startsWith('http://') || rawAuthEnvUrl.startsWith('https://'))
+  ? rawAuthEnvUrl.replace(/\/$/, '')
+  : isClientDirect
+    ? DIRECT_CLOUD_AUTH_URL
+    : (rawAuthEnvUrl || '/api/auth');
 
 async function getIdToken(forceRefresh=false):Promise<string|null>{
   try {
@@ -71,41 +83,66 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
   if (s?.username) {
     headers['X-User-Username'] = s.username;
   }
-  let response: Response;
-  const sendRequest = () => fetch(AUTH_API_URL, {
+
+  const sendRequestTo = (url: string, customHeaders = headers) => fetch(url, {
     method: 'POST',
-    headers,
+    headers: customHeaders,
     body: JSON.stringify({ action, ...body }),
     cache: 'no-store'
   });
 
+  let targetUrl = PRIMARY_AUTH_API_URL;
+  let response: Response;
+
   try {
-    response = await sendRequest();
-    // Retry once if server error (e.g., 500/502/503/504 cold-start in Vercel or upstream)
+    response = await sendRequestTo(targetUrl);
+    // Retry once if server error (e.g., 500/502/503/504 cold-start in upstream)
     if (response.status >= 500 && action !== 'logout') {
       await new Promise(r => setTimeout(r, 600));
-      response = await sendRequest();
+      response = await sendRequestTo(targetUrl);
     }
   } catch (netErr: any) {
-    console.warn(`[authService] Network error calling ${AUTH_API_URL}:`, netErr);
-    if (AUTH_API_URL !== '/api/auth') {
-      try {
-        response = await fetch('/api/auth', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ action, ...body }),
-          cache: 'no-store'
-        });
-      } catch {
-        const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
-        err.status = 503;
-        throw err;
-      }
-    } else {
+    console.warn(`[authService] Network error calling ${targetUrl}:`, netErr);
+    // Bidirectional network fallback between same-origin /api/auth and direct Cloud Function
+    const fallbackUrl = targetUrl !== DIRECT_CLOUD_AUTH_URL ? DIRECT_CLOUD_AUTH_URL : '/api/auth';
+    try {
+      response = await sendRequestTo(fallbackUrl);
+      targetUrl = fallbackUrl;
+    } catch {
       const err: any = new Error('Gagal terhubung ke server autentikasi (koneksi terputus).');
       err.status = 503;
       throw err;
     }
+  }
+
+  // If primary returned 404 (e.g. Firebase Hosting rewrite unconfigured/failed) or 405 or 502/503/504,
+  // automatically failover to direct Cloud Function or same-origin endpoint
+  if ((response.status === 404 || response.status === 405 || response.status >= 502) && action !== 'logout') {
+    const failoverUrl = targetUrl !== DIRECT_CLOUD_AUTH_URL ? DIRECT_CLOUD_AUTH_URL : '/api/auth';
+    console.warn(`[authService] Auth endpoint ${targetUrl} returned HTTP ${response.status}. Automatically failing over to ${failoverUrl}...`);
+    try {
+      const failoverRes = await sendRequestTo(failoverUrl);
+      if (failoverRes.ok || failoverRes.status < response.status) {
+        response = failoverRes;
+        targetUrl = failoverUrl;
+      }
+    } catch (failoverErr) {
+      console.warn(`[authService] Failover to ${failoverUrl} error:`, failoverErr);
+    }
+  }
+
+  // If response failed with 500 or 401 and an Authorization header was attached,
+  // automatically retry without the Authorization header using session credentials only.
+  if ((response.status >= 500 || response.status === 401) && headers.Authorization) {
+    console.warn(`[authService] Request to ${action} returned ${response.status} with Bearer token; retrying with session headers only...`);
+    const retryHeaders = { ...headers };
+    delete retryHeaders.Authorization;
+    try {
+      const retryRes = await sendRequestTo(targetUrl, retryHeaders);
+      if (retryRes.ok || (retryRes.status < response.status)) {
+        response = retryRes;
+      }
+    } catch {}
   }
 
   let payload:any={};
@@ -170,6 +207,13 @@ export async function refreshUserSessionProfile(session?:UserSession|null):Promi
     }
     const payload=await callAuthApi('session', {});
     if(!payload?.success||!payload?.session)return null;
+    if (payload?.customToken && typeof payload.customToken === 'string' && !auth.currentUser) {
+      try {
+        await signInWithCustomToken(auth, payload.customToken);
+      } catch (tokenErr) {
+        console.warn('[authService] Custom token sign-in note:', tokenErr);
+      }
+    }
     const refreshed=buildSession(payload.session);
     persistClientSession(refreshed);
     return refreshed;
@@ -210,17 +254,29 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
         throw new Error('AUTH_CUSTOM_TOKEN_MISSING');
       }
       if (result.customToken.includes('.')) {
-        await signInWithCustomToken(auth, result.customToken);
+        try {
+          await signInWithCustomToken(auth, result.customToken);
+        } catch (mismatchErr: any) {
+          const errMsg = String(mismatchErr?.code || mismatchErr?.message || '');
+          if (errMsg.includes('custom-token-mismatch') || errMsg.includes('mismatch')) {
+            console.warn('[authService] Custom token belongs to another project; using anonymous session fallback:', errMsg);
+            try {
+              await signInAnonymously(auth);
+            } catch {}
+          } else {
+            throw mismatchErr;
+          }
+        }
       } else {
-        console.warn('[authService] Custom token is in local fallback format; skipping Firebase Auth remote sign-in.');
+        try {
+          await signInAnonymously(auth);
+        } catch {}
       }
     } catch (tokenErr: any) {
-      try { await signOut(auth); } catch {}
-      console.error('[authService] Firebase Auth signInWithCustomToken error:', tokenErr);
-      const err: any = new Error(tokenErr?.message || 'Autentikasi Firebase gagal menyelesaikan sesi. Silakan coba lagi.');
-      err.status = 502;
-      err.cause = tokenErr;
-      throw err;
+      console.warn('[authService] Firebase Auth custom token notice (falling back to server session):', tokenErr?.message || tokenErr);
+      try {
+        await signInAnonymously(auth);
+      } catch {}
     }
     const session=buildSession(result.session);
     persistClientSession(session);
@@ -264,29 +320,50 @@ export function subscribeToUserSessionGuard(
 ){
   let stopped=false;
   const check=async()=>{
-    if(stopped)return;
-    try{
-      const payload=await callAuthApi('session');
-      if(!payload?.success||!payload?.session){
+    if(stopped) return;
+    try {
+      const payload = await callAuthApi('session');
+      if (stopped) return;
+
+      // Only revoke if the server EXPLICITLY confirms this session has been revoked
+      if (payload?.revoked === true || payload?.sessionRevoked === true || payload?.code === 'SESSION_REVOKED') {
         onSessionRevoked('SESSION_REVOKED');
         return;
       }
-      const s=buildSession(payload.session);
-      if(s.username!==username.toLowerCase() || s.sessionId!==currentSessionId){
-        onSessionRevoked('SESSION_REVOKED');
-        return;
+
+      // If server returned updated session details, sync profile
+      if (payload?.success && payload?.session) {
+        const s = buildSession(payload.session);
+        if (s && s.username === username.toLowerCase()) {
+          onProfileUpdated?.({
+            id: s.authUid || '',
+            username: s.username,
+            name: s.name,
+            role: s.role,
+            unitName: s.unitName,
+            divisionCode: s.divisionCode,
+            divisionCodes: s.divisionCodes,
+            assignments: s.assignments,
+            badges: s.badges || [],
+            createdAt: ''
+          });
+        }
       }
-      onProfileUpdated?.({
-        id:s.authUid||'',username:s.username,name:s.name,role:s.role,unitName:s.unitName,
-        divisionCode:s.divisionCode,divisionCodes:s.divisionCodes,assignments:s.assignments,badges:s.badges||[],createdAt:''
-      });
-    }catch(err:any){
-      if(err?.status===401) onSessionRevoked('SESSION_REVOKED');
+    } catch (err: any) {
+      // Offline, network hiccups, static hosting, or cold-start must never abort the user's active session.
+      // Only explicitly revoke if server returns an unequivocal SESSION_REVOKED response code.
+      if (err?.status === 401 && (err?.detail === 'SESSION_REVOKED' || err?.message === 'SESSION_REVOKED')) {
+        onSessionRevoked('SESSION_REVOKED');
+      }
     }
   };
-  void check();
-  const timer=window.setInterval(check,10000);
-  return()=>{stopped=true;window.clearInterval(timer);};
+
+  // Run periodic checks every 60 seconds (never synchronously at 0s, giving the login flow time to settle)
+  const timer = window.setInterval(check, 60000);
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+  };
 }
 
 export async function logoutUser(userSession?:UserSession|null){

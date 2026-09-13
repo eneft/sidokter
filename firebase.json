@@ -8,8 +8,7 @@
   "functions": [
     {
       "source": "functions",
-      "codebase": "default",
-      "runtime": "nodejs22"
+      "codebase": "default"
     }
   ],
   "hosting": {

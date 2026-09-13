@@ -8,7 +8,7 @@
 // The canonical endpoint MUST be tried first so account-management and
 // hierarchy data cannot silently come from the legacy auth_db.json backend.
 const CANONICAL_FIREBASE_AUTH_API =
-  'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/authApi';
+  'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/authApi';
 
 const UPSTREAM_URLS = Array.from(new Set([
   CANONICAL_FIREBASE_AUTH_API,

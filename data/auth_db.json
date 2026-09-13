@@ -12,9 +12,12 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-04T21:05:00.379Z",
-      "updatedAt": "2026-09-12T08:52:23.806Z",
-      "credentialStatus": "ACTIVE"
+      "createdAt": "2026-09-13T14:30:15.459Z",
+      "updatedAt": "2026-09-13T14:30:18.386Z",
+      "credentialStatus": "ACTIVE",
+      "failedLoginAttempts": 2,
+      "lockoutUntil": 0,
+      "lastLoginAt": "2026-09-13T16:20:17.655Z"
     },
     "usr-1788587912270-4c9l": {
       "id": "usr-1788587912270-4c9l",
@@ -38,7 +41,7 @@
       ],
       "unitName": "Bidang Percobaan",
       "createdAt": "2026-09-08T15:10:45.074Z",
-      "updatedAt": "2026-09-08T15:10:45.087Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788261994005-ss3t": {
@@ -46,29 +49,692 @@
       "username": "arman",
       "name": "Abdur Rohman, S.Sn",
       "role": "user",
+      "unitName": "Umum & Perlengkapan",
       "divisionCode": "UPH",
       "divisionCodes": [
         "UPH"
       ],
       "assignments": [
         {
-          "id": "assignment-UPH-1",
-          "divisionCode": "UPH",
-          "unitName": "Umum & Perlengkapan",
           "subCode": "1",
-          "hierarchyCode": "1",
+          "divisionCode": "UPH",
           "hierarchyPath": [
             "Umum & Perlengkapan"
-          ]
+          ],
+          "unitName": "Umum & Perlengkapan",
+          "hierarchyCode": "1",
+          "id": "assignment-UPH-1"
         }
       ],
       "badges": [
         "STRUKTURAL",
         "VERIFIKATOR"
       ],
-      "unitName": "Umum & Perlengkapan",
-      "createdAt": "2026-09-12T08:35:24.112Z",
-      "updatedAt": "2026-09-12T08:35:24.126Z",
+      "subCode": "1",
+      "instCode": null,
+      "poliCode": null,
+      "subUnitCode": null,
+      "createdAt": "2026-09-01T11:26:34.005Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786591415417-skt7": {
+      "id": "usr-1786591415417-skt7",
+      "username": "annasofhia",
+      "name": "Anna Sofhia",
+      "role": "user",
+      "unitName": "Bagian Umum dan Perlengkapan",
+      "divisionCode": "UPH",
+      "divisionCodes": [
+        "UPH"
+      ],
+      "createdAt": "2026-08-13T03:23:35.417Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786607443818-rxp0": {
+      "id": "usr-1786607443818-rxp0",
+      "username": "andrea",
+      "name": "ANDREA THEA RHOSITA, S. Farm, Apt",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Medik - Inst. Farmasi",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "1",
+      "createdAt": "2026-08-13T07:50:43.818Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611171614-59ja": {
+      "id": "usr-1786611171614-59ja",
+      "username": "nisa",
+      "name": "KHOIRUN NISA', STr. Kes",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Inst. Laboratorium - Patologi Anatomi",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "2",
+      "poliCode": "2",
+      "createdAt": "2026-08-13T08:52:51.614Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611229814-ij7q": {
+      "id": "usr-1786611229814-ij7q",
+      "username": "niken",
+      "name": "NIKEN SARI SARASWATI, A. Md. AK",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Inst. Laboratorium - Bank Darah",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "2",
+      "poliCode": "3",
+      "createdAt": "2026-08-13T08:53:49.814Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611292750-a10v": {
+      "id": "usr-1786611292750-a10v",
+      "username": "isnatika",
+      "name": "ISNATIKA WIDIAFIJRINA, A. Md. RAd",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Medik - Inst. Radiologi",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "3",
+      "createdAt": "2026-08-13T08:54:52.750Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611382759-x9kg": {
+      "id": "usr-1786611382759-x9kg",
+      "username": "rokhim",
+      "name": "ABD. ROKHIM",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Medik - Inst. Forensik",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "4",
+      "createdAt": "2026-08-13T08:56:22.759Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611452343-vs2q": {
+      "id": "usr-1786611452343-vs2q",
+      "username": "laelatul",
+      "name": "LAELATUL MA'RUFAH, A. Md. PK",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Medik - Inst. Rekam Medik",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "5",
+      "createdAt": "2026-08-13T08:57:32.343Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611499519-itxa": {
+      "id": "usr-1786611499519-itxa",
+      "username": "ulufi",
+      "name": "SRI ULUFI ZULIATI, A. Md. Fis",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Medik - Inst. Rehab Medik",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "1",
+      "instCode": "6",
+      "createdAt": "2026-08-13T08:58:19.519Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611544006-9a0r": {
+      "id": "usr-1786611544006-9a0r",
+      "username": "cita",
+      "name": "CITA SUCI ROMADHONI, S. Farm, Apt",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Non Medik - Inst. CSSD dan Laundry",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "2",
+      "instCode": "1",
+      "createdAt": "2026-08-13T08:59:04.006Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611580415-f57j": {
+      "id": "usr-1786611580415-f57j",
+      "username": "indah",
+      "name": "DWI INDAH RAHMAWATI, A. Md. Tem, SKM",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Non Medik - IPS (Pemeliharaan Sarana)",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "subCode": "2",
+      "instCode": "2",
+      "createdAt": "2026-08-13T08:59:40.415Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611616023-wzph": {
+      "id": "usr-1786611616023-wzph",
+      "username": "ambarwati",
+      "name": "DWI AMBARWATI, SKM",
+      "role": "user",
+      "unitName": "IPL (Penyehatan Lingkungan)",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "assignments": [
+        {
+          "hierarchyCode": "2.3",
+          "instCode": "3",
+          "divisionCode": "PEN",
+          "id": "legacy-PEN",
+          "unitName": "Bidang Penunjang - Non Medik - IPL (Penyehatan Lingkungan)",
+          "subCode": "2"
+        }
+      ],
+      "subCode": "2",
+      "instCode": "3",
+      "createdAt": "2026-08-13T09:00:16.023Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611646030-d9dv": {
+      "id": "usr-1786611646030-d9dv",
+      "username": "yuli",
+      "name": "KHOLIFATUL YULI I, A. Md, Gz",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Non Medik - Inst. Gizi",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "assignments": [
+        {
+          "divisionCode": "PEN",
+          "instCode": "4",
+          "unitName": "Bidang Penunjang - Non Medik - Inst. Gizi",
+          "subCode": "2",
+          "hierarchyCode": "2.4",
+          "id": "assignment-PEN-2.4",
+          "hierarchyPath": [
+            "Non Medik",
+            "Inst. Gizi"
+          ]
+        }
+      ],
+      "subCode": "2",
+      "instCode": "4",
+      "createdAt": "2026-08-13T09:00:46.030Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786611812759-15ky": {
+      "id": "usr-1786611812759-15ky",
+      "username": "srilaning",
+      "name": "SRI LANING DRIYAH Sp.PK, M. Si",
+      "role": "user",
+      "unitName": "Bidang Penunjang - Inst. Laboratorium - Patologi Klinik",
+      "divisionCode": "PEN",
+      "divisionCodes": [
+        "PEN"
+      ],
+      "assignments": [
+        {
+          "unitName": "Bidang Penunjang - Inst. Laboratorium - Patologi Klinik",
+          "divisionCode": "PEN",
+          "hierarchyCode": "1.2.1",
+          "poliCode": "1",
+          "subCode": "1",
+          "id": "legacy-PEN",
+          "instCode": "2"
+        }
+      ],
+      "subCode": "1",
+      "instCode": "2",
+      "poliCode": "1",
+      "createdAt": "2026-08-13T09:03:32.759Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1786768259939-97do": {
+      "id": "usr-1786768259939-97do",
+      "username": "putri",
+      "name": "Putri Nur Afifah, Amd. Keb",
+      "role": "user",
+      "unitName": "Penanggung Jawab Kearsipan",
+      "divisionCode": "ALL",
+      "divisionCodes": [
+        "ALL"
+      ],
+      "assignments": [
+        {
+          "unitName": "Penanggung Jawab Kearsipan",
+          "divisionCode": "ALL",
+          "id": "assignment-ALL-ROOT",
+          "hierarchyPath": []
+        }
+      ],
+      "badges": [
+        "VERIFIKATOR"
+      ],
+      "subCode": null,
+      "instCode": null,
+      "poliCode": null,
+      "subUnitCode": null,
+      "createdAt": "2026-08-15T04:30:59.939Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-1787887056677-zkyn": {
+      "id": "usr-1787887056677-zkyn",
+      "username": "umi.saadahd",
+      "name": "Umi Sa'adah, S. Kep.Ners",
+      "role": "user",
+      "unitName": "Bidang Pelayanan - IHD",
+      "divisionCode": "PEL",
+      "divisionCodes": [
+        "PEL"
+      ],
+      "assignments": [
+        {
+          "instCode": "8",
+          "id": "assignment-PEL-2.8",
+          "subCode": "2",
+          "hierarchyCode": "2.8",
+          "hierarchyPath": [
+            "Keperawatan",
+            "IHD"
+          ],
+          "divisionCode": "PEL",
+          "unitName": "Bidang Pelayanan - IHD"
+        }
+      ],
+      "subCode": "2",
+      "instCode": "8",
+      "createdAt": "2026-08-28T03:17:36.677Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-petugas-pelayanan": {
+      "id": "usr-petugas-pelayanan",
+      "username": "pelayanan",
+      "name": "User Bidang Pelayanan",
+      "role": "user",
+      "unitName": "Bidang Pelayanan",
+      "divisionCode": "PEL",
+      "divisionCodes": [
+        "PEL"
+      ],
+      "assignments": [
+        {
+          "divisionCode": "PEL",
+          "id": "assignment-PEL-1",
+          "label": "User Pelayanan",
+          "unitName": "Bidang Pelayanan"
+        }
+      ],
+      "badges": [],
+      "createdAt": "2026-09-04T13:32:52.537Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-akp": {
+      "id": "usr-pokja-akp",
+      "username": "agung.budi",
+      "name": "dr. Agung Budi Lamuel, Sp.B-KBD",
+      "role": "user",
+      "unitName": "Pokja AKP",
+      "divisionCode": "AKP",
+      "divisionCodes": [
+        "AKP"
+      ],
+      "createdAt": "2026-08-18T03:41:10.297Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-hpk": {
+      "id": "usr-pokja-hpk",
+      "username": "tadi",
+      "name": "Tadi S. Kep Ns",
+      "role": "user",
+      "unitName": "Hak Pasien dan Keluarga",
+      "divisionCode": "HPK",
+      "divisionCodes": [
+        "HPK",
+        "UPH"
+      ],
+      "assignments": [
+        {
+          "divisionCode": "HPK",
+          "hierarchyPath": [],
+          "id": "assignment-HPK-ROOT",
+          "unitName": "Hak Pasien dan Keluarga"
+        },
+        {
+          "hierarchyCode": "3.3",
+          "subCode": "3",
+          "hierarchyPath": [
+            "Hukum & Kehumasan",
+            "Pengaduan"
+          ],
+          "unitName": "Bagian Umum dan Kepegawaian - Hukum & Kehumasan",
+          "divisionCode": "UPH",
+          "id": "assignment-1788746998381-7f2j"
+        }
+      ],
+      "badges": [
+        "STRUKTURAL"
+      ],
+      "subCode": null,
+      "instCode": null,
+      "poliCode": null,
+      "subUnitCode": null,
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-ke": {
+      "id": "usr-pokja-ke",
+      "username": "gadiza.rainintha",
+      "name": "dr. Gadiza Rainintha P, Sp.KFR, M.Ked.Klin",
+      "role": "user",
+      "unitName": "Pokja KE",
+      "divisionCode": "KE",
+      "divisionCodes": [
+        "KE"
+      ],
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-kps": {
+      "id": "usr-pokja-kps",
+      "username": "rezha.greta",
+      "name": "Rezha Greta Windinata, SE, MM, M.EK",
+      "role": "user",
+      "unitName": "Bagian Umum dan Kepeawaian",
+      "divisionCode": "UPH",
+      "divisionCodes": [
+        "UPH"
+      ],
+      "assignments": [
+        {
+          "unitName": "Bagian Umum dan Kepeawaian",
+          "divisionCode": "UPH",
+          "hierarchyPath": [
+            "Kepegawaian & Organisasi"
+          ],
+          "id": "assignment-UPH-2",
+          "subCode": "2",
+          "hierarchyCode": "2"
+        }
+      ],
+      "badges": [
+        "STRUKTURAL"
+      ],
+      "subCode": "2",
+      "instCode": null,
+      "poliCode": null,
+      "subUnitCode": null,
+      "createdAt": "2026-08-18T03:41:10.011Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-mfk": {
+      "id": "usr-pokja-mfk",
+      "username": "rysanti.handayani",
+      "name": "Rysanti Handayani",
+      "role": "user",
+      "unitName": "Bagian Keuangan",
+      "divisionCode": "MFK",
+      "divisionCodes": [
+        "MFK",
+        "KEU"
+      ],
+      "assignments": [
+        {
+          "unitName": "Pokja MFK",
+          "id": "legacy-MFK",
+          "divisionCode": "MFK"
+        },
+        {
+          "unitName": "Bagian Keuangan",
+          "divisionCode": "KEU",
+          "hierarchyPath": [
+            "Bagian Keuangan"
+          ],
+          "id": "assignment-1787075352589-prq8"
+        }
+      ],
+      "createdAt": "2026-08-18T03:41:10.010Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-mrmik": {
+      "id": "usr-pokja-mrmik",
+      "username": "laelatul.marufah",
+      "name": "Laelatul Mar'ufah, Amd. PK",
+      "role": "user",
+      "unitName": "Pokja MRMIK",
+      "divisionCode": "MRMIK",
+      "divisionCodes": [
+        "MRMIK"
+      ],
+      "createdAt": "2026-08-18T03:41:10.297Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-pab": {
+      "id": "usr-pokja-pab",
+      "username": "ach.zamroni",
+      "name": "dr. Ach. Zamroni, Sp.An",
+      "role": "user",
+      "unitName": "Pokja PAB",
+      "divisionCode": "PAB",
+      "divisionCodes": [
+        "PAB"
+      ],
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-pap": {
+      "id": "usr-pokja-pap",
+      "username": "dyah.mayasari",
+      "name": "dr. Dyah Mayasari, Sp.PD",
+      "role": "user",
+      "unitName": "Pokja PAP",
+      "divisionCode": "PAP",
+      "divisionCodes": [
+        "PAP"
+      ],
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-pkpo": {
+      "id": "usr-pokja-pkpo",
+      "username": "nurul.chayatin",
+      "name": "Nurul Chayatin, S.Kep,Ns, M.Kep",
+      "role": "user",
+      "unitName": "Bidang Penunjang",
+      "divisionCode": "PKPO",
+      "divisionCodes": [
+        "PKPO"
+      ],
+      "assignments": [
+        {
+          "unitName": "Pokja PKPO",
+          "divisionCode": "PKPO",
+          "id": "legacy-PKPO"
+        }
+      ],
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-pmkp": {
+      "id": "usr-pokja-pmkp",
+      "username": "eka.ari",
+      "name": "dr. Eka Ari Puspita, Sp.An, Subsp T.I.(K)",
+      "role": "user",
+      "unitName": "Bidang Pengembangan",
+      "divisionCode": "PEB",
+      "divisionCodes": [
+        "PEB"
+      ],
+      "assignments": [
+        {
+          "id": "assignment-PEB-ROOT",
+          "divisionCode": "PEB",
+          "unitName": "Bidang Pengembangan",
+          "hierarchyPath": []
+        }
+      ],
+      "createdAt": "2026-08-18T03:41:10.297Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-pp": {
+      "id": "usr-pokja-pp",
+      "username": "ifadatul.waro",
+      "name": "dr. Ifadatul Waro, M.EK",
+      "role": "user",
+      "unitName": "Bidang Pelayanan",
+      "divisionCode": "PP",
+      "divisionCodes": [
+        "PP",
+        "PEL"
+      ],
+      "assignments": [
+        {
+          "id": "legacy-PP",
+          "unitName": "Pokja PP",
+          "divisionCode": "PP"
+        },
+        {
+          "hierarchyPath": [
+            "Bidang Pelayanan"
+          ],
+          "id": "assignment-1787043493998-5r1o",
+          "unitName": "Bidang Pelayanan",
+          "divisionCode": "PEL"
+        }
+      ],
+      "createdAt": "2026-08-18T03:41:10.298Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-ppi": {
+      "id": "usr-pokja-ppi",
+      "username": "mirna.rahmafindari",
+      "name": "dr. Mirna Rahmafindari, Sp.PK",
+      "role": "user",
+      "unitName": "Pokja PPI",
+      "divisionCode": "PPI",
+      "divisionCodes": [
+        "PPI"
+      ],
+      "createdAt": "2026-08-18T03:41:10.297Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-ppk": {
+      "id": "usr-pokja-ppk",
+      "username": "eko.budi",
+      "name": "dr. Eko Budi Santoso, Sp.PD",
+      "role": "user",
+      "unitName": "Pokja PPK",
+      "divisionCode": "PPK",
+      "divisionCodes": [
+        "PPK"
+      ],
+      "createdAt": "2026-08-18T03:41:10.297Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-prognas": {
+      "id": "usr-pokja-prognas",
+      "username": "aty.firsivanty",
+      "name": "dr. Aty Firsivanty, Sp.A",
+      "role": "user",
+      "unitName": "Pokja PROGNAS",
+      "divisionCode": "PROGNAS",
+      "divisionCodes": [
+        "PROGNAS"
+      ],
+      "createdAt": "2026-08-18T03:41:10.299Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-skp": {
+      "id": "usr-pokja-skp",
+      "username": "yudhistiro.andri",
+      "name": "dr. Yudhistiro Andri Nugroho, Sp.An",
+      "role": "user",
+      "unitName": "Pokja SKP",
+      "divisionCode": "SKP",
+      "divisionCodes": [
+        "SKP"
+      ],
+      "createdAt": "2026-08-18T03:41:10.299Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
+      "credentialStatus": "ACTIVE"
+    },
+    "usr-pokja-tkrs": {
+      "id": "usr-pokja-tkrs",
+      "username": "alfiatul.mahmudah",
+      "name": "Alfiatul Mahmudah Nuryanawati",
+      "role": "user",
+      "unitName": "Bagian Perencanaan dan Evaluasi",
+      "divisionCode": "TKRS",
+      "divisionCodes": [
+        "TKRS",
+        "PEP"
+      ],
+      "assignments": [
+        {
+          "divisionCode": "TKRS",
+          "id": "legacy-TKRS",
+          "unitName": "Pokja TKRS"
+        },
+        {
+          "divisionCode": "PEP",
+          "id": "assignment-1787043513959-asr9",
+          "unitName": "Bagian Perencanaan dan Evaluasi",
+          "hierarchyPath": [
+            "Bagian Perencanaan dan Evaluasi"
+          ]
+        }
+      ],
+      "createdAt": "2026-08-18T03:41:10.009Z",
+      "updatedAt": "2026-09-13T04:30:10.286Z",
       "credentialStatus": "ACTIVE"
     }
   },
@@ -77,6 +743,176 @@
       "passwordHash": "94f44437530e11b08c75fecbaea70b1e510d22642fb5c7a9c89be9b3a306eb46",
       "passwordSalt": "47f9d1cf7626b8ec31677ad248cbc14e",
       "updatedAt": "2026-09-04T09:28:47.754Z"
+    },
+    "usr-1788587912270-4c9l": {
+      "passwordHash": "8f2c76ea094d655c70e3a23aeda2c7ba3347edd8c10654266b4c3332540b2df1",
+      "passwordSalt": "66235f6ad4fedc3d4d10dc5df9e7b255",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1788261994005-ss3t": {
+      "passwordHash": "ebe6b3334aa627acc0febfe6e601e796b0a5ed5f6d72446fdbd9db4e8729f6ea",
+      "passwordSalt": "eb3625d9c25be59c5e680994f07af43e",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786591415417-skt7": {
+      "passwordHash": "d3e8581259044056a3fd1c05f1810d76e229211fed9e21ef686b6f7f1a8b4391",
+      "passwordSalt": "c0bb73ae93f058e7fd7f595b25ede8b5",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786607443818-rxp0": {
+      "passwordHash": "c7dce4e24d76439eb9eb5ae71f5ac0fbfb4bf807f3fce0952c26fe5e403a1f95",
+      "passwordSalt": "6fa466c5e69a692708626375dfdea297",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611171614-59ja": {
+      "passwordHash": "f8d207d0a6f9e5682a3f600a5ff9b22e3bd69b2bcd6981c132bbc73332d4df35",
+      "passwordSalt": "4f477f53be43eaa60fe21e41a77d0235",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611229814-ij7q": {
+      "passwordHash": "07e7939a5bfece399988be4a26ea65ba39d7233a1a15249a64ea9a96b56d2a4c",
+      "passwordSalt": "3c1fa54e35d6033a08ebebcabb95ab0d",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611292750-a10v": {
+      "passwordHash": "bd487dff3120a34c41263cdbd9a58b3ff3df33e00be8457152d9dbfdd3b671c5",
+      "passwordSalt": "1065e8772be077f936522d95b5c68dee",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611382759-x9kg": {
+      "passwordHash": "bb6c21eaf22eefe5ea99901cc26dde936113aff3103eefd74ae3a6ff1a1c1e91",
+      "passwordSalt": "cfcae5eec7354bfe910b15a85ab95e13",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611452343-vs2q": {
+      "passwordHash": "e54611004dd0660f7a3dc1f59e4339817355d33664bbf132e8d3fc9e2bc7024e",
+      "passwordSalt": "532cd1fe35c3fa136c4cdb5516446a8c",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611499519-itxa": {
+      "passwordHash": "bf55b29fbd1b6e2242bc1eeb038153486e5d69912e55643bfaab63e3f1185aac",
+      "passwordSalt": "0b922401ae2b095b708256bca9d829d1",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611544006-9a0r": {
+      "passwordHash": "ca09b29b580d9aa1605b040a9137ad7de5c0ce249253654629f1172ada95aaf0",
+      "passwordSalt": "15f1cb652e1d6ea58b45fd2792e9fbe9",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611580415-f57j": {
+      "passwordHash": "7492bfc796ca93e8ba13a8e4803cfec9bc9cabb009a613124289e90d828c5024",
+      "passwordSalt": "cf41608153246b7897527043bc76246d",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611616023-wzph": {
+      "passwordHash": "4f9b67c45b1154f7398afbbe30be7e69b0004c1bd55a530d06435daf0ce2cd10",
+      "passwordSalt": "b2cf4ed10f50c71754958926caa5e16f",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611646030-d9dv": {
+      "passwordHash": "8116687eb5e833f7eaf0de8d35d1faaa369348806cb4ce753a77565f80d20edb",
+      "passwordSalt": "9fcc7e6152d31708e382e260481f5c56",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786611812759-15ky": {
+      "passwordHash": "d5cf9cdcaa522ae529cd61729a1b1a984217fea9a9bafb6909dc620af80351be",
+      "passwordSalt": "59aab1e3119b0158e2352be01cedb84a",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1786768259939-97do": {
+      "passwordHash": "f263d70e800bfa6b4d3dda5b14fb742873596d1a340e7a95ac8b6b289fbf3697",
+      "passwordSalt": "e0c8049cefdf62c570d3e408c033d1dc",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-1787887056677-zkyn": {
+      "passwordHash": "9543c7c4cf78fe2c8329960b7493620d5e5ee50577200b3d8a5f9f523731abd6",
+      "passwordSalt": "f5e98e9ba07639ca452d466b136b4a8e",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-petugas-pelayanan": {
+      "passwordHash": "41652c383aec9963177f90e447f87df41bce1973247720a8f7d7d0fe55616220",
+      "passwordSalt": "f9870a53dc5e62bad69fa05f0f658015",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-akp": {
+      "passwordHash": "ed671157f7fa308d87f9c9d3f34b6e8de37aaf0e34d89fc4744b8923f37db2c1",
+      "passwordSalt": "8044633d1d3164aa02cc05d8e7a43bdb",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-hpk": {
+      "passwordHash": "17e3ef5e5ab9021c05aab5faa3f35f09afe165ac96cea8af53b0eb0c849e6fd1",
+      "passwordSalt": "5b7d0fcd4e99fa5c2492451ab3fc63d1",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-ke": {
+      "passwordHash": "db10c8dc39d34ef39cd491fb7da00b9c182b66ad0a950e14c28925fe2f8bb9ca",
+      "passwordSalt": "31bfed40a2e5b811ac98fd68eeeb1511",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-kps": {
+      "passwordHash": "6d3fef098e4559ac7800741c2f621eda2c6b5f787be48ebb996898198615ae20",
+      "passwordSalt": "ddfb879df4ef3dadf3698ba0474247cd",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-mfk": {
+      "passwordHash": "3a693cc1b7c4bed1047d6d926a2b24926d4e1818b3077b6e37954d817dacd433",
+      "passwordSalt": "03e05315e05b8b980a11245c92662087",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-mrmik": {
+      "passwordHash": "baf3972183e476fc4ce8927be889de40ff6817caa2a9dc11003dc4df3cb82a3f",
+      "passwordSalt": "909e96d1b077b4169ea372575f84b20d",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-pab": {
+      "passwordHash": "dfadd13ef4d5aaeee8a6755d54151370fd7204e9f5f650a2ac49a1f3bbc27335",
+      "passwordSalt": "8fd85f071986e12eaa24c2aa11579137",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-pap": {
+      "passwordHash": "8ae8a3e487ff122aafc3ec80e8b11b0761f445a9ffd130c00c0f9d8a6f0f0bbd",
+      "passwordSalt": "4632a4b5e37aeeaa38462325d2caf273",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-pkpo": {
+      "passwordHash": "7769122086cae4af330ede0855c2de297c9b3825990d614ffbbe59e89facc7e0",
+      "passwordSalt": "a4551253b163edab5e43b9e7a0c6a323",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-pmkp": {
+      "passwordHash": "904e1b14dd3ff19f9f482d6abfb3dcd0e220048aa7492e818126058b439c54dc",
+      "passwordSalt": "855a105be6b22835c982a3b69bf873ce",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-pp": {
+      "passwordHash": "734dea5c9e46defd7db9f9a5c04b1e2739369d2ef79fe7489bd2ec060909be7d",
+      "passwordSalt": "7250ad222d2460fc949e1f3657eda773",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-ppi": {
+      "passwordHash": "6090b3eb294088657545536c3fc80a15e93264524443e5a6273b4f0542fa0998",
+      "passwordSalt": "85528b5fb84a5e2156a10f98bfe231b8",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-ppk": {
+      "passwordHash": "3601844100ab344e6d0251a6c7692d21efec8a4ca076248b4352a7a3648fad30",
+      "passwordSalt": "bebd7454362996d4565e82c54880ee4d",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-prognas": {
+      "passwordHash": "ca8f6560d02add2fc691dc570a592c6dd629731b912021f1c4dd3c42c4c74175",
+      "passwordSalt": "63f8c91d9e875280119ad319664c4cd1",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-skp": {
+      "passwordHash": "ee0256d984c46e1ef0b7b6105ea6d1fc042002fdd2a39e2bc7db5985a59c53bc",
+      "passwordSalt": "0adc1239be8b7e4ccfa6df2050f2498a",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
+    },
+    "usr-pokja-tkrs": {
+      "passwordHash": "224e34215db943613e93da759dc0f978eac9cc75e3142a3e8f69d62850c6c0cc",
+      "passwordSalt": "3bf618f3538c5bb1e65828654d9ce69f",
+      "updatedAt": "2026-09-13T04:30:10.286Z"
     }
   },
   "sessions": {
@@ -85,7 +921,7 @@
       "authUid": "admin-root",
       "username": "admin",
       "createdAt": 1788514115722,
-      "lastActiveAt": 1789031485036,
+      "lastActiveAt": 1789317099720,
       "revoked": false,
       "userAgent": "curl/7.88.1",
       "ip": "127.0.0.1"
@@ -516,6 +1352,127 @@
       "lastActiveAt": 1788555900379,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "182c2e38-024a-4cea-8ac8-d6d162a09e0d": {
+      "sessionId": "182c2e38-024a-4cea-8ac8-d6d162a09e0d",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789267024271,
+      "lastActiveAt": 1789267024271,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7.5 Mobile/15E148 Safari/604.1"
+    },
+    "20830689-3a90-43a4-a9d3-34fa140f7093": {
+      "sessionId": "20830689-3a90-43a4-a9d3-34fa140f7093",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789270158502,
+      "lastActiveAt": 1789270158502,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "56bd30b8-ce7d-47e8-a2d6-31d2407f087c": {
+      "sessionId": "56bd30b8-ce7d-47e8-a2d6-31d2407f087c",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789270694299,
+      "lastActiveAt": 1789270694299,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "45d7c0df-4ac4-4757-80ac-5b38b8a55246": {
+      "sessionId": "45d7c0df-4ac4-4757-80ac-5b38b8a55246",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789270709990,
+      "lastActiveAt": 1789270709990,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "723b1fe7-4566-4077-bce5-d84cde4fe9e2": {
+      "sessionId": "723b1fe7-4566-4077-bce5-d84cde4fe9e2",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789270721241,
+      "lastActiveAt": 1789270721241,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "914f5b3b-03d2-4584-8574-392b096fa148": {
+      "sessionId": "914f5b3b-03d2-4584-8574-392b096fa148",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789271037280,
+      "lastActiveAt": 1789271037280,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "a8a2d9f1-48fa-485b-83f3-f5c9d9f1c0b9": {
+      "sessionId": "a8a2d9f1-48fa-485b-83f3-f5c9d9f1c0b9",
+      "authUid": "usr-1788261994005-ss3t",
+      "username": "arman",
+      "createdAt": 1789271085661,
+      "lastActiveAt": 1789271085661,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "bb729c42-1040-4186-be8e-da4b2db376e7": {
+      "sessionId": "bb729c42-1040-4186-be8e-da4b2db376e7",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789271442825,
+      "lastActiveAt": 1789273460847,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "7e9af965-d782-4826-9ef2-da0015e7c31e": {
+      "sessionId": "7e9af965-d782-4826-9ef2-da0015e7c31e",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789309815459,
+      "lastActiveAt": 1789310241976,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+    },
+    "sess_1789310720951_fa542e697e309eb9": {
+      "sessionId": "sess_1789310720951_fa542e697e309eb9",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789310720906,
+      "lastActiveAt": 1789314502575,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "ip": "114.8.216.54"
+    },
+    "sess_1789314749307_b991e292754da729": {
+      "sessionId": "sess_1789314749307_b991e292754da729",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789314749262,
+      "lastActiveAt": 1789314749262,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "ip": "114.8.216.54"
+    },
+    "sess_1789315225657_b3a6545e675a48c8": {
+      "sessionId": "sess_1789315225657_b3a6545e675a48c8",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789315225612,
+      "lastActiveAt": 1789315987277,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "ip": "114.8.216.54"
+    },
+    "sess_1789316417655_af7f14acc4d4cb83": {
+      "sessionId": "sess_1789316417655_af7f14acc4d4cb83",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789316417610,
+      "lastActiveAt": 1789317018778,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "ip": "114.8.216.54"
     }
   },
   "auditLogs": []

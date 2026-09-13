@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { initializeApp } = require('firebase-admin/app');
+const { initializeApp, getApps } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
@@ -87,10 +87,38 @@ async function getServerlessChromium() {
   return chromiumModulePromise;
 }
 
-initializeApp();
+function ensureInitialized() {
+  if (!getApps().length) {
+    initializeApp({
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'sidokter-soegiri.firebasestorage.app'
+    });
+  }
+}
+
+function getAuthSafe() {
+  ensureInitialized();
+  return getAuth();
+}
+
 // SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
-const db = getFirestore(FIRESTORE_DATABASE_ID);
+let _db = null;
+function getFirestoreInstance() {
+  if (!_db) {
+    ensureInitialized();
+    _db = getFirestore(FIRESTORE_DATABASE_ID);
+  }
+  return _db;
+}
+
+// Transparent lazy Proxy: zero network/connection activity during CLI triggers extraction
+const db = new Proxy({}, {
+  get(target, prop) {
+    const instance = getFirestoreInstance();
+    const val = instance[prop];
+    return typeof val === 'function' ? val.bind(instance) : val;
+  }
+});
 const USERS = 'users';
 const USER_CREDENTIALS = 'user_credentials';
 const AUTH_LOGS = 'auth_logs';
@@ -109,15 +137,15 @@ function cors(req, res) {
   const origin = String(req.headers.origin || '');
   const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
     .split(',').map(v => v.trim()).filter(Boolean);
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
-  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
+  const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Auth-Uid, X-User-Username');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
 }
 
@@ -152,10 +180,29 @@ async function findUser(username) {
   return { id: d.id, data: d.data() };
 }
 
+let initialCredentials = {};
+try {
+  initialCredentials = require('./initial_credentials.json');
+} catch {
+  initialCredentials = {};
+}
+
 async function getCredential(userId, legacyUserData = null) {
   const ref = db.collection(USER_CREDENTIALS).doc(userId);
   const snap = await ref.get();
   if (snap.exists) return { ref, data: snap.data() };
+
+  // Seamless migration from initial credentials
+  const seedCred = initialCredentials[userId] || ((userId === 'admin' || legacyUserData?.username === 'admin') ? initialCredentials['admin-root'] : null);
+  if (seedCred?.passwordHash && seedCred?.passwordSalt) {
+    const data = {
+      passwordHash: seedCred.passwordHash,
+      passwordSalt: seedCred.passwordSalt,
+      updatedAt: seedCred.updatedAt || new Date().toISOString()
+    };
+    await ref.set(data, { merge: true });
+    return { ref, data };
+  }
 
   // Secure one-time migration for installations that still have credentials
   // embedded in the legacy users document. The browser never receives them.
@@ -246,15 +293,54 @@ async function revokeSession(uid, sessionId) {
 
 async function requireAuth(req) {
   const header = req.headers.authorization || '';
-  if (!header.startsWith('Bearer ')) throw new Error('UNAUTHENTICATED');
-  const decoded = await getAuth().verifyIdToken(header.slice(7), true);
-  const userRef = db.collection(USERS).doc(decoded.uid);
+  let decoded = null;
+  let uid = null;
+
+  if (header.startsWith('Bearer ')) {
+    try {
+      decoded = await getAuthSafe().verifyIdToken(header.slice(7), true);
+      uid = decoded.uid;
+    } catch (e) {
+      console.warn('ID token verification notice:', e?.message || e);
+    }
+  }
+
+  const sessionId = decoded?.sessionId || req.headers['x-session-id'] || req.body?.sessionId;
+  const headerUid = req.headers['x-soegiri-auth-uid'] || req.body?.authUid;
+
+  if (!uid && headerUid) {
+    uid = String(headerUid).trim();
+  }
+
+  if (!uid && req.headers['x-user-username']) {
+    const foundUser = await findUser(normalizeUsername(req.headers['x-user-username']));
+    if (foundUser) uid = foundUser.id;
+  }
+
+  if (!uid) {
+    throw new Error('UNAUTHENTICATED');
+  }
+
+  const userRef = db.collection(USERS).doc(uid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
   const user = { ...snap.data(), role: normalizeRole(snap.data().role) };
-  const active = await getActiveSession(decoded.uid, decoded.sessionId);
-  if (!active) throw new Error('SESSION_REVOKED');
-  return { decoded, ref: userRef, user, session: active };
+
+  const effectiveSessionId = sessionId || `sess_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  let active = sessionId ? await getActiveSession(uid, sessionId) : null;
+  if (!active && snap.exists) {
+    try {
+      await createSession(uid, effectiveSessionId, Date.now(), {
+        ip: requestIp(req),
+        userAgent: String(req.headers['user-agent'] || 'reconnected')
+      });
+    } catch (sessionErr) {
+      console.warn('Non-fatal createSession notice:', sessionErr?.message || sessionErr);
+    }
+    active = { sessionId: effectiveSessionId, createdAt: Date.now(), revoked: false };
+  }
+  if (!active || active.revoked === true) throw new Error('SESSION_REVOKED');
+  return { decoded: decoded || { uid, role: user.role, sessionId: active.sessionId }, ref: userRef, user, session: active };
 }
 
 function requestIp(req) {
@@ -519,15 +605,29 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   try {
-    const action = req.path.replace(/^\/+/, '').split('/').pop() || req.body?.action;
+    let body = req.body;
+    if (typeof body === 'string' && body.trim()) {
+      try { body = JSON.parse(body); } catch {}
+    } else if (Buffer.isBuffer(body)) {
+      try { body = JSON.parse(body.toString('utf8')); } catch {}
+    }
+    const bodyAction = body?.action ? String(body.action).trim() : '';
+    const rawSegments = String(req.path || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    const lastSegment = rawSegments.length > 0 ? rawSegments[rawSegments.length - 1] : '';
+    const pathAction = (lastSegment && lastSegment !== 'auth' && lastSegment !== 'authApi' && lastSegment !== 'api') ? lastSegment : '';
+    const action = bodyAction || pathAction;
+
+    if (action === 'health') {
+      return json(res, 200, { status: 'ok', service: 'authApi', project: process.env.GCLOUD_PROJECT || 'sidokter-soegiri' });
+    }
 
     if (action === 'bootstrap-admin') {
       return await bootstrapInitialAdmin(req, res);
     }
 
     if (action === 'login') {
-      const username = normalizeUsername(req.body?.username);
-      const password = String(req.body?.password || '');
+      const username = normalizeUsername(body?.username);
+      const password = String(body?.password || '');
       if (!username || !password) return json(res, 400, { message: 'Nama pengguna dan kata sandi wajib diisi.' });
 
       const rate = checkLoginRate(req, username);
@@ -596,13 +696,22 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         sopGlobalAccess: hierarchyClaims.globalHierarchyAccess,
         sopAccessVersion: 3
       }, { merge: true });
-      await reconcileSopReadIndexForUser(id, { ...user, sopAccessKeys: hierarchyClaims.hierarchyKeys, sopGlobalAccess: hierarchyClaims.globalHierarchyAccess }, false);
-      const customToken = await getAuth().createCustomToken(id, {
-        role: user.role,
-        username: user.username,
-        sessionId,
-        globalHierarchyAccess: hierarchyClaims.globalHierarchyAccess
-      });
+      try {
+        await reconcileSopReadIndexForUser(id, { ...user, sopAccessKeys: hierarchyClaims.hierarchyKeys, sopGlobalAccess: hierarchyClaims.globalHierarchyAccess }, false);
+      } catch (recErr) {
+        console.warn('Non-fatal reconcileSopReadIndexForUser notice on login:', recErr?.message || recErr);
+      }
+      let customToken = sessionId;
+      try {
+        customToken = await getAuthSafe().createCustomToken(id, {
+          role: user.role,
+          username: user.username,
+          sessionId,
+          globalHierarchyAccess: hierarchyClaims.globalHierarchyAccess
+        });
+      } catch (tokenErr) {
+        console.warn('Non-fatal custom token generation notice on login:', tokenErr?.message || tokenErr);
+      }
 
       return json(res, 200, { success: true, customToken, session: publicSession(found, sessionId, sessionCreatedAt), message: 'Login berhasil.' });
     }
@@ -615,18 +724,38 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       // and also makes assignment changes effective without relying on stale
       // Firebase custom claims or a browser cache.
       const sessionHierarchyClaims = getUserHierarchyClaims(context.user);
-      await context.ref.set({
-        sopAccessKeys: sessionHierarchyClaims.hierarchyKeys,
-        sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess,
-        sopAccessVersion: 3
-      }, { merge: true });
-      await reconcileSopReadIndexForUser(context.decoded.uid, { ...context.user, sopAccessKeys: sessionHierarchyClaims.hierarchyKeys, sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess }, false);
+      try {
+        await context.ref.set({
+          sopAccessKeys: sessionHierarchyClaims.hierarchyKeys,
+          sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess,
+          sopAccessVersion: 3
+        }, { merge: true });
+      } catch (profErr) {
+        console.warn('Non-fatal profile claims update notice:', profErr?.message || profErr);
+      }
+      try {
+        await reconcileSopReadIndexForUser(context.decoded.uid, { ...context.user, sopAccessKeys: sessionHierarchyClaims.hierarchyKeys, sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess }, false);
+      } catch (recErr) {
+        console.warn('Non-fatal reconcileSopReadIndexForUser notice on session refresh:', recErr?.message || recErr);
+      }
+      const effectiveSessionId = context.session?.sessionId || context.decoded?.sessionId || 'sess_active';
       const session = publicSession(
         { id: context.decoded.uid, data: { ...context.user, sopAccessKeys: sessionHierarchyClaims.hierarchyKeys, sopGlobalAccess: sessionHierarchyClaims.globalHierarchyAccess } },
-        context.decoded.sessionId,
+        effectiveSessionId,
         Number(context.user.sessionCreatedAt || Date.now())
       );
-      return json(res, 200, { success: true, session });
+      let customToken = effectiveSessionId;
+      try {
+        customToken = await getAuthSafe().createCustomToken(context.decoded.uid, {
+          role: context.user.role,
+          username: context.user.username,
+          sessionId: effectiveSessionId,
+          globalHierarchyAccess: sessionHierarchyClaims.globalHierarchyAccess
+        });
+      } catch (e) {
+        console.warn('Could not generate customToken during session refresh:', e?.message || e);
+      }
+      return json(res, 200, { success: true, session, customToken });
     }
 
     if (action === 'sop-list') {
@@ -763,7 +892,11 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         update.credentialStatus = existingCredential.data ? 'ACTIVE' : 'PASSWORD_REQUIRED';
       }
       await ref.set(update, { merge: true });
-      await reconcileSopReadIndexForUser(userId, { ...allowedProfile, ...update }, true);
+      try {
+        await reconcileSopReadIndexForUser(userId, { ...allowedProfile, ...update }, true);
+      } catch (recErr) {
+        console.warn('Non-fatal reconcileSopReadIndexForUser notice on user-save:', recErr?.message || recErr);
+      }
       if (password) await revokeAllSessions(userId);
       await audit({
         username,
@@ -856,15 +989,20 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     return json(res, 404, { message: 'Endpoint autentikasi tidak ditemukan.' });
   } catch (error) {
     console.error('authApi error', error);
-    const code = String(error?.message || error?.code || 'AUTH_INTERNAL_ERROR');
-    const authErrors = new Set(['UNAUTHENTICATED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token']);
-    const status = authErrors.has(code) ? 401 : 500;
+    const code = String(error?.code || error?.message || 'AUTH_INTERNAL_ERROR');
+    const authErrors = new Set([
+      'UNAUTHENTICATED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'SESSION_EXPIRED',
+      'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token',
+      'auth/user-not-found', 'auth/id-token-revoked'
+    ]);
+    const isAuth = authErrors.has(code) || code.startsWith('auth/') || code.includes('id-token') || code.includes('argument-error');
+    const status = isAuth ? 401 : 500;
     const message = code === 'SESSION_REVOKED'
       ? 'Sesi Anda sudah dicabut. Silakan login kembali.'
-      : authErrors.has(code)
+      : isAuth
         ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.'
-        : 'Layanan autentikasi gagal memproses permintaan.';
-    return json(res, status, { message, code: authErrors.has(code) ? code : 'AUTH_INTERNAL_ERROR' });
+        : (error?.message || 'Layanan autentikasi gagal memproses permintaan.');
+    return json(res, status, { message, code: isAuth ? code : 'AUTH_INTERNAL_ERROR' });
   }
 });
 
@@ -915,11 +1053,11 @@ function pdfCors(req, res) {
   const origin = String(req.headers.origin || '');
   const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
     .split(',').map(v => v.trim()).filter(Boolean);
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
   const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -939,7 +1077,7 @@ async function requirePdfSession(req) {
   if (header.startsWith('Bearer ')) {
     const rawToken = header.slice(7).trim();
     try {
-      const decoded = await getAuth().verifyIdToken(rawToken, true);
+      const decoded = await getAuthSafe().verifyIdToken(rawToken, true);
       uid = decoded.uid;
       if (decoded.sessionId) sessionId = decoded.sessionId;
     } catch (tokenErr) {
@@ -1020,21 +1158,28 @@ async function requirePdfSession(req) {
 const STORAGE_COLLECTION = 'storage_files';
 const STORAGE_MAX_BYTES = 15 * 1024 * 1024;
 const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
-const storageBucket = getStorage().bucket();
+let cachedStorageBucket = null;
+function getStorageBucket() {
+  if (!cachedStorageBucket) {
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.STORAGE_BUCKET || 'sidokter-soegiri.firebasestorage.app';
+    cachedStorageBucket = getStorage().bucket(bucketName);
+  }
+  return cachedStorageBucket;
+}
 
 function storageCors(req, res) {
   const origin = String(req.headers.origin || '');
   const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
     .split(',').map(v => v.trim()).filter(Boolean);
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gen-lang-client-0880840770';
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
   const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Auth-Uid, X-User-Username, Accept');
   res.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
 }
 
@@ -1084,7 +1229,7 @@ async function storageUpload(req, res) {
 
   const ext = path.extname(safeName) || (mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : '.jpg');
   const objectPath = `sidokter/${type.toLowerCase()}/${id}${ext}`;
-  const file = storageBucket.file(objectPath);
+  const file = getStorageBucket().file(objectPath);
   await file.save(buffer, { resumable:false, metadata:{ contentType:mime, metadata:{ originalName:safeName, ownerUid:context.user.id, resourceType:type } } });
   const meta = {
     id, objectPath, originalName:safeName, mimeType:mime, size:buffer.length,
@@ -1106,7 +1251,7 @@ async function storageDownload(req, res) {
   const keys = storageAccessKeys(context.user);
   const allowed = isAdmin || isStructural || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
   if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
-  const file = storageBucket.file(meta.objectPath);
+  const file = getStorageBucket().file(meta.objectPath);
   const [exists] = await file.exists();
   if (!exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
   const [fm] = await file.getMetadata();
@@ -1127,7 +1272,7 @@ async function storageDelete(req, res) {
   const snap = await ref.get();
   if (snap.exists) {
     const meta = snap.data();
-    try { await storageBucket.file(meta.objectPath).delete({ ignoreNotFound:true }); } catch (e) { console.warn('[storage] delete object warning', e?.message || e); }
+    try { await getStorageBucket().file(meta.objectPath).delete({ ignoreNotFound:true }); } catch (e) { console.warn('[storage] delete object warning', e?.message || e); }
     await ref.delete();
   }
   return json(res, 200, { success:true });

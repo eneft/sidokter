@@ -645,7 +645,7 @@ ${pdfDocumentHtml}
 }
 
 const CANONICAL_FIREBASE_PDF_API =
-  'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/pdfApi';
+  'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/pdfApi';
 
 const PRIMARY_CLOUD_PDF_API_URL = 'https://pdfapi-n7zygxitla-et.a.run.app';
 

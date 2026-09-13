@@ -1805,7 +1805,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       const candidateEndpoints = [
         '/api/pdf',
-        'https://asia-southeast2-gen-lang-client-0880840770.cloudfunctions.net/pdfApi',
+        'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/pdfApi',
         'https://pdfapi-n7zygxitla-et.a.run.app'
       ];
 

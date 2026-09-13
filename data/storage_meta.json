@@ -1,1 +1,54 @@
-{}
+{
+  "sop-1789316479615_file": {
+    "id": "sop-1789316479615_file",
+    "originalName": "III___556___6666___6666.pdf",
+    "mimeType": "application/pdf",
+    "size": 1932662,
+    "uploadedAt": "2026-09-13T16:21:32.238Z",
+    "filename": "sop-1789316479615_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ]
+  },
+  "sop-1789316479615_signedScan": {
+    "id": "sop-1789316479615_signedScan",
+    "originalName": "III___556___6666___6666_scan.pdf",
+    "mimeType": "application/pdf",
+    "size": 1932662,
+    "uploadedAt": "2026-09-13T16:21:32.280Z",
+    "filename": "sop-1789316479615_signedScan.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ]
+  },
+  "sop-1789316850720_file": {
+    "id": "sop-1789316850720_file",
+    "originalName": "0000___PPPP___PPP___PPP.pdf",
+    "mimeType": "application/pdf",
+    "size": 1417981,
+    "uploadedAt": "2026-09-13T16:27:38.167Z",
+    "filename": "sop-1789316850720_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ]
+  },
+  "sop-1789316850720_signedScan": {
+    "id": "sop-1789316850720_signedScan",
+    "originalName": "0000___PPPP___PPP___PPP_scan.pdf",
+    "mimeType": "application/pdf",
+    "size": 1417981,
+    "uploadedAt": "2026-09-13T16:27:38.214Z",
+    "filename": "sop-1789316850720_signedScan.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ]
+  }
+}
