@@ -65,11 +65,16 @@ export function getFirebaseStatus(): FirebaseConnectionStatus {
  * Filter out large fields (such as multi-megabyte base64 data URLs)
  * to prevent exceeding the Firestore 1MB document limit.
  */
-function sanitizeForFirestore<T extends Record<string, any>>(obj: T): any {
+function sanitizeForFirestore<T = any>(obj: T): any {
   if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) =>
+      item && typeof item === 'object' ? sanitizeForFirestore(item) : item
+    );
+  }
   const clean: Record<string, any> = {};
 
-  for (const [key, val] of Object.entries(obj)) {
+  for (const [key, val] of Object.entries(obj as Record<string, any>)) {
     if (val === undefined) continue;
 
     // Do not send huge data URLs to Firestore; Firebase Storage holds the durable binary.

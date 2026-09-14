@@ -139,7 +139,7 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
     let cancelled = false;
     (async () => {
       try {
-        const live = await getHierarchyMaster();
+        const live = await getHierarchyMaster(true);
         if (cancelled || !live.length) return;
         setDraft(cloneCategories(live));
         setSelectedDivision((current) => live.some(c => c.code === current) ? current : live[0].code);

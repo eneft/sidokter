@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { generatePdf } from './server/pdfRenderer';
 import { handleAuthApi, verifyServerSession } from './server/authHandler';
 import { handleStorageUpload, handleStorageDownload, handleStorageDelete } from './server/storageHandler';
+import { handleHierarchyGet, handleHierarchySave } from './server/hierarchyHandler';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -35,6 +36,10 @@ app.all(['/api/auth', '/api/authApi', '/api/auth/:action', '/api/authApi/:action
 app.post('/api/storage/upload', handleStorageUpload);
 app.get(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDownload);
 app.delete(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDelete);
+
+// System hierarchy endpoints for multi-device synchronization
+app.get('/api/hierarchy', handleHierarchyGet);
+app.post('/api/hierarchy', handleHierarchySave);
 
 
 app.post('/api/pdf', async (req, res) => {

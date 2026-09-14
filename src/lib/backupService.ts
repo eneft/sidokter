@@ -9,6 +9,8 @@ import { restoreLibraryDocuments } from './documentLibraryService';
 import { getAllSKForBackup, getAllSKFilesForBackup } from './skService';
 import { getAllMOUForBackup, getAllMOUFilesForBackup } from './mouService';
 import { getAllCachedFiles, saveFileToLocalCache } from '../utils/fileStorage';
+import { getHierarchyMaster, saveHierarchyMaster } from './hierarchyService';
+import { SoegiriCategory } from '../utils/soegiriStructure';
 
 export const BACKUP_VERSION = '2.0';
 export const BACKUP_APPLICATION = 'SIDOKTER SOEGIRI';
@@ -19,6 +21,7 @@ export interface SystemBackupData {
   sk: LibraryDocument[];
   mou: LibraryDocument[];
   numberingConfig?: NumberingConfig;
+  hierarchy?: SoegiriCategory[];
   users: UserAccount[];
   sopFiles: Record<string, string>;
   skFiles: Record<string, string>;
@@ -60,6 +63,7 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
 
   const numberingRaw = localStorage.getItem('soegiri_offline_numbering_v1');
   const numberingConfig = numberingRaw ? JSON.parse(numberingRaw) as NumberingConfig : undefined;
+  const hierarchy = await getHierarchyMaster();
 
   if (sops.length !== localSops.length) throw new Error('Verifikasi backup SPO gagal.');
   if (sopNumberReservations.some((r) => !r.sopNumber || !r.divisionCode || !r.year || !(r.sequenceNumber > 0))) throw new Error('Verifikasi backup reservation nomor SPO gagal.');
@@ -71,9 +75,9 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
     application: BACKUP_APPLICATION,
     createdAt: new Date().toISOString(),
     createdBy,
-    data: { sops, sopNumberReservations, sk, mou, numberingConfig, users, sopFiles: {}, skFiles, mouFiles },
+    data: { sops, sopNumberReservations, sk, mou, numberingConfig, hierarchy, users, sopFiles: {}, skFiles, mouFiles },
     notes: [
-      'Backup sistem mencakup SPO, SK, MOU, akun pengguna, konfigurasi penomoran, dan lampiran PDF.',
+      'Backup sistem mencakup SPO, SK, MOU, akun pengguna, konfigurasi penomoran, master hirarki, dan lampiran PDF.',
       'Session login aktif dan status lockout sementara tidak disertakan demi keamanan.',
       'Backup akun hanya menyimpan profil; password, passwordHash, passwordSalt, session, dan lockout tidak pernah dimasukkan.',
       'Backup dokumen berasal dari penyimpanan lokal SIDOKTER SOEGIRI; credential akun dikelola terpisah oleh server.'
@@ -149,6 +153,7 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
 
   const users = Array.isArray(backup.data.users) ? backup.data.users as UserAccount[] : [];
   const config = backup.data.numberingConfig as NumberingConfig | undefined;
+  const hierarchy = Array.isArray(backup.data.hierarchy) ? backup.data.hierarchy as SoegiriCategory[] : undefined;
   const sopFiles: Record<string,string> = backup.data.sopFiles || {};
   const skFiles: Record<string,string> = backup.data.skFiles || {};
   const mouFiles: Record<string,string> = backup.data.mouFiles || {};
@@ -156,6 +161,7 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
   await restoreSopsToLocal(sops);
   await restoreNumberReservations(sopNumberReservations);
   if (config) await saveConfigToLocal(config);
+  if (hierarchy && hierarchy.length > 0) await saveHierarchyMaster(hierarchy, preserveUsername || 'admin');
   if (users.length) await restoreUsersFromBackup(users, preserveUsername);
   await restoreLibraryDocuments(library, { ...skFiles, ...mouFiles });
 
