@@ -1,4 +1,5 @@
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
+import { purgeBloatedLocalStorage } from './storageQuota';
 
 /**
  * Utility for handling file downloads safely in all browser environments (including iframes & sandboxes)
@@ -103,7 +104,8 @@ export function triggerFileDownload(urlOrDataUrl: string, fileName: string): boo
       }, 2000);
     }).catch((error) => {
       console.error('Protected file download error:', error);
-      try { window.open(urlOrDataUrl, '_blank', 'noopener,noreferrer'); } catch {}
+      // Do not fall back to window.open(): that request cannot carry the
+      // SIDOKTER session headers and would bypass the protected fetch flow.
     });
     return true;
   }
@@ -199,23 +201,16 @@ export function saveFileToLocalCache(sopId: string, type: 'file' | 'oldFile' | '
   // 1. In-memory
   memoryCache.set(key, dataUrl);
 
-  // 2. SessionStorage
-  try {
-    sessionStorage.setItem(key, dataUrl);
-  } catch {
-    // SessionStorage quota exceeded, ignore
-  }
-
-  // 3. LocalStorage (if small enough)
+  // 2. SessionStorage (if small enough)
   if (dataUrl.length < 500000) {
     try {
-      localStorage.setItem(key, dataUrl);
+      sessionStorage.setItem(key, dataUrl);
     } catch {
-      // LocalStorage quota exceeded, ignore
+      // SessionStorage quota exceeded, ignore
     }
   }
 
-  // 4. IndexedDB (Persistent across refreshes & tabs for any file size)
+  // 3. Persistent Storage in IndexedDB (Safe for megabytes of PDFs without localStorage quota issues)
   getIndexedDB().then((db) => {
     if (!db) return;
     try {
@@ -248,11 +243,12 @@ export function getFileFromLocalCache(sopId: string, type: 'file' | 'oldFile' | 
     // ignore
   }
 
-  // 3. Check LocalStorage
+  // 3. Check legacy LocalStorage and migrate it to memory / remove from localStorage to free quota
   try {
     const fromLocal = localStorage.getItem(key);
     if (fromLocal) {
       memoryCache.set(key, fromLocal);
+      localStorage.removeItem(key); // Free up quota immediately
       return fromLocal;
     }
   } catch {
@@ -379,7 +375,7 @@ export async function saveNamedFileToLocalCache(keyName: string, dataUrl: string
   if (!keyName || !dataUrl) return;
   const key = `${FILE_CACHE_PREFIX}named_${keyName}`;
   memoryCache.set(key, dataUrl);
-  try { localStorage.setItem(key, dataUrl); } catch {}
+  // Persist to IndexedDB instead of localStorage
   const db = await getIndexedDB();
   if (!db) return;
   try { db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put({ key, dataUrl, savedAt: Date.now() }); } catch {}
@@ -388,7 +384,14 @@ export async function saveNamedFileToLocalCache(keyName: string, dataUrl: string
 export async function getNamedFileFromLocalCache(keyName: string): Promise<string | null> {
   const key = `${FILE_CACHE_PREFIX}named_${keyName}`;
   if (memoryCache.has(key)) return memoryCache.get(key)!;
-  try { const local = localStorage.getItem(key); if (local) { memoryCache.set(key, local); return local; } } catch {}
+  try {
+    const local = localStorage.getItem(key);
+    if (local) {
+      memoryCache.set(key, local);
+      localStorage.removeItem(key); // Free up quota
+      return local;
+    }
+  } catch {}
   const db = await getIndexedDB();
   if (!db) return null;
   return new Promise((resolve) => {

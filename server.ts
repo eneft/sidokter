@@ -12,11 +12,12 @@ const PORT = Number(process.env.PORT || 3000);
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || '');
   const allowedOrigin = String(process.env.AUTH_ALLOWED_ORIGIN || '');
-  if (origin && (origin === allowedOrigin || !allowedOrigin || origin.startsWith('http://localhost:') || origin.includes('.run.app'))) {
+  if (origin && (origin === allowedOrigin || !allowedOrigin || origin.startsWith('http://localhost:') || origin.includes('.run.app') || origin.endsWith('.web.app') || origin.endsWith('.firebaseapp.com') || origin.endsWith('.vercel.app'))) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Accept,Authorization,X-Soegiri-Auth-Uid,X-Session-Id');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Accept,Authorization,X-Soegiri-Auth-Uid,X-Soegiri-Session-Id,X-Session-Id,X-User-Username,X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });

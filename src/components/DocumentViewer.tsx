@@ -260,8 +260,12 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           const id = effectiveFileUrl.replace('local://', '');
           const fallbackServerUrl = `/api/storage/files/${id}`;
           const session = getPersistedClientSession();
+          const token = await getCurrentAuthToken();
           const headers: Record<string, string> = {};
           if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+          if (session?.authUid) headers['X-Soegiri-Auth-Uid'] = session.authUid;
+          if (session?.username) headers['X-User-Username'] = session.username;
+          if (token) headers['Authorization'] = `Bearer ${token}`;
           const res = await fetch(fallbackServerUrl, { headers });
           if (!res.ok) {
             throw new Error('File tidak ditemukan di penyimpanan server.');

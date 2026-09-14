@@ -152,6 +152,9 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
       || `Layanan autentikasi gagal (HTTP ${response.status}).`;
     const err:any=new Error(message);
     err.status=response.status;
+    err.code=payload?.code;
+    err.stage=payload?.stage;
+    err.build=payload?.build;
     err.lockedOut=payload?.lockedOut;
     err.remainingMinutes=payload?.remainingMinutes;
     throw err;

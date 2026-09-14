@@ -74,7 +74,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type,Accept,Authorization,X-Session-Id,X-Soegiri-Auth-Uid,X-User-Username'
+    'Content-Type,Accept,Authorization,X-Session-Id,X-Soegiri-Session-Id,X-Soegiri-Auth-Uid,X-User-Username'
   );
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 

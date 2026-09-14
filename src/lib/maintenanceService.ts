@@ -1,3 +1,5 @@
+import { safeSetLocalStorage } from '../utils/storageQuota';
+
 export interface MaintenanceMode { enabled: boolean; message: string; updatedAt?: string; updatedBy?: string; }
 
 const KEY = 'soegiri_offline_maintenance_v1';
@@ -7,7 +9,7 @@ const defaultMaintenance: MaintenanceMode = { enabled: false, message: 'Sistem s
 function read(): MaintenanceMode {
   try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : defaultMaintenance; } catch { return defaultMaintenance; }
 }
-function write(value: MaintenanceMode) { localStorage.setItem(KEY, JSON.stringify(value)); subscribers.forEach((fn) => fn()); }
+function write(value: MaintenanceMode) { safeSetLocalStorage(KEY, JSON.stringify(value)); subscribers.forEach((fn) => fn()); }
 
 export function subscribeToMaintenanceMode(onData: (mode: MaintenanceMode) => void, onError?: (err: any) => void) {
   const emit = () => { try { onData(read()); } catch (e) { onError?.(e); } };

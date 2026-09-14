@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { initializeApp, getApps } = require('firebase-admin/app');
+const { initializeApp, getApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
@@ -61,7 +61,12 @@ async function getServerlessChromium() {
 
       if (!fs.existsSync(nsprPath) && typeof mod.inflate === 'function') {
         try {
-          const binDir = path.join(process.cwd(), 'node_modules', '@sparticuz/chromium', 'bin');
+          let binDir;
+          try {
+            binDir = path.join(path.dirname(require.resolve('@sparticuz/chromium/package.json')), 'bin');
+          } catch {
+            binDir = path.join(process.cwd(), 'node_modules', '@sparticuz/chromium', 'bin');
+          }
           const al2023Tar = path.join(binDir, 'al2023.tar.br');
           if (fs.existsSync(al2023Tar)) {
             console.log('[PDF] Inflating AL2023 libraries for Linux Cloud Functions...');
@@ -88,20 +93,28 @@ async function getServerlessChromium() {
 }
 
 function ensureInitialized() {
-  if (!getApps().length) {
-    initializeApp({
+  // Always resolve the DEFAULT Firebase Admin app. Checking getApps().length
+  // is not sufficient because a named app can exist while [DEFAULT] does not.
+  try {
+    return getApp();
+  } catch (error) {
+    if (error?.code !== 'app/no-app') throw error;
+    // In Google Cloud Functions/Cloud Run, initializeApp() without an explicit
+    // credential uses Application Default Credentials from the runtime service
+    // account. This avoids shipping or loading a JSON key into the function.
+    return initializeApp({
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'sidokter-soegiri.firebasestorage.app'
     });
   }
 }
 
 function getAuthSafe() {
-  ensureInitialized();
-  return getAuth();
+  return getAuth(ensureInitialized());
 }
 
 // SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
+const AUTH_API_BUILD = 'firebase-migration-fix-v4';
 let _db = null;
 function getFirestoreInstance() {
   if (!_db) {
@@ -139,14 +152,15 @@ function cors(req, res) {
     .split(',').map(v => v.trim()).filter(Boolean);
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
   const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Auth-Uid, X-User-Username');
-  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Session-Id, X-Soegiri-Auth-Uid, X-User-Username');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 }
 
 function normalizeRole(role) {
@@ -292,24 +306,43 @@ async function revokeSession(uid, sessionId) {
 }
 
 async function requireAuth(req) {
-  const header = req.headers.authorization || '';
+  const header = String(req.headers.authorization || '');
   let decoded = null;
   let uid = null;
 
   if (header.startsWith('Bearer ')) {
     try {
-      decoded = await getAuthSafe().verifyIdToken(header.slice(7), true);
+      decoded = await getAuthSafe().verifyIdToken(header.slice(7).trim(), true);
       uid = decoded.uid;
     } catch (e) {
+      // A Firebase ID token is optional for SIDOKTER's server-authoritative
+      // session flow. If verification fails, continue using the session ID.
       console.warn('ID token verification notice:', e?.message || e);
     }
   }
 
-  const sessionId = decoded?.sessionId || req.headers['x-session-id'] || req.body?.sessionId;
-  const headerUid = req.headers['x-soegiri-auth-uid'] || req.body?.authUid;
+  const sessionId = String(
+    decoded?.sessionId || req.headers['x-session-id'] || req.headers['x-soegiri-session-id'] || req.body?.sessionId || ''
+  ).trim();
+  const headerUid = String(req.headers['x-soegiri-auth-uid'] || req.headers['x-user-id'] || req.body?.authUid || '').trim();
 
-  if (!uid && headerUid) {
-    uid = String(headerUid).trim();
+  if (!uid && headerUid) uid = headerUid;
+
+  // Important: storage preview/download may only have X-Session-Id because a
+  // browser cannot attach custom headers to window.open()/an iframe URL. Resolve
+  // the UID from the existing server-side session instead of creating a new one.
+  if (!uid && sessionId) {
+    try {
+      const sessionSnap = await db.collectionGroup('sessions')
+        .where('sessionId', '==', sessionId)
+        .limit(5)
+        .get();
+      const match = sessionSnap.docs.find(doc => doc.data()?.revoked !== true);
+      const parent = match?.ref.parent?.parent;
+      if (match && parent) uid = parent.id;
+    } catch (sessionLookupErr) {
+      console.warn('Session UID lookup notice:', sessionLookupErr?.message || sessionLookupErr);
+    }
   }
 
   if (!uid && req.headers['x-user-username']) {
@@ -317,30 +350,26 @@ async function requireAuth(req) {
     if (foundUser) uid = foundUser.id;
   }
 
-  if (!uid) {
-    throw new Error('UNAUTHENTICATED');
-  }
+  if (!uid) throw new Error('UNAUTHENTICATED');
+  if (!sessionId) throw new Error('SESSION_REQUIRED');
 
   const userRef = db.collection(USERS).doc(uid);
   const snap = await userRef.get();
   if (!snap.exists) throw new Error('USER_NOT_FOUND');
   const user = { ...snap.data(), role: normalizeRole(snap.data().role) };
 
-  const effectiveSessionId = sessionId || `sess_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  let active = sessionId ? await getActiveSession(uid, sessionId) : null;
-  if (!active && snap.exists) {
-    try {
-      await createSession(uid, effectiveSessionId, Date.now(), {
-        ip: requestIp(req),
-        userAgent: String(req.headers['user-agent'] || 'reconnected')
-      });
-    } catch (sessionErr) {
-      console.warn('Non-fatal createSession notice:', sessionErr?.message || sessionErr);
-    }
-    active = { sessionId: effectiveSessionId, createdAt: Date.now(), revoked: false };
-  }
+  // Never auto-create a session during an authenticated API request. Sessions
+  // are created only by the login flow; every protected endpoint must validate
+  // an already-existing, non-revoked session.
+  const active = await getActiveSession(uid, sessionId);
   if (!active || active.revoked === true) throw new Error('SESSION_REVOKED');
-  return { decoded: decoded || { uid, role: user.role, sessionId: active.sessionId }, ref: userRef, user, session: active };
+
+  return {
+    decoded: decoded || { uid, role: user.role, sessionId },
+    ref: userRef,
+    user,
+    session: active
+  };
 }
 
 function requestIp(req) {
@@ -594,17 +623,56 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
   Object.keys(safe).forEach((key) => safe[key] === undefined && delete safe[key]);
 
   const ref = db.collection('notifications').doc(uid).collection('items').doc(id);
-  await ref.set(safe, { merge: true }).catch(async (error) => {
+  try {
+    await ref.set(safe, { merge: true });
+  } catch (error) {
     throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
-  });
+  }
   return { ok: true, id };
 });
 exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
   cors(req, res);
   if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
   let authStage = 'request';
+  // GET health is intentionally public and read-only so deployment can be
+  // verified directly from a browser without sending credentials.
+  if (req.method === 'GET') {
+    try {
+      authStage = 'health-firestore';
+      const project = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
+      const dbInstance = getFirestoreInstance();
+      const probe = await dbInstance.collection(USERS).limit(1).get();
+      return json(res, 200, {
+        status: 'ok',
+        service: 'authApi',
+        build: AUTH_API_BUILD,
+        project,
+        firestoreDatabase: FIRESTORE_DATABASE_ID,
+        firestoreUsersReadable: true,
+        usersCollectionHasData: !probe.empty
+      });
+    } catch (error) {
+      console.error('authApi health error', {
+        stage: authStage,
+        name: error?.name,
+        code: error?.code,
+        message: error?.message,
+        stack: error?.stack
+      });
+      return json(res, 500, {
+        success: false,
+        code: 'AUTH_HEALTH_FIRESTORE_ERROR',
+        stage: authStage,
+        build: AUTH_API_BUILD,
+        message: 'Firebase Auth API aktif tetapi gagal membaca Firestore.'
+      });
+    }
+  }
+
+  if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.', code: 'AUTH_METHOD_NOT_ALLOWED', build: AUTH_API_BUILD });
+
+
   try {
     let body = req.body;
     if (typeof body === 'string' && body.trim()) {
@@ -626,6 +694,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       return json(res, 200, {
         status: 'ok',
         service: 'authApi',
+        build: AUTH_API_BUILD,
         project,
         firestoreDatabase: FIRESTORE_DATABASE_ID,
         firestoreUsersReadable: true,
@@ -735,7 +804,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
           success: false,
           code: 'AUTH_CUSTOM_TOKEN_ERROR',
           stage: authStage,
-          message: 'Layanan autentikasi gagal membuat token sesi Firebase.'
+          message: 'Layanan autentikasi gagal membuat token sesi Firebase.',
+          build: AUTH_API_BUILD
         });
       }
 
@@ -1052,7 +1122,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       success: false,
       message,
       code: isAuth ? rawCode : safeStageCode,
-      stage: authStage
+      stage: authStage,
+      build: AUTH_API_BUILD
     });
   }
 });
@@ -1105,7 +1176,7 @@ function pdfCors(req, res) {
   const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
     .split(',').map(v => v.trim()).filter(Boolean);
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
-  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
   if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
@@ -1212,8 +1283,9 @@ const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 let cachedStorageBucket = null;
 function getStorageBucket() {
   if (!cachedStorageBucket) {
+    const app = ensureInitialized();
     const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.STORAGE_BUCKET || 'sidokter-soegiri.firebasestorage.app';
-    cachedStorageBucket = getStorage().bucket(bucketName);
+    cachedStorageBucket = getStorage(app).bucket(bucketName);
   }
   return cachedStorageBucket;
 }
@@ -1223,14 +1295,15 @@ function storageCors(req, res) {
   const configured = String(process.env.AUTH_ALLOWED_ORIGINS || process.env.AUTH_ALLOWED_ORIGIN || '')
     .split(',').map(v => v.trim()).filter(Boolean);
   const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
-  const builtIn = new RegExp(`^https://${projectId}\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
+  const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Auth-Uid, X-User-Username, Accept');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Session-Id, X-Soegiri-Auth-Uid, X-User-Username, Accept');
   res.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
 }
 
@@ -1299,8 +1372,9 @@ async function storageDownload(req, res) {
   const meta = snap.data();
   const isAdmin = normalizeRole(context.user.role) === 'admin';
   const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+  const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
   const keys = storageAccessKeys(context.user);
-  const allowed = isAdmin || isStructural || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+  const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
   if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
   const file = getStorageBucket().file(meta.objectPath);
   const [exists] = await file.exists();

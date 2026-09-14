@@ -1,5 +1,6 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
 import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache } from '../utils/fileStorage';
+import { safeSetLocalStorage } from '../utils/storageQuota';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
 
@@ -12,7 +13,7 @@ function getDocuments(): LibraryDocument[] {
   try { const raw = localStorage.getItem(LIBRARY_KEY); return raw ? JSON.parse(raw) as LibraryDocument[] : []; } catch { return []; }
 }
 function saveDocuments(documents: LibraryDocument[]) {
-  localStorage.setItem(LIBRARY_KEY, JSON.stringify(documents));
+  safeSetLocalStorage(LIBRARY_KEY, JSON.stringify(documents));
   subscribers.forEach((fn) => fn());
 }
 

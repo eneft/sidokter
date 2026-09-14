@@ -409,7 +409,7 @@ export async function verifyServerSession(req: Request): Promise<{ authUid: stri
 
           let upstreamRes = await makeRequest(header || undefined);
           // If bearer token caused 500 upstream, retry without it
-          if (upstreamRes.status >= 500 && header) {
+          if (upstreamRes.status === 401 && header) {
             upstreamRes = await makeRequest(undefined);
           }
 
@@ -630,6 +630,15 @@ export async function handleAuthApi(req: Request, res: Response) {
         const contentType = cloudRes.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           const data = await cloudRes.json();
+          if (cloudRes.status >= 500) {
+            console.error('[authHandler] Canonical authApi diagnostic:', {
+              status: cloudRes.status,
+              code: data?.code,
+              stage: data?.stage,
+              build: data?.build,
+              message: data?.message
+            });
+          }
           // If login succeeded, cache session in memory for local /api/pdf authentication
           if (cloudRes.ok && data?.success && data?.session) {
             try {
@@ -850,13 +859,13 @@ export async function handleAuthApi(req: Request, res: Response) {
 
       saveDb(authDb);
 
-      const session = publicSession(user, sessionId, sessionCreatedAt);
-
-      return res.status(200).json({
-        success: true,
-        session,
-        customToken: sessionId,
-        message: 'Login berhasil.'
+      // Local fallback cannot mint a Firebase Custom Token. Never pretend a
+      // session id is a Firebase token. Production fallback is disabled; if
+      // explicitly enabled for emergency/dev use, fail closed instead.
+      return res.status(503).json({
+        success: false,
+        code: 'AUTH_LOCAL_FALLBACK_CANNOT_MINT_TOKEN',
+        message: 'Autentikasi lokal tidak dapat menerbitkan token Firebase. Gunakan Firebase Auth API.'
       });
     }
 
