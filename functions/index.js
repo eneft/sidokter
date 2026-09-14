@@ -604,6 +604,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return json(res, 405, { message: 'Method tidak diizinkan.' });
 
+  let authStage = 'request';
   try {
     let body = req.body;
     if (typeof body === 'string' && body.trim()) {
@@ -618,7 +619,18 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     const action = bodyAction || pathAction;
 
     if (action === 'health') {
-      return json(res, 200, { status: 'ok', service: 'authApi', project: process.env.GCLOUD_PROJECT || 'sidokter-soegiri' });
+      authStage = 'health-firestore';
+      const project = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'sidokter-soegiri';
+      const dbInstance = getFirestoreInstance();
+      const probe = await dbInstance.collection(USERS).limit(1).get();
+      return json(res, 200, {
+        status: 'ok',
+        service: 'authApi',
+        project,
+        firestoreDatabase: FIRESTORE_DATABASE_ID,
+        firestoreUsersReadable: true,
+        usersCollectionHasData: !probe.empty
+      });
     }
 
     if (action === 'bootstrap-admin') {
@@ -633,6 +645,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const rate = checkLoginRate(req, username);
       if (!rate.allowed) return json(res, 429, { message: `Terlalu banyak percobaan login. Coba lagi dalam sekitar ${rate.retryAfter} menit.`, lockedOut: true, remainingMinutes: rate.retryAfter });
 
+      authStage = 'find-user';
       const found = await findUser(username);
       if (!found) {
         await audit({ username, event: 'LOGIN_FAILED', details: 'Akun tidak terdaftar.' });
@@ -646,6 +659,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         return json(res, 429, { message: `Akun terkunci sementara. Silakan coba lagi dalam ${remainingMinutes} menit.`, lockedOut: true, remainingMinutes });
       }
 
+      authStage = 'credential';
       const credential = await getCredential(id, user);
       const credentialData = credential.data;
       if (!credentialData?.passwordHash || !credentialData?.passwordSalt) {
@@ -669,8 +683,10 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         return json(res, 401, { message: `Kata sandi salah. Sisa kesempatan: ${MAX_FAILED_ATTEMPTS - attempts} kali.` });
       }
 
+      authStage = 'session-id';
       const sessionId = crypto.randomUUID();
       const sessionCreatedAt = now;
+      authStage = 'user-login-update';
       await db.collection(USERS).doc(id).update({
         lastLoginAt: new Date().toISOString(),
         failedLoginAttempts: 0,
@@ -679,11 +695,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
       // SIDOKTER multi-device policy: each successful login gets its own
       // independent server-side session. Existing sessions remain active.
+      authStage = 'create-session';
       await createSession(id, sessionId, sessionCreatedAt, {
         userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
         ip: requestIp(req)
       });
 
+      authStage = 'audit-success';
       await audit({ username, name: user.name, role: user.role, sessionId, event: 'LOGIN_SUCCESS', details: 'Login berhasil melalui trusted authentication service.' });
       const hierarchyClaims = getUserHierarchyClaims(user);
       // Keep the complete SOP authorization scope server-authoritative in the
@@ -691,6 +709,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       // small because Firebase custom claims have a strict payload limit.
       // Firestore Rules read sopAccessKeys from this protected profile, while
       // the client may still batch array-contains-any queries at <=30 keys.
+      authStage = 'save-sop-scope';
       await db.collection(USERS).doc(id).set({
         sopAccessKeys: hierarchyClaims.hierarchyKeys,
         sopGlobalAccess: hierarchyClaims.globalHierarchyAccess,
@@ -701,7 +720,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       } catch (recErr) {
         console.warn('Non-fatal reconcileSopReadIndexForUser notice on login:', recErr?.message || recErr);
       }
-      let customToken = sessionId;
+      authStage = 'custom-token';
+      let customToken;
       try {
         customToken = await getAuthSafe().createCustomToken(id, {
           role: user.role,
@@ -710,7 +730,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
           globalHierarchyAccess: hierarchyClaims.globalHierarchyAccess
         });
       } catch (tokenErr) {
-        console.warn('Non-fatal custom token generation notice on login:', tokenErr?.message || tokenErr);
+        console.error('Custom token generation failed on login:', tokenErr);
+        return json(res, 500, {
+          success: false,
+          code: 'AUTH_CUSTOM_TOKEN_ERROR',
+          stage: authStage,
+          message: 'Layanan autentikasi gagal membuat token sesi Firebase.'
+        });
       }
 
       return json(res, 200, { success: true, customToken, session: publicSession(found, sessionId, sessionCreatedAt), message: 'Login berhasil.' });
@@ -988,21 +1014,46 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
     return json(res, 404, { message: 'Endpoint autentikasi tidak ditemukan.' });
   } catch (error) {
-    console.error('authApi error', error);
-    const code = String(error?.code || error?.message || 'AUTH_INTERNAL_ERROR');
+    // Keep the browser response safe but diagnostic enough to identify the exact
+    // login stage after a Firebase project migration. Never expose passwords,
+    // hashes, salts, tokens, or full Firestore error payloads to the client.
+    console.error('authApi error', {
+      stage: authStage,
+      name: error?.name,
+      code: error?.code,
+      message: error?.message,
+      stack: error?.stack
+    });
+    const rawCode = String(error?.code || 'AUTH_INTERNAL_ERROR');
     const authErrors = new Set([
       'UNAUTHENTICATED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'SESSION_EXPIRED',
       'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token',
       'auth/user-not-found', 'auth/id-token-revoked'
     ]);
-    const isAuth = authErrors.has(code) || code.startsWith('auth/') || code.includes('id-token') || code.includes('argument-error');
+    const isAuth = authErrors.has(rawCode) || rawCode.startsWith('auth/') || rawCode.includes('id-token') || rawCode.includes('argument-error');
     const status = isAuth ? 401 : 500;
-    const message = code === 'SESSION_REVOKED'
+    const safeStageCode = {
+      'request': 'AUTH_REQUEST_ERROR',
+      'find-user': 'AUTH_FIRESTORE_USER_READ_ERROR',
+      'credential': 'AUTH_CREDENTIAL_ERROR',
+      'session-id': 'AUTH_SESSION_ID_ERROR',
+      'user-login-update': 'AUTH_USER_UPDATE_ERROR',
+      'create-session': 'AUTH_SESSION_WRITE_ERROR',
+      'audit-success': 'AUTH_AUDIT_ERROR',
+      'save-sop-scope': 'AUTH_SOP_SCOPE_ERROR',
+      'custom-token': 'AUTH_CUSTOM_TOKEN_ERROR'
+    }[authStage] || 'AUTH_INTERNAL_ERROR';
+    const message = rawCode === 'SESSION_REVOKED'
       ? 'Sesi Anda sudah dicabut. Silakan login kembali.'
       : isAuth
         ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.'
-        : (error?.message || 'Layanan autentikasi gagal memproses permintaan.');
-    return json(res, status, { message, code: isAuth ? code : 'AUTH_INTERNAL_ERROR' });
+        : 'Layanan autentikasi gagal memproses permintaan.';
+    return json(res, status, {
+      success: false,
+      message,
+      code: isAuth ? rawCode : safeStageCode,
+      stage: authStage
+    });
   }
 });
 

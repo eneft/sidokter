@@ -1,6 +1,6 @@
 /**
  * Vercel Serverless Function: /api/auth
- * Proxies auth requests from Vercel deployments to backend Firebase Auth Cloud Run / Cloud Functions
+ * Proxies auth requests from deployments to the canonical Firebase Auth Cloud Function
  */
 
 // Canonical authentication backend: Firebase Cloud Function.
@@ -10,14 +10,16 @@
 const CANONICAL_FIREBASE_AUTH_API =
   'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/authApi';
 
-const UPSTREAM_URLS = Array.from(new Set([
-  CANONICAL_FIREBASE_AUTH_API,
+const configuredAuthApi = [
   process.env.FIREBASE_AUTH_API,
   process.env.AUTH_API_URL,
-  process.env.UPSTREAM_AUTH_API_URL,
-  process.env.VITE_AUTH_API_URL,
-  'https://authapi-n7zygxitla-et.a.run.app'
-].filter(u => typeof u === 'string' && u.startsWith('http')) as string[]));
+  process.env.VITE_AUTH_API_URL
+].find(u => typeof u === 'string' && /^https?:\/\//i.test(u)) || '';
+
+const UPSTREAM_URLS = Array.from(new Set([
+  CANONICAL_FIREBASE_AUTH_API,
+  configuredAuthApi
+].filter(Boolean) as string[]));
 
 function createTimeoutSignal(timeoutMs: number): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function') {

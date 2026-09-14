@@ -1,6 +1,6 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
 import { auth, authPersistenceReady, firebaseConfig } from './firebase';
-import { signInWithCustomToken, signOut, signInAnonymously } from 'firebase/auth';
+import { signInWithCustomToken, signOut } from 'firebase/auth';
 
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
@@ -96,11 +96,9 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
 
   try {
     response = await sendRequestTo(targetUrl);
-    // Retry once if server error (e.g., 500/502/503/504 cold-start in upstream)
-    if (response.status >= 500 && action !== 'logout') {
-      await new Promise(r => setTimeout(r, 600));
-      response = await sendRequestTo(targetUrl);
-    }
+    // Do not retry HTTP 500 application errors. The authApi now returns a
+    // stage/code diagnostic; repeating the same request only creates noise and
+    // can consume login-rate budget. Network/502/503 failover remains below.
   } catch (netErr: any) {
     console.warn(`[authService] Network error calling ${targetUrl}:`, netErr);
     // Bidirectional network fallback between same-origin /api/auth and direct Cloud Function
@@ -250,33 +248,17 @@ export async function authenticateUser(usernameInput:string,passwordInput:string
     if(!result?.success||!result?.customToken) return {success:false,message:result?.message||'Login gagal.'};
     await authPersistenceReady;
     try {
-      if (!result.customToken || typeof result.customToken !== 'string') {
-        throw new Error('AUTH_CUSTOM_TOKEN_MISSING');
+      if (!result.customToken || typeof result.customToken !== 'string' || !result.customToken.includes('.')) {
+        throw new Error('AUTH_CUSTOM_TOKEN_INVALID');
       }
-      if (result.customToken.includes('.')) {
-        try {
-          await signInWithCustomToken(auth, result.customToken);
-        } catch (mismatchErr: any) {
-          const errMsg = String(mismatchErr?.code || mismatchErr?.message || '');
-          if (errMsg.includes('custom-token-mismatch') || errMsg.includes('mismatch')) {
-            console.warn('[authService] Custom token belongs to another project; using anonymous session fallback:', errMsg);
-            try {
-              await signInAnonymously(auth);
-            } catch {}
-          } else {
-            throw mismatchErr;
-          }
-        }
-      } else {
-        try {
-          await signInAnonymously(auth);
-        } catch {}
-      }
+      await signInWithCustomToken(auth, result.customToken);
     } catch (tokenErr: any) {
-      console.warn('[authService] Firebase Auth custom token notice (falling back to server session):', tokenErr?.message || tokenErr);
-      try {
-        await signInAnonymously(auth);
-      } catch {}
+      console.error('[authService] Firebase Auth custom token sign-in failed:', tokenErr?.code || tokenErr?.message || tokenErr);
+      clearPersistedClientSession();
+      return {
+        success: false,
+        message: 'Login gagal: token autentikasi Firebase tidak valid untuk project SIDOKTER ini.',
+      };
     }
     const session=buildSession(result.session);
     persistClientSession(session);

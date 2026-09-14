@@ -21,8 +21,7 @@ try {
   }
 } catch {}
 
-const PRIMARY_CLOUD_AUTH_API_URL = 'https://authapi-n7zygxitla-et.a.run.app';
-const SECONDARY_CLOUD_AUTH_API_URL = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
+const CANONICAL_CLOUD_AUTH_API_URL = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
 
 let serverFirestoreDb: any = null;
 async function getServerFirestore() {
@@ -88,23 +87,15 @@ async function deleteUserFromFirestoreServer(userId: string) {
 }
 
 function getCandidateAuthUrls(): string[] {
-  const projectUrl = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
-  const envUpstream = process.env.UPSTREAM_AUTH_API_URL?.trim() || '';
-  const envAuth = process.env.AUTH_API_URL?.trim() || '';
-  const envVite = process.env.VITE_AUTH_API_URL?.trim() || '';
-
-  const list: string[] = [
-    projectUrl,
-    envUpstream,
-    envAuth,
-    envVite,
-    PRIMARY_CLOUD_AUTH_API_URL
-  ].filter((u): u is string => !!u && u.startsWith('http') && !u.includes('gen-lang-client-0880840770'));
-
+  const envAuth = process.env.FIREBASE_AUTH_API?.trim() || process.env.AUTH_API_URL?.trim() || '';
+  const list: string[] = [CANONICAL_CLOUD_AUTH_API_URL];
+  if (envAuth && /^https?:\/\//i.test(envAuth)) {
+    list.push(envAuth);
+  }
   return Array.from(new Set(list));
 }
 
-const CLOUD_AUTH_API_URL = getCandidateAuthUrls()[0] || `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/authApi`;
+const CLOUD_AUTH_API_URL = CANONICAL_CLOUD_AUTH_API_URL;
 
 interface UserRecord {
   id: string;
@@ -678,27 +669,37 @@ export async function handleAuthApi(req: Request, res: Response) {
 
           // If upstream succeeded, return immediately
           if (cloudRes.ok && data?.success) {
-            if (firestoreProjectId) {
-              data.customToken = data.session?.sessionId || `sess_${Date.now()}`;
-            }
             return res.status(cloudRes.status).json(data);
           }
           // If login failed due to invalid credentials, pass through the warning
           if (action === 'login' && cloudRes.status === 401 && data?.message) {
             return res.status(401).json(data);
           }
-          // If upstream returned 500 with generic internal error, fall back to local database
-          console.warn(`[authHandler] Upstream returned status ${cloudRes.status} for '${action}', falling back to local database:`, data?.message || 'non-ok');
+          // Do not hide canonical backend errors behind the legacy local database.
+          // Local fallback is an explicit emergency/dev opt-in only.
+          const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
+          if (!localFallbackEnabled) {
+            return res.status(cloudRes.status).json(data || { success: false, message: 'Layanan autentikasi gagal memproses permintaan.', code: 'AUTH_UPSTREAM_ERROR' });
+          }
+          console.warn(`[authHandler] Upstream returned status ${cloudRes.status} for '${action}', local fallback is explicitly enabled:`, data?.message || 'non-ok');
         } else {
-          console.warn(`[authHandler] Upstream returned non-JSON ${cloudRes.status} for '${action}', falling back to local database`);
+          const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
+          if (!localFallbackEnabled) {
+            return res.status(cloudRes.status).json({ success: false, message: 'Layanan autentikasi mengembalikan respons yang tidak valid.', code: 'AUTH_UPSTREAM_NON_JSON' });
+          }
+          console.warn(`[authHandler] Upstream returned non-JSON ${cloudRes.status}; local fallback is explicitly enabled`);
         }
       } catch (proxyError: any) {
-        console.warn('[authHandler] Upstream Cloud Function unavailable, using local database fallback:', proxyError?.message);
+        const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
+        console.warn('[authHandler] Canonical Firebase auth backend unavailable:', proxyError?.message);
+        if (!localFallbackEnabled) {
+          return res.status(503).json({ success: false, message: 'Server autentikasi Firebase tidak dapat dihubungi.', code: 'AUTH_BACKEND_UNAVAILABLE' });
+        }
       }
     }
 
-    // Always allow local database handling when upstream auth is not available or project is migrated
-    const localFallbackEnabled = true;
+    // Local database authentication is disabled by default after Firebase migration.
+    const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
 
     // -------------------------------------------------------------
     // ACTION: BOOTSTRAP-ADMIN
