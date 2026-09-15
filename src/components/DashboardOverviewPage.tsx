@@ -128,6 +128,7 @@ export const DashboardOverviewPage: React.FC<
     fileName?: string;
     documentNumber?: string;
     doc?: LibraryDocument;
+    storagePath?: string;
   } | null>(null);
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -686,7 +687,8 @@ export const DashboardOverviewPage: React.FC<
                                   unit: doc.partnerName,
                                   fileName: doc.fileName,
                                   fileSize: doc.fileSize,
-                                  doc
+                                  doc,
+                              storagePath: doc.storagePath
                                 });
                               }}
                               className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-xl transition-colors flex items-center justify-between gap-2 group cursor-pointer"
@@ -919,7 +921,8 @@ export const DashboardOverviewPage: React.FC<
                               type: doc.type,
                               fileName: doc.fileName || `${doc.type}_${doc.documentNumber || doc.id}.pdf`,
                               documentNumber: doc.documentNumber,
-                              doc
+                              doc,
+                              storagePath: doc.storagePath
                             });
                           } else {
                             onNavigate(
@@ -1315,6 +1318,7 @@ export const DashboardOverviewPage: React.FC<
               <DocumentViewer
                 fileUrl={pdfViewer.url}
                 fileName={pdfViewer.fileName || `${pdfViewer.type}.pdf`}
+                storagePath={pdfViewer.storagePath || pdfViewer.doc?.storagePath}
                 heightClass="h-full w-full"
               />
             </div>

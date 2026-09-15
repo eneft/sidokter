@@ -1389,6 +1389,38 @@ async function storageDownload(req, res) {
   file.createReadStream().on('error', err => { if (!res.headersSent) res.status(500); }).pipe(res);
 }
 
+async function storageDownloadByPath(req, res) {
+  const context = await requireStorageAuth(req);
+  const raw = String(req.params.storagePath || '');
+  let objectPath = raw;
+  try { objectPath = decodeURIComponent(raw); } catch {}
+  objectPath = objectPath.replace(/^\/+/, '');
+  if (!objectPath || objectPath.includes('..')) return json(res, 400, { success:false, message:'Storage path tidak valid.' });
+
+  const snap = await db.collection(STORAGE_COLLECTION).where('objectPath', '==', objectPath).limit(1).get();
+  if (snap.empty) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  const metaDoc = snap.docs[0];
+  const meta = metaDoc.data();
+  const isAdmin = normalizeRole(context.user.role) === 'admin';
+  const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+  const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
+  const keys = storageAccessKeys(context.user);
+  const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+  if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+
+  const file = getStorageBucket().file(meta.objectPath);
+  const [exists] = await file.exists();
+  if (!exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  const [fm] = await file.getMetadata();
+  res.set('Content-Type', fm.contentType || meta.mimeType || 'application/pdf');
+  res.set('Content-Length', String(fm.size || meta.size || 0));
+  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(meta.originalName || 'dokumen.pdf')}"`);
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('X-Content-Type-Options', 'nosniff');
+  if (req.method === 'HEAD') return res.status(200).end();
+  file.createReadStream().on('error', err => { if (!res.headersSent) res.status(500); }).pipe(res);
+}
+
 async function storageDelete(req, res) {
   const context = await requireStorageAuth(req);
   if (normalizeRole(context.user.role) !== 'admin') return json(res, 403, { success:false, message:'Akses hapus file ditolak. Hanya Admin Root.' });
@@ -1409,6 +1441,10 @@ exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', tim
   try {
     const pathName = String(req.path || req.url || '');
     if (req.method === 'POST' && /\/upload\/?$/.test(pathName)) return await storageUpload(req, res);
+    if ((req.method === 'GET' || req.method === 'HEAD') && /\/path\/.+/.test(pathName)) {
+      const match = pathName.match(/\/path\/(.+?)(?:\/?$)/); req.params = { storagePath: match ? match[1] : '' };
+      return await storageDownloadByPath(req, res);
+    }
     if ((req.method === 'GET' || req.method === 'HEAD') && /\/files\/[^/]+\/?$/.test(pathName)) {
       const id = pathName.split('/').filter(Boolean).pop(); req.params = { id };
       return await storageDownload(req, res);

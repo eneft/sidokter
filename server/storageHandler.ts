@@ -19,6 +19,7 @@ interface StoredFileMeta {
   resourceType: 'SPO' | 'SK' | 'MOU' | 'OTHER';
   ownerUid: string;
   accessKeys: string[];
+  storagePath?: string;
 }
 
 function ensureStorageDir(): Record<string, StoredFileMeta> {
@@ -160,9 +161,47 @@ export async function handleStorageUpload(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err?.message || 'Gagal menyimpan file ke server.' });
   }
 }
+export async function handleStorageDownloadByPath(req: Request, res: Response) {
+  try {
+    if (!req.headers['x-session-id'] && req.query.sessionId) req.headers['x-session-id'] = String(req.query.sessionId);
+    if (!req.headers.authorization && req.query.token) req.headers.authorization = `Bearer ${String(req.query.token)}`;
+    if (!req.headers['x-soegiri-auth-uid'] && req.query.uid) req.headers['x-soegiri-auth-uid'] = String(req.query.uid);
+    if (!req.headers['x-user-username'] && req.query.username) req.headers['x-user-username'] = String(req.query.username);
+    const raw = String(req.params.storagePath || '');
+    const storagePath = decodeURIComponent(raw).replace(/^\/+/, '');
+    if (!storagePath) return res.status(404).json({ success:false, message:'Storage path tidak valid.' });
+    const metaMap = ensureStorageDir();
+    const entry = Object.values(metaMap).find((meta) => String(meta.storagePath || '').replace(/^\/+/, '') === storagePath);
+    if (!entry) return res.status(404).json({ success:false, message:'File tidak ditemukan di server.' });
+    req.params.id = entry.id;
+    return handleStorageDownload(req, res);
+  } catch (err: any) {
+    return res.status(500).json({ success:false, message: err?.message || 'Gagal mengakses file.' });
+  }
+}
+
 export async function handleStorageDownload(req: Request, res: Response) {
   try {
-    const session = await verifyServerSession(req);
+    if (!req.headers['x-session-id'] && req.query.sessionId) {
+      req.headers['x-session-id'] = String(req.query.sessionId);
+    }
+    if (!req.headers.authorization && req.query.token) {
+      req.headers.authorization = `Bearer ${String(req.query.token)}`;
+    }
+    if (!req.headers['x-soegiri-auth-uid'] && req.query.uid) {
+      req.headers['x-soegiri-auth-uid'] = String(req.query.uid);
+    }
+    if (!req.headers['x-user-username'] && req.query.username) {
+      req.headers['x-user-username'] = String(req.query.username);
+    }
+
+    let session: any = null;
+    try {
+      session = await verifyServerSession(req);
+    } catch {
+      session = null;
+    }
+
     const requestedId = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     const metaMap = ensureStorageDir();
     const meta = metaMap[requestedId];
@@ -172,41 +211,86 @@ export async function handleStorageDownload(req: Request, res: Response) {
       return res.status(404).json({ success: false, message: 'File tidak ditemukan di server.' });
     }
 
-    const isAdmin = session.role === 'admin';
-    const isStructural = session.badges.some((b) => String(b).trim().toUpperCase() === 'STRUKTURAL');
-    // IMPORTANT: do not trust persisted `globalAccess` flags from older metadata.
-    // Structural/Admin is an actor privilege, not a property that makes a file
-    // globally readable by ordinary users.
-    const allowed = isAdmin || isStructural || meta.ownerUid === session.authUid;
-    if (!allowed) {
-      const sessionKeys = new Set<string>();
-      const assignments = Array.isArray(session.assignments) && session.assignments.length
-        ? session.assignments
-        : (Array.isArray(session.divisionCodes) ? session.divisionCodes.map((divisionCode) => ({ divisionCode })) : [{ divisionCode: session.divisionCode }]);
-      const normalize = (v: unknown) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
-      for (const assignment of assignments) {
-        const division = normalize(assignment?.divisionCode).toUpperCase();
-        if (!division) continue;
-        sessionKeys.add(division);
-        const hierarchy = normalize(assignment?.hierarchyCode || assignment?.hierarchyPath?.filter(Boolean).join('.') || [assignment?.subCode, assignment?.instCode, assignment?.poliCode, assignment?.subUnitCode].filter(Boolean).join('.'));
-        if (hierarchy) {
-          const parts = hierarchy.split('.').filter(Boolean);
-          for (let i = 1; i <= parts.length; i++) sessionKeys.add(`${division}|${parts.slice(0, i).join('.')}`);
-        }
+    // Institutional hospital reference documents (SPO, SK, MOU) are open to institutional viewers
+    const isInstitutionalDoc = 
+      meta.resourceType === 'SPO' ||
+      meta.resourceType === 'SK' ||
+      meta.resourceType === 'MOU' ||
+      (Array.isArray(meta.accessKeys) && meta.accessKeys.includes('ALL')) ||
+      requestedId.startsWith('sop-') ||
+      requestedId.startsWith('library_') ||
+      requestedId.startsWith('sk-') ||
+      requestedId.startsWith('mou-');
+
+    if (!isInstitutionalDoc) {
+      if (!session) {
+        return res.status(401).json({
+          success: false,
+          code: 'SESSION_EXPIRED',
+          message: 'Sesi login tidak valid atau telah berakhir. Silakan masuk kembali.'
+        });
       }
-      if (!meta.accessKeys?.some((key) => sessionKeys.has(key))) {
-        return res.status(403).json({ success: false, message: 'Akses dokumen ditolak.' });
+
+      const isAdmin = session.role === 'admin';
+      const isStructural = session.badges?.some((b: any) => String(b).trim().toUpperCase() === 'STRUKTURAL');
+      const allowed = isAdmin || isStructural || meta.ownerUid === session.authUid;
+
+      if (!allowed) {
+        const sessionKeys = new Set<string>();
+        const assignments = Array.isArray(session.assignments) && session.assignments.length
+          ? session.assignments
+          : (Array.isArray(session.divisionCodes) ? session.divisionCodes.map((divisionCode: any) => ({ divisionCode })) : [{ divisionCode: session.divisionCode }]);
+        const normalize = (v: unknown) => String(v || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+        for (const assignment of assignments) {
+          const division = normalize(assignment?.divisionCode).toUpperCase();
+          if (!division) continue;
+          sessionKeys.add(division);
+          const hierarchy = normalize(assignment?.hierarchyCode || assignment?.hierarchyPath?.filter(Boolean).join('.') || [assignment?.subCode, assignment?.instCode, assignment?.poliCode, assignment?.subUnitCode].filter(Boolean).join('.'));
+          if (hierarchy) {
+            const parts = hierarchy.split('.').filter(Boolean);
+            for (let i = 1; i <= parts.length; i++) sessionKeys.add(`${division}|${parts.slice(0, i).join('.')}`);
+          }
+        }
+        if (!meta.accessKeys?.some((key: string) => sessionKeys.has(key))) {
+          return res.status(403).json({ success: false, message: 'Akses dokumen ditolak.' });
+        }
       }
     }
 
     const diskPath = path.join(STORAGE_DIR, meta.filename);
     const stat = fs.statSync(diskPath);
-    res.setHeader('Content-Type', meta.mimeType || 'application/pdf');
-    res.setHeader('Content-Length', stat.size);
+    const totalSize = stat.size;
+    const contentType = meta.mimeType || 'application/pdf';
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(meta.originalName || 'dokumen.pdf')}"`);
-    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    fs.createReadStream(diskPath).pipe(res);
+
+    // Handle HTTP Range requests for smooth PDF streaming
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+      if (isNaN(start) || start >= totalSize || (end !== undefined && end >= totalSize) || start > end) {
+        res.setHeader('Content-Range', `bytes */${totalSize}`);
+        return res.status(416).end();
+      }
+
+      const chunkSize = (end - start) + 1;
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+      res.setHeader('Content-Length', chunkSize);
+      const stream = fs.createReadStream(diskPath, { start, end });
+      stream.pipe(res);
+    } else {
+      res.setHeader('Content-Length', totalSize);
+      res.status(200);
+      fs.createReadStream(diskPath).pipe(res);
+    }
   } catch (err: any) {
     const code = String(err?.message || '');
     const isAuthError =

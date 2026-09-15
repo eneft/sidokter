@@ -9,6 +9,48 @@ import { purgeBloatedLocalStorage } from './storageQuota';
 // In-memory fallback map for instant synchronous access
 const memoryCache = new Map<string, string>();
 
+export async function getProtectedStorageHeaders(): Promise<Record<string, string>> {
+  const session = getPersistedClientSession();
+  const token = await getCurrentAuthToken();
+  return {
+    ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+    ...(session?.authUid ? { 'X-Soegiri-Auth-Uid': session.authUid } : {}),
+    ...(session?.username ? { 'X-User-Username': session.username } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+}
+
+export function buildStoragePathUrl(storagePath: string): string {
+  const cleanPath = String(storagePath || '').replace(/^\/+/, '');
+  return `/api/storage/path/${encodeURIComponent(cleanPath)}`;
+}
+
+export async function resolveProtectedStorageUrl(
+  rawUrl: string | undefined | null,
+  storagePath?: string | undefined | null
+): Promise<string | null> {
+  if (!rawUrl && !storagePath) return null;
+  if (
+    rawUrl &&
+    !rawUrl.startsWith('/api/storage/files/') &&
+    !rawUrl.startsWith('/api/storage/path/')
+  ) return rawUrl;
+  if (!rawUrl && storagePath) return buildStoragePathUrl(storagePath);
+
+  const headers = await getProtectedStorageHeaders();
+  if (rawUrl) {
+    try {
+      const probe = await fetch(rawUrl, { method: 'HEAD', headers });
+      if (probe.ok) return rawUrl;
+    } catch { /* try storagePath fallback */ }
+  }
+  if (storagePath) return buildStoragePathUrl(storagePath);
+  // A protected URL that failed its authenticated probe must not be returned
+  // as if it were still usable; doing so causes a second guaranteed 404.
+  if (rawUrl?.startsWith('/api/storage/')) return null;
+  return rawUrl || null;
+}
+
 const DB_NAME = 'SopSoegiriFilesDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'files';
@@ -73,23 +115,25 @@ export function dataUrlToBlob(dataUrl: string): Blob {
 /**
  * Triggers a direct browser file download from Data URL, Blob, or regular URL
  */
-export function triggerFileDownload(urlOrDataUrl: string, fileName: string): boolean {
-  if (!urlOrDataUrl) return false;
+export function triggerFileDownload(urlOrDataUrl: string, fileName: string, fallbackStoragePath?: string): boolean {
+  if (!urlOrDataUrl && !fallbackStoragePath) return false;
 
   // Our storage endpoint is private and requires the SIDOKTER session header.
   // A plain <a href> cannot send X-Session-Id, so fetch the protected file first
   // and then download the resulting Blob.
-  if (urlOrDataUrl.startsWith('/api/storage/files/')) {
-    const session = getPersistedClientSession();
-    const safeFileName = (fileName || 'Dokumen_SPO.pdf')
-      .replace(/[/\\?%*:|"<>]/g, '_')
-      .replace(/\s+/g, '_');
-    void getCurrentAuthToken().then((token) => fetch(urlOrDataUrl, {
-      headers: {
-        ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  if (
+    urlOrDataUrl?.startsWith('/api/storage/files/') ||
+    urlOrDataUrl?.startsWith('/api/storage/path/') ||
+    (!urlOrDataUrl && fallbackStoragePath)
+  ) {
+    void getProtectedStorageHeaders().then(async (headers) => {
+      const safeFileName = (fileName || 'Dokumen_SPO.pdf')
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .replace(/\s+/g, '_');
+      let res = urlOrDataUrl ? await fetch(urlOrDataUrl, { headers }) : new Response(null, { status: 404 });
+      if (res.status === 404 && fallbackStoragePath) {
+        res = await fetch(buildStoragePathUrl(fallbackStoragePath), { headers });
       }
-    })).then(async (res) => {
       if (!res.ok) throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
       const blobUrl = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');

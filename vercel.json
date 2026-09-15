@@ -19,6 +19,10 @@
       "destination": "/api/auth"
     },
     {
+      "source": "/api/storage/:path*",
+      "destination": "https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/storageApi/:path*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

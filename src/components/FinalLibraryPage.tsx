@@ -22,6 +22,7 @@ import { LibraryDocument, SopDocument, UserSession } from '../types';
 import { formatBytes } from '../utils/numbering';
 import { getLibraryDocumentUrl } from '../lib/documentLibraryService';
 import { isSopAccessibleByUser } from '../utils/soegiriStructure';
+import { triggerFileDownload } from '../utils/fileStorage';
 
 interface FinalLibraryPageProps {
   sops: SopDocument[];
@@ -54,6 +55,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
     documentNumber?: string;
     fileName: string;
     url?: string;
+    storagePath?: string;
     sopData?: SopDocument;
   } | null>(null);
 
@@ -128,18 +130,18 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
   const grandTotalFinalDocs = activeSops.length + documents.length;
 
   const handleOpenDocViewer = async (item: {
-    id: string; type: 'SPO' | 'SK' | 'MOU'; title: string; documentNumber?: string; fileName: string; url?: string; sopData?: SopDocument;
+    id: string; type: 'SPO' | 'SK' | 'MOU'; title: string; documentNumber?: string; fileName: string; url?: string; storagePath?: string; sopData?: SopDocument;
   }) => {
     if (item.type === 'SPO' && item.sopData && onViewSop) { onViewSop(item.sopData); return; }
     const libraryDoc = documents.find((d) => d.id === item.id);
     const url = libraryDoc ? await getLibraryDocumentUrl(libraryDoc) : item.url;
-    if (url) setViewer({ ...item, url });
+    if (url) setViewer({ ...item, url, storagePath: libraryDoc?.storagePath });
   };
 
   const handleDownloadLibraryDoc = async (doc: LibraryDocument) => {
     const url = await getLibraryDocumentUrl(doc);
     if (!url) return;
-    const a = document.createElement('a'); a.href = url; a.download = doc.fileName; a.click();
+    triggerFileDownload(url, doc.fileName, doc.storagePath);
   };
 
   return (
@@ -555,6 +557,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
               <DocumentViewer
                 fileUrl={viewer.url}
                 fileName={viewer.fileName}
+                storagePath={viewer.storagePath}
                 heightClass="h-full w-full"
               />
             </div>

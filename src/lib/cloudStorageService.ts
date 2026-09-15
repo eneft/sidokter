@@ -173,6 +173,11 @@ export async function ensureCloudFileUrl(
  * A durable Firebase Storage reference is authoritative. Local IndexedDB/cache
  * is used only for legacy/offline fallback when no durable reference exists.
  */
+export function buildStoragePathUrl(storagePath: string): string {
+  const cleanPath = String(storagePath || '').replace(/^\/+/, '');
+  return `/api/storage/path/${encodeURIComponent(cleanPath)}`;
+}
+
 export async function resolveViewableUrl(
   rawUrlOrPath: string | undefined | null,
   cacheKey?: string

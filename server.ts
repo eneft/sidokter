@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { generatePdf } from './server/pdfRenderer';
 import { handleAuthApi, verifyServerSession } from './server/authHandler';
-import { handleStorageUpload, handleStorageDownload, handleStorageDelete } from './server/storageHandler';
+import { handleStorageUpload, handleStorageDownload, handleStorageDownloadByPath, handleStorageDelete } from './server/storageHandler';
 import { handleHierarchyGet, handleHierarchySave } from './server/hierarchyHandler';
 
 const app = express();
@@ -34,6 +34,7 @@ app.all(['/api/auth', '/api/authApi', '/api/auth/:action', '/api/authApi/:action
 
 // File storage endpoints for document uploads & secure streaming
 app.post('/api/storage/upload', handleStorageUpload);
+app.get('/api/storage/path/:storagePath(*)', handleStorageDownloadByPath);
 app.get(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDownload);
 app.delete(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDelete);
 

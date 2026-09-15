@@ -31,6 +31,7 @@ import { LibraryDocument, LibraryDocumentType, SkCategory, UserSession } from '.
 import { deleteSK, updateSK, uploadSK, getSKDocumentUrl } from '../lib/skService';
 import { deleteMOU, updateMOU, uploadMOU, getMOUDocumentUrl } from '../lib/mouService';
 import { formatBytes } from '../utils/numbering';
+import { triggerFileDownload } from '../utils/fileStorage';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
 
@@ -248,22 +249,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
           `File ${doc.fileName || 'dokumen'} tidak tersedia di penyimpanan.`);
         return;
       }
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Gagal mengambil PDF (HTTP ${response.status}).`);
-
-      const blob = await response.blob();
-      if (!blob.size) throw new Error('File PDF kosong.');
-
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = doc.fileName || `${type}.pdf`;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      triggerFileDownload(url, doc.fileName || `${type}.pdf`, doc.storagePath);
     } catch (e: any) {
       onShowToast?.('error', 'Download Gagal',
         e?.message || 'Dokumen tidak dapat diunduh.');
@@ -1616,6 +1602,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
               <DocumentViewer
                 fileUrl={viewer.downloadUrl}
                 fileName={viewer.fileName}
+                storagePath={viewer.storagePath}
                 heightClass="h-full w-full"
               />
             </div>

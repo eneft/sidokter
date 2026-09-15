@@ -1,0 +1,111 @@
+      }
+    : null;
+
+  const rawAssignments = (Array.isArray(userSession.assignments) && userSession.assignments.length
+    ? userSession.assignments
+    : legacyAssignment ? [legacyAssignment] : []).filter((a) => a.divisionCode);
+
+  const normalizedAssignments = rawAssignments.map((a) => {
+    let subCode = a.subCode;
+    let instCode = a.instCode;
+    let poliCode = a.poliCode;
+    let subUnitCode = a.subUnitCode;
+    let hierarchyCode = a.hierarchyCode;
+
+    if (hierarchyCode && (!subCode || !instCode || !poliCode)) {
+      const parts = hierarchyCode.split('.');
+      if (!subCode && parts[0]) subCode = parts[0];
+      if (!instCode && parts[1]) instCode = parts[1];
+      if (!poliCode && parts[2]) poliCode = parts[2];
+      if (!subUnitCode && parts[3]) subUnitCode = parts[3];
+    }
+
+    if (!hierarchyCode && (subCode || instCode || poliCode || subUnitCode)) {
+      hierarchyCode = [subCode, instCode, poliCode, subUnitCode].filter(Boolean).join('.');
+    }
+
+    return {
+      ...a,
+      subCode,
+      instCode,
+      poliCode,
+      subUnitCode,
+      hierarchyCode
+    };
+  });
+
+  const userDivisionCodes = Array.from(new Set(
+    [
+      ...(userSession.divisionCodes || []),
+      userSession.divisionCode,
+      ...(normalizedAssignments || []).map((a) => a.divisionCode)
+    ].filter((c): c is string => Boolean(c) && c !== 'ALL')
+  ));
+
+  const [categoriesList, setCategoriesList] = useState<SoegiriCategory[]>(() => SOEGIRI_MASTER_CATEGORIES);
+
+  // Nomor Riviu adalah register nomor, bukan dokumen SPO. Hanya tampilkan
+  // nomor yang masih RESERVED/belum dipakai; nomor USED tetap tersimpan di
+  // database untuk mencegah penerbitan ulang tetapi tidak tampil di daftar ini.
+  useEffect(() => {
+    let cancelled = false;
+    const loadIssuedNumbers = async () => {
+      try {
+        const rows = await getAllNumberReservations();
+        if (cancelled) return;
+        const allowedDivisions = new Set(
+          userSession.role === 'admin'
+            ? []
+            : userDivisionCodes.map((code) => String(code).toUpperCase())
+        );
+        const visible = rows
+          .filter((row) => row.status === 'RESERVED' && (row.purpose === 'RIVIU_ONLY'))
+          .filter((row) => userSession.role === 'admin' || allowedDivisions.has(String(row.divisionCode || '').toUpperCase()))
+          .sort((a, b) => String(b.reservedAt).localeCompare(String(a.reservedAt)));
+        setIssuedNumberRegister(visible);
+      } catch (error) {
+        console.error('Gagal membaca Daftar Nomor:', error);
+      }
+    };
+    loadIssuedNumbers();
+    return () => { cancelled = true; };
+  }, [sops, userSession.role, userDivisionCodes.join('|')]);
+
+  useEffect(() => {
+    return subscribeToHierarchyMaster((cats) => {
+      setCategoriesList(cats);
+    });
+  }, []);
+
+  // Catatan: Badge STRUKTURAL hanya memberikan hak akses untuk SK dan MOU.
+  // Untuk SPO, akses dan kategori tujuan tetap mengikuti hirarki penugasan pengguna.
+  const hasAllHierarchyAssignment = normalizedAssignments.some((a) => String(a.divisionCode || '').toUpperCase() === 'ALL');
+  const hasGlobalHierarchyAccess = userSession.role === 'admin' || hasAllHierarchyAssignment;
+  const hasAllDivisionsAccess = hasGlobalHierarchyAccess;
+
+  // ALL is a global Admin marker. A User account must never inherit
+  // global access from legacy divisionCode/divisionCodes/assignments.
+  const userAssignments = normalizedAssignments.filter(
+    (a) => String(a.divisionCode || '').toUpperCase() !== 'ALL'
+  );
+
+  const accessibleCategories = hasAllDivisionsAccess
+    ? categoriesList
+    : (userDivisionCodes.length > 0 
+        ? categoriesList.filter((c) => userDivisionCodes.includes(c.code))
+        : []);
+
+  // Administrator selalu memakai assignment global sintetis (ALL).
+  // Jangan mewarisi hirarki lama dari profil/session Admin karena Admin tidak
+  // dibatasi oleh satu unit. Target hirarki SPO tetap dipilih di form.
+  const globalHierarchyAssignment = hasGlobalHierarchyAccess
+    ? {
+        id: userSession.role === 'admin' ? 'admin-global-all' : 'user-global-all',
+        divisionCode: 'ALL',
+        hierarchyCode: undefined,
+        unitName: 'Semua Hirarki',
+        subCode: undefined,
+        instCode: undefined,
+        poliCode: undefined,
+        subUnitCode: undefined
+      }

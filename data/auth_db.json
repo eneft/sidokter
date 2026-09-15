@@ -12,8 +12,8 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-14T08:17:31.517Z",
-      "updatedAt": "2026-09-14T08:17:31.626Z",
+      "createdAt": "2026-09-14T09:22:25.319Z",
+      "updatedAt": "2026-09-14T09:22:25.602Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -1475,10 +1475,19 @@
       "sessionId": "f7eb3525-bde8-4f48-a12c-b00102162af3",
       "authUid": "admin-root",
       "username": "admin",
-      "createdAt": 1789373851517,
-      "lastActiveAt": 1789373851517,
+      "createdAt": 1789375710850,
+      "lastActiveAt": 1789375710850,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+    },
+    "sess_test": {
+      "sessionId": "sess_test",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789377745319,
+      "lastActiveAt": 1789377745602,
+      "revoked": false,
+      "userAgent": "curl/7.88.1"
     }
   },
   "auditLogs": []

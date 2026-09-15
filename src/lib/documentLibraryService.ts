@@ -1,5 +1,5 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
-import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache } from '../utils/fileStorage';
+import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache, buildStoragePathUrl, resolveProtectedStorageUrl } from '../utils/fileStorage';
 import { safeSetLocalStorage } from '../utils/storageQuota';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
@@ -128,24 +128,49 @@ export async function deleteDocument(document:LibraryDocument,actorRole?:UserRol
   }
 }
 export async function getDocumentUrl(document: LibraryDocument): Promise<string | null> {
-  // Durable cloud reference is authoritative. Local cache is only a legacy/offline fallback.
-  const viewUrl = await resolveViewableUrl(document.downloadUrl || document.storagePath);
-  if (viewUrl) return viewUrl;
+  // 1. Direct downloadUrl or storagePath
+  if (document.downloadUrl) {
+    const viewUrl = document.downloadUrl.startsWith('/api/storage/files/')
+      ? await resolveProtectedStorageUrl(document.downloadUrl, document.storagePath)
+      : await resolveViewableUrl(document.downloadUrl);
+    if (viewUrl) return viewUrl;
+  }
+  if (document.storagePath) {
+    // A storagePath is an objectPath, not a file id and must be resolved by
+    // the protected storage API. Do not return the raw path as a browser URL.
+    return buildStoragePathUrl(document.storagePath);
+  }
 
-  // Auto-check server storage with document id
-  const fallbackServerUrl = `/api/storage/files/${document.id}`;
-  try {
-    const session = getPersistedClientSession();
-    const token = await getCurrentAuthToken();
-    const head = await fetch(fallbackServerUrl, {
-      method: 'HEAD',
-      headers: {
-        ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      }
-    });
-    if (head.ok) return fallbackServerUrl;
-  } catch {}
+  // 2. Predictable server storage endpoints
+  const candidates = [
+    document.id,
+    `library_${document.id}`,
+    `sk_${document.id}`,
+    `mou_${document.id}`
+  ];
+
+  for (const cand of candidates) {
+    const fallbackServerUrl = `/api/storage/files/${cand}`;
+    try {
+      const session = getPersistedClientSession();
+      const token = await getCurrentAuthToken();
+      const head = await fetch(fallbackServerUrl, {
+        method: 'HEAD',
+        headers: {
+          ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+          ...(session?.authUid ? { 'X-Soegiri-Auth-Uid': session.authUid } : {}),
+          ...(session?.username ? { 'X-User-Username': session.username } : {}),
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      if (head.ok) return fallbackServerUrl;
+    } catch {}
+  }
+
+  // 3. Local persistent cache fallback
+  const localCached = await getNamedFileFromLocalCache(`library_${document.id}`) ||
+                      await getNamedFileFromLocalCache(`cloud_${document.id}`);
+  if (localCached) return localCached;
 
   return null;
 }

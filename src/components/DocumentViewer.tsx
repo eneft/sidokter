@@ -1,22 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
+import '../lib/pdfPolyfill';
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { 
-  FileText,
   AlertCircle,
   Loader2,
-  FileCheck2,
   Download,
   FileType,
-  FileSpreadsheet,
-  FileCode,
-  Image as ImageIcon,
-  ZoomIn,
-  ZoomOut,
-  Maximize2
+  FileSpreadsheet
 } from 'lucide-react';
-import { dataUrlToBlob, triggerFileDownload } from '../utils/fileStorage';
+import { dataUrlToBlob, triggerFileDownload, getProtectedStorageHeaders, buildStoragePathUrl } from '../utils/fileStorage';
 
 // Configure pdfjs worker using bundled worker or fallback
 try {
@@ -43,17 +37,20 @@ export interface DocumentViewerProps {
   fileUrl?: string;
   file?: File | Blob | null;
   fileName?: string;
+  storagePath?: string;
   className?: string;
   heightClass?: string;
 }
 
 // Sub-component to render individual PDF page seamlessly
-const PdfPageItem: React.FC<{ pdfDoc: any; pageNumber: number; customScale?: number }> = ({ 
+const PdfPageItem: React.FC<{ pdfDoc: any; pageNumber: number; customScale?: number; fitWidth?: number }> = ({ 
   pdfDoc, 
   pageNumber,
-  customScale = 1.35
+  customScale = 1.35,
+  fitWidth = 0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageHostRef = useRef<HTMLDivElement>(null);
   const [rendered, setRendered] = useState(false);
   const [renderError, setRenderError] = useState(false);
 
@@ -66,8 +63,14 @@ const PdfPageItem: React.FC<{ pdfDoc: any; pageNumber: number; customScale?: num
         const page = await pdfDoc.getPage(pageNumber);
         if (isCancelled) return;
 
-        // Auto-scale with crisp resolution
-        const viewport = page.getViewport({ scale: customScale });
+        // Fit the PDF page to the available viewer width. This keeps the
+        // document as large as possible without changing its aspect ratio.
+        const baseViewport = page.getViewport({ scale: 1 });
+        const availableWidth = Math.max(280, fitWidth || pageHostRef.current?.clientWidth || 0);
+        const fittedScale = fitWidth > 0
+          ? Math.max(0.5, availableWidth / baseViewport.width)
+          : customScale;
+        const viewport = page.getViewport({ scale: fittedScale });
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -114,7 +117,7 @@ const PdfPageItem: React.FC<{ pdfDoc: any; pageNumber: number; customScale?: num
         }
       }
     };
-  }, [pdfDoc, pageNumber, customScale]);
+  }, [pdfDoc, pageNumber, customScale, fitWidth]);
 
   if (renderError) {
     return (
@@ -125,8 +128,8 @@ const PdfPageItem: React.FC<{ pdfDoc: any; pageNumber: number; customScale?: num
   }
 
   return (
-    <div className="flex flex-col items-center justify-center px-1 sm:px-4 py-2 sm:py-3 mb-2 last:mb-0 w-full max-w-full overflow-x-auto touch-pan-x">
-      <div className="relative shadow-[0_8px_30px_rgba(15,23,42,0.08)] rounded-sm overflow-hidden bg-white border border-slate-200 max-w-full">
+    <div ref={pageHostRef} className="w-full flex flex-col items-center py-1 mb-1 last:mb-0">
+      <div className="relative overflow-hidden bg-white max-w-full w-full">
         {!rendered && (
           <div className="w-[320px] sm:w-[600px] h-[450px] sm:h-[800px] max-w-full flex items-center justify-center bg-white text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin text-teal-600" />
@@ -170,13 +173,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   fileUrl,
   file,
   fileName,
+  storagePath,
   className = '',
   heightClass = 'h-[500px]'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewerContentRef = useRef<HTMLDivElement>(null);
+  const [viewerWidth, setViewerWidth] = useState(0);
 
   const effectiveFileName = fileName || (file as any)?.name || 'Dokumen_SPO.pdf';
-  const effectiveFileUrl = fileUrl || '';
+  const effectiveFileUrl = fileUrl || (storagePath ? buildStoragePathUrl(storagePath) : '');
 
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -184,7 +190,18 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [detectedType, setDetectedType] = useState<'pdf' | 'image' | 'word' | 'excel' | 'unknown'>('unknown');
   const [error, setError] = useState<string | null>(null);
   const [fallbackBlobUrl, setFallbackBlobUrl] = useState<string | null>(null);
-  const [pdfScale, setPdfScale] = useState<number>(1.2);
+  const pdfScale = 1.0;
+
+  useEffect(() => {
+    const el = viewerContentRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+
+    const updateWidth = () => setViewerWidth(Math.max(0, el.clientWidth));
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const lowerName = effectiveFileName.toLowerCase();
   const isImageFile = (file?.type?.startsWith('image/') ?? false) || effectiveFileUrl.startsWith('data:image/') || /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(lowerName);
@@ -240,17 +257,18 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           arrayBuffer = await blob.arrayBuffer();
         } else if (effectiveFileUrl.startsWith('blob:') || effectiveFileUrl.startsWith('http') || effectiveFileUrl.startsWith('/')) {
           const headers: Record<string, string> = {};
-          // Server storage is session-protected. Browser fetch() does not carry
-          // SIDOKTER's X-Session-Id automatically, so cloud PDFs could return
-          // 401 even though the user is logged in. Only attach the private session
-          // header to our own storage endpoint.
-          if (effectiveFileUrl.startsWith('/api/storage/files/')) {
+          if (effectiveFileUrl.startsWith('/api/storage/files/') || effectiveFileUrl.startsWith('/api/storage/')) {
             const session = getPersistedClientSession();
             const token = await getCurrentAuthToken();
             if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+            if (session?.authUid) headers['X-Soegiri-Auth-Uid'] = session.authUid;
+            if (session?.username) headers['X-User-Username'] = session.username;
             if (token) headers['Authorization'] = `Bearer ${token}`;
           }
-          const res = await fetch(effectiveFileUrl, { headers });
+          let res = await fetch(effectiveFileUrl, { headers });
+          if (res.status === 404 && storagePath) {
+            res = await fetch(buildStoragePathUrl(storagePath), { headers });
+          }
           if (!res.ok) {
             throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
           }
@@ -266,7 +284,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           if (session?.authUid) headers['X-Soegiri-Auth-Uid'] = session.authUid;
           if (session?.username) headers['X-User-Username'] = session.username;
           if (token) headers['Authorization'] = `Bearer ${token}`;
-          const res = await fetch(fallbackServerUrl, { headers });
+          let res = await fetch(fallbackServerUrl, { headers });
+          if (res.status === 404 && storagePath) res = await fetch(buildStoragePathUrl(storagePath), { headers });
           if (!res.ok) {
             throw new Error('File tidak ditemukan di penyimpanan server.');
           }
@@ -302,7 +321,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         const isValidPdf = hasPdfHeader(uint8Array);
 
         if (!isValidPdf) {
-          // It is not a valid PDF file. Do NOT pass to PDF.js to avoid "Invalid PDF structure" error.
           if (!isCancelled) {
             setDetectedType('unknown');
             setError('Berkas bukan format PDF yang valid atau mengalami kerusakan.');
@@ -318,26 +336,40 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           setDetectedType('pdf');
         }
 
-        // Load via PDF.js
-        const version = (pdfjsLib as any).version || '6.3.289';
-        const loadingTask = pdfjsLib.getDocument({
-          data: uint8Array,
-          cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/cmaps/`,
-          cMapPacked: true,
-          verbosity: 0
-        });
+        // Attempt PDF.js canvas rendering
+        try {
+          const version = (pdfjsLib as any).version || '6.3.289';
+          const loadingTask = pdfjsLib.getDocument({
+            data: uint8Array,
+            cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/cmaps/`,
+            cMapPacked: true,
+            verbosity: 0
+          });
 
-        const doc = await loadingTask.promise;
-        if (!isCancelled) {
-          setPdfDoc(doc);
-          setTotalPages(doc.numPages);
-          setLoading(false);
+          const doc = await loadingTask.promise;
+          if (!isCancelled) {
+            setPdfDoc(doc);
+            setTotalPages(doc.numPages);
+            setLoading(false);
+          }
+        } catch (canvasErr: any) {
+          console.warn('[DocumentViewer] PDF.js failed to render document:', canvasErr);
+          if (!isCancelled) {
+            setError('PDF tidak dapat dirender oleh PDF.js. Silakan coba lagi atau unduh dokumen.');
+            setLoading(false);
+          }
         }
       } catch (err: any) {
-        // Catch any PDF.js parsing error gracefully without crashing
+        console.warn('[DocumentViewer] Error loading document:', err);
         if (!isCancelled) {
-          setError('Pratinjau PDF tidak dapat dirender secara langsung. Silakan unduh dokumen untuk membukanya.');
-          setLoading(false);
+          if (effectiveFileUrl && (effectiveFileUrl.includes('.pdf') || effectiveFileUrl.startsWith('/api/storage/files/'))) {
+            setFallbackBlobUrl(effectiveFileUrl);
+            setDetectedType('pdf');
+            setLoading(false);
+          } else {
+            setError('Pratinjau PDF tidak dapat dirender secara langsung. Silakan unduh dokumen untuk membukanya.');
+            setLoading(false);
+          }
         }
       }
     };
@@ -346,19 +378,31 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
     return () => {
       isCancelled = true;
+      // Release the PDF.js document/worker resources when the source changes
+      // or the viewer unmounts. This is important when users open many PDFs.
+      setPdfDoc((currentDoc) => {
+        if (currentDoc) {
+          try { currentDoc.destroy(); } catch { /* ignore cleanup errors */ }
+        }
+        return null;
+      });
+      setTotalPages(0);
       if (fallbackBlobUrl) {
         URL.revokeObjectURL(fallbackBlobUrl);
+        setFallbackBlobUrl(null);
       }
     };
-  }, [file, effectiveFileUrl, effectiveFileName, isImageFile, isWordFile, isExcelFile]);
+  }, [file, effectiveFileUrl, effectiveFileName, storagePath, isImageFile, isWordFile, isExcelFile]);
 
   const handleDownload = () => {
     if (file) {
       const url = URL.createObjectURL(file);
-      triggerFileDownload(url, effectiveFileName);
+      triggerFileDownload(url, effectiveFileName, storagePath);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } else if (fallbackBlobUrl) {
+      triggerFileDownload(fallbackBlobUrl, effectiveFileName, storagePath);
     } else if (effectiveFileUrl) {
-      triggerFileDownload(effectiveFileUrl, effectiveFileName);
+      triggerFileDownload(effectiveFileUrl, effectiveFileName, storagePath);
     }
   };
 
@@ -367,53 +411,26 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col bg-white rounded-2xl border border-slate-200 shadow-[0_10px_35px_rgba(15,23,42,0.07)] overflow-hidden ${heightClass} ${className}`}
+      className={`flex flex-col bg-white overflow-hidden ${heightClass} ${className}`}
     >
-      {/* Compact preview controls — same visual language as the official SPO preview */}
-      <div className="flex items-center justify-end gap-1.5 px-2 sm:px-3 py-1.5 bg-transparent shrink-0 no-print">
-        {detectedType === 'pdf' && totalPages > 0 && (
-          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white/95 p-0.5 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setPdfScale((prev) => Math.max(0.75, Number((prev - 0.2).toFixed(2))))}
-              className="px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
-              title="Perkecil zoom"
-            >
-              −
-            </button>
-            <span className="px-2 text-[11px] font-semibold text-slate-600 min-w-[48px] text-center">
-              {Math.round(pdfScale * 100 / 1.35)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setPdfScale((prev) => Math.min(2.2, Number((prev + 0.2).toFixed(2))))}
-              className="px-2 py-1 rounded-md text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
-              title="Perbesar zoom"
-            >
-              +
-            </button>
-          </div>
-        )}
-
-        {totalPages > 0 && (
-          <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 shadow-sm">
-            {totalPages} hal
-          </span>
-        )}
-
-        <button
-          type="button"
-          onClick={handleDownload}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white/95 text-[11px] font-semibold text-slate-600 hover:text-indigo-700 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm"
-          title="Unduh berkas"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Unduh</span>
-        </button>
-      </div>
+      {/* Minimal PDF.js toolbar */}
+      {detectedType === 'pdf' && !error && totalPages > 0 && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-slate-100 bg-white shrink-0 no-print min-h-[34px]">
+          <span className="text-[11px] font-semibold text-slate-500">PDF · {totalPages} halaman</span>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+            title="Unduh dokumen"
+          >
+            <Download className="w-3 h-3" />
+            <span>Unduh</span>
+          </button>
+        </div>
+      )}
 
       {/* Document canvas */}
-      <div className="flex-1 bg-slate-50/80 overflow-y-auto overflow-x-hidden flex flex-col items-center p-3 sm:p-5 relative">
+      <div ref={viewerContentRef} className="flex-1 bg-slate-50/80 overflow-y-auto overflow-x-hidden flex flex-col items-center p-0 relative">
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400 py-12">
             <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
@@ -512,6 +529,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 pdfDoc={pdfDoc} 
                 pageNumber={pageNum} 
                 customScale={pdfScale}
+                fitWidth={viewerWidth}
               />
             ))}
           </div>

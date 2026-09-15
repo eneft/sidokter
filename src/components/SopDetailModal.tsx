@@ -37,9 +37,10 @@ import { formatBytes } from '../utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser, canUserActivateSop } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
-import { triggerFileDownload, openDocumentPreview } from '../utils/fileStorage';
+import { triggerFileDownload, openDocumentPreview, getFileFromPersistentCacheAsync, resolveProtectedStorageUrl } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
 import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from '../lib/authService';
+import { buildStoragePathUrl } from '../lib/cloudStorageService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
@@ -72,9 +73,11 @@ const PreviewMetadata: React.FC<{ sop: SopDocument; kind: 'BARU' | 'EKSISTING' |
   const fmt = (value?: string) => {
     if (!value) return '-';
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return Number.isNaN(d.getTime())
+      ? value
+      : d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
-  // Pengusul wajib ditampilkan sebagai Nama Lengkap pada akun user.
+
   // Data lama yang masih menyimpan username di activationRequestedBy di-resolve
   // kembali ke direktori akun agar preview tidak menampilkan username.
   const proposerAccount = users?.find((u) =>
@@ -82,36 +85,54 @@ const PreviewMetadata: React.FC<{ sop: SopDocument; kind: 'BARU' | 'EKSISTING' |
   );
   const proposer = proposerAccount?.name || sop.activationRequestedBy || sop.creatorName || '-';
   const proposerUnit = sop.creatorUnit || sop.divisionName || '-';
-  const status = sop.status === 'AKTIF' ? 'Aktif' : sop.status === 'DRAFT' ? 'Draft' : sop.status || '-';
-  const typeLabel = kind === 'BARU' ? 'SPO Baru' : kind === 'EKSISTING' ? 'SPO Existing / Lama' : 'SPO Hasil Riviu';
+
+  const isActive = sop.status === 'AKTIF';
+  const typeLabel = kind === 'BARU' ? 'SPO Baru' : kind === 'EKSISTING' ? 'SPO Existing' : 'SPO Hasil Riviu';
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden no-print" aria-label="Informasi dokumen SPO">
-      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-900 border border-blue-200">{typeLabel}</span>
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Informasi Dokumen</span>
-        </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border ${sop.status === 'AKTIF' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : sop.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>{status}</span>
+    <section className="rounded-xl border border-slate-200 bg-white overflow-hidden no-print" aria-label="Informasi dokumen SPO">
+      <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 flex items-center justify-between gap-3">
+        <span className="inline-flex items-center rounded-lg bg-blue-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-blue-900 border border-blue-200">
+          {typeLabel}
+        </span>
       </div>
-      <div className="px-4 sm:px-5 py-4 space-y-3">
-        <div><div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Judul SPO</div><h3 className="mt-0.5 text-[12px] font-extrabold leading-snug text-slate-900">{sop.title || 'Tanpa Judul SPO'}</h3></div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Nomor SPO</span><span className="mt-0.5 block font-mono text-[11px] font-bold text-blue-900 break-words leading-tight">{sop.sopNumber || '-'}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Pengusul</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposer}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Unit / Pemilik</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposerUnit}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Revisi</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{sop.revisionNumber || sop.version || '00'}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Tanggal Pengajuan</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{fmt(sop.activationRequestedAt || sop.createdAt)}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Tanggal Terbit / Berlaku</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 leading-tight">{fmt(sop.effectiveDate)}</span></div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2"><span className="block text-[9px] font-semibold text-slate-500">Penetap</span><span className="mt-0.5 block text-[11px] font-semibold text-slate-800 break-words leading-tight">{sop.approverName || sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</span></div>
+
+      <div className="px-4 sm:px-5 py-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-2.5 text-xs">
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Nomor</div>
+            <div className="mt-0.5 font-mono text-[11px] font-bold text-blue-900 break-words leading-tight">{sop.sopNumber || '-'}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Pengusul</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposer}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Unit</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-slate-800 break-words leading-tight">{proposerUnit}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Tanggal Terbit</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-slate-800 leading-tight">{fmt(sop.effectiveDate)}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Revisi</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-slate-800 leading-tight">{sop.revisionNumber || sop.version || '00'}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[9px] font-semibold text-slate-500">Penetap</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-slate-800 break-words leading-tight">{sop.approverName || sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
+          </div>
         </div>
+
         {kind === 'RIVIU' && (
-          <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,0.8fr)_minmax(0,2fr)] gap-2 pt-0.5">
-            <div className="rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5">
-              <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">SPO Lama yang Diriviu</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 mt-3 pt-2.5 border-t border-slate-100">
+            <div className="min-w-0">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">SPO Lama yang Diriviu</span>
               <span className="mt-0.5 block text-[10px] font-mono font-bold text-blue-900 break-words leading-tight">{sop.oldSopNumber || '-'}</span>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5">
-              <span className="block text-[8px] font-bold uppercase tracking-wide text-slate-400">Alasan Riviu</span>
+            <div className="min-w-0">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">Alasan Riviu</span>
               <span className="mt-0.5 block text-[10px] font-medium text-slate-700 leading-snug break-words">{sop.reviewReason || '-'}</span>
             </div>
           </div>
@@ -135,54 +156,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   users
 }) => {
   const [copied, setCopied] = useState(false);
-  const [isFullscreenDocOpen, setIsFullscreenDocOpen] = useState(false);
+  const [officialPdfBlob, setOfficialPdfBlob] = useState<Blob | null>(null);
+  const [isOfficialPdfLoading, setIsOfficialPdfLoading] = useState(false);
+  const [officialPdfError, setOfficialPdfError] = useState<string | null>(null);
   const [officialPages, setOfficialPages] = useState<OfficialBlock[][]>([]);
   const [layoutBlocks, setLayoutBlocks] = useState<OfficialBlock[]>([]);
   const [isPaginatingOfficial, setIsPaginatingOfficial] = useState(false);
   const measureRootRef = useRef<HTMLDivElement | null>(null);
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
-  // Mobile optimization states
-  const [isMobile, setIsMobile] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < 768;
-    }
-    return false;
-  });
-  const [mobileViewMode, setMobileViewMode] = useState<'a4' | 'reader'>('a4');
-  const [zoomScale, setZoomScale] = useState<number | 'fit'>('fit');
-  const [containerWidth, setContainerWidth] = useState<number>(800);
-  const [activeReaderSectionId, setActiveReaderSectionId] = useState<string>('reader-pengertian');
-  const [activePageNumber, setActivePageNumber] = useState<number>(1);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
-
-  // Track window resize and container width for dynamic responsive scaling
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    if (!modalBodyRef.current) return;
-    const updateWidth = () => {
-      if (modalBodyRef.current) {
-        setContainerWidth(modalBodyRef.current.clientWidth || 800);
-      }
-    };
-    updateWidth();
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-    ro.observe(modalBodyRef.current);
-    return () => ro.disconnect();
-  }, [isOpen]);
 
   // Check if document is a review or legacy document
   const isReviewDoc = Boolean(
@@ -250,23 +233,121 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       return;
     }
 
-    // Firebase Cloud Storage is the only authoritative file source.
-    // Browser-local cache is intentionally NOT used for normal preview; otherwise
-    // PC-A can show a document that PC-B cannot access. Legacy records without a
-    // cloud reference must be repaired/migrated instead of silently falling back.
-    const cloudUrl = (sop as any).fileUrl || (sop as any).signedScanUrl || (sop as any).oldFileUrl;
-    if (cloudUrl) {
-      setResolvedLegacyFileUrl(cloudUrl);
-      setIsLoadingLegacyFile(false);
-      return;
-    }
+    const resolveFile = async () => {
+      setIsLoadingLegacyFile(true);
 
-    setResolvedLegacyFileUrl(null);
-    setIsLoadingLegacyFile(false);
+      // 1. Resolve a protected cloud URL only after validating it with the
+      // current authenticated session. Legacy file IDs may be stale while the
+      // durable storagePath is still valid.
+      const cloudUrl = (sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl;
+      const storagePath = (sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath;
+      if (cloudUrl) {
+        const resolvedCloudUrl = await resolveProtectedStorageUrl(cloudUrl, storagePath);
+        if (resolvedCloudUrl) {
+          if (!isCancelled) {
+            setResolvedLegacyFileUrl(resolvedCloudUrl);
+            setIsLoadingLegacyFile(false);
+          }
+          return;
+        }
+      }
+
+      // 2. Storage path reference
+      if (storagePath) {
+        const pathUrl = storagePath.startsWith('/api/storage/') ? storagePath : buildStoragePathUrl(storagePath);
+        if (!isCancelled) {
+          setResolvedLegacyFileUrl(pathUrl);
+          setIsLoadingLegacyFile(false);
+        }
+        return;
+      }
+
+      // 3. Check server storage by predictable IDs
+      const candidates = [
+        `sop-${sop.id}_signedScan`,
+        `sop-${sop.id}_file`,
+        `sop-${sop.id}_oldFile`,
+        `sop_${sop.id}`,
+        sop.id
+      ];
+
+      for (const cand of candidates) {
+        try {
+          const testUrl = `/api/storage/files/${cand}`;
+          const session = getPersistedClientSession();
+          const token = await getCurrentAuthToken();
+          const headRes = await fetch(testUrl, { method: 'HEAD', headers: {
+            ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
+            ...(session?.authUid ? { 'X-Soegiri-Auth-Uid': session.authUid } : {}),
+            ...(session?.username ? { 'X-User-Username': session.username } : {}),
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          } });
+          if (headRes.ok) {
+            if (!isCancelled) {
+              setResolvedLegacyFileUrl(testUrl);
+              setIsLoadingLegacyFile(false);
+            }
+            return;
+          }
+        } catch {
+          // ignore network check error
+        }
+      }
+
+      // 4. Check inline data URLs
+      const inlineDataUrl = (sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl;
+      if (inlineDataUrl) {
+        if (!isCancelled) {
+          setResolvedLegacyFileUrl(inlineDataUrl);
+          setIsLoadingLegacyFile(false);
+        }
+        return;
+      }
+
+      // 5. Persistent local IndexedDB cache fallback
+      try {
+        const cachedScan = await getFileFromPersistentCacheAsync(sop.id, 'signedScan');
+        if (cachedScan) {
+          if (!isCancelled) {
+            setResolvedLegacyFileUrl(cachedScan);
+            setIsLoadingLegacyFile(false);
+          }
+          return;
+        }
+
+        const cachedFile = await getFileFromPersistentCacheAsync(sop.id, 'file');
+        if (cachedFile) {
+          if (!isCancelled) {
+            setResolvedLegacyFileUrl(cachedFile);
+            setIsLoadingLegacyFile(false);
+          }
+          return;
+        }
+
+        const cachedOld = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
+        if (cachedOld) {
+          if (!isCancelled) {
+            setResolvedLegacyFileUrl(cachedOld);
+            setIsLoadingLegacyFile(false);
+          }
+          return;
+        }
+      } catch (cacheErr) {
+        console.warn('Cache lookup warning in SopDetailModal:', cacheErr);
+      }
+
+      if (!isCancelled) {
+        setResolvedLegacyFileUrl(null);
+        setIsLoadingLegacyFile(false);
+      }
+    };
+
+    resolveFile();
+
     return () => {
       isCancelled = true;
     };
-  }, [sop?.id, sop?.fileUrl, sop?.signedScanUrl, sop?.oldFileUrl, isOpen]);
+  }, [sop?.id, (sop as any)?.fileUrl, (sop as any)?.signedScanUrl, (sop as any)?.oldFileUrl, (sop as any)?.storagePath, (sop as any)?.signedScanStoragePath, (sop as any)?.oldStoragePath, isOpen]);
 
   const legacyFileUrl = resolvedLegacyFileUrl;
   const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
@@ -284,7 +365,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       const fileName = sop.oldFileName || `Bukti_Riviu_${safeNum}.pdf`;
 
       if (fileUrl) {
-        triggerFileDownload(fileUrl, fileName);
+        triggerFileDownload(fileUrl, fileName, (sop as any).oldStoragePath || (sop as any).storagePath || (sop as any).signedScanStoragePath);
       } else {
         alert(`Berkas bukti fisik riviu (${fileName}) tidak dapat dimuat atau belum tersimpan.`);
       }
@@ -1356,6 +1437,22 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     return () => { cancelled = true; };
   }, [isOpen, sop?.id, activeTab, layoutBlocks]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!isOpen || !sop || isExisting || isPaginatingOfficial || !officialPages.length) {
+      if (!isOpen) setOfficialPdfBlob(null);
+      return;
+    }
+    setIsOfficialPdfLoading(true);
+    setOfficialPdfError(null);
+    setOfficialPdfBlob(null);
+    generateOfficialPdfBlob()
+      .then(blob => { if (!cancelled) setOfficialPdfBlob(blob); })
+      .catch(err => { if (!cancelled) setOfficialPdfError(err?.message || 'PDF belum dapat dirender.'); })
+      .finally(() => { if (!cancelled) setIsOfficialPdfLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, sop?.id, isExisting, officialPages, isPaginatingOfficial]);
+
   if (!isOpen || !sop) return null;
 
   // Enforce access control for non-admin users
@@ -1673,249 +1770,120 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // Official PDF flow: send the exact, already-paginated A4 document DOM and
   // the application's compiled CSS to the authenticated Chromium renderer.
   // No print dialog, canvas, JPEG, or jsPDF is involved.
-  const handleDownloadDirectPdf = async () => {
-    if (!officialPages.length) {
-      alert('Tunggu sampai pagination SPO selesai.');
-      return;
-    }
-    if (isPdfGenerating) return;
-
+  // Generate the official PDF in memory. PDF.js consumes this Blob directly,
+  // so the final SPO can be read inside SopDetailModal without a manual download.
+  const generateOfficialPdfBlob = async (): Promise<Blob> => {
+    if (!officialPages.length) throw new Error('Tunggu sampai pagination SPO selesai.');
     const officialRoot = document.getElementById('printable-sop-official-document');
-    if (!officialRoot) {
-      alert('Dokumen SPO belum siap untuk dibuat PDF.');
-      return;
-    }
+    if (!officialRoot) throw new Error('Dokumen SPO belum siap untuk dibuat PDF.');
 
     const currentSession = userSession || getPersistedClientSession();
     const authUid = currentSession?.authUid || 'anonymous_user';
-    const sessionId = currentSession?.sessionId || 'default_session';
-    const username = currentSession?.username || 'user';
+    const cssParts: string[] = [];
+    for (const style of Array.from(document.querySelectorAll<HTMLStyleElement>('style'))) {
+      if (style.textContent) cssParts.push(style.textContent);
+    }
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        const rules = Array.from((sheet as CSSStyleSheet).cssRules || []);
+        if (rules.length) cssParts.push(rules.map(rule => rule.cssText).join('\n'));
+      } catch { /* cross-origin stylesheet */ }
+    }
 
+    const clonedRoot = officialRoot.cloneNode(true) as HTMLElement;
+    clonedRoot.querySelectorAll('.no-print').forEach(node => node.remove());
+    clonedRoot.querySelectorAll<HTMLImageElement>('img').forEach(img => {
+      const src = img.getAttribute('src');
+      if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
+      try { img.setAttribute('src', new URL(src, window.location.href).href); } catch { /* keep original */ }
+    });
+    const pageNodes = Array.from(clonedRoot.querySelectorAll<HTMLElement>('.sop-preview-page'));
+    clonedRoot.innerHTML = '';
+    pageNodes.forEach(page => {
+      page.style.removeProperty('transform');
+      page.style.removeProperty('transform-origin');
+      page.style.removeProperty('margin-bottom');
+      page.style.margin = '0 auto';
+      clonedRoot.appendChild(page);
+    });
+    clonedRoot.querySelectorAll('.no-print, .sop-measure-root, [data-measure-page]').forEach(node => node.remove());
+    clonedRoot.classList.remove('hidden');
+    clonedRoot.classList.add('pdf-export-document');
+
+    const buildAuthHeaders = async (forceRefresh = false) => {
+      const token = await getCurrentAuthToken(forceRefresh).catch(() => null);
+      const persisted = getPersistedClientSession();
+      if (!token && !persisted?.sessionId) throw new Error('Sesi login tidak valid. Silakan login kembali.');
+      return {
+        Accept: 'application/pdf, application/json',
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(persisted?.sessionId ? { 'X-Session-Id': persisted.sessionId, 'X-Soegiri-Session-Id': persisted.sessionId } : {}),
+        ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
+        ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
+      };
+    };
+
+    const payload = JSON.stringify({
+      html: clonedRoot.outerHTML,
+      css: cssParts.join('\n'),
+      baseUrl: window.location.origin,
+      authUid,
+      sopNumber: sop.sopNumber,
+      title: sop.title,
+      filename: sop.title || sop.sopNumber || `SPO_${sop.id}`
+    });
+    const endpoints = [
+      '/api/pdf',
+      'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/pdfApi',
+      'https://pdfapi-n7zygxitla-et.a.run.app'
+    ];
+    let response: Response | null = null;
+    let lastFailure = '';
+    for (const endpoint of endpoints) {
+      try {
+        let res = await fetch(endpoint, { method: 'POST', headers: await buildAuthHeaders(false), body: payload });
+        if (res.status === 401) {
+          await refreshUserSessionProfile().catch(() => undefined);
+          res = await fetch(endpoint, { method: 'POST', headers: await buildAuthHeaders(true), body: payload });
+        }
+        if (res.ok) { response = res; break; }
+        lastFailure = `HTTP ${res.status}`;
+      } catch (err: any) {
+        lastFailure = err?.message || 'Gagal menghubungi server PDF';
+      }
+    }
+    if (!response?.ok) throw new Error(`PDF gagal dibuat${lastFailure ? ` (${lastFailure})` : ''}.`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('File PDF yang diterima kosong.');
+    return blob;
+  };
+
+  const handleDownloadDirectPdf = async () => {
+    if (isPdfGenerating) return;
     setIsPdfGenerating(true);
     try {
-
-      // Snapshot application styles (style tags + same-origin stylesheet rules)
-      const cssParts: string[] = [];
-      for (const style of Array.from(document.querySelectorAll<HTMLStyleElement>('style'))) {
-        if (style.textContent) cssParts.push(style.textContent);
-      }
-      for (const sheet of Array.from(document.styleSheets)) {
-        try {
-          const rules = Array.from((sheet as CSSStyleSheet).cssRules || []);
-          if (rules.length) cssParts.push(rules.map(rule => rule.cssText).join('\n'));
-        } catch {
-          // Cross-origin stylesheet rules are protected, ignore safely
-        }
-      }
-
-      const clonedRoot = officialRoot.cloneNode(true) as HTMLElement;
-
-      // Filename source of truth: the TITLE THAT IS ACTUALLY RENDERED IN THE
-      // official A4 preview. Do not depend on sop.title or a fragile CSS selector.
-      // Find the first header row and choose the cell that spans the title area.
-      const readPreviewTitle = (root: HTMLElement): string => {
-        const firstTable = root.querySelector('table') as HTMLTableElement | null;
-        const firstHeaderRow = firstTable?.querySelector('thead tr:first-child') as HTMLTableRowElement | null;
-        if (!firstHeaderRow) return '';
-
-        const cells = Array.from(firstHeaderRow.querySelectorAll('th,td')) as HTMLTableCellElement[];
-        const titleCell =
-          cells.find((cell) => Number(cell.colSpan || cell.getAttribute('colspan') || 1) >= 3) ||
-          cells[1] ||
-          cells[0];
-
-        return String(titleCell?.textContent || '')
-          .replace(/\s+/g, ' ')
-          .trim();
-      };
-
-      const previewTitle =
-        readPreviewTitle(officialRoot) ||
-        readPreviewTitle(clonedRoot) ||
-        String(sop.title || '').trim();
-
-      console.log('[PDF] Preview title used for filename:', previewTitle || '(empty)');
-
-      clonedRoot.querySelectorAll('.no-print').forEach(node => node.remove());
-
-      // Keep public image assets as normal URLs. Do NOT inline them as base64:
-      // the official director signature/stamp can be large enough to push the
-      // JSON request over the server/proxy 413 limit. The trusted PDF renderer
-      // resolves the official local assets server-side.
-      // Existing data/blob URLs are intentionally preserved.
-      const exportImages = Array.from(clonedRoot.querySelectorAll<HTMLImageElement>('img'));
-      exportImages.forEach((img) => {
-        const src = img.getAttribute('src');
-        if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
-        try {
-          img.setAttribute('src', new URL(src, window.location.href).href);
-        } catch {
-          // Leave the original source untouched; Chromium may still resolve it
-          // through the document base URL.
-        }
-      });
-
-      // PDF MUST use the real A4 page nodes, never the responsive screen-scale
-      // wrappers used by the preview. Those wrappers can contain an inline
-      // transform: scale(...) which makes Chromium shrink/offset the entire
-      // official document and destroys the intended A4 structure.
-      // Extract ONLY clean A4 pages from clonedRoot, stripping ALL preview scaling wrappers.
-      const pageNodes = Array.from(clonedRoot.querySelectorAll<HTMLElement>('.sop-preview-page'));
-      if (pageNodes.length > 0) {
-        clonedRoot.innerHTML = '';
-        pageNodes.forEach((page) => {
-          page.style.removeProperty('transform');
-          page.style.removeProperty('transform-origin');
-          page.style.removeProperty('margin-bottom');
-          page.style.margin = '0 auto';
-          clonedRoot.appendChild(page);
-        });
-      }
-
-      // Crucial: remove all measurement artifacts and no-print elements
-      clonedRoot.querySelectorAll('.no-print, .sop-measure-root, [data-measure-page]').forEach(node => node.remove());
-
-      clonedRoot.classList.add('pdf-export-document');
-
-      const buildAuthHeaders = async (forceRefresh = false) => {
-        const token = await getCurrentAuthToken(forceRefresh).catch(() => null);
-        const persisted = getPersistedClientSession();
-        if (!token && !persisted?.sessionId) {
-          throw new Error('Sesi login tidak valid. Silakan login kembali.');
-        }
-        return {
-          'Accept': 'application/pdf, application/json',
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(persisted?.sessionId ? { 'X-Session-Id': persisted.sessionId, 'X-Soegiri-Session-Id': persisted.sessionId } : {}),
-          ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
-          ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
-        };
-      };
-
-      const pdfPayload = JSON.stringify({
-        html: clonedRoot.outerHTML,
-        css: cssParts.join('\n'),
-        baseUrl: window.location.origin,
-        authUid,
-        sopNumber: sop.sopNumber,
-        title: previewTitle,
-        filename: previewTitle || sop.sopNumber || `SPO_${sop.id}`
-      });
-
-      const candidateEndpoints = [
-        '/api/pdf',
-        'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/pdfApi',
-        'https://pdfapi-n7zygxitla-et.a.run.app'
-      ];
-
-      let response: Response | null = null;
-      let lastFailureMsg = '';
-
-      for (const endpoint of candidateEndpoints) {
-        try {
-          const headers = await buildAuthHeaders(false);
-          let res = await fetch(endpoint, {
-            method: 'POST',
-            headers,
-            body: pdfPayload
-          });
-
-          // If session expired, refresh once and retry
-          if (res.status === 401) {
-            try {
-              await refreshUserSessionProfile().catch(() => undefined);
-              const refreshedHeaders = await buildAuthHeaders(true);
-              res = await fetch(endpoint, {
-                method: 'POST',
-                headers: refreshedHeaders,
-                body: pdfPayload
-              });
-            } catch (err) {
-              console.warn('[PDF Download] Token refresh attempt failed:', err);
-            }
-          }
-
-          if (res.ok) {
-            response = res;
-            break;
-          }
-
-          const rawErr = await res.text().catch(() => '');
-          lastFailureMsg = `HTTP ${res.status}: ${rawErr.slice(0, 200)}`;
-          console.warn(`[PDF Download] Endpoint ${endpoint} failed with ${res.status}`);
-        } catch (fetchErr: any) {
-          lastFailureMsg = fetchErr?.message || 'Gagal menghubungi server PDF';
-          console.warn(`[PDF Download] Endpoint ${endpoint} request failed:`, fetchErr);
-        }
-      }
-
-      if (!response || !response.ok) {
-        let message = `PDF gagal dibuat. Silakan coba kembali sesaat lagi.`;
-        if (response) {
-          const rawText = await response.text().catch(() => '');
-          try {
-            const payload = JSON.parse(rawText);
-            if (payload?.message) {
-              message = payload.detail && payload.detail !== payload.message
-                ? `${payload.message} (${payload.detail})`
-                : payload.message;
-            } else if (rawText) {
-              message = `PDF gagal dibuat (${rawText.slice(0, 250)})`;
-            }
-          } catch {
-            if (rawText && !rawText.includes('<!DOCTYPE html>')) {
-              message = `PDF gagal dibuat: ${rawText.slice(0, 250)}`;
-            } else if (lastFailureMsg) {
-              message = `PDF gagal dibuat: ${lastFailureMsg}`;
-            }
-          }
-        } else if (lastFailureMsg) {
-          message = `PDF gagal dibuat: ${lastFailureMsg}`;
-        }
-        throw new Error(message);
-      }
-
-      const blob = await response.blob();
-      if (!blob.size) throw new Error('File PDF yang diterima kosong.');
-
-      // The downloaded filename must come from the SPO record itself.
-      // Do not trust/parse Content-Disposition here: some production proxies
-      // rewrite or strip that header, which can result in an empty filename.
-      const safeTitle = String(previewTitle || '').trim()
+      const blob = officialPdfBlob || await generateOfficialPdfBlob();
+      const safeTitle = String(sop.title || '').trim()
         .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
         .replace(/\s+/g, ' ')
         .replace(/[. ]+$/g, '')
         .trim();
-
-      const filename = `${(safeTitle || 'SPO_RSUD_Dr_Soegiri').slice(0, 180)}.pdf`;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
-      anchor.style.display = 'none';
       anchor.href = url;
-      anchor.download = filename;
+      anchor.download = `${(safeTitle || 'SPO_RSUD_Dr_Soegiri').slice(0, 180)}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
-      document.body.removeChild(anchor);
+      anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (error: any) {
       console.error('Direct PDF generation failed:', error);
-      const userMsg = error?.message || 'PDF gagal dibuat. Silakan coba lagi.';
-      const shouldFallback = window.confirm(
-        `${userMsg}\n\nIngin membuka pratinjau cetak / simpan PDF melalui browser sekarang?`
-      );
-      if (shouldFallback) {
-        handlePrintOfficialSop();
-      }
+      alert(error?.message || 'PDF gagal dibuat. Silakan coba lagi.');
     } finally {
       setIsPdfGenerating(false);
     }
   };
-
-  const a4PixelWidth = 794;
-  const availableContentWidth = Math.max(280, containerWidth - (isMobile ? 16 : 48));
-  const fitScale = Math.min(1, Math.max(0.35, availableContentWidth / a4PixelWidth));
-  const effectiveScale = zoomScale === 'fit' ? fitScale : zoomScale;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-5 printable-modal-active">
@@ -1936,8 +1904,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             {/* EDIT DOKUMEN / UBAH NOMOR */}
             {(Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession))) && (
               <AdminTooltip
-                title="Edit & Registrasi Nomor"
-                content="Perbarui isi dokumen SPO atau sesuaikan nomor registrasi naskah."
+                title="Edit Dokumen"
+                content="Perbarui isi dokumen SPO dan data registrasinya."
                 side="bottom"
               >
                 <button
@@ -1949,8 +1917,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border border-blue-300 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
                 >
                   <Edit3 className="w-3.5 h-3.5 text-blue-800" />
-                  <span className="hidden sm:inline">Edit / Ubah Nomor</span>
-                  <span className="sm:hidden">Edit</span>
+                  <span>Edit</span>
                 </button>
               </AdminTooltip>
             )}
@@ -1975,24 +1942,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   )}
                   <span className="hidden sm:inline">{isPdfGenerating ? 'Membuat PDF…' : 'Simpan PDF'}</span>
                   <span className="sm:hidden">{isPdfGenerating ? '...' : 'PDF'}</span>
-                </button>
-              </AdminTooltip>
-            )}
-
-            {/* PREVIEW PDF ASLI — khusus SPO Eksisting */}
-            {isExisting && legacyFileUrl && (
-              <AdminTooltip
-                title="Buka PDF Asli"
-                content="Pratinjau naskah PDF asli bertanda tangan fisik basah pada tampilan layar penuh."
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  onClick={() => setIsFullscreenDocOpen(true)}
-                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 rounded-xl shadow-2xs transition-colors cursor-pointer min-h-[36px]"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Preview PDF</span>
                 </button>
               </AdminTooltip>
             )}
@@ -2043,8 +1992,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   <p className="text-xs font-semibold text-slate-600">Memuat PDF asli SPO Eksisting...</p>
                 </div>
               ) : legacyFileUrl ? (
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white min-h-[560px]">
-                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} heightClass="h-[68vh] w-full" />
+                <div className="overflow-hidden border border-slate-200 bg-white">
+                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={(sop as any)?.oldStoragePath || (sop as any)?.storagePath || (sop as any)?.signedScanStoragePath} heightClass="h-[68vh] w-full" />
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
@@ -2083,7 +2032,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => legacyFileUrl && triggerFileDownload(legacyFileUrl, sop.oldFileName || 'Bukti-Riviu.pdf')}
+                      onClick={() => legacyFileUrl && triggerFileDownload(legacyFileUrl, sop.oldFileName || 'Bukti-Riviu.pdf', (sop as any).oldStoragePath || (sop as any).storagePath || (sop as any).signedScanStoragePath)}
                       disabled={!legacyFileUrl}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors"
                     >
@@ -2094,167 +2043,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               )}
 
-              {/* ==========================================================
-                  VIEW MODE: READER MODE (FOR MOBILE VIEWPORT)
-                 ========================================================== */}
-              {mobileViewMode === 'reader' && (
-                <div className="space-y-4 animate-fade-in no-print relative">
-                  <div className="flex justify-end -mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setMobileViewMode('a4')}
-                      className="px-2 py-1 rounded-md text-[9px] font-semibold text-indigo-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 cursor-pointer"
-                      title="Kembali ke lembar A4"
-                    >
-                      A4
-                    </button>
-                  </div>
-                  {/* Hospital Kop Card */}
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                      <div className="w-12 h-12 flex items-center justify-center shrink-0">
-                        <HospitalLogo className="w-11 h-11 object-contain" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-tight">
-                          {SOEGIRI_HOSPITAL_INFO.hospitalName}
-                        </h4>
-                        <p className="text-[10px] text-slate-500">{SOEGIRI_HOSPITAL_INFO.government}</p>
-                        <span className="inline-block mt-0.5 text-[9px] font-bold bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.2 rounded">
-                          RSUD KELAS B LAMONGAN
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                        {sop.title}
-                      </h3>
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">
-                          {sop.sopNumber}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleCopy}
-                          className="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1 cursor-pointer"
-                          title="Salin Nomor Dokumen"
-                        >
-                          {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span className="text-[11px]">{copied ? 'Tersalin' : 'Salin'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Metadata Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
-                      <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/60">
-                        <span className="text-[10px] text-slate-500 block font-medium">No. Revisi</span>
-                        <span className="font-semibold text-slate-800">{sop.revisionNumber || sop.version || '00'}</span>
-                      </div>
-                      <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/60">
-                        <span className="text-[10px] text-slate-500 block font-medium">Halaman</span>
-                        <span className="font-semibold text-slate-800">{calculatedTotalPages} Hal</span>
-                      </div>
-                      <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/60">
-                        <span className="text-[10px] text-slate-500 block font-medium">Tanggal Terbit</span>
-                        <span className="font-semibold text-slate-800">{sop.effectiveDate || '-'}</span>
-                      </div>
-                      <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/60">
-                        <span className="text-[10px] text-slate-500 block font-medium">Unit Kerja</span>
-                        <span className="font-semibold text-slate-800 truncate block">{sop.divisionName}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Horizontal Jump Pills */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar sticky top-[60px] z-20 bg-slate-50/95 backdrop-blur-md -mx-1 px-1">
-                    {sectionsData.filter(sec => sec.html.trim().length > 0).map((sec, idx) => (
-                      <a
-                        key={sec.id}
-                        href={`#reader-${sec.id}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setActiveReaderSectionId(`reader-${sec.id}`);
-                          const el = document.getElementById(`reader-${sec.id}`);
-                          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
-                        className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          activeReaderSectionId === `reader-${sec.id}`
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {idx + 1}. {sec.section}
-                      </a>
-                    ))}
-                  </div>
-
-                  {/* Section Cards */}
-                  <div className="space-y-3">
-                    {sectionsData.filter(sec => sec.html.trim().length > 0).map((sec, idx) => (
-                      <div
-                        key={sec.id}
-                        id={`reader-${sec.id}`}
-                        className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-3 scroll-mt-28"
-                      >
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100">
-                              {idx + 1}
-                            </span>
-                            <h4 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-tight">
-                              {sec.section}
-                            </h4>
-                          </div>
-                        </div>
-
-                        <div className="text-slate-800 text-xs sm:text-sm leading-relaxed overflow-x-auto">
-                          <RichTextRenderer content={sec.html} isIndonesianSopList={true} />
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Official Approval & Director Signature Card */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 text-center space-y-3">
-                      <div className="text-xs font-bold text-slate-700 uppercase tracking-wider relative z-0">
-                        Ditetapkan oleh: Direktur {SOEGIRI_HOSPITAL_INFO.hospitalName}
-                      </div>
-
-                      <div className="py-2 flex flex-col items-center justify-center">
-                        {showSignatureAndStamp ? (
-                          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-                            <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" />
-                          </div>
-                        ) : (
-                          <div className="h-[44px] flex items-center justify-center text-slate-400 italic text-xs">
-                            (Dokumen Diarsipkan)
-                          </div>
-                        )}
-                        <div className="relative z-0 space-y-0.5">
-                          <div className="font-bold text-sm underline text-slate-900">
-                            {sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}
-                          </div>
-                          <div className="text-xs text-slate-600">
-                            {(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur'))
-                              ? SOEGIRI_HOSPITAL_INFO.director.rank
-                              : sop.direkturPangkat}
-                          </div>
-                          <div className="text-xs font-mono font-semibold text-slate-700">
-                            NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div 
                 id="printable-sop-official-document" 
-                className={`font-bookman flex flex-col items-center gap-6 ${
-                  mobileViewMode === 'reader' ? 'hidden' : ''
-                }`}
+                className="font-bookman flex flex-col items-center gap-6 mt-6"
               >
 
                 {/* ==========================================================
@@ -2341,65 +2132,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         position: 'relative'
                       }}
                     >
-                      {/* Preview controls live visually on the A4 sheet but are UI-only.
-                          The no-print class removes them before browser print/PDF export,
-                          so they never affect pagination or the generated SPO. */}
-                      {pageIndex === 0 && (
-                        <div
-                          className="no-print absolute top-[6mm] right-[6mm] z-10 inline-flex items-center gap-0.5 rounded-md bg-white/90 px-1 py-0.5 shadow-sm border border-slate-200/70 backdrop-blur-sm"
-                          style={{ lineHeight: 1 }}
-                          aria-label="Kontrol preview dokumen"
-                        >
-                          <AdminTooltip
-                            title="Tata Letak A4"
-                            content="Tampilkan lembar resmi sesuai proporsi kertas cetak A4."
-                            side="bottom"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setMobileViewMode('a4')}
-                              className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
-                                mobileViewMode === 'a4' ? 'bg-slate-100 text-indigo-700' : 'text-slate-500 hover:text-slate-800'
-                              }`}
-                            >
-                              A4
-                            </button>
-                          </AdminTooltip>
-
-                          <AdminTooltip
-                            title="Mode Baca HP"
-                            content="Format baca responsif yang nyaman untuk layar smartphone."
-                            side="bottom"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setMobileViewMode('reader')}
-                              className={`px-1.5 py-1 rounded text-[9px] font-semibold transition-colors cursor-pointer ${
-                                mobileViewMode === 'reader' ? 'bg-slate-100 text-teal-700' : 'text-slate-500 hover:text-slate-800'
-                              }`}
-                            >
-                              HP
-                            </button>
-                          </AdminTooltip>
-
-                          {mobileViewMode === 'a4' && (
-                            <AdminTooltip
-                              title="Skala Lembar"
-                              content="Beralih antara tampilan pas lebar layar (Fit) atau ukuran asli (100%)."
-                              side="bottom"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => setZoomScale(zoomScale === 'fit' ? 1.0 : 'fit')}
-                                className="px-1.5 py-1 rounded text-[9px] font-semibold text-slate-500 hover:text-indigo-700 transition-colors cursor-pointer"
-                              >
-                                {zoomScale === 'fit' ? `Fit ${Math.round(fitScale * 100)}%` : `${Math.round((zoomScale as number) * 100)}%`}
-                              </button>
-                            </AdminTooltip>
-                          )}
-                        </div>
-                      )}
-
                       <table
                         className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
                         style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
@@ -2437,33 +2169,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     </div>
                   );
 
-                  if (effectiveScale < 0.99) {
-                    return (
-                      <div
-                        key={`sop-scaled-page-wrap-${pageIndex}`}
-                        className="sop-scaled-page-wrap w-full flex flex-col items-center justify-center overflow-x-auto touch-pan-x"
-                        style={{
-                          height: `${Math.ceil(1122 * effectiveScale) + 12}px`,
-                          minHeight: `${Math.ceil(1122 * effectiveScale) + 12}px`
-                        }}
-                      >
-                        <div
-                          style={{
-                            transform: `scale(${effectiveScale})`,
-                            transformOrigin: 'top center',
-                            width: '210mm',
-                            height: '297mm',
-                            minHeight: '297mm',
-                            maxHeight: '297mm',
-                            marginBottom: `-${Math.round(1122 * (1 - effectiveScale))}px`
-                          }}
-                        >
-                          {pageElement}
-                        </div>
-                      </div>
-                    );
-                  }
-
                   return pageElement;
                 })}
               </div>
@@ -2478,8 +2183,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               <span className="text-xs text-slate-500 font-medium">Status Dokumen:</span>
               {canUserActivateSop(sop, userSession) ? (
                 isExisting ? (
-                  <div className="text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 font-bold text-emerald-800">
-                    {sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : 'Aktif — SPO Eksisting'}
+                  <div className={`text-xs rounded-lg px-2.5 py-1 font-bold ${
+                    sop.status === 'AKTIF'
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                      : sop.status === 'DRAFT'
+                      ? 'bg-amber-100 border border-amber-300 text-amber-900'
+                      : 'bg-slate-100 border border-slate-300 text-slate-700'
+                  }`}>
+                    {sop.status === 'DRAFT'
+                      ? 'Draft'
+                      : sop.status === 'DIARSIPKAN'
+                      ? 'Diarsipkan'
+                      : 'Aktif — SPO Existing'}
                   </div>
                 ) : (
                   <select
@@ -2599,43 +2314,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
         </div>
 
-        {/* FULLSCREEN DOCUMENT PREVIEW MODAL (RENDERED ON CANVAS - 100% IMMUNE TO MICROSOFT EDGE IFRAME BLOCKS) */}
-        {isFullscreenDocOpen && (
-          <div className="fixed inset-0 z-60 bg-slate-100/95 backdrop-blur-sm flex flex-col p-2 sm:p-4 animate-fade-in">
-            <div className="flex items-center justify-between px-4 py-2.5 bg-white rounded-t-2xl border border-slate-200 text-slate-800 shrink-0 shadow-sm">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-teal-600" />
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-800">
-                    {legacyFileName}
-                  </h4>
-                  <p className="text-[10px] text-slate-500">
-                    {'Pratinjau PDF Asli SPO Eksisting'}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFullscreenDocOpen(false);
-                }}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-                title="Tutup Layar Penuh"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-hidden rounded-b-2xl border-b border-x border-slate-200 bg-white shadow-sm">
-              <DocumentViewer
-                fileUrl={legacyFileUrl || ''}
-                fileName={legacyFileName}
-                heightClass="h-full w-full"
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

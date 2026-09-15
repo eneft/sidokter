@@ -1,0 +1,541 @@
+    const subObj = cat?.subs?.find((s) => s.code === subCode);
+    const firstInst = subObj?.instalasis?.[0];
+    const firstPoli = firstInst?.polis?.[0];
+    setSelectedInstCode(firstInst?.code || '');
+    setSelectedPoliCode(firstPoli?.code || '');
+    setSelectedSubUnitCode(firstPoli?.subUnits?.[0]?.code || '');
+  };
+
+  const handleInstalasiChange = (instCode: string) => {
+    setSelectedHierarchyOverride('');
+    setSelectedInstCode(instCode);
+    const cat = categoriesList.find((c) => c.code === selectedCatCode);
+    const subObj = cat?.subs?.find((s) => s.code === selectedSubCode);
+    const inst = subObj?.instalasis?.find((i) => i.code === instCode);
+    const firstPoli = inst?.polis?.[0];
+    setSelectedPoliCode(firstPoli?.code || '');
+    setSelectedSubUnitCode(firstPoli?.subUnits?.[0]?.code || '');
+  };
+
+  const handlePoliChange = (pCode: string) => {
+    setSelectedHierarchyOverride('');
+    setSelectedPoliCode(pCode);
+    const p = availablePolis.find((item) => item.code === pCode);
+    setSelectedSubUnitCode(p?.subUnits?.[0]?.code || '');
+  };
+
+  // Compute hierarchy code & descriptions
+  const subHierarchyCode = buildSubHierarchyCode({
+    categoryCode: selectedCatCode,
+    hierarchyCode: selectedHierarchyOverride,
+    subCode: selectedSubCode,
+    instalasiCode: selectedInstCode,
+    poliCode: selectedPoliCode,
+    subUnitCode: selectedSubUnitCode
+  });
+
+  const hierarchyInfo = getSoegiriHierarchyInfo({
+    categoryCode: selectedCatCode,
+    hierarchyCode: selectedHierarchyOverride,
+    subCode: selectedSubCode,
+    instalasiCode: selectedInstCode,
+    poliCode: selectedPoliCode,
+    subUnitCode: selectedSubUnitCode
+  });
+
+  // Calculate Next Review Date
+  const calculateNextReviewDate = () => {
+    if (!effectiveDate) return '';
+    const d = new Date(effectiveDate);
+    d.setMonth(d.getMonth() + Number(reviewPeriodMonths));
+    return d.toISOString().split('T')[0];
+  };
+
+  // File Handlers
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+                     file.name.toLowerCase().endsWith('.doc') ||
+                     file.type?.includes('wordprocessingml') ||
+                     file.type?.includes('msword');
+
+      if (isDocx) {
+        // File .docx hanya untuk diekstrak datanya ke formulir naskah SPO, bukan untuk disimpan ke Cloud Storage
+        handleDocxUpload(e);
+        e.target.value = '';
+        return;
+      }
+
+      setSelectedFile(file);
+      if (!title) {
+        const cleanName = file.name
+          .replace(/\.[^/.]+$/, '')
+          .replace(/[_-]+/g, ' ')
+          .trim();
+        setTitle(cleanName);
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setFileDataUrl(event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleClearFile = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedFile(null);
+    setFileDataUrl(undefined);
+    const fileInput = document.getElementById('admin-upload-file-input') as HTMLInputElement | null;
+    if (fileInput) fileInput.value = '';
+  };
+
+  const handleOldFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        alert('Berkas SPO lama untuk Riviu wajib berupa PDF.');
+        e.target.value = '';
+        return;
+      }
+      setSelectedOldFile(file);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setOldFileDataUrl(event.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleClearOldFile = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedOldFile(null);
+    setOldFileDataUrl(undefined);
+    setExternalReviewSignedConfirmed(false);
+    const oldFileInput = document.getElementById('admin-upload-old-file-input') as HTMLInputElement | null;
+    if (oldFileInput) oldFileInput.value = '';
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setPengertian('');
+    setTujuan('');
+    setKebijakan('');
+    setProsedur('');
+    setUnitTerkait('');
+    handleClearFile();
+    handleClearOldFile();
+    setDocumentType('BARU');
+    setManualLegacyNumber('');
+    setOldSopNumber('');
+    setRevisionNumber('01');
+    setAdminManualSequence('');
+    setReviewReason('');
+    setActiveTab('info');
+    setMissingSections([]);
+    setLatestCreatedSop(null);
+    setIsSuccessModalOpen(false);
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  const stripHtml = (html: string) => {
+    return (html || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  // A rich-text section is considered filled when it contains either
+  // readable text OR a valid embedded image / diagram.
+  const hasRichContent = (html: string = '') => {
+    if (!html || !html.trim()) return false;
+
+    const source = html.trim();
+
+    // Image-only content must be valid even when textContent is empty.
+    if (
+      /<img\b/i.test(source) ||
+      /data-sop-image\s*=\s*["']true["']/i.test(source) ||
+      /data-storage-image\s*=\s*["']true["']/i.test(source) ||
+      /class\s*=\s*["'][^"']*figure-wrapper/i.test(source) ||
+      /<figure\b/i.test(source)
+    ) {
+      return true;
+    }
+
+    const temp = document.createElement('div');
+    temp.innerHTML = source;
+
+    const text = (temp.textContent || temp.innerText || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return text.length > 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setSubmitError('');
+
+    if (!title.trim()) {
+      alert("Silakan isi Judul SPO terlebih dahulu.");
+      return;
+    }
+
+    if (documentType === 'LAMA') {
+      const cleanNum = normalizeSopNumberInput(manualLegacyNumber);
+      if (!cleanNum) {
+        alert("Silakan masukkan Nomor SPO Lama yang sudah ada.");
+        return;
+      }
+      const hasExtractedDocx = Boolean(parsedDocxSummary) || (pengertian.trim().length > 0 && prosedur.trim().length > 0);
+      if (!selectedFile && !fileDataUrl && !hasExtractedDocx) {
+        alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah berkas scan PDF resmi bertanda tangan Direktur, atau lakukan ekstraksi naskah dari berkas Word (.docx)!");
+        return;
+      }
+
+      const dup = checkDuplicateSopNumber(sops || [], cleanNum);
+
+      // Validasi aturan: Tidak boleh mereplace SPO yang sudah berstatus AKTIF
+      if (dup.isDuplicate && dup.matchedDoc) {
+        if (dup.matchedDoc.status === 'AKTIF') {
+          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}"). Dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting.`);
+          alert(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}").\n\nSesuai aturan Rumah Sakit, dokumen berstatus Aktif TIDAK DAPAT digantikan dengan SPO Eksisting. Silakan gunakan alur "SPO Riviu" jika ingin melakukan revisi/pembaruan terhadap SPO Aktif.`);
+          return;
+        }
+      }
+    } else {
+      // Wajibkan pengisian seluruh Batang Tubuh SPO untuk SPO Baru & Review (Pengertian, Tujuan, Kebijakan, Prosedur, Unit Terkait)
+      // Kolom yang hanya berisi gambar/diagram tetap dianggap terisi secara sah.
+      const missingList: string[] = [];
+      if (!hasRichContent(pengertian)) missingList.push('PENGERTIAN');
+      if (!hasRichContent(tujuan)) missingList.push('TUJUAN');
+      if (!hasRichContent(kebijakan)) missingList.push('KEBIJAKAN');
+      if (!hasRichContent(prosedur)) missingList.push('PROSEDUR');
+      if (!hasRichContent(unitTerkait)) missingList.push('UNIT TERKAIT');
+
+      if (missingList.length > 0) {
+        setMissingSections(missingList);
+        setActiveTab('konten');
+        alert(
+          `SPO belum dapat diterbitkan!\n\nBagian wajib berikut masih kosong (belum diisi teks maupun gambar):\n• ${missingList.join('\n• ')}\n\nSilakan lengkapi bagian tersebut dengan mengetik teks atau menyisipkan gambar/diagram/flowchart. (Bagian ALUR bersifat opsional).`
+        );
+        return;
+      }
+      setMissingSections([]);
+    }
+
+    if (documentType === 'REVIEW') {
+      if (!oldSopNumber.trim()) {
+        alert("Silakan isi Nomor atau Judul SPO Lama yang Diriviu terlebih dahulu.");
+        return;
+      }
+      const reviewNumber = normalizeSopNumberInput(oldSopNumber);
+      const referenced = sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      const hasExternalSignedPdf = Boolean(selectedOldFile && (selectedOldFile.type === 'application/pdf' || selectedOldFile.name.toLowerCase().endsWith('.pdf')) && externalReviewSignedConfirmed);
+      if (!referenced && !hasExternalSignedPdf) {
+        alert(`SPO rujukan "${reviewNumber}" tidak ditemukan di database. Jika SPO berasal dari luar aplikasi, unggah PDF SPO lama yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.`);
+        return;
+      }
+      if (referenced && referenced.status !== 'AKTIF') {
+        alert(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF.`);
+        return;
+      }
+      const isNewFormat = isNewSopFormat(reviewNumber);
+      const pattern = matchMasterHierarchyPattern(reviewNumber);
+      const selectedDiv = String(selectedCatCode || '').trim().toUpperCase();
+      const selectedSub = String(subHierarchyCode || '').trim();
+      // Deteksi otomatis format nomor SPO rujukan:
+      // Format Baru -> Harus sesuai dengan hirarki yang dipilih
+      // Format Lama -> Abaikan validasi ketidaksesuaian hirarki; hirarki SPO Riviu tetap mengikuti hirarki yang dipilih
+      if (isNewFormat && pattern.isMatch) {
+        if (String(pattern.categoryCode || '').trim().toUpperCase() !== selectedDiv || String(pattern.subHierarchyCode || '').trim() !== selectedSub) {
+          alert(`Nomor SPO rujukan tidak sesuai dengan hirarki yang dipilih. Nomor: ${pattern.categoryCode}${pattern.subHierarchyCode ? ` / ${pattern.subHierarchyCode}` : ''}; pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
+          return;
+        }
+      }
+      if (!revisionNumber.trim()) {
+        alert("Silakan isi No. Revisi Baru sebagai pedoman perubahan SPO!");
+        return;
+      }
+      if (!referenced && (!selectedOldFile && !oldFileDataUrl || !hasExternalSignedPdf)) {
+        alert("SPO rujukan tidak ada di aplikasi. Untuk Riviu dari luar aplikasi, wajib unggah PDF SPO lama yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.");
+        return;
+      }
+    }
+
+    // SPO Existing memakai nomor yang dimasukkan/terdeteksi; jangan menjalankan
+    // generator nomor sama sekali pada jalur ini. Generator hanya untuk Baru/Riviu.
+    const generated = documentType === 'LAMA'
+      ? { sopNumber: '', sequenceNumber: 0 }
+      : (() => {
+          const autoSequence = getNextSequenceNumber(numberingConfig, selectedCatCode, subHierarchyCode, sops, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
+          const manualSequence = userSession?.role === 'admin' && adminManualSequence.trim()
+            ? Number(adminManualSequence.trim())
+            : undefined;
+
+          if (manualSequence !== undefined && (!Number.isInteger(manualSequence) || manualSequence < 1)) {
+            throw new Error('Nomor urut Admin harus berupa angka bulat minimal 1.');
+          }
+
+          if (manualSequence !== undefined) {
+            const used = getUsedSequencesForUnit(sops || [], selectedCatCode, subHierarchyCode, effectiveDate ? effectiveDate.slice(0, 4) : undefined);
+            if (used.has(manualSequence)) {
+              throw new Error(`Nomor urut ${String(manualSequence).padStart(3, '0')} sudah digunakan pada unit/kode ini. Silakan pilih nomor lain.`);
+            }
+          }
+
+          const selectedSequence = manualSequence ?? autoSequence;
+          const rawGenerated = generateSopNumber({
+            config: numberingConfig,
+            divisionCode: selectedCatCode,
+            subHierarchyCode,
+            categoryCode: selectedCatCode,
+            dateStr: effectiveDate,
+            sequenceNum: selectedSequence
+          });
+
+          try {
+            const mockDoc: SopDocument = {
+              id: 'temp-preview',
+              sopNumber: rawGenerated.sopNumber,
+              sequenceNumber: rawGenerated.sequenceNumber,
+              title: title.trim() || 'Pratinjau',
+              divisionId: selectedCatCode,
+              divisionCode: selectedCatCode,
+              divisionName: activeCategory?.name || selectedCatCode,
+              categoryId: selectedCatCode,
+              categoryName: selectedCatCode,
+              version: '00',
+              status: 'DRAFT',
+              effectiveDate,
+              reviewPeriodMonths: 12,
+              nextReviewDate: '',
+              creatorName: '',
+              approverName: '',
+              summary: '',
+              tags: [],
+              subHierarchyCode,
+              subCode: selectedSubCode,
+              instalasiCode: selectedInstCode,
+              poliCode: selectedPoliCode,
+              subUnitCode: selectedSubUnitCode || undefined,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              revisionHistory: [],
+              confidentialityLevel: 'Internal'
+            };
+            const std = standardizeSopDocument(mockDoc);
+            return { sopNumber: std.sopNumber, sequenceNumber: std.sequenceNumber };
+          } catch {
+            return rawGenerated;
+          }
+        })();
+
+    const finalSopNumber = documentType === 'LAMA'
+      ? normalizeSopNumberInput(manualLegacyNumber)
+      : (documentType === 'REVIEW' ? '' : generated.sopNumber);
+
+    const finalSeqNum = documentType === 'LAMA' ? 0 : (documentType === 'REVIEW' ? 0 : generated.sequenceNumber);
+    const nextReviewDate = calculateNextReviewDate();
+
+    const div = (divisions || []).find((d) => d.code === selectedCatCode);
+    const cat = (categories || []).find((c) => c.code === selectedCatCode) || categories?.[0];
+    const effectiveYear = new Date(effectiveDate || '2026').getFullYear();
+
+    const isDocx = (selectedFile?.name || '').toLowerCase().endsWith('.docx') ||
+                   (selectedFile?.name || '').toLowerCase().endsWith('.doc') ||
+                   Boolean(parsedDocxSummary);
+
+    const resolvedFileDataUrl = isDocx ? undefined : fileDataUrl;
+
+    const newSopDoc: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> = {
+      sopNumber: finalSopNumber,
+      sequenceNumber: finalSeqNum,
+      title: title.trim(),
+      divisionId: div?.id || `soegiri-${selectedCatCode.toLowerCase()}`,
+      divisionCode: selectedCatCode,
+      divisionName: activeCategory?.name || selectedCatCode,
+      categoryId: cat?.id || 'cat-pelayanan',
+      categoryName: cat?.name || 'Pelayanan Medis & Asuhan Pasien',
+      version: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
+      // Existing selalu masuk DRAFT dan menunggu verifikasi/aktivasi Admin.
+      status: 'DRAFT',
+      activationRequestedAt: userSession?.role !== 'admin' ? new Date().toISOString() : undefined,
+      activationRequestedBy: userSession?.role !== 'admin'
+        ? (userSession?.name || creatorName.trim() || userSession?.username || 'Pengguna')
+        : undefined,
+      activationRequestedByUsername: userSession?.role !== 'admin' ? userSession?.username : undefined,
+      activationRequestedUid: userSession?.role !== 'admin' ? (userSession?.authUid || userSession?.id) : undefined,
+      creatorUsername: userSession?.username,
+      creatorUid: userSession?.authUid || userSession?.id,
+      effectiveDate,
+      reviewPeriodMonths: Number(reviewPeriodMonths),
+      nextReviewDate,
+      creatorName: creatorName.trim(),
+      approverName: approverName.trim() || SOEGIRI_HOSPITAL_INFO.director.name,
+      summary: stripHtml(pengertian) || `Standar Prosedur Operasional ${title.trim()}`,
+      tags: [
+        selectedCatCode.toLowerCase(),
+        documentType === 'LAMA' ? `spo-${effectiveYear}` : 'spo-2026',
+        'soegiri',
+        ...(documentType === 'LAMA' ? ['sop-lama', 'berlaku'] : [])
+      ],
+
+      // Soegiri Specific fields
+      subHierarchyCode,
+      subHierarchyPath: hierarchyInfo.path,
+      hierarchyDescription: hierarchyInfo.conclusion,
+      subCode: selectedSubCode,
+      instalasiCode: selectedInstCode,
+      poliCode: selectedPoliCode,
+      subUnitCode: selectedSubUnitCode || undefined,
+
+      // Indonesian Hospital Standard Content
+      pengertian: pengertian.trim(),
+      tujuan: tujuan.trim(),
+      kebijakan: kebijakan.trim(),
+      alur: alur.trim() ? alur.trim() : undefined,
+      prosedur: prosedur.trim(),
+      unitTerkait: unitTerkait.trim(),
+      revisionNumber: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
+      halaman: '1 / 1',
+      direkturNama: SOEGIRI_HOSPITAL_INFO.director.name,
+      direkturNip: SOEGIRI_HOSPITAL_INFO.director.nip,
+      direkturPangkat: SOEGIRI_HOSPITAL_INFO.director.rank,
+
+      fileName: documentType === 'LAMA' ? (isDocx ? `SPO_${selectedCatCode}_${manualLegacyNumber.trim() || 'LAMA'}.pdf` : (selectedFile?.name || 'Dokumen_SPO_Lama.pdf')) : (selectedFile ? selectedFile.name : `SPO_${selectedCatCode}_${subHierarchyCode || '0'}_${finalSeqNum ? String(finalSeqNum).padStart(3, '0') : 'BARU'}.pdf`),
+      fileSize: selectedFile && !isDocx ? selectedFile.size : 1250000,
+      fileType: selectedFile && !isDocx ? selectedFile.type : 'application/pdf',
+      fileDataUrl: resolvedFileDataUrl,
+      confidentialityLevel: 'Internal',
+      locationOrFolder: `SPO Eksisting ${effectiveYear} / ${activeCategory?.name || 'Sentral'}`,
+
+      // Review & Legacy Document Fields
+      jenis_spo: documentType === 'LAMA' ? 'EKSISTING' : (documentType === 'REVIEW' ? 'RIVIU' : 'BARU'),
+      documentType,
+      // Existing PDFs are always authoritative for preview, including when they
+      // replace a Draft/new-format record and the final type is normalized to BARU.
+      // Existing PDF is authoritative; this flag survives the final save so
+      // SopDetailModal never falls back to the generated A4 template.
+      isExistingReplacement: documentType === 'LAMA' && !isDocx,
+      isReviewDocument: documentType === 'REVIEW',
+      isLegacySop: documentType === 'LAMA',
+      existingSourceFormat: documentType === 'LAMA' ? (isDocx ? 'DOCX' : 'PDF') : undefined,
+      legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
+      oldSopNumber: documentType === 'REVIEW' ? oldSopNumber.trim() : undefined,
+      reviewReason: documentType === 'REVIEW' ? reviewReason.trim() : undefined,
+      externalReviewSignedConfirmed: documentType === 'REVIEW' ? externalReviewSignedConfirmed : undefined,
+      oldFileName: documentType === 'REVIEW' ? selectedOldFile?.name : undefined,
+      oldFileSize: documentType === 'REVIEW' ? selectedOldFile?.size : undefined,
+      oldFileType: documentType === 'REVIEW' ? selectedOldFile?.type : undefined,
+      oldFileDataUrl: documentType === 'REVIEW' ? oldFileDataUrl : undefined,
+      signedScanFileName: documentType === 'LAMA' && !isDocx ? (selectedFile?.name || 'Dokumen_SPO_Lama.pdf') : undefined,
+      signedScanFileSize: documentType === 'LAMA' && !isDocx ? selectedFile?.size : undefined,
+      signedScanFileType: documentType === 'LAMA' && !isDocx ? selectedFile?.type || 'application/pdf' : undefined,
+      signedScanDataUrl: documentType === 'LAMA' && !isDocx ? resolvedFileDataUrl : undefined,
+    };
+
+    // Existing tidak membawa reservation nomor. Nomor Terbit hanya untuk Riviu.
+
+    const newGeneratedId = `sop-${Date.now()}`;
+    // Lock synchronously immediately before the authoritative save.
+    // This prevents two rapid clicks from creating two different SOP IDs.
+    if (isSubmitting || submitLockRef.current) return;
+    submitLockRef.current = true;
+    setIsSubmitting(true);
+    let savedSop: SopDocument;
+    try {
+      savedSop = await onSubmit(newSopDoc);
+    } catch (err) {
+      console.error('Gagal mendaftarkan SPO:', err);
+      setSubmitError('Dokumen belum berhasil disimpan ke server. Periksa koneksi dan coba lagi. Nomor belum dianggap terdaftar sampai proses ini berhasil.');
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+      return;
+    }
+    setIsSubmitting(false);
+    submitLockRef.current = false;
+
+    const fullSop: SopDocument = savedSop || {
+      ...newSopDoc,
+      id: newGeneratedId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      revisionHistory: []
+    };
+
+    // Show success popup
+    setLatestCreatedSop(fullSop);
+    setIsSuccessModalOpen(true);
+  };
+
+  const handleCopyNewNumber = (num: string) => {
+    navigator.clipboard.writeText(num);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!isOpen) return null;
+
+  const previewSopNumber = (() => {
+    if (documentType === 'LAMA') return manualLegacyNumber || 'Belum diisi';
+    if (userSession?.role === 'admin' && adminManualSequence.trim()) {
+      const n = Number(adminManualSequence.trim());
+      if (Number.isInteger(n) && n > 0) {
+        return generateSopNumber({
+          config: numberingConfig,
+          divisionCode: selectedCatCode,
+          subHierarchyCode,
+          categoryCode: selectedCatCode,
+          dateStr: effectiveDate,
+          sequenceNum: n
+        }).sopNumber;
+      }
+    }
+    return '[Nomor Akan Terbit Otomatis]';
+  })();
+
+  return (
+    <>
+      {/* Success dialog: intentionally light and concise. */}
+      {isSuccessModalOpen && latestCreatedSop && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="p-6 sm:p-7">
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 shrink-0 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">Pendaftaran berhasil</div>
+                  <h2 className="mt-1 text-xl font-extrabold text-slate-900">Nomor SPO berhasil didaftarkan</h2>
+                  <p className="mt-1 text-sm text-slate-500">Data sudah tersimpan dan nomor ini resmi tercatat di register.</p>
+                </div>
+                <button type="button" onClick={handleClose} className="ml-auto p-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Tutup"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Nomor SPO resmi</div>
+                <div className="mt-1 text-xl sm:text-2xl font-black font-mono tracking-wide text-slate-900 break-all">{latestCreatedSop.sopNumber}</div>
+                <div className="mt-2 text-sm font-semibold text-slate-700 truncate">{latestCreatedSop.title}</div>
+              </div>
+
+              {latestCreatedSop.status === 'DRAFT' && (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  Nomor sudah resmi terdaftar. Dokumen masih <strong>BELUM AKTIF</strong> sampai proses pengesahan/tanda tangan Direktur selesai.
+                </div>
+              )}
+
