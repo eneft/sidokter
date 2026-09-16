@@ -186,7 +186,8 @@ export function triggerFileDownload(
   urlOrDataUrl: string,
   fileName: string,
   fallbackStoragePath?: string,
-  strictType?: 'file' | 'signedScan' | 'oldFile'
+  strictType?: 'file' | 'signedScan' | 'oldFile',
+  cloudOnly = false
 ): boolean {
   const normalizedUrl = normalizeStorageUrl(urlOrDataUrl);
   if (!normalizedUrl && !fallbackStoragePath) return false;
@@ -271,8 +272,10 @@ export function triggerFileDownload(
         }
       }
 
-      // If network endpoints still failed, check client persistent cache (IndexedDB)
-      if (!res || !res.ok) {
+      // Browser-local cache is never a fallback for cloud-authoritative documents.
+      // Callers can set cloudOnly=true (Existing PDF/evidence) to guarantee that a
+      // successful preview/download proves the file exists in Firebase Storage.
+      if ((!res || !res.ok) && !cloudOnly) {
         const source = normalizedUrl || fallbackStoragePath || '';
         const decoded = decodeURIComponent(source);
         const seg = decoded.split('/').pop()?.split('?')[0] || '';

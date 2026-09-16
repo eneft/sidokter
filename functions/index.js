@@ -1396,6 +1396,7 @@ async function storageUpload(req, res) {
   const meta = {
     id, objectPath, originalName:safeName, mimeType:mime, size:buffer.length,
     uploadedAt:new Date().toISOString(), resourceType:type, ownerUid:context.user.id,
+    sopId: extractSopIdFromStorageRef(id) || extractSopIdFromStorageRef(objectPath),
     accessKeys:Array.from(storageAccessKeys(context.user))
   };
   await db.collection(STORAGE_COLLECTION).doc(id).set(meta, { merge:true });
@@ -1465,8 +1466,10 @@ async function canReadSopBinaryForUser(context, sopId) {
 
 function extractSopIdFromStorageRef(value) {
   const raw = path.basename(String(value || '').split('?')[0]);
-  const match = raw.match(/^(sop-\d+)(?:_(?:signedScan|oldFile|file))?(?:\.[^.]+)?$/i);
-  return match ? match[1] : null;
+  const exact = raw.match(/^(sop-\d+)(?:_(?:signedScan|oldFile|file))?(?:\.[^.]+)?$/i);
+  if (exact) return exact[1];
+  const embedded = raw.match(/(sop-\d+)/i);
+  return embedded ? embedded[1] : null;
 }
 
 function canReadStoragePathWithoutMetadata(context, objectPath) {
@@ -1492,7 +1495,7 @@ async function storageDownload(req, res) {
     const keys = storageAccessKeys(context.user);
     let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
     if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
-      const sopId = extractSopIdFromStorageRef(meta.id || id || meta.objectPath);
+      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || id || meta.objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
@@ -1544,7 +1547,7 @@ async function storageDownloadByPath(req, res) {
     const keys = storageAccessKeys(context.user);
     let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
     if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
-      const sopId = extractSopIdFromStorageRef(meta.id || meta.objectPath || objectPath);
+      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || meta.objectPath || objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });

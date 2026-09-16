@@ -10,51 +10,36 @@ import { SopDocument } from '../types';
 export function isPdfSopDocument(sop?: Partial<SopDocument> | null): boolean {
   if (!sop) return false;
 
-  // 1. Dokumen eksisting / legacy (merupakan hasil pindaian scan PDF fisik)
-  if (
-    sop.isLegacySop === true ||
-    sop.jenis_spo === 'EKSISTING' ||
-    sop.documentType === 'LAMA' ||
-    sop.documentType === 'EKSISTING' ||
-    sop.isExistingReplacement === true
-  ) {
-    return true;
-  }
+  const values = [
+    sop.existingSourceFormat,
+    sop.fileType,
+    (sop as any).signedScanFileType,
+    (sop as any).oldFileType,
+    sop.fileName,
+    (sop as any).signedScanFileName,
+    (sop as any).oldFileName,
+    (sop as any).storagePath,
+    (sop as any).signedScanStoragePath,
+    (sop as any).oldStoragePath,
+    sop.fileUrl,
+    (sop as any).signedScanUrl,
+    (sop as any).oldFileUrl,
+    sop.fileDataUrl,
+    (sop as any).signedScanDataUrl,
+    (sop as any).oldFileDataUrl,
+  ].map(v => String(v || '').toLowerCase());
 
-  // 2. Cek MIME type berkas
-  const fileType = String(
-    sop.fileType ||
-    (sop as any).oldFileType ||
-    (sop as any).signedScanFileType ||
-    ''
-  ).toLowerCase();
-  if (fileType.includes('pdf')) {
-    return true;
-  }
-
-  // 3. Cek ekstensi nama berkas
-  const fileName = String(
-    sop.fileName ||
-    (sop as any).oldFileName ||
-    (sop as any).signedScanFileName ||
-    ''
-  ).toLowerCase().trim();
-  if (fileName.endsWith('.pdf')) {
-    return true;
-  }
-
-  // 4. Cek payload data URL
-  const fileDataUrl = String(
-    sop.fileDataUrl ||
-    (sop as any).oldFileDataUrl ||
-    (sop as any).signedScanDataUrl ||
-    ''
+  // A document is a PDF only when an actual PDF signal exists. Being Existing
+  // by itself is NOT enough: Existing DOCX must continue through LiveForm/A4.
+  return values.some(v =>
+    v.includes('application/pdf') ||
+    v.endsWith('.pdf') ||
+    v.includes('.pdf?') ||
+    v.includes('_signedscan.pdf') ||
+    v.includes('_oldfile.pdf') ||
+    v.includes('_file.pdf') ||
+    v.startsWith('data:application/pdf')
   );
-  if (fileDataUrl.startsWith('data:application/pdf')) {
-    return true;
-  }
-
-  return false;
 }
 
 /**

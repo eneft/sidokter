@@ -273,10 +273,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       // current authenticated session. Legacy file IDs may be stale while the
       // durable storagePath is still valid.
       const cloudUrl = isExistingPdf
-        ? ((sop as any).signedScanUrl || (sop as any).fileUrl || null)
+        ? ((sop as any).signedScanUrl || null)
         : ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl);
       const storagePath = isExistingPdf
-        ? ((sop as any).signedScanStoragePath || (sop as any).storagePath || null)
+        ? ((sop as any).signedScanStoragePath || null)
         : ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath);
       if (cloudUrl) {
         const resolvedCloudUrl = await resolveProtectedStorageUrl(
@@ -311,10 +311,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         ? [
             `${sop.id}_signedScan`,
             `sop-${cleanId}_signedScan`,
-            `${sop.id}_file`,
-            `sop-${cleanId}_file`,
-            `sop-${sop.id}_signedScan`,
-            `sop-${sop.id}_file`
+            `sop-${sop.id}_signedScan`
           ]
         : [
             `${sop.id}_signedScan`,
@@ -353,7 +350,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // 4. Check inline data URLs
       const inlineDataUrl = isExistingPdf
-        ? ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl)
+        ? ((sop as any).signedScanDataUrl || null)
         : ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl);
       if (inlineDataUrl) {
         if (!isCancelled) {
@@ -363,24 +360,28 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         return;
       }
 
-      // 5. Persistent local IndexedDB cache fallback
-      try {
-        const cacheTypes = isExistingPdf ? ['signedScan', 'file'] as const : ['signedScan', 'file', 'oldFile'] as const;
-        const idVariations = [sop.id, cleanId, `sop-${cleanId}`];
-        for (const testId of idVariations) {
-          for (const cacheType of cacheTypes) {
-            const cached = await getFileFromPersistentCacheAsync(testId, cacheType);
-            if (cached) {
-              if (!isCancelled) {
-                setResolvedLegacyFileUrl(cached);
-                setIsLoadingLegacyFile(false);
+      // 5. Browser-local cache is allowed only for non-Existing legacy flows.
+      // Existing PDF must prove that the binary is available in cloud storage;
+      // otherwise PC 1 could appear to work while PC 2 cannot.
+      if (!isExistingPdf) {
+        try {
+          const cacheTypes = ['signedScan', 'file', 'oldFile'] as const;
+          const idVariations = [sop.id, cleanId, `sop-${cleanId}`];
+          for (const testId of idVariations) {
+            for (const cacheType of cacheTypes) {
+              const cached = await getFileFromPersistentCacheAsync(testId, cacheType);
+              if (cached) {
+                if (!isCancelled) {
+                  setResolvedLegacyFileUrl(cached);
+                  setIsLoadingLegacyFile(false);
+                }
+                return;
               }
-              return;
             }
           }
+        } catch (cacheErr) {
+          console.warn('Cache lookup warning in SopDetailModal:', cacheErr);
         }
-      } catch (cacheErr) {
-        console.warn('Cache lookup warning in SopDetailModal:', cacheErr);
       }
 
       if (!isCancelled) {
@@ -397,7 +398,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   }, [sop?.id, (sop as any)?.fileUrl, (sop as any)?.signedScanUrl, (sop as any)?.oldFileUrl, (sop as any)?.storagePath, (sop as any)?.signedScanStoragePath, (sop as any)?.oldStoragePath, isExistingPdf, isOpen]);
 
   const legacyFileUrl = resolvedLegacyFileUrl;
-  const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
+  const legacyFileName = sop ? (sop.signedScanFileName || (isExistingPdf ? 'Dokumen_SPO_Eksisting.pdf' : sop.fileName) || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
 
   // Toggle preview of the legacy evidence in SPO Riviu
@@ -2016,33 +2017,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     // Existing PDF: preserve and download the original uploaded PDF.
     if (isExistingPdf) {
       const existingStoragePath =
-        (sop as any).storagePath ||
         (sop as any).signedScanStoragePath ||
-        (sop as any).oldStoragePath ||
         null;
 
-      let candidateUrl = legacyFileUrl || (sop as any).fileUrl || (sop as any).signedScanUrl || null;
+      let candidateUrl = legacyFileUrl || (sop as any).signedScanUrl || null;
 
       let resolvedExistingUrl = candidateUrl
         ? await resolveProtectedStorageUrl(candidateUrl, existingStoragePath, 'signedScan')
         : null;
 
-      if (!resolvedExistingUrl && ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl)) {
-        resolvedExistingUrl = (sop as any).signedScanDataUrl || (sop as any).fileDataUrl;
-      }
-
-      if (!resolvedExistingUrl) {
-        const cleanId = sop.id.replace(/^sop-/, '');
-        for (const candId of [sop.id, cleanId, `sop-${cleanId}`]) {
-          for (const type of ['signedScan', 'file'] as const) {
-            const cached = await getFileFromPersistentCacheAsync(candId, type).catch(() => null);
-            if (cached) {
-              resolvedExistingUrl = cached;
-              break;
-            }
-          }
-          if (resolvedExistingUrl) break;
-        }
+      // Existing PDF is cloud-authoritative. Never substitute the Live file
+      // or a browser-local cache during download.
+      if (!resolvedExistingUrl && (sop as any).signedScanDataUrl) {
+        resolvedExistingUrl = (sop as any).signedScanDataUrl;
       }
 
       if (!resolvedExistingUrl && existingStoragePath) {
@@ -2063,7 +2050,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         resolvedExistingUrl,
         safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
         existingStoragePath || undefined,
-        'signedScan'
+        'signedScan',
+        true
       );
       return;
     }
