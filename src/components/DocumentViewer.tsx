@@ -25,6 +25,22 @@ export interface DocumentViewerProps {
 }
 
 type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
+type ProtectedStorageSlot = 'file' | 'signedScan' | 'oldFile';
+
+function protectedStorageSlotFor(url: string): ProtectedStorageSlot | undefined {
+  const protectedFileId = url.match(/^\/api\/storage\/files\/([^?#]+)/)?.[1];
+  if (!protectedFileId) return undefined;
+
+  let decodedFileId = protectedFileId;
+  try {
+    decodedFileId = decodeURIComponent(protectedFileId);
+  } catch {
+    // Keep matching against the original value when a legacy URL is malformed.
+  }
+
+  const slot = decodedFileId.match(/_(file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/)?.[1];
+  return slot as ProtectedStorageSlot | undefined;
+}
 
 function documentTypeFor(fileName: string, mimeType = ''): DocumentType {
   const lowerName = fileName.toLowerCase();
@@ -102,7 +118,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             // file IDs can still resolve through their authoritative path.
             const resolvedUrl = normalizedUrl.startsWith('local://') && storagePath
               ? buildStoragePathUrl(storagePath)
-              : await resolveProtectedStorageUrl(normalizedUrl, storagePath);
+              : await resolveProtectedStorageUrl(
+                  normalizedUrl,
+                  storagePath,
+                  protectedStorageSlotFor(normalizedUrl)
+                );
             if (!resolvedUrl || resolvedUrl.startsWith('local://')) {
               throw new Error('Dokumen belum memiliki referensi Firebase Storage yang dapat diakses.');
             }
