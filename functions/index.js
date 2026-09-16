@@ -1310,7 +1310,14 @@ async function requirePdfSession(req) {
 
 const STORAGE_COLLECTION = 'storage_files';
 const STORAGE_MAX_BYTES = 15 * 1024 * 1024;
-const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+const STORAGE_MIME = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.ms-word',
+]);
 let cachedStorageBucket = null;
 function getStorageBucket() {
   if (!cachedStorageBucket) {

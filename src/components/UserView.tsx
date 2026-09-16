@@ -410,6 +410,7 @@ export const UserView: React.FC<UserViewProps> = ({
   const [alur, setAlur] = useState('');
   const [unitTerkait, setUnitTerkait] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedDocxFile, setSelectedDocxFile] = useState<File | null>(null);
 
   // Mode Lama & Review fields
   const [manualLegacyNumber, setManualLegacyNumber] = useState('');
@@ -571,6 +572,8 @@ export const UserView: React.FC<UserViewProps> = ({
     try {
       setIsParsingDocx(true);
       const parsed = await parseSopFromDocx(file);
+      // Preserve the imported Word file as an auditable supporting document.
+      setSelectedDocxFile(file);
 
       if (parsed.title) setTitle(parsed.title);
       if (parsed.effectiveDate) setEffectiveDate(parsed.effectiveDate);
@@ -589,8 +592,6 @@ export const UserView: React.FC<UserViewProps> = ({
         setRevisionNumber(parsed.revisionNumber);
       }
 
-      // Aturan: Dokumen .docx hanya digunakan untuk mengekstrak data naskah SPO,
-      // BUKAN untuk disimpan atau diunggah sebagai berkas biner ke Firebase Cloud Storage.
       setSelectedFile(null);
 
       setParsedDocxSummary({
@@ -724,6 +725,7 @@ export const UserView: React.FC<UserViewProps> = ({
     setAlur('');
     setUnitTerkait('');
     setSelectedFile(null);
+    setSelectedDocxFile(null);
     setManualLegacyNumber('');
     setRevisionNumber('00');
     setExistingSopId('');
@@ -1098,6 +1100,19 @@ export const UserView: React.FC<UserViewProps> = ({
         sopData.fileType = 'application/pdf';
         delete sopData.fileDataUrl;
         delete sopData.signedScanDataUrl;
+      }
+
+      if (selectedDocxFile) {
+        const sourceDocxDataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('Gagal membaca berkas DOCX.'));
+          reader.readAsDataURL(selectedDocxFile);
+        });
+        (sopData as any).sourceDocxFileName = selectedDocxFile.name;
+        (sopData as any).sourceDocxFileSize = selectedDocxFile.size;
+        (sopData as any).sourceDocxFileType = selectedDocxFile.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        (sopData as any).sourceDocxDataUrl = sourceDocxDataUrl;
       }
 
       const created = await onAddSop(sopData);
@@ -2151,7 +2166,7 @@ export const UserView: React.FC<UserViewProps> = ({
                             </div>
                             <button
                               type="button"
-                              onClick={() => setParsedDocxSummary(null)}
+                              onClick={() => { setParsedDocxSummary(null); setSelectedDocxFile(null); }}
                               className="text-blue-500 hover:text-blue-800 p-1"
                               title="Tutup info"
                             >

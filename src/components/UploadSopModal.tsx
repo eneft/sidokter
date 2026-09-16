@@ -96,6 +96,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
   // File Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedDocxFile, setSelectedDocxFile] = useState<File | null>(null);
   const [fileDataUrl, setFileDataUrl] = useState<string | undefined>(undefined);
 
   // Review & Legacy Document Feature States
@@ -121,6 +122,9 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       setIsParsingDocx(true);
       setSubmitError('');
       const parsed = await parseSopFromDocx(file);
+      // Keep the original source as an audit/supporting attachment. It is
+      // uploaded together with the SPO record by saveSopToLocal.
+      setSelectedDocxFile(file);
 
       if (parsed.title) setTitle(parsed.title);
       if (parsed.effectiveDate) setEffectiveDate(parsed.effectiveDate);
@@ -348,6 +352,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     setProsedur('');
     setUnitTerkait('');
     handleClearFile();
+    setSelectedDocxFile(null);
     handleClearOldFile();
     setDocumentType('BARU');
     setManualLegacyNumber('');
@@ -592,6 +597,14 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                    Boolean(parsedDocxSummary);
 
     const resolvedFileDataUrl = isDocx ? undefined : fileDataUrl;
+    const sourceDocxDataUrl = selectedDocxFile
+      ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('Gagal membaca berkas DOCX.'));
+          reader.readAsDataURL(selectedDocxFile);
+        })
+      : undefined;
 
     const newSopDoc: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> = {
       sopNumber: finalSopNumber,
@@ -653,6 +666,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       fileSize: selectedFile && !isDocx ? selectedFile.size : 1250000,
       fileType: selectedFile && !isDocx ? selectedFile.type : 'application/pdf',
       fileDataUrl: resolvedFileDataUrl,
+      sourceDocxFileName: selectedDocxFile?.name,
+      sourceDocxFileSize: selectedDocxFile?.size,
+      sourceDocxFileType: selectedDocxFile?.type || (selectedDocxFile ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : undefined),
+      sourceDocxDataUrl,
       confidentialityLevel: 'Internal',
       locationOrFolder: `SPO Eksisting ${effectiveYear} / ${activeCategory?.name || 'Sentral'}`,
 
@@ -1370,7 +1387,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setParsedDocxSummary(null)}
+                      onClick={() => { setParsedDocxSummary(null); setSelectedDocxFile(null); }}
                       className="text-blue-500 hover:text-blue-800 p-1"
                     >
                       <X className="w-3.5 h-3.5" />

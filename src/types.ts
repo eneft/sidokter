@@ -158,6 +158,15 @@ export interface SopDocument {
   fileDataUrl?: string; // for uploaded file preview (Dokumen Baru / Hasil Review)
   fileUrl?: string; // Firebase Storage API reference (authoritative binary)
   storagePath?: string; // Firebase Cloud Storage object path (authoritative)
+  // Original Word source uploaded with the SPO. It is retained in Firebase
+  // Storage for audit/supporting-document purposes; the rendered SPO remains
+  // the authoritative PDF used for viewing and activation.
+  sourceDocxFileName?: string;
+  sourceDocxFileSize?: number;
+  sourceDocxFileType?: string;
+  sourceDocxDataUrl?: string;
+  sourceDocxUrl?: string;
+  sourceDocxStoragePath?: string;
 
   // Jenis input SPO: Baru, Eksisting (lama tetapi masih berlaku), dan Riviu
   jenis_spo?: 'BARU' | 'EKSISTING' | 'RIVIU';
@@ -285,4 +294,3 @@ export interface FilterOptions {
   sortBy: 'sopNumber' | 'title' | 'effectiveDate' | 'createdAt' | 'updatedAt';
   sortOrder: 'asc' | 'desc';
 }
-

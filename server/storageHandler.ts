@@ -206,7 +206,14 @@ async function recoverOrSynthesizeFile(requestedId: string, baseId: string): Pro
 
 const STORAGE_DIR = path.resolve(process.cwd(), 'data', 'storage');
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB hard ceiling for document uploads
-const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.ms-word',
+]);
 const META_FILE = path.resolve(process.cwd(), 'data', 'storage_meta.json');
 
 interface StoredFileMeta {
@@ -346,7 +353,7 @@ export async function handleStorageUpload(req: Request, res: Response) {
     }
 
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-      return res.status(415).json({ success: false, message: 'Jenis file tidak didukung. Gunakan PDF, PNG, atau JPEG.' });
+      return res.status(415).json({ success: false, message: 'Jenis file tidak didukung. Gunakan PDF, DOCX, DOC, PNG, atau JPEG.' });
     }
     if (buffer.length > MAX_UPLOAD_BYTES) {
       return res.status(413).json({ success: false, message: 'Ukuran file terlalu besar. Maksimum 15 MB.' });

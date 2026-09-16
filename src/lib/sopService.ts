@@ -252,48 +252,10 @@ export function subscribeToSops(onData: (sops: SopDocument[]) => void, onError?:
 
 export async function getAllSopsFromLocal(): Promise<SopDocument[]> { return getSops(); }
 
-/**
- * Helper to identify Word (.docx / .doc) binaries and DataURLs.
- * Dokumen Word (.docx) pada input SPO hanya digunakan untuk ekstraksi data (parsing teks naskah),
- * BUKAN untuk disimpan atau diunggah sebagai file biner ke Cloud Storage.
- */
-function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string): boolean {
-  if (fileName && (fileName.toLowerCase().endsWith('.docx') || fileName.toLowerCase().endsWith('.doc'))) return true;
-  if (fileType && (fileType.toLowerCase().includes('wordprocessingml') || fileType.toLowerCase().includes('msword') || fileType.toLowerCase().includes('officedocument'))) return true;
-  if (dataUrl && (
-    dataUrl.startsWith('data:application/vnd.openxmlformats-officedocument') ||
-    dataUrl.startsWith('data:application/msword') ||
-    dataUrl.startsWith('data:application/x-msword') ||
-    dataUrl.startsWith('data:application/x-zip-compressed')
-  )) return true;
-  return false;
-}
-
 export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
-
-  // Aturan Rumah Sakit: File .docx hanya untuk ekstraksi data naskah SPO (Pengertian, Tujuan,
-  // Kebijakan, Prosedur, Alur, Unit Terkait), bukan untuk disimpan ke Cloud Storage.
-  // Jika terdapat fileDataUrl berupa docx, bersihkan agar tidak dikirim ke endpoint storage.
-  if (isDocxBinaryData(next.fileDataUrl, next.fileName, next.fileType)) {
-    delete next.fileDataUrl;
-    if (next.fileName && (next.fileName.toLowerCase().endsWith('.docx') || next.fileName.toLowerCase().endsWith('.doc'))) {
-      next.fileName = `${next.sopNumber || next.id}.pdf`;
-      next.fileType = 'application/pdf';
-    }
-  }
-  if (isDocxBinaryData(next.signedScanDataUrl, next.signedScanFileName, next.signedScanFileType)) {
-    delete next.signedScanDataUrl;
-    if (next.signedScanFileName && (next.signedScanFileName.toLowerCase().endsWith('.docx') || next.signedScanFileName.toLowerCase().endsWith('.doc'))) {
-      next.signedScanFileName = `${next.sopNumber || next.id}_scan.pdf`;
-      next.signedScanFileType = 'application/pdf';
-    }
-  }
-  if (isDocxBinaryData(next.oldFileDataUrl, next.oldFileName, next.oldFileType)) {
-    delete next.oldFileDataUrl;
-  }
 
   // IMPORTANT: file upload is part of the authoritative save. The old code
   // started uploads in the background and immediately wrote Firestore, so the
@@ -322,6 +284,15 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
         .then((res) => { next.oldFileUrl = res.url; next.oldStoragePath = res.storagePath; })
     );
   }
+  if (next.sourceDocxDataUrl?.startsWith('data:')) {
+    uploadTasks.push(
+      uploadFileToCloudStorage(
+        next.sourceDocxDataUrl,
+        next.sourceDocxFileName || `${next.sopNumber || next.id}_source.docx`,
+        `${next.id}_sourceDocx`
+      ).then((res) => { next.sourceDocxUrl = res.url; next.sourceDocxStoragePath = res.storagePath; })
+    );
+  }
 
   if (uploadTasks.length) {
     try {
@@ -339,6 +310,7 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   if (next.fileUrl) delete next.fileDataUrl;
   if (next.signedScanUrl) delete next.signedScanDataUrl;
   if (next.oldFileUrl) delete next.oldFileDataUrl;
+  if (next.sourceDocxUrl) delete next.sourceDocxDataUrl;
 
   const index = all.findIndex((s) => s.id === next.id);
   const previous = index >= 0 ? all[index] : undefined;
@@ -373,16 +345,17 @@ export async function repairSopFileReferences(sop: SopDocument): Promise<SopDocu
 
   // Legacy records may only have the binary in this browser's IndexedDB cache.
   // Recover that binary before deciding that a durable reference is missing.
-  const candidates: Array<{ dataKey: 'fileDataUrl' | 'signedScanDataUrl' | 'oldFileDataUrl'; urlKey: 'fileUrl' | 'signedScanUrl' | 'oldFileUrl'; type: 'file' | 'signedScan' | 'oldFile'; suffix: string }> = [
+  const candidates: Array<{ dataKey: 'fileDataUrl' | 'signedScanDataUrl' | 'oldFileDataUrl' | 'sourceDocxDataUrl'; urlKey: 'fileUrl' | 'signedScanUrl' | 'oldFileUrl' | 'sourceDocxUrl'; type: 'file' | 'signedScan' | 'oldFile'; suffix: string }> = [
     { dataKey: 'fileDataUrl', urlKey: 'fileUrl', type: 'file', suffix: '.pdf' },
     { dataKey: 'signedScanDataUrl', urlKey: 'signedScanUrl', type: 'signedScan', suffix: '_scan.pdf' },
     { dataKey: 'oldFileDataUrl', urlKey: 'oldFileUrl', type: 'oldFile', suffix: '_legacy.pdf' },
+    { dataKey: 'sourceDocxDataUrl', urlKey: 'sourceDocxUrl', type: 'file', suffix: '_source.docx' },
   ];
 
   for (const c of candidates) {
     if ((next as any)[c.urlKey]) continue;
     let data = (next as any)[c.dataKey];
-    if (!(typeof data === 'string' && data.startsWith('data:'))) {
+    if (c.urlKey !== 'sourceDocxUrl' && !(typeof data === 'string' && data.startsWith('data:'))) {
       try {
         data = await getFileFromPersistentCacheAsync(next.id, c.type);
       } catch {
@@ -390,19 +363,14 @@ export async function repairSopFileReferences(sop: SopDocument): Promise<SopDocu
       }
     }
     if (typeof data === 'string' && data.startsWith('data:')) {
-      if (isDocxBinaryData(data, (next as any)[c.urlKey === 'fileUrl' ? 'fileName' : 'signedScanFileName'], (next as any)[c.urlKey === 'fileUrl' ? 'fileType' : 'signedScanFileType'])) {
-        // File docx tidak diunggah ke storage
-        delete (next as any)[c.dataKey];
-        continue;
-      }
       (next as any)[c.dataKey] = data;
       const result = await uploadFileToCloudStorage(
         data,
-        `${next.sopNumber || next.id}${c.suffix}`,
-        `${next.id}_${c.type}`
+        c.urlKey === 'sourceDocxUrl' ? (next.sourceDocxFileName || `${next.sopNumber || next.id}${c.suffix}`) : `${next.sopNumber || next.id}${c.suffix}`,
+        c.urlKey === 'sourceDocxUrl' ? `${next.id}_sourceDocx` : `${next.id}_${c.type}`
       );
       (next as any)[c.urlKey] = result.url;
-      const pathKey = c.urlKey === 'fileUrl' ? 'storagePath' : c.urlKey === 'signedScanUrl' ? 'signedScanStoragePath' : 'oldStoragePath';
+      const pathKey = c.urlKey === 'fileUrl' ? 'storagePath' : c.urlKey === 'signedScanUrl' ? 'signedScanStoragePath' : c.urlKey === 'oldFileUrl' ? 'oldStoragePath' : 'sourceDocxStoragePath';
       (next as any)[pathKey] = result.storagePath;
       delete (next as any)[c.dataKey];
     }
@@ -411,7 +379,8 @@ export async function repairSopFileReferences(sop: SopDocument): Promise<SopDocu
   const hasDurableBinary =
     Boolean((next as any).fileUrl) ||
     Boolean((next as any).signedScanUrl) ||
-    Boolean((next as any).oldFileUrl);
+    Boolean((next as any).oldFileUrl) ||
+    Boolean((next as any).sourceDocxUrl);
 
   if (hasDurableBinary) {
     await saveSopToFirestore(next, { throwOnError: true });
