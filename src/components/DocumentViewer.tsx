@@ -25,6 +25,25 @@ export interface DocumentViewerProps {
 }
 
 type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
+type ProtectedEvidenceSlot = 'signedScan' | 'oldFile';
+
+function protectedEvidenceSlotFor(url: string): ProtectedEvidenceSlot | undefined {
+  const protectedFileId = url.match(/^\/api\/storage\/files\/([^?#]+)/)?.[1];
+  if (!protectedFileId) return undefined;
+
+  let decodedFileId = protectedFileId;
+  try {
+    decodedFileId = decodeURIComponent(protectedFileId);
+  } catch {
+    // Keep matching against the original value when a legacy URL is malformed.
+  }
+
+  // signedScan and oldFile identify distinct evidence binaries and must never
+  // fall through to the live document. The primary "file" slot is excluded:
+  // older uploads legitimately use an unsuffixed ID as its compatible alias.
+  const slot = decodedFileId.match(/_(signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/)?.[1];
+  return slot as ProtectedEvidenceSlot | undefined;
+}
 
 function documentTypeFor(fileName: string, mimeType = ''): DocumentType {
   const lowerName = fileName.toLowerCase();
@@ -102,7 +121,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             // file IDs can still resolve through their authoritative path.
             const resolvedUrl = normalizedUrl.startsWith('local://') && storagePath
               ? buildStoragePathUrl(storagePath)
-              : await resolveProtectedStorageUrl(normalizedUrl, storagePath);
+              : await resolveProtectedStorageUrl(
+                  normalizedUrl,
+                  storagePath,
+                  protectedEvidenceSlotFor(normalizedUrl)
+                );
             if (!resolvedUrl || resolvedUrl.startsWith('local://')) {
               throw new Error('Dokumen belum memiliki referensi Firebase Storage yang dapat diakses.');
             }
