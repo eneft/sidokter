@@ -114,10 +114,15 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    const payloadToSend = { ...parsedBody };
-    if (action) {
-      payloadToSend.action = action;
+    if (!action) {
+      return res.status(400).json({
+        success: false,
+        message: 'Action autentikasi tidak ditentukan.',
+        code: 'AUTH_ACTION_REQUIRED'
+      });
     }
+
+    const payloadToSend = { ...parsedBody, action };
 
     const forwardHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -165,6 +170,14 @@ export default async function handler(req: any, res: any) {
 
         if (response.status >= 400 && !payload.message) {
           payload.message = payload.error || payload.details || `Layanan autentikasi gagal (HTTP ${response.status}).`;
+        }
+
+        if (payload?.code === 'AUTH_REQUEST_ERROR' && (action === 'session' || action === 'user-list' || (!forwardHeaders.Authorization && !forwardHeaders['X-Session-Id']))) {
+          return res.status(401).json({
+            success: false,
+            message: 'Autentikasi diperlukan atau sesi login telah berakhir.',
+            code: 'UNAUTHENTICATED'
+          });
         }
 
         return res.status(response.status).json(payload);

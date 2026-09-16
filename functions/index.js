@@ -114,7 +114,7 @@ function getAuthSafe() {
 
 // SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
-const AUTH_API_BUILD = 'firebase-migration-fix-v4';
+const AUTH_API_BUILD = 'firebase-migration-fix-v5';
 let _db = null;
 function getFirestoreInstance() {
   if (!_db) {
@@ -350,19 +350,35 @@ async function requireAuth(req) {
     if (foundUser) uid = foundUser.id;
   }
 
-  if (!uid) throw new Error('UNAUTHENTICATED');
-  if (!sessionId) throw new Error('SESSION_REQUIRED');
+  if (!uid) {
+    const err = new Error('UNAUTHENTICATED');
+    err.code = 'UNAUTHENTICATED';
+    throw err;
+  }
+  if (!sessionId) {
+    const err = new Error('SESSION_REQUIRED');
+    err.code = 'SESSION_REQUIRED';
+    throw err;
+  }
 
   const userRef = db.collection(USERS).doc(uid);
   const snap = await userRef.get();
-  if (!snap.exists) throw new Error('USER_NOT_FOUND');
+  if (!snap.exists) {
+    const err = new Error('USER_NOT_FOUND');
+    err.code = 'USER_NOT_FOUND';
+    throw err;
+  }
   const user = { ...snap.data(), role: normalizeRole(snap.data().role) };
 
   // Never auto-create a session during an authenticated API request. Sessions
   // are created only by the login flow; every protected endpoint must validate
   // an already-existing, non-revoked session.
   const active = await getActiveSession(uid, sessionId);
-  if (!active || active.revoked === true) throw new Error('SESSION_REVOKED');
+  if (!active || active.revoked === true) {
+    const err = new Error('SESSION_REVOKED');
+    err.code = 'SESSION_REVOKED';
+    throw err;
+  }
 
   return {
     decoded: decoded || { uid, role: user.role, sessionId },
@@ -812,6 +828,16 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       return json(res, 200, { success: true, customToken, session: publicSession(found, sessionId, sessionCreatedAt), message: 'Login berhasil.' });
     }
 
+    if (!action) {
+      return json(res, 400, {
+        success: false,
+        code: 'AUTH_ACTION_REQUIRED',
+        message: 'Parameter action autentikasi wajib diisi.',
+        build: AUTH_API_BUILD
+      });
+    }
+
+    authStage = 'require-auth';
     const context = await requireAuth(req);
 
     if (action === 'session') {
@@ -1094,9 +1120,9 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       message: error?.message,
       stack: error?.stack
     });
-    const rawCode = String(error?.code || 'AUTH_INTERNAL_ERROR');
+    const rawCode = String(error?.code || error?.message || 'AUTH_INTERNAL_ERROR');
     const authErrors = new Set([
-      'UNAUTHENTICATED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'SESSION_EXPIRED',
+      'UNAUTHENTICATED', 'SESSION_REQUIRED', 'USER_NOT_FOUND', 'SESSION_REVOKED', 'SESSION_EXPIRED',
       'auth/id-token-expired', 'auth/argument-error', 'auth/invalid-id-token',
       'auth/user-not-found', 'auth/id-token-revoked'
     ]);
@@ -1104,6 +1130,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     const status = isAuth ? 401 : 500;
     const safeStageCode = {
       'request': 'AUTH_REQUEST_ERROR',
+      'require-auth': 'AUTH_UNAUTHORIZED',
       'find-user': 'AUTH_FIRESTORE_USER_READ_ERROR',
       'credential': 'AUTH_CREDENTIAL_ERROR',
       'session-id': 'AUTH_SESSION_ID_ERROR',
@@ -1115,9 +1142,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
     }[authStage] || 'AUTH_INTERNAL_ERROR';
     const message = rawCode === 'SESSION_REVOKED'
       ? 'Sesi Anda sudah dicabut. Silakan login kembali.'
-      : isAuth
-        ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.'
-        : 'Layanan autentikasi gagal memproses permintaan.';
+      : rawCode === 'USER_NOT_FOUND'
+        ? 'Pengguna tidak ditemukan di direktori akun.'
+        : rawCode === 'UNAUTHENTICATED' || rawCode === 'SESSION_REQUIRED'
+          ? 'Autentikasi diperlukan. Silakan login terlebih dahulu.'
+          : isAuth
+            ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.'
+            : 'Layanan autentikasi gagal memproses permintaan.';
     return json(res, status, {
       success: false,
       message,

@@ -545,9 +545,18 @@ export async function handleAuthApi(req: Request, res: Response) {
 
   authDb = ensureDbLoaded();
   const pathSegment = req.path.replace(/^\/+/, '').split('/').pop();
-  const action = (pathSegment && pathSegment !== 'auth' && pathSegment !== 'authApi')
+  const rawAction = (pathSegment && pathSegment !== 'auth' && pathSegment !== 'authApi')
     ? pathSegment
-    : (req.body?.action || pathSegment);
+    : (req.body?.action ? String(req.body.action).trim() : '');
+  const action = rawAction && rawAction !== 'auth' && rawAction !== 'authApi' ? rawAction : '';
+
+  if (!action) {
+    return res.status(400).json({
+      success: false,
+      message: 'Action autentikasi tidak ditentukan.',
+      code: 'AUTH_ACTION_REQUIRED'
+    });
+  }
 
   if (action === 'sop-list') {
     return res.status(404).json({ success: false, message: 'Endpoint sop-list tidak digunakan. SPO disinkronkan langsung via Firestore/IndexedDB.' });
@@ -676,13 +685,23 @@ export async function handleAuthApi(req: Request, res: Response) {
             }
           }
 
+          // If upstream returned 500 with AUTH_REQUEST_ERROR on session check or unauthenticated call,
+          // normalize to 401 UNAUTHENTICATED to prevent crashing client apps
+          if (data?.code === 'AUTH_REQUEST_ERROR' && (action === 'session' || action === 'user-list' || (!forwardHeaders['Authorization'] && !forwardHeaders['X-Session-Id']))) {
+            return res.status(401).json({
+              success: false,
+              message: 'Autentikasi diperlukan atau sesi login telah berakhir.',
+              code: 'UNAUTHENTICATED'
+            });
+          }
+
           // If upstream succeeded, return immediately
           if (cloudRes.ok && data?.success) {
             return res.status(cloudRes.status).json(data);
           }
-          // If login failed due to invalid credentials, pass through the warning
-          if (action === 'login' && cloudRes.status === 401 && data?.message) {
-            return res.status(401).json(data);
+          // Pass through intentional client-side auth errors (400, 401, 403, 404, 409, 429)
+          if (cloudRes.status < 500) {
+            return res.status(cloudRes.status).json(data);
           }
           // Do not hide canonical backend errors behind the legacy local database.
           // Local fallback is an explicit emergency/dev opt-in only.

@@ -146,13 +146,14 @@ async function callAuthApi(action:string, body:Record<string,any>={}, token?:str
   let payload:any={};
   try { payload=await response.json(); } catch {}
   if(!response.ok){
+    const isUnauthenticated = response.status === 401 || (payload?.code === 'AUTH_REQUEST_ERROR' && (action === 'session' || action === 'user-list'));
     const message = payload?.message
       || payload?.error?.message
       || (typeof payload?.error === 'string' ? payload.error : '')
-      || `Layanan autentikasi gagal (HTTP ${response.status}).`;
+      || (isUnauthenticated ? 'Sesi tidak valid atau telah berakhir.' : `Layanan autentikasi gagal (HTTP ${response.status}).`);
     const err:any=new Error(message);
-    err.status=response.status;
-    err.code=payload?.code;
+    err.status=isUnauthenticated && response.status >= 500 ? 401 : response.status;
+    err.code=isUnauthenticated && payload?.code === 'AUTH_REQUEST_ERROR' ? 'UNAUTHENTICATED' : (payload?.code || (response.status === 401 ? 'UNAUTHENTICATED' : 'AUTH_ERROR'));
     err.stage=payload?.stage;
     err.build=payload?.build;
     err.lockedOut=payload?.lockedOut;
@@ -376,14 +377,19 @@ export async function revokeAllUserSessions(_usernameOrId:string){
 
 /** Administrator-only account management. Credentials are sent only to the trusted backend. */
 export async function fetchManagedUsers():Promise<UserAccount[]> {
-  const payload=await callAuthApi('user-list');
-  return Array.isArray(payload?.users) ? payload.users.map((u:any)=>({
-    id:String(u.id||''), username:String(u.username||'').toLowerCase(), name:u.name||u.username||'',
-    role:normalizeRole(u.role), unitName:u.unitName, divisionCode:u.divisionCode,
-    divisionCodes:u.divisionCodes, assignments:u.assignments, badges:u.badges,
-    subCode:u.subCode, instCode:u.instCode, poliCode:u.poliCode, subUnitCode:u.subUnitCode,
-    createdAt:u.createdAt||'', updatedAt:u.updatedAt, credentialStatus:u.credentialStatus
-  })) : [];
+  try {
+    const payload=await callAuthApi('user-list');
+    return Array.isArray(payload?.users) ? payload.users.map((u:any)=>({
+      id:String(u.id||''), username:String(u.username||'').toLowerCase(), name:u.name||u.username||'',
+      role:normalizeRole(u.role), unitName:u.unitName, divisionCode:u.divisionCode,
+      divisionCodes:u.divisionCodes, assignments:u.assignments, badges:u.badges,
+      subCode:u.subCode, instCode:u.instCode, poliCode:u.poliCode, subUnitCode:u.subUnitCode,
+      createdAt:u.createdAt||'', updatedAt:u.updatedAt, credentialStatus:u.credentialStatus
+    })) : [];
+  } catch (err: any) {
+    console.warn('[authService] fetchManagedUsers note:', err?.message || err);
+    return [];
+  }
 }
 
 export async function saveManagedUser(user:UserAccount):Promise<{success:boolean;message:string}> {
