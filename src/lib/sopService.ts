@@ -8,7 +8,7 @@ import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
 import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
-import { getFileFromPersistentCacheAsync } from '../utils/fileStorage';
+import { getFileFromPersistentCacheAsync, saveFileToLocalCache } from '../utils/fileStorage';
 
 const KEYS = {
   sops: 'soegiri_offline_sops_v1',
@@ -301,19 +301,22 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   // browser that still had the local cache.
   const uploadTasks: Promise<void>[] = [];
 
-  if (next.fileDataUrl?.startsWith('data:') && !next.fileUrl) {
+  if (next.fileDataUrl?.startsWith('data:')) {
+    saveFileToLocalCache(next.id, 'file', next.fileDataUrl);
     uploadTasks.push(
       uploadFileToCloudStorage(next.fileDataUrl, `${next.sopNumber || next.id}.pdf`, `${next.id}_file`)
         .then((res) => { next.fileUrl = res.url; next.storagePath = res.storagePath; })
     );
   }
-  if (next.signedScanDataUrl?.startsWith('data:') && !next.signedScanUrl) {
+  if (next.signedScanDataUrl?.startsWith('data:')) {
+    saveFileToLocalCache(next.id, 'signedScan', next.signedScanDataUrl);
     uploadTasks.push(
       uploadFileToCloudStorage(next.signedScanDataUrl, `${next.sopNumber || next.id}_scan.pdf`, `${next.id}_signedScan`)
         .then((res) => { next.signedScanUrl = res.url; next.signedScanStoragePath = res.storagePath; })
     );
   }
-  if (next.oldFileDataUrl?.startsWith('data:') && !next.oldFileUrl) {
+  if (next.oldFileDataUrl?.startsWith('data:')) {
+    saveFileToLocalCache(next.id, 'oldFile', next.oldFileDataUrl);
     uploadTasks.push(
       uploadFileToCloudStorage(next.oldFileDataUrl, `${next.sopNumber || next.id}_legacy.pdf`, `${next.id}_oldFile`)
         .then((res) => { next.oldFileUrl = res.url; next.oldStoragePath = res.storagePath; })

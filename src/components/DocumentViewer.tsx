@@ -10,7 +10,7 @@ import {
   FileType,
   FileSpreadsheet
 } from 'lucide-react';
-import { dataUrlToBlob, triggerFileDownload, getProtectedStorageHeaders, buildStoragePathUrl } from '../utils/fileStorage';
+import { dataUrlToBlob, triggerFileDownload, getProtectedStorageHeaders, buildStoragePathUrl, normalizeStorageUrl } from '../utils/fileStorage';
 
 // Configure pdfjs worker using bundled worker or fallback
 try {
@@ -248,16 +248,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       try {
         let arrayBuffer: ArrayBuffer;
         let blob: Blob;
+        const normalizedFileUrl = normalizeStorageUrl(effectiveFileUrl);
 
         if (file) {
           blob = file;
           arrayBuffer = await file.arrayBuffer();
-        } else if (effectiveFileUrl.startsWith('data:')) {
-          blob = dataUrlToBlob(effectiveFileUrl);
+        } else if (normalizedFileUrl.startsWith('data:')) {
+          blob = dataUrlToBlob(normalizedFileUrl);
           arrayBuffer = await blob.arrayBuffer();
-        } else if (effectiveFileUrl.startsWith('blob:') || effectiveFileUrl.startsWith('http') || effectiveFileUrl.startsWith('/')) {
+        } else if (normalizedFileUrl.startsWith('blob:') || normalizedFileUrl.startsWith('http') || normalizedFileUrl.startsWith('/')) {
           const headers: Record<string, string> = {};
-          if (effectiveFileUrl.startsWith('/api/storage/files/') || effectiveFileUrl.startsWith('/api/storage/')) {
+          if (normalizedFileUrl.startsWith('/api/storage/files/') || normalizedFileUrl.startsWith('/api/storage/')) {
             const session = getPersistedClientSession();
             const token = await getCurrentAuthToken();
             if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
@@ -265,17 +266,38 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             if (session?.username) headers['X-User-Username'] = session.username;
             if (token) headers['Authorization'] = `Bearer ${token}`;
           }
-          let res = await fetch(effectiveFileUrl, { headers });
-          if (res.status === 404 && storagePath) {
-            res = await fetch(buildStoragePathUrl(storagePath), { headers });
+          let res = await fetch(normalizedFileUrl, { headers });
+          if (!res.ok && res.status === 404) {
+            const seg = decodeURIComponent(normalizedFileUrl).split('/').pop()?.split('?')[0] || '';
+            const baseId = seg.replace(/_(?:file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/, '').replace(/\.[a-zA-Z0-9]+$/, '');
+            const fullFilename = seg.includes('.') ? seg : `${seg}.pdf`;
+            const candidates = [
+              storagePath ? buildStoragePathUrl(storagePath) : null,
+              `/api/storage/files/${seg}`,
+              `/api/storage/files/${baseId}`,
+              `/api/storage/path/sidokter/spo/${fullFilename}`,
+              `/api/storage/path/sidokter/spo/${baseId}.pdf`
+            ].filter(Boolean) as string[];
+
+            for (const cand of candidates) {
+              if (cand !== normalizedFileUrl) {
+                try {
+                  const retryRes = await fetch(cand, { headers });
+                  if (retryRes.ok) {
+                    res = retryRes;
+                    break;
+                  }
+                } catch {}
+              }
+            }
           }
           if (!res.ok) {
-            throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
+            throw new Error(`Dokumen tidak ditemukan di server (HTTP ${res.status}). Berkas mungkin sedang dalam sinkronisasi.`);
           }
           blob = await res.blob();
           arrayBuffer = await blob.arrayBuffer();
-        } else if (effectiveFileUrl.startsWith('local://')) {
-          const id = effectiveFileUrl.replace('local://', '');
+        } else if (normalizedFileUrl.startsWith('local://')) {
+          const id = normalizedFileUrl.replace('local://', '');
           const fallbackServerUrl = `/api/storage/files/${id}`;
           const session = getPersistedClientSession();
           const token = await getCurrentAuthToken();

@@ -1298,13 +1298,20 @@ function storageCors(req, res) {
   const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
+  const aiStudio = /^https:\/\/[^/]+\.run\.app$/;
+
+  const allowed = !origin || configured.includes(origin) || builtIn.test(origin) ||
+    local.test(origin) || vercel.test(origin) || aiStudio.test(origin) ||
+    origin.includes('sidokter-soegiri');
+
+  if (origin && allowed) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
   res.set('Vary', 'Origin');
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Session-Id, X-Soegiri-Auth-Uid, X-User-Username, Accept');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, X-Soegiri-Session-Id, X-Soegiri-Auth-Uid, X-User-Username, Accept, Origin');
   res.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, DELETE, OPTIONS');
+  res.set('Access-Control-Max-Age', '3600');
 }
 
 function storageAccessKeys(session) {
@@ -1364,29 +1371,82 @@ async function storageUpload(req, res) {
   return json(res, 200, { success:true, fileId:id, url:`/api/storage/files/${id}`, storagePath:objectPath, fileName:safeName, fileSize:buffer.length, mimeType:mime });
 }
 
+async function streamStorageObject(req, res, file, fallbackMeta = {}) {
+  const [exists] = await file.exists();
+  if (!exists) return false;
+
+  const [fm] = await file.getMetadata();
+  res.set('Content-Type', fm.contentType || fallbackMeta.mimeType || 'application/pdf');
+  res.set('Content-Length', String(fm.size || fallbackMeta.size || 0));
+  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(fallbackMeta.originalName || path.basename(file.name || 'dokumen.pdf'))}"`);
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('X-Content-Type-Options', 'nosniff');
+  if (req.method === 'HEAD') {
+    res.status(200).end();
+    return true;
+  }
+  file.createReadStream().on('error', err => {
+    console.error('[storage] stream error', err);
+    if (!res.headersSent) res.status(500);
+  }).pipe(res);
+  return true;
+}
+
+function isPrivilegedStorageViewer(context) {
+  const isAdmin = normalizeRole(context.user.role) === 'admin';
+  const isStructural = Array.isArray(context.user.badges) &&
+    context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+  return isAdmin || isStructural;
+}
+
+function canReadStoragePathWithoutMetadata(context, objectPath) {
+  // Legacy SPO files may exist in Storage without a matching storage_files
+  // document. They remain protected by application login, not made public.
+  if (objectPath.startsWith('sidokter/spo/') || objectPath.startsWith('sop-')) return true;
+  if (objectPath.startsWith('sidokter/sk/') || objectPath.startsWith('sidokter/mou/')) {
+    return isPrivilegedStorageViewer(context);
+  }
+  return false;
+}
+
 async function storageDownload(req, res) {
   const context = await requireStorageAuth(req);
   const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
   const snap = await db.collection(STORAGE_COLLECTION).doc(id).get();
-  if (!snap.exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
-  const meta = snap.data();
-  const isAdmin = normalizeRole(context.user.role) === 'admin';
-  const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
-  const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
-  const keys = storageAccessKeys(context.user);
-  const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
-  if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
-  const file = getStorageBucket().file(meta.objectPath);
-  const [exists] = await file.exists();
-  if (!exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
-  const [fm] = await file.getMetadata();
-  res.set('Content-Type', fm.contentType || meta.mimeType || 'application/pdf');
-  res.set('Content-Length', String(fm.size || meta.size || 0));
-  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(meta.originalName || 'dokumen.pdf')}"`);
-  res.set('Cache-Control', 'private, no-store, max-age=0');
-  res.set('X-Content-Type-Options', 'nosniff');
-  if (req.method === 'HEAD') return res.status(200).end();
-  file.createReadStream().on('error', err => { if (!res.headersSent) res.status(500); }).pipe(res);
+
+  if (snap.exists) {
+    const meta = snap.data();
+    const isAdmin = normalizeRole(context.user.role) === 'admin';
+    const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+    const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
+    const keys = storageAccessKeys(context.user);
+    const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+
+    const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
+    if (served) return;
+    return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  }
+
+  // Legacy/external SPO: the object can predate the storage_files Firestore
+  // index. Resolve the conventional object path directly from Storage.
+  const legacyCandidates = [
+    `sidokter/spo/${id}.pdf`,
+    `sidokter/spo/${id}.png`,
+    `sidokter/spo/${id}.jpg`
+  ];
+  for (const objectPath of legacyCandidates) {
+    if (!canReadStoragePathWithoutMetadata(context, objectPath)) continue;
+    const served = await streamStorageObject(
+      req,
+      res,
+      getStorageBucket().file(objectPath),
+      { originalName: path.basename(objectPath) }
+    );
+    if (served) return;
+  }
+
+  return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
 }
 
 async function storageDownloadByPath(req, res) {
@@ -1395,30 +1455,55 @@ async function storageDownloadByPath(req, res) {
   let objectPath = raw;
   try { objectPath = decodeURIComponent(raw); } catch {}
   objectPath = objectPath.replace(/^\/+/, '');
-  if (!objectPath || objectPath.includes('..')) return json(res, 400, { success:false, message:'Storage path tidak valid.' });
+  if (!objectPath || objectPath.includes('..')) {
+    return json(res, 400, { success:false, message:'Storage path tidak valid.' });
+  }
 
+  // First use the Firestore index when present, preserving its fine-grained ACL.
   const snap = await db.collection(STORAGE_COLLECTION).where('objectPath', '==', objectPath).limit(1).get();
-  if (snap.empty) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
-  const metaDoc = snap.docs[0];
-  const meta = metaDoc.data();
-  const isAdmin = normalizeRole(context.user.role) === 'admin';
-  const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
-  const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
-  const keys = storageAccessKeys(context.user);
-  const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
-  if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+  if (!snap.empty) {
+    const metaDoc = snap.docs[0];
+    const meta = metaDoc.data();
+    const isAdmin = normalizeRole(context.user.role) === 'admin';
+    const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+    const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
+    const keys = storageAccessKeys(context.user);
+    const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-  const file = getStorageBucket().file(meta.objectPath);
-  const [exists] = await file.exists();
-  if (!exists) return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
-  const [fm] = await file.getMetadata();
-  res.set('Content-Type', fm.contentType || meta.mimeType || 'application/pdf');
-  res.set('Content-Length', String(fm.size || meta.size || 0));
-  res.set('Content-Disposition', `inline; filename="${encodeURIComponent(meta.originalName || 'dokumen.pdf')}"`);
-  res.set('Cache-Control', 'private, no-store, max-age=0');
-  res.set('X-Content-Type-Options', 'nosniff');
-  if (req.method === 'HEAD') return res.status(200).end();
-  file.createReadStream().on('error', err => { if (!res.headersSent) res.status(500); }).pipe(res);
+    const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
+    if (served) return;
+    return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+  }
+
+  // Critical legacy fallback: Storage is authoritative for old/external SPO
+  // evidence, even when the storage_files index was never created/migrated.
+  if (!canReadStoragePathWithoutMetadata(context, objectPath)) {
+    return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+  }
+
+  const file = getStorageBucket().file(objectPath);
+  let served = await streamStorageObject(
+    req,
+    res,
+    file,
+    { originalName: path.basename(objectPath) }
+  );
+  if (served) return;
+
+  if (!objectPath.startsWith('sidokter/')) {
+    const prefixed = `sidokter/spo/${objectPath}`;
+    const prefixedFile = getStorageBucket().file(prefixed);
+    served = await streamStorageObject(
+      req,
+      res,
+      prefixedFile,
+      { originalName: path.basename(objectPath) }
+    );
+    if (served) return;
+  }
+
+  return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
 }
 
 async function storageDelete(req, res) {
@@ -1435,24 +1520,164 @@ async function storageDelete(req, res) {
   return json(res, 200, { success:true });
 }
 
-exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', timeoutSeconds:60, memory:'512MiB' }, async (req, res) => {
+function getStorageRequestPath(req) {
+  // Firebase Functions v2 can expose different values for req.path/req.url
+  // depending on whether the function is called directly or through a
+  // Hosting rewrite. Prefer the original URL and normalize all known forms.
+  const candidates = [
+    req.originalUrl,
+    req.url,
+    req.path,
+    req.headers?.['x-forwarded-uri'],
+    req.headers?.['x-original-url']
+  ].filter(Boolean).map(v => String(v));
+
+  for (const candidate of candidates) {
+    const clean = candidate.split('?')[0];
+    const match = clean.match(/(?:^|\/)storageApi(?:\/)?(\/.*)?$/i);
+    if (match && match[1]) return match[1];
+    const direct = clean.match(/(\/)(?:path|files|upload)(?:\/.*)?$/i);
+    if (direct) return clean.slice(direct.index || 0);
+  }
+
+  return candidates[0] || '/';
+}
+
+function getStoragePathParam(pathName) {
+  const marker = '/path/';
+  const idx = pathName.toLowerCase().indexOf(marker);
+  if (idx < 0) return '';
+  return pathName.slice(idx + marker.length).replace(/\/?$/, '');
+}
+
+function getStorageFileId(pathName) {
+  const marker = '/files/';
+  const idx = pathName.toLowerCase().indexOf(marker);
+  if (idx < 0) return '';
+  return pathName.slice(idx + marker.length).replace(/\/?$/, '').split('/').filter(Boolean).pop() || '';
+}
+
+// Server-side hierarchy REST endpoint used as the Firebase Hosting fallback
+// for multi-device master-data synchronization. The browser also syncs directly
+// with Firestore, but /api/hierarchy must exist in Firebase Hosting because the
+// previous Express server.ts is not deployed by Firebase Hosting.
+exports.hierarchyApi = onRequest({
+  region: 'asia-southeast2',
+  invoker: 'public',
+  cors: true,
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async (req, res) => {
+  try {
+    if (req.method === 'OPTIONS') return res.status(204).end();
+
+    if (req.method === 'GET') {
+      const snap = await db.collection('system_config').doc('hierarchy_master').get();
+      if (!snap.exists) return json(res, 200, { success: true, source: 'empty', categories: [] });
+      const value = snap.data()?.value;
+      let categories = [];
+      if (Array.isArray(value)) {
+        categories = value;
+      } else if (value && typeof value === 'object') {
+        const keys = Object.keys(value).sort((a, b) => {
+          const na = Number(a), nb = Number(b);
+          if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+          return a.localeCompare(b);
+        });
+        categories = keys.map((k) => value[k]).filter(Boolean);
+      }
+      return json(res, 200, { success: true, source: 'firestore', categories });
+    }
+
+    if (req.method !== 'POST') {
+      return json(res, 405, { success: false, message: 'Method tidak diizinkan.' });
+    }
+
+    const context = await requireAuth(req);
+    const role = normalizeRole(context.user.role);
+    const structural = Array.isArray(context.user.badges) && context.user.badges.some(
+      (b) => String(b).trim().toUpperCase() === 'STRUKTURAL'
+    );
+    if (role !== 'admin' && !structural) {
+      return json(res, 403, { success: false, message: 'Akses menyimpan master hierarki ditolak.' });
+    }
+
+    const body = req.body || {};
+    let categories = body.categories;
+    if (categories && !Array.isArray(categories) && typeof categories === 'object') {
+      const keys = Object.keys(categories).sort((a, b) => {
+        const na = Number(a), nb = Number(b);
+        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+        return a.localeCompare(b);
+      });
+      categories = keys.map((k) => categories[k]).filter(Boolean);
+    }
+    if (!Array.isArray(categories) || categories.length === 0) {
+      return json(res, 400, { success: false, message: 'Data kategori tidak boleh kosong.' });
+    }
+    if (JSON.stringify(categories).length > 8 * 1024 * 1024) {
+      return json(res, 413, { success: false, message: 'Data hierarki terlalu besar.' });
+    }
+
+    const now = new Date().toISOString();
+    await db.collection('system_config').doc('hierarchy_master').set({
+      id: 'hierarchy_master',
+      value: categories,
+      updatedAt: now,
+      updatedBy: body.updatedBy || context.user.username || context.user.id || 'admin'
+    }, { merge: true });
+
+    return json(res, 200, {
+      success: true,
+      count: categories.length,
+      firestoreSynced: true,
+      message: `Hierarki dengan ${categories.length} kategori berhasil disimpan.`
+    });
+  } catch (err) {
+    console.error('[hierarchyApi]', err);
+    const code = String(err?.message || 'HIERARCHY_ERROR');
+    const authError = ['UNAUTHENTICATED','USER_NOT_FOUND','SESSION_REVOKED','SESSION_EXPIRED','SESSION_REQUIRED'].includes(code);
+    return json(res, authError ? 401 : 500, {
+      success: false,
+      message: authError ? 'Sesi login tidak valid atau sudah dicabut. Silakan login kembali.' : 'Gagal mengakses master hierarki.',
+      code: authError ? code : 'HIERARCHY_ERROR'
+    });
+  }
+});
+
+exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', cors: true, timeoutSeconds:60, memory:'512MiB' }, async (req, res) => {
   storageCors(req, res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
-    const pathName = String(req.path || req.url || '');
-    if (req.method === 'POST' && /\/upload\/?$/.test(pathName)) return await storageUpload(req, res);
-    if ((req.method === 'GET' || req.method === 'HEAD') && /\/path\/.+/.test(pathName)) {
-      const match = pathName.match(/\/path\/(.+?)(?:\/?$)/); req.params = { storagePath: match ? match[1] : '' };
+    const rawUrl = String(req.originalUrl || req.url || req.path || '');
+    const pathName = getStorageRequestPath(req) || rawUrl;
+    const lowerPath = String(pathName || '').toLowerCase();
+
+    if (req.method === 'POST' && (lowerPath === '/upload' || lowerPath === '/storageapi/upload' || lowerPath.endsWith('/upload'))) {
+      return await storageUpload(req, res);
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && lowerPath.includes('/path/')) {
+      const storagePath = getStoragePathParam(pathName);
+      if (!storagePath) return json(res, 400, { success:false, message:'Storage path tidak valid.' });
+      req.params = { storagePath };
       return await storageDownloadByPath(req, res);
     }
-    if ((req.method === 'GET' || req.method === 'HEAD') && /\/files\/[^/]+\/?$/.test(pathName)) {
-      const id = pathName.split('/').filter(Boolean).pop(); req.params = { id };
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && lowerPath.includes('/files/')) {
+      const id = getStorageFileId(pathName);
+      if (!id) return json(res, 400, { success:false, message:'File ID tidak valid.' });
+      req.params = { id };
       return await storageDownload(req, res);
     }
-    if (req.method === 'DELETE' && /\/files\/[^/]+\/?$/.test(pathName)) {
-      const id = pathName.split('/').filter(Boolean).pop(); req.params = { id };
+
+    if (req.method === 'DELETE' && lowerPath.includes('/files/')) {
+      const id = getStorageFileId(pathName);
+      if (!id) return json(res, 400, { success:false, message:'File ID tidak valid.' });
+      req.params = { id };
       return await storageDelete(req, res);
     }
+
     return json(res, 404, { success:false, message:'Storage endpoint tidak ditemukan.' });
   } catch (err) {
     console.error('[storageApi]', err);

@@ -19,6 +19,14 @@
       "destination": "/api/auth"
     },
     {
+      "source": "/api/hierarchy/:path*",
+      "destination": "https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/hierarchyApi/:path*"
+    },
+    {
+      "source": "/api/hierarchy",
+      "destination": "https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/hierarchyApi"
+    },
+    {
       "source": "/api/storage/:path*",
       "destination": "https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/storageApi/:path*"
     },

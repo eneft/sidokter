@@ -55,9 +55,26 @@
         }
       },
       {
+        "source": "/api/hierarchy",
+        "function": {
+          "functionId": "hierarchyApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
+        "source": "/api/hierarchy/**",
+        "function": {
+          "functionId": "hierarchyApi",
+          "region": "asia-southeast2"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
+    ],
+    "predeploy": [
+      "npm run build:client"
     ]
   },
   "storage": {

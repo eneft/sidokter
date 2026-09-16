@@ -1,5 +1,6 @@
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import { purgeBloatedLocalStorage } from './storageQuota';
+import { firebaseConfig } from '../lib/firebase';
 
 /**
  * Utility for handling file downloads safely in all browser environments (including iframes & sandboxes)
@@ -25,30 +26,96 @@ export function buildStoragePathUrl(storagePath: string): string {
   return `/api/storage/path/${encodeURIComponent(cleanPath)}`;
 }
 
+/**
+ * Normalizes direct Cloud Function storage URLs or legacy full URLs to relative /api/storage/ paths.
+ * Prevents calling remote Cloud Functions that may be unconfigured or have stale deployments.
+ */
+export function normalizeStorageUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  const cfMatch = trimmed.match(/^https?:\/\/[^/]*cloudfunctions\.net\/storageApi\/(files|path)\/(.*)$/i);
+  if (cfMatch) {
+    return `/api/storage/${cfMatch[1]}/${cfMatch[2]}`;
+  }
+  return trimmed;
+}
+
 export async function resolveProtectedStorageUrl(
   rawUrl: string | undefined | null,
-  storagePath?: string | undefined | null
+  storagePath?: string | undefined | null,
+  strictType?: 'file' | 'signedScan' | 'oldFile'
 ): Promise<string | null> {
-  if (!rawUrl && !storagePath) return null;
-  if (
-    rawUrl &&
-    !rawUrl.startsWith('/api/storage/files/') &&
-    !rawUrl.startsWith('/api/storage/path/')
-  ) return rawUrl;
-  if (!rawUrl && storagePath) return buildStoragePathUrl(storagePath);
+  const normalizedRawUrl = normalizeStorageUrl(rawUrl);
+  if (!normalizedRawUrl && !storagePath) return null;
+  const isProtectedUrl = (value: string | undefined | null): boolean =>
+    Boolean(
+      value &&
+      (
+        value.startsWith('/api/storage/files/') ||
+        value.startsWith('/api/storage/path')
+      )
+    );
+
+  if (normalizedRawUrl && !isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
 
   const headers = await getProtectedStorageHeaders();
-  if (rawUrl) {
+
+  const probeUrl = async (u: string | null | undefined): Promise<boolean> => {
+    if (!u) return false;
     try {
-      const probe = await fetch(rawUrl, { method: 'HEAD', headers });
-      if (probe.ok) return rawUrl;
-    } catch { /* try storagePath fallback */ }
+      const probe = await fetch(u, { method: 'HEAD', headers });
+      return probe.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  if (normalizedRawUrl && (await probeUrl(normalizedRawUrl))) return normalizedRawUrl;
+
+  // Extract identifiers from normalizedRawUrl or storagePath to probe fallback routes
+  const source = normalizedRawUrl || storagePath || '';
+  const decoded = decodeURIComponent(source);
+  const seg = decoded.split('/').pop()?.split('?')[0] || '';
+  const baseId = seg.replace(/^sop-/, '').replace(/_(?:file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/, '').replace(/\.[a-zA-Z0-9]+$/, '');
+  const fullFilename = seg.includes('.') ? seg : `${seg}.pdf`;
+
+  const candidates: string[] = [];
+  if (storagePath) {
+    // The durable path is the strongest identity. Never replace it with a
+    // different document slot when the caller explicitly requested strictType.
+    candidates.push(buildStoragePathUrl(storagePath));
   }
+  if (seg) {
+    candidates.push(`/api/storage/files/${seg}`);
+    candidates.push(`/api/storage/path/sidokter/spo/${fullFilename}`);
+    const cleanSeg = seg.replace(/^sop-sop-/, 'sop-');
+    if (cleanSeg !== seg) {
+      candidates.push(`/api/storage/files/${cleanSeg}`);
+      candidates.push(`/api/storage/path/sidokter/spo/${cleanSeg.includes('.') ? cleanSeg : `${cleanSeg}.pdf`}`);
+    }
+    if (!seg.startsWith('sop-')) {
+      candidates.push(`/api/storage/files/sop-${seg}`);
+      candidates.push(`/api/storage/path/sidokter/spo/sop-${fullFilename}`);
+    }
+    if (!strictType) {
+      candidates.push(`/api/storage/files/${baseId}`);
+      candidates.push(`/api/storage/path/sidokter/spo/${baseId}.pdf`);
+      if (!baseId.startsWith('sop-')) {
+        candidates.push(`/api/storage/files/sop-${baseId}`);
+        candidates.push(`/api/storage/path/sidokter/spo/sop-${baseId}.pdf`);
+      }
+    }
+  }
+
+  for (const cand of candidates) {
+    if (cand && cand !== normalizedRawUrl && (await probeUrl(cand))) {
+      return cand;
+    }
+  }
+
   if (storagePath) return buildStoragePathUrl(storagePath);
-  // A protected URL that failed its authenticated probe must not be returned
-  // as if it were still usable; doing so causes a second guaranteed 404.
-  if (rawUrl?.startsWith('/api/storage/')) return null;
-  return rawUrl || null;
+  if (isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
+  return normalizedRawUrl || null;
 }
 
 const DB_NAME = 'SopSoegiriFilesDB';
@@ -115,47 +182,162 @@ export function dataUrlToBlob(dataUrl: string): Blob {
 /**
  * Triggers a direct browser file download from Data URL, Blob, or regular URL
  */
-export function triggerFileDownload(urlOrDataUrl: string, fileName: string, fallbackStoragePath?: string): boolean {
-  if (!urlOrDataUrl && !fallbackStoragePath) return false;
+export function triggerFileDownload(
+  urlOrDataUrl: string,
+  fileName: string,
+  fallbackStoragePath?: string,
+  strictType?: 'file' | 'signedScan' | 'oldFile'
+): boolean {
+  const normalizedUrl = normalizeStorageUrl(urlOrDataUrl);
+  if (!normalizedUrl && !fallbackStoragePath) return false;
 
   // Our storage endpoint is private and requires the SIDOKTER session header.
   // A plain <a href> cannot send X-Session-Id, so fetch the protected file first
   // and then download the resulting Blob.
   if (
-    urlOrDataUrl?.startsWith('/api/storage/files/') ||
-    urlOrDataUrl?.startsWith('/api/storage/path/') ||
-    (!urlOrDataUrl && fallbackStoragePath)
+    normalizedUrl?.startsWith('/api/storage/files/') ||
+    normalizedUrl?.startsWith('/api/storage/path') ||
+    (!normalizedUrl && fallbackStoragePath)
   ) {
     void getProtectedStorageHeaders().then(async (headers) => {
       const safeFileName = (fileName || 'Dokumen_SPO.pdf')
         .replace(/[/\\?%*:|"<>]/g, '_')
         .replace(/\s+/g, '_');
-      let res = urlOrDataUrl ? await fetch(urlOrDataUrl, { headers }) : new Response(null, { status: 404 });
-      if (res.status === 404 && fallbackStoragePath) {
-        res = await fetch(buildStoragePathUrl(fallbackStoragePath), { headers });
+
+      const downloadBlob = (blob: Blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = blobUrl;
+        a.download = safeFileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (document.body.contains(a)) document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        }, 2000);
+      };
+
+      let res: Response | null = null;
+      if (normalizedUrl) {
+        try {
+          res = await fetch(normalizedUrl, { headers });
+        } catch {}
       }
-      if (!res.ok) throw new Error(`Gagal mengunduh file dari server (HTTP ${res.status}).`);
-      const blobUrl = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = blobUrl;
-      a.download = safeFileName;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-      }, 2000);
+
+      // If initial fetch failed, attempt comprehensive fallback candidate routes
+      if (!res || !res.ok) {
+        const source = normalizedUrl || fallbackStoragePath || '';
+        const decoded = decodeURIComponent(source);
+        const seg = decoded.split('/').pop()?.split('?')[0] || '';
+        const baseId = seg.replace(/^sop-/, '').replace(/_(?:file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/, '').replace(/\.[a-zA-Z0-9]+$/, '');
+        const fullFilename = seg.includes('.') ? seg : `${seg}.pdf`;
+
+        const fallbackUrls: string[] = [];
+        if (fallbackStoragePath) {
+          fallbackUrls.push(buildStoragePathUrl(fallbackStoragePath));
+        }
+        if (seg) {
+          fallbackUrls.push(`/api/storage/files/${seg}`);
+          fallbackUrls.push(`/api/storage/path/sidokter/spo/${fullFilename}`);
+          const cleanSeg = seg.replace(/^sop-sop-/, 'sop-');
+          if (cleanSeg !== seg) {
+            fallbackUrls.push(`/api/storage/files/${cleanSeg}`);
+            fallbackUrls.push(`/api/storage/path/sidokter/spo/${cleanSeg.includes('.') ? cleanSeg : `${cleanSeg}.pdf`}`);
+          }
+          if (!seg.startsWith('sop-')) {
+            fallbackUrls.push(`/api/storage/files/sop-${seg}`);
+            fallbackUrls.push(`/api/storage/path/sidokter/spo/sop-${fullFilename}`);
+          }
+        }
+        if (!strictType && baseId) {
+          fallbackUrls.push(`/api/storage/files/${baseId}`);
+          fallbackUrls.push(`/api/storage/path/sidokter/spo/${baseId}.pdf`);
+          if (!baseId.startsWith('sop-')) {
+            fallbackUrls.push(`/api/storage/files/sop-${baseId}`);
+            fallbackUrls.push(`/api/storage/path/sidokter/spo/sop-${baseId}.pdf`);
+          }
+        }
+
+        for (const candidateUrl of fallbackUrls) {
+          if (!candidateUrl || candidateUrl === normalizedUrl) continue;
+          try {
+            const candidateRes = await fetch(candidateUrl, { headers });
+            if (candidateRes.ok) {
+              res = candidateRes;
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      // If network endpoints still failed, check client persistent cache (IndexedDB)
+      if (!res || !res.ok) {
+        const source = normalizedUrl || fallbackStoragePath || '';
+        const decoded = decodeURIComponent(source);
+        const seg = decoded.split('/').pop()?.split('?')[0] || '';
+        const cleanSopId = seg
+          .replace(/^sop-/, '')
+          .replace(/_(?:file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/, '')
+          .replace(/\.[a-zA-Z0-9]+$/, '');
+
+        const idCandidates = [
+          cleanSopId,
+          `sop-${cleanSopId}`,
+          seg,
+          seg.replace(/\.[a-zA-Z0-9]+$/, ''),
+          cleanSopId.replace(/^sop-/, '')
+        ].filter(Boolean);
+
+        const typesToSearch = strictType ? [strictType] : (['signedScan', 'file', 'oldFile'] as const);
+
+        for (const id of idCandidates) {
+          for (const type of typesToSearch) {
+            try {
+              const cachedDataUrl = await getFileFromPersistentCacheAsync(id, type);
+              if (cachedDataUrl) {
+                const cachedBlob = dataUrlToBlob(cachedDataUrl);
+                if (cachedBlob.size > 0) {
+                  downloadBlob(cachedBlob);
+                  return;
+                }
+              }
+            } catch {}
+          }
+          // Also check named file cache
+          try {
+            const namedCached = await getNamedFileFromLocalCache(id);
+            if (namedCached) {
+              const cachedBlob = dataUrlToBlob(namedCached);
+              if (cachedBlob.size > 0) {
+                downloadBlob(cachedBlob);
+                return;
+              }
+            }
+          } catch {}
+        }
+      }
+
+      if (res && res.ok) {
+        const blob = await res.blob();
+        if (blob && blob.size > 0) {
+          downloadBlob(blob);
+          return;
+        }
+      }
+
+      console.warn(`Protected file download: Berkas "${fileName}" tidak dapat dimuat (HTTP ${res ? res.status : 404}).`);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Berkas "${fileName}" belum tersedia di server atau tidak dapat diunduh (HTTP ${res ? res.status : 404}).`);
+      }
     }).catch((error) => {
-      console.error('Protected file download error:', error);
-      // Do not fall back to window.open(): that request cannot carry the
-      // SIDOKTER session headers and would bypass the protected fetch flow.
+      console.warn('Protected file download notice:', error?.message || error);
     });
     return true;
   }
 
   try {
-    let downloadUrl = urlOrDataUrl;
+    let downloadUrl = normalizedUrl;
     let isObjectUrl = false;
 
     // Sanitize filename

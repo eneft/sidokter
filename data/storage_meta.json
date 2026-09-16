@@ -50,5 +50,217 @@
     "accessKeys": [
       "ALL"
     ]
+  },
+  "sop-1789370470524_file": {
+    "id": "sop-1789370470524_file",
+    "originalName": "sop-1789370470524_file.pdf",
+    "mimeType": "application/pdf",
+    "size": 1541,
+    "uploadedAt": "2026-09-16T01:59:28.998Z",
+    "filename": "sop-1789370470524_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ],
+    "storagePath": "sidokter/spo/sop-1789370470524_file.pdf"
+  },
+  "sop-1789370470524_signedScan": {
+    "id": "sop-1789370470524_signedScan",
+    "originalName": "sop-1789370470524_signedScan.pdf",
+    "mimeType": "application/pdf",
+    "size": 1549,
+    "uploadedAt": "2026-09-16T01:59:29.037Z",
+    "filename": "sop-1789370470524_signedScan.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ],
+    "storagePath": "sidokter/spo/sop-1789370470524_signedScan.pdf"
+  },
+  "sop-1789370836190_file": {
+    "id": "sop-1789370836190_file",
+    "originalName": "sop-1789370836190_file.pdf",
+    "mimeType": "application/pdf",
+    "size": 1546,
+    "uploadedAt": "2026-09-16T01:59:28.997Z",
+    "filename": "sop-1789370836190_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ],
+    "storagePath": "sidokter/spo/sop-1789370836190_file.pdf"
+  },
+  "sop-1789370836190_signedScan": {
+    "id": "sop-1789370836190_signedScan",
+    "originalName": "sop-1789370836190_signedScan.pdf",
+    "mimeType": "application/pdf",
+    "size": 1557,
+    "uploadedAt": "2026-09-16T01:59:29.020Z",
+    "filename": "sop-1789370836190_signedScan.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ],
+    "storagePath": "sidokter/spo/sop-1789370836190_signedScan.pdf"
+  },
+  "sop-1789440129498": {
+    "id": "sop-1789440129498",
+    "originalName": "sop-1789440129498.pdf",
+    "mimeType": "application/pdf",
+    "size": 3627,
+    "uploadedAt": "2026-09-16T01:59:29.009Z",
+    "filename": "sop-1789440129498.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "ALL"
+    ],
+    "storagePath": "sidokter/spo/sop-1789440129498.pdf"
+  },
+  "sop-1789440129498_oldFile": {
+    "id": "sop-1789440129498_oldFile",
+    "originalName": "SPO ALUR PASIEN RADIOLOGI.pdf",
+    "mimeType": "application/pdf",
+    "size": 3624,
+    "uploadedAt": "2026-09-16T07:44:16.331Z",
+    "filename": "sop-1789440129498_oldFile.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-1786611292750-a10v",
+    "accessKeys": [
+      "PEN",
+      "PEN|1",
+      "PEN|1.3"
+    ],
+    "storagePath": "sidokter/spo/sop-1789440129498_oldFile.pdf"
+  },
+  "sop-1789456313306_signedScan": {
+    "id": "sop-1789456313306_signedScan",
+    "originalName": "SPO_penjadwalan_radiologi.pdf",
+    "mimeType": "application/pdf",
+    "size": 2918,
+    "uploadedAt": "2026-09-16T07:44:16.388Z",
+    "filename": "sop-1789456313306_signedScan.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-1786611292750-a10v",
+    "accessKeys": [
+      "PEN",
+      "PEN|1",
+      "PEN|1.3"
+    ],
+    "storagePath": "sidokter/spo/sop-1789456313306_signedScan.pdf"
+  },
+  "sop-1789456313306_oldFile": {
+    "id": "sop-1789456313306_oldFile",
+    "originalName": "SPO penjadwalan radiologi.pdf",
+    "mimeType": "application/pdf",
+    "size": 2930,
+    "uploadedAt": "2026-09-16T07:44:16.399Z",
+    "filename": "sop-1789456313306_oldFile.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-1786611292750-a10v",
+    "accessKeys": [
+      "PEN",
+      "PEN|1",
+      "PEN|1.3"
+    ],
+    "storagePath": "sidokter/spo/sop-1789456313306_oldFile.pdf"
+  },
+  "sop-1789527544253_oldFile": {
+    "id": "sop-1789527544253_oldFile",
+    "originalName": "209 PROSEDUR PENGGUNAAN INDIKATOR TAPE AUTOCLAVE.pdf",
+    "mimeType": "application/pdf",
+    "size": 3249,
+    "uploadedAt": "2026-09-16T07:44:16.408Z",
+    "filename": "sop-1789527544253_oldFile.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-1786611544006-9a0r",
+    "accessKeys": [
+      "PEN",
+      "PEN|2",
+      "PEN|2.1"
+    ],
+    "storagePath": "sidokter/spo/sop-1789527544253_oldFile.pdf"
+  },
+  "sop-1789528298423_oldFile": {
+    "id": "sop-1789528298423_oldFile",
+    "originalName": "210 PROSEDUR PENGUJIAN BOWIE DICK TEST PADA MESIN STERILISASI AUTOCLAV.pdf",
+    "mimeType": "application/pdf",
+    "size": 3102,
+    "uploadedAt": "2026-09-16T07:44:16.416Z",
+    "filename": "sop-1789528298423_oldFile.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-1786611544006-9a0r",
+    "accessKeys": [
+      "PEN",
+      "PEN|2",
+      "PEN|2.1"
+    ],
+    "storagePath": "sidokter/spo/sop-1789528298423_oldFile.pdf"
+  },
+  "sop-1789110056419_file": {
+    "id": "sop-1789110056419_file",
+    "originalName": "PENERIMAAN DOKTER SPESIALIS MOU.pdf",
+    "mimeType": "application/pdf",
+    "size": 5642,
+    "uploadedAt": "2026-09-16T07:46:44.683Z",
+    "filename": "sop-1789110056419_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-pokja-kps",
+    "accessKeys": [
+      "UPH",
+      "UPH|2",
+      "UPH|2.1"
+    ],
+    "storagePath": "sidokter/spo/sop-1789110056419_file.pdf"
+  },
+  "sop-1789110056419": {
+    "id": "sop-1789110056419_file",
+    "originalName": "PENERIMAAN DOKTER SPESIALIS MOU.pdf",
+    "mimeType": "application/pdf",
+    "size": 5642,
+    "uploadedAt": "2026-09-16T07:46:44.683Z",
+    "filename": "sop-1789110056419_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "usr-pokja-kps",
+    "accessKeys": [
+      "UPH",
+      "UPH|2",
+      "UPH|2.1"
+    ],
+    "storagePath": "sidokter/spo/sop-1789110056419_file.pdf"
+  },
+  "sop-1788408271595_file": {
+    "id": "sop-1788408271595_file",
+    "originalName": "Melindungi Harta Milik Pasien.pdf",
+    "mimeType": "application/pdf",
+    "size": 3673,
+    "uploadedAt": "2026-09-16T07:49:47.144Z",
+    "filename": "sop-1788408271595_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "HPK",
+      "HPK|002"
+    ],
+    "storagePath": "sidokter/spo/sop-1788408271595_file.pdf"
+  },
+  "sop-1788408271595": {
+    "id": "sop-1788408271595_file",
+    "originalName": "Melindungi Harta Milik Pasien.pdf",
+    "mimeType": "application/pdf",
+    "size": 3673,
+    "uploadedAt": "2026-09-16T07:49:47.144Z",
+    "filename": "sop-1788408271595_file.pdf",
+    "resourceType": "SPO",
+    "ownerUid": "admin-root",
+    "accessKeys": [
+      "HPK",
+      "HPK|002"
+    ],
+    "storagePath": "sidokter/spo/sop-1788408271595_file.pdf"
   }
 }

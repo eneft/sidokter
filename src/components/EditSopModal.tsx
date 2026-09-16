@@ -19,7 +19,13 @@ import {
   ArrowLeft,
   Layers,
   Check,
-  Clock
+  Clock,
+  Upload,
+  FileUp,
+  Trash2,
+  Eye,
+  Download,
+  Loader2
 } from 'lucide-react';
 
 import {
@@ -37,10 +43,12 @@ import {
   checkDuplicateSopNumber,
   getNextSequenceNumber,
   getPaddedNumber,
-  parseSopNumber
+  parseSopNumber,
+  formatBytes
 } from '../utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HierarchyPicker } from './HierarchyPicker';
+import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
 
 export interface EditSopModalProps {
   isOpen: boolean;
@@ -65,11 +73,170 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
 }) => {
   if (!sop) return null;
 
-  const isAdmin = !userSession || userSession.role === 'admin';
-  const isExisting = Boolean(sop.documentType === 'LAMA' || sop.jenis_spo === 'EKSISTING' || sop.isLegacySop);
+  const isAdmin = userSession?.role === 'admin';
+  const isExisting = Boolean(
+    sop.documentType === 'LAMA' ||
+    sop.jenis_spo === 'EKSISTING' ||
+    sop.isLegacySop ||
+    sop.documentType === 'EKSISTING'
+  );
+  const isReview = Boolean(
+    sop.isReviewDocument ||
+    sop.jenis_spo === 'RIVIU' ||
+    sop.documentType === 'REVIEW' ||
+    sop.documentType === 'RIVIU' ||
+    sop.oldSopNumber
+  );
 
-  const [activeTab, setActiveTab] = useState<'info' | 'konten' | 'revisi'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'konten' | 'revisi' | 'berkas'>('info');
   const [validationMessage, setValidationMessage] = useState<string[]>([]);
+
+  // =========================================================
+  // UPLOAD ULANG PDF (KHUSUS ROLE ADMIN)
+  // =========================================================
+  const [reuploadExistingFile, setReuploadExistingFile] = useState<File | null>(null);
+  const [reuploadExistingDataUrl, setReuploadExistingDataUrl] = useState<string | null>(null);
+  const [reuploadExistingName, setReuploadExistingName] = useState<string>('');
+  const [reuploadExistingSize, setReuploadExistingSize] = useState<number>(0);
+  const [isProcessingExistingFile, setIsProcessingExistingFile] = useState<boolean>(false);
+  const [isDraggingExisting, setIsDraggingExisting] = useState<boolean>(false);
+
+  const [reuploadOldFile, setReuploadOldFile] = useState<File | null>(null);
+  const [reuploadOldDataUrl, setReuploadOldDataUrl] = useState<string | null>(null);
+  const [reuploadOldName, setReuploadOldName] = useState<string>('');
+  const [reuploadOldSize, setReuploadOldSize] = useState<number>(0);
+  const [isProcessingOldFile, setIsProcessingOldFile] = useState<boolean>(false);
+  const [isDraggingOld, setIsDraggingOld] = useState<boolean>(false);
+
+  const [reuploadRiviuScanFile, setReuploadRiviuScanFile] = useState<File | null>(null);
+  const [reuploadRiviuScanDataUrl, setReuploadRiviuScanDataUrl] = useState<string | null>(null);
+  const [reuploadRiviuScanName, setReuploadRiviuScanName] = useState<string>('');
+  const [reuploadRiviuScanSize, setReuploadRiviuScanSize] = useState<number>(0);
+  const [isProcessingRiviuScanFile, setIsProcessingRiviuScanFile] = useState<boolean>(false);
+  const [isDraggingRiviuScan, setIsDraggingRiviuScan] = useState<boolean>(false);
+
+  const currentExistingFileName = sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf';
+  const currentExistingFileSize = sop.signedScanFileSize || sop.fileSize || sop.oldFileSize;
+  const hasCurrentExistingFile = Boolean(sop.signedScanUrl || sop.fileUrl || sop.signedScanDataUrl || sop.fileDataUrl || sop.storagePath || sop.signedScanStoragePath);
+
+  const currentOldFileName = sop.oldFileName || 'Bukti_Dokumen_SPO_Lama.pdf';
+  const currentOldFileSize = sop.oldFileSize;
+  const hasCurrentOldFile = Boolean(sop.oldFileUrl || sop.oldFileDataUrl || sop.oldStoragePath || sop.oldSignedScanUrl || sop.oldSignedScanStoragePath);
+
+  const currentRiviuScanFileName = sop.signedScanFileName || '';
+  const currentRiviuScanFileSize = sop.signedScanFileSize;
+  const hasCurrentRiviuScanFile = Boolean(sop.signedScanUrl || sop.signedScanDataUrl || sop.signedScanStoragePath);
+
+  const processExistingFile = (file: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      alert('Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk dokumen SPO Eksisting.');
+      return;
+    }
+    setIsProcessingExistingFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setReuploadExistingFile(file);
+      setReuploadExistingDataUrl(dataUrl);
+      setReuploadExistingName(file.name);
+      setReuploadExistingSize(file.size);
+      setIsProcessingExistingFile(false);
+    };
+    reader.onerror = () => {
+      alert('Gagal membaca berkas PDF yang dipilih.');
+      setIsProcessingExistingFile(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleExistingFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processExistingFile(file);
+  };
+
+  const handleClearExistingFile = () => {
+    setReuploadExistingFile(null);
+    setReuploadExistingDataUrl(null);
+    setReuploadExistingName('');
+    setReuploadExistingSize(0);
+    const el = document.getElementById('edit-reupload-existing-input') as HTMLInputElement | null;
+    if (el) el.value = '';
+  };
+
+  const processOldFile = (file: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      alert('Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk Bukti Dokumen SPO Lama.');
+      return;
+    }
+    setIsProcessingOldFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setReuploadOldFile(file);
+      setReuploadOldDataUrl(dataUrl);
+      setReuploadOldName(file.name);
+      setReuploadOldSize(file.size);
+      setIsProcessingOldFile(false);
+    };
+    reader.onerror = () => {
+      alert('Gagal membaca berkas PDF bukti dukung.');
+      setIsProcessingOldFile(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleOldFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processOldFile(file);
+  };
+
+  const handleClearOldFile = () => {
+    setReuploadOldFile(null);
+    setReuploadOldDataUrl(null);
+    setReuploadOldName('');
+    setReuploadOldSize(0);
+    const el = document.getElementById('edit-reupload-old-file-input') as HTMLInputElement | null;
+    if (el) el.value = '';
+  };
+
+  const processRiviuScanFile = (file: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      alert('Hanya berkas berformat PDF (.pdf) yang diperbolehkan untuk Scan Berkas Bertanda Tangan.');
+      return;
+    }
+    setIsProcessingRiviuScanFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setReuploadRiviuScanFile(file);
+      setReuploadRiviuScanDataUrl(dataUrl);
+      setReuploadRiviuScanName(file.name);
+      setReuploadRiviuScanSize(file.size);
+      setIsProcessingRiviuScanFile(false);
+    };
+    reader.onerror = () => {
+      alert('Gagal membaca berkas PDF pindaian.');
+      setIsProcessingRiviuScanFile(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRiviuScanSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processRiviuScanFile(file);
+  };
+
+  const handleClearRiviuScanFile = () => {
+    setReuploadRiviuScanFile(null);
+    setReuploadRiviuScanDataUrl(null);
+    setReuploadRiviuScanName('');
+    setReuploadRiviuScanSize(0);
+    const el = document.getElementById('edit-reupload-riviu-scan-input') as HTMLInputElement | null;
+    if (el) el.value = '';
+  };
 
   // =========================================================
   // INFORMASI DOKUMEN
@@ -160,6 +327,28 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
     setRevisionAuthor(userSession?.name || sop.creatorName || '');
     setTagInput('');
     setValidationMessage([]);
+
+    // Reset upload states
+    setReuploadExistingFile(null);
+    setReuploadExistingDataUrl(null);
+    setReuploadExistingName('');
+    setReuploadExistingSize(0);
+    setIsProcessingExistingFile(false);
+    setIsDraggingExisting(false);
+
+    setReuploadOldFile(null);
+    setReuploadOldDataUrl(null);
+    setReuploadOldName('');
+    setReuploadOldSize(0);
+    setIsProcessingOldFile(false);
+    setIsDraggingOld(false);
+
+    setReuploadRiviuScanFile(null);
+    setReuploadRiviuScanDataUrl(null);
+    setReuploadRiviuScanName('');
+    setReuploadRiviuScanSize(0);
+    setIsProcessingRiviuScanFile(false);
+    setIsDraggingRiviuScan(false);
   }, [sop, isOpen]);
 
   // Content checkers
@@ -351,6 +540,72 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       updatedAt: new Date().toISOString()
     };
 
+    // =========================================================
+    // PEMROSESAN BERKAS UPLOAD ULANG (KHUSUS ROLE ADMIN)
+    // =========================================================
+    if (isAdmin && isExisting && reuploadExistingDataUrl) {
+      updated.signedScanFileName = reuploadExistingName;
+      updated.signedScanFileSize = reuploadExistingSize;
+      updated.signedScanFileType = 'application/pdf';
+      updated.signedScanDataUrl = reuploadExistingDataUrl;
+      delete (updated as any).signedScanUrl;
+      delete (updated as any).signedScanStoragePath;
+
+      updated.fileName = reuploadExistingName;
+      updated.fileSize = reuploadExistingSize;
+      updated.fileType = 'application/pdf';
+      updated.fileDataUrl = reuploadExistingDataUrl;
+      delete (updated as any).fileUrl;
+      delete (updated as any).storagePath;
+
+      updated.existingSourceFormat = 'PDF';
+      updated.isExistingReplacement = true;
+
+      saveFileToLocalCache(sop.id, 'signedScan', reuploadExistingDataUrl);
+      saveFileToLocalCache(sop.id, 'file', reuploadExistingDataUrl);
+    }
+
+    if (isAdmin && isReview && reuploadOldDataUrl) {
+      updated.oldFileName = reuploadOldName;
+      updated.oldFileSize = reuploadOldSize;
+      updated.oldFileType = 'application/pdf';
+      updated.oldFileDataUrl = reuploadOldDataUrl;
+      delete (updated as any).oldFileUrl;
+      delete (updated as any).oldStoragePath;
+      delete (updated as any).oldSignedScanUrl;
+      delete (updated as any).oldSignedScanStoragePath;
+
+      saveFileToLocalCache(sop.id, 'oldFile', reuploadOldDataUrl);
+    }
+
+    if (isAdmin && isReview && reuploadRiviuScanDataUrl) {
+      updated.signedScanFileName = reuploadRiviuScanName;
+      updated.signedScanFileSize = reuploadRiviuScanSize;
+      updated.signedScanFileType = 'application/pdf';
+      updated.signedScanDataUrl = reuploadRiviuScanDataUrl;
+      delete (updated as any).signedScanUrl;
+      delete (updated as any).signedScanStoragePath;
+
+      saveFileToLocalCache(sop.id, 'signedScan', reuploadRiviuScanDataUrl);
+    }
+
+    // Auto-record revision log if PDF file was changed and manual log wasn't checked
+    if (isAdmin && (reuploadExistingDataUrl || reuploadOldDataUrl || reuploadRiviuScanDataUrl) && !addRevisionLog) {
+      const notesParts: string[] = [];
+      if (reuploadExistingDataUrl) notesParts.push(`Upload ulang berkas PDF SPO Eksisting (${reuploadExistingName})`);
+      if (reuploadOldDataUrl) notesParts.push(`Upload ulang berkas bukti dukung SPO lama (${reuploadOldName})`);
+      if (reuploadRiviuScanDataUrl) notesParts.push(`Upload ulang scan berkas bertanda tangan (${reuploadRiviuScanName})`);
+
+      updatedHistory.push({
+        id: `rev-${Date.now()}`,
+        version: version.trim() || sop.version || '00',
+        date: new Date().toISOString().split('T')[0],
+        author: revisionAuthor.trim() || userSession?.name || 'Administrator',
+        notes: notesParts.join('; ')
+      });
+      updated.revisionHistory = updatedHistory;
+    }
+
     onSubmit(updated);
     onClose();
   };
@@ -434,6 +689,27 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                 <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-extrabold animate-pulse">
                   !
                 </span>
+              )}
+            </button>
+          )}
+
+          {isAdmin && (isExisting || isReview) && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('berkas')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'berkas'
+                  ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100/60 rounded-t-lg'
+              }`}
+            >
+              <Upload className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Upload Ulang PDF</span>
+              <span className="px-1.5 py-0.2 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase border border-indigo-200">
+                Admin
+              </span>
+              {(reuploadExistingFile || reuploadOldFile || reuploadRiviuScanFile) && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               )}
             </button>
           )}
@@ -734,6 +1010,40 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-teal-500 outline-none"
                   />
                 </div>
+
+                {/* Admin Quick Action: Upload Ulang PDF */}
+                {isAdmin && (isExisting || isReview) && (
+                  <div className="mt-4 p-4 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-indigo-50/50 to-purple-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-indigo-950">
+                            {isExisting ? 'Pembaruan Berkas PDF SPO Eksisting' : 'Pembaruan Berkas PDF SPO Riviu'}
+                          </span>
+                          <span className="px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 rounded border border-indigo-200">
+                            Fitur Admin
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          {isExisting
+                            ? `Dokumen terlampir: ${currentExistingFileName} (${formatBytes(currentExistingFileSize)}). Ingin mengganti atau memperbarui berkas PDF asli?`
+                            : `Dokumen SPO Riviu mendukung upload ulang scan berkas bertanda tangan dan bukti dukung SPO lama.`}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('berkas')}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload Ulang PDF</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -869,6 +1179,467 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
           )}
 
           {/* =============================================== */}
+          {/* TAB 4: UPLOAD ULANG PDF (KHUSUS ROLE ADMIN)     */}
+          {/* =============================================== */}
+          {activeTab === 'berkas' && isAdmin && (isExisting || isReview) && (
+            <div className="space-y-5 animate-in fade-in duration-150">
+              
+              {/* Header Banner */}
+              <div className="bg-gradient-to-r from-indigo-50/90 via-indigo-50/60 to-purple-50/40 border border-indigo-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-extrabold text-indigo-950">
+                        {isExisting ? 'Upload Ulang Berkas SPO Eksisting (PDF)' : 'Upload Ulang Berkas SPO Riviu (PDF)'}
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 border border-indigo-300">
+                        Akses Khusus Administrator
+                      </span>
+                    </div>
+                    <p className="text-xs text-indigo-900/80 leading-relaxed">
+                      {isExisting
+                        ? 'Fitur ini memungkinkan Administrator untuk mengganti file PDF asli dokumen SPO Eksisting dengan versi perbaikan atau digitalisasi pindaian yang lebih bersih dan lengkap.'
+                        : 'Fitur ini memungkinkan Administrator untuk memperbarui berkas pindaian bertanda tangan (hasil riviu/pemberlakuan baru) maupun berkas bukti dokumen SPO lama yang menjadi rujukan.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* =============================================== */}
+              {/* KASUS 1: SPO EKSISTING                          */}
+              {/* =============================================== */}
+              {isExisting && (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-5">
+                  
+                  {/* Status Berkas Saat Ini */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-indigo-600" />
+                        Berkas PDF Terdaftar Saat Ini
+                      </span>
+                      {hasCurrentExistingFile ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Berkas Tersedia
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                          Belum Ada Berkas Terunggah
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0 font-bold text-xs font-mono">
+                          PDF
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate" title={currentExistingFileName}>
+                            {currentExistingFileName}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Ukuran: {formatBytes(currentExistingFileSize)} · Format: Dokumen PDF SPO Eksisting
+                          </p>
+                        </div>
+                      </div>
+
+                      {(sop.signedScanUrl || sop.signedScanDataUrl || sop.fileUrl || sop.fileDataUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentPreview((sop.signedScanUrl || sop.signedScanDataUrl || sop.fileUrl || sop.fileDataUrl)!, currentExistingFileName)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Pratinjau Berkas Lama</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Upload Berkas Baru / Pengganti */}
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-2">
+                      Pilih Berkas PDF Baru untuk Menggantikan Berkas di Atas
+                    </label>
+
+                    {reuploadExistingDataUrl ? (
+                      /* File Selected Card */
+                      <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-extrabold text-emerald-950 truncate">
+                                {reuploadExistingName}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold uppercase bg-emerald-200 text-emerald-900">
+                                Berkas Baru Siap Disimpan
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-emerald-800 mt-0.5">
+                              Ukuran: {formatBytes(reuploadExistingSize)} · Berkas ini akan menggantikan berkas lama saat Anda menekan tombol "Simpan Perubahan".
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openDocumentPreview(reuploadExistingDataUrl, reuploadExistingName)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100/80 border border-emerald-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Pratinjau PDF Baru</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleClearExistingFile}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                            title="Batalkan berkas baru"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Batal</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Drag and Drop Zone */
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingExisting(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingExisting(false); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingExisting(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) processExistingFile(file);
+                        }}
+                        onClick={() => {
+                          const input = document.getElementById('edit-reupload-existing-input') as HTMLInputElement | null;
+                          if (input) input.click();
+                        }}
+                        className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
+                          isDraggingExisting
+                            ? 'border-indigo-600 bg-indigo-50/70 scale-[1.01]'
+                            : 'border-slate-300 hover:border-indigo-400 bg-slate-50/60 hover:bg-indigo-50/30'
+                        }`}
+                      >
+                        <input
+                          id="edit-reupload-existing-input"
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          className="hidden"
+                          onChange={handleExistingFileSelect}
+                        />
+                        {isProcessingExistingFile ? (
+                          <div className="flex flex-col items-center justify-center gap-2 py-4">
+                            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+                            <p className="text-xs font-bold text-slate-700">Membaca berkas PDF...</p>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-2.5">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shadow-2xs">
+                              <FileUp className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">
+                                Klik untuk memilih berkas PDF atau seret berkas ke sini
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Format wajib: dokumen PDF (.pdf) · Ukuran maks: 50MB
+                              </p>
+                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-indigo-700 shadow-2xs hover:bg-slate-50">
+                              <Upload className="w-3.5 h-3.5" />
+                              Pilih Berkas PDF Pengganti
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Informational Guidance */}
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[11px] leading-relaxed">
+                      <strong>Catatan Administrator:</strong> Setelah Anda mengunggah berkas PDF baru dan menekan tombol <em>"Simpan Perubahan"</em>, sistem akan langsung memperbarui berkas di pangkalan data dan mengarsipkan berkas lama ke riwayat revisi.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* =============================================== */}
+              {/* KASUS 2: SPO RIVIU                              */}
+              {/* =============================================== */}
+              {isReview && (
+                <div className="space-y-4">
+                  
+                  {/* Bagian A: Pindaian Bertanda Tangan */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-teal-600" />
+                        <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                          1. Berkas Pindaian SPO Bertanda Tangan (Format Baru)
+                        </span>
+                      </div>
+                      {hasCurrentRiviuScanFile ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Terdaftar
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                          Belum Diunggah
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status Saat ini */}
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate">
+                          {currentRiviuScanFileName || 'Belum ada pindaian bertanda tangan tersimpan'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {currentRiviuScanFileSize ? `Ukuran: ${formatBytes(currentRiviuScanFileSize)} · ` : ''}Dokumen scan resmi penetapan Direktur
+                        </p>
+                      </div>
+                      {(sop.signedScanUrl || sop.signedScanDataUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentPreview((sop.signedScanUrl || sop.signedScanDataUrl)!, currentRiviuScanFileName || 'Scan_SPO_Bertanda_Tangan.pdf')}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-teal-800 bg-white hover:bg-teal-50 border border-teal-200 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Pratinjau Saat Ini</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Upload / Replace Area */}
+                    {reuploadRiviuScanDataUrl ? (
+                      <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-emerald-950 truncate">
+                              {reuploadRiviuScanName}
+                            </p>
+                            <p className="text-[11px] text-emerald-800">
+                              Ukuran: {formatBytes(reuploadRiviuScanSize)} · Siap disimpan menggantikan scan sebelumnya
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openDocumentPreview(reuploadRiviuScanDataUrl, reuploadRiviuScanName)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Pratinjau</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearRiviuScanFile}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Batal</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingRiviuScan(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingRiviuScan(false); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingRiviuScan(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) processRiviuScanFile(file);
+                        }}
+                        onClick={() => {
+                          const input = document.getElementById('edit-reupload-riviu-scan-input') as HTMLInputElement | null;
+                          if (input) input.click();
+                        }}
+                        className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+                          isDraggingRiviuScan
+                            ? 'border-teal-600 bg-teal-50/70 scale-[1.01]'
+                            : 'border-slate-300 hover:border-teal-400 bg-slate-50/50 hover:bg-teal-50/30'
+                        }`}
+                      >
+                        <input
+                          id="edit-reupload-riviu-scan-input"
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          className="hidden"
+                          onChange={handleRiviuScanSelect}
+                        />
+                        {isProcessingRiviuScanFile ? (
+                          <div className="flex items-center justify-center gap-2 py-2">
+                            <Loader2 className="w-5 h-5 text-teal-600 animate-spin" />
+                            <span className="text-xs font-bold text-slate-700">Membaca berkas PDF...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-3">
+                            <FileUp className="w-5 h-5 text-teal-600" />
+                            <span className="text-xs font-bold text-slate-700">
+                              Upload Ulang Scan SPO Bertanda Tangan (PDF)
+                            </span>
+                            <span className="text-[11px] text-slate-400">| Klik atau seret berkas</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bagian B: Berkas Bukti SPO Lama */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <History className="w-4 h-4 text-amber-600" />
+                        <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                          2. Bukti Dokumen SPO Lama (Arsip Rujukan Riviu)
+                        </span>
+                      </div>
+                      {hasCurrentOldFile ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Terdaftar
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                          Belum Diunggah
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Status Saat ini */}
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate">
+                          {currentOldFileName}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {currentOldFileSize ? `Ukuran: ${formatBytes(currentOldFileSize)} · ` : ''}Nomor Acuan Lama: {sop.oldSopNumber || 'Tidak ada nomor lama tercatat'}
+                        </p>
+                      </div>
+                      {(sop.oldFileUrl || sop.oldFileDataUrl || sop.oldSignedScanUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentPreview((sop.oldFileUrl || sop.oldFileDataUrl || sop.oldSignedScanUrl)!, currentOldFileName)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-800 bg-white hover:bg-amber-50 border border-amber-200 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Pratinjau Bukti Lama</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Upload / Replace Area */}
+                    {reuploadOldDataUrl ? (
+                      <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-extrabold text-emerald-950 truncate">
+                              {reuploadOldName}
+                            </p>
+                            <p className="text-[11px] text-emerald-800">
+                              Ukuran: {formatBytes(reuploadOldSize)} · Siap disimpan menggantikan berkas bukti lama
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openDocumentPreview(reuploadOldDataUrl, reuploadOldName)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Pratinjau</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearOldFile}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Batal</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOld(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOld(false); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingOld(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) processOldFile(file);
+                        }}
+                        onClick={() => {
+                          const input = document.getElementById('edit-reupload-old-file-input') as HTMLInputElement | null;
+                          if (input) input.click();
+                        }}
+                        className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+                          isDraggingOld
+                            ? 'border-amber-600 bg-amber-50/70 scale-[1.01]'
+                            : 'border-slate-300 hover:border-amber-400 bg-slate-50/50 hover:bg-amber-50/30'
+                        }`}
+                      >
+                        <input
+                          id="edit-reupload-old-file-input"
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          className="hidden"
+                          onChange={handleOldFileSelect}
+                        />
+                        {isProcessingOldFile ? (
+                          <div className="flex items-center justify-center gap-2 py-2">
+                            <Loader2 className="w-5 h-5 text-amber-600 animate-spin" />
+                            <span className="text-xs font-bold text-slate-700">Membaca berkas PDF...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-3">
+                            <FileUp className="w-5 h-5 text-amber-600" />
+                            <span className="text-xs font-bold text-slate-700">
+                              Upload Ulang Berkas Bukti SPO Lama (PDF)
+                            </span>
+                            <span className="text-[11px] text-slate-400">| Klik atau seret berkas</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* =============================================== */}
           {/* MODAL STICKY FOOTER                             */}
           {/* =============================================== */}
           <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/40">
@@ -883,7 +1654,27 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               )}
+              {activeTab === 'info' && isAdmin && (isExisting || isReview) && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('berkas')}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors cursor-pointer border border-indigo-200"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload Ulang PDF</span>
+                </button>
+              )}
               {activeTab === 'konten' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('info')}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Kembali ke Info</span>
+                </button>
+              )}
+              {activeTab === 'berkas' && (
                 <button
                   type="button"
                   onClick={() => setActiveTab('info')}

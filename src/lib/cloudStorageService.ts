@@ -3,7 +3,7 @@
  * File biner SPO authoritative disimpan di Firebase Cloud Storage.
  * Browser cache hanya optimasi/fallback legacy dan bukan sumber kebenaran.
  */
-import { getNamedFileFromLocalCache } from '../utils/fileStorage';
+import { getNamedFileFromLocalCache, normalizeStorageUrl } from '../utils/fileStorage';
 import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from './authService';
 import { firebaseConfig } from './firebase';
 
@@ -184,22 +184,24 @@ export async function resolveViewableUrl(
 ): Promise<string | null> {
   if (!rawUrlOrPath) return null;
 
+  const normalized = normalizeStorageUrl(rawUrlOrPath);
+
   // 1. A durable Firebase/API reference is authoritative. Never let a
   // browser-local cache shadow it.
-  if (rawUrlOrPath.startsWith('http://') || rawUrlOrPath.startsWith('https://') || rawUrlOrPath.startsWith('/api/storage/')) {
-    return rawUrlOrPath;
+  if (normalized.startsWith('http://') || normalized.startsWith('https://') || normalized.startsWith('/api/storage/')) {
+    return normalized;
   }
 
   // 2. Data/blob URLs are only acceptable as an explicit upload/legacy payload.
-  if (rawUrlOrPath.startsWith('data:') || rawUrlOrPath.startsWith('blob:')) {
-    return rawUrlOrPath;
+  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) {
+    return normalized;
   }
 
   // 3. Legacy local references may use the local cache, but only when the
   // caller explicitly passes local://. A missing cloud reference must not
   // silently become a PC-specific file.
-  if (rawUrlOrPath.startsWith('local://')) {
-    const id = rawUrlOrPath.replace('local://', '');
+  if (normalized.startsWith('local://')) {
+    const id = normalized.replace('local://', '');
     const cached = await getNamedFileFromLocalCache(`library_${id}`) ||
                    await getNamedFileFromLocalCache(`cloud_${id}`);
     return cached || null;
@@ -212,5 +214,5 @@ export async function resolveViewableUrl(
     if (cached) return cached;
   }
 
-  return rawUrlOrPath;
+  return normalized;
 }

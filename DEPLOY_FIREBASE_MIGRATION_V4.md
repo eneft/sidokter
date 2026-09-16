@@ -16,14 +16,45 @@
 - `storageApi`
 - `createNotification`
 
+## Deploy FINAL ke Firebase Hosting + seluruh Functions
+
+**Jangan deploy Hosting saja.** Firebase Hosting hanya menerbitkan `dist`; Cloud Functions harus ikut dideploy. Versi ini juga menambahkan `hierarchyApi` karena endpoint `/api/hierarchy` sebelumnya hanya ada di `server.ts` dan tidak ikut hidup saat aplikasi dipasang sebagai Firebase Hosting.
+
+Dari root project:
+
+```bash
+firebase use sidokter-soegiri
+npm run verify:functions
+npm run build:client
+firebase deploy --only functions,hosting,firestore,storage
+```
+
+Atau cukup:
+
+```bash
+npm run deploy:firebase
+```
+
+Function yang harus terdeploy:
+- `authApi`
+- `storageApi`
+- `pdfApi`
+- `createNotification`
+- `hierarchyApi`
+
+Semua HTTP function dan Hosting diarahkan ke region `asia-southeast2`. `createNotification` adalah callable function dan dipanggil melalui Firebase Functions SDK, jadi tidak membutuhkan rewrite Hosting.
+
 ## Setelah deploy
 
 Uji berurutan:
 
-1. Login SIDOKTER.
-2. Buka dokumen Existing/PDF.
-3. Pastikan preview PDF tampil.
-4. Klik Download dan pastikan file terunduh.
-5. Upload PDF baru dan pastikan metadata + file tersimpan.
-6. Cek log `storageApi`: tidak boleh muncul `UNAUTHENTICATED`.
-7. Cek log `createNotification`: tidak boleh muncul `app/no-app`.
+1. Buka `https://sidokter-soegiri.web.app`.
+2. Login SIDOKTER.
+3. Pastikan request login menuju `/api/auth` dan tidak 404/405.
+4. Buka dokumen Existing/PDF; pastikan preview PDF tampil.
+5. Klik Download dan pastikan file terunduh.
+6. Upload PDF baru dan pastikan metadata + file tersimpan.
+7. Buka/ubah Master Data Hirarki; pastikan `/api/hierarchy` tidak 404.
+8. Uji notifikasi; `createNotification` harus berhasil melalui region `asia-southeast2`.
+9. Cek log Cloud Functions: tidak boleh muncul `UNAUTHENTICATED`, `app/no-app`, atau `HIERARCHY_ERROR` pada operasi normal.
+10. Pastikan halaman tetap SPA setelah refresh route apa pun karena rewrite `** -> /index.html`.

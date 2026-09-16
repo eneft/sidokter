@@ -19,6 +19,7 @@ import {
   FileCheck2,
   AlertCircle,
   Eye,
+  EyeOff,
   ExternalLink,
   Trash2,
   RefreshCw,
@@ -194,9 +195,27 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // Existing DOCX is only an import source. Once the LiveForm is populated
   // and the document is approved, it must use the same official preview as
   // SPO Baru/Riviu. Existing PDF remains the original PDF preview.
+  // The uploaded Existing binary is authoritative.  Some older records have
+  // stale/incorrect DOCX metadata even though the stored binary is PDF.
+  // Never let a stale DOCX flag force a PDF into the Live/A4 renderer.
+  const hasExistingPdfEvidence = Boolean(
+    sop &&
+    isExisting &&
+    (
+      sop.existingSourceFormat === 'PDF' ||
+      String(sop.fileType || '').toLowerCase() === 'application/pdf' ||
+      String(sop.signedScanFileType || '').toLowerCase() === 'application/pdf' ||
+      String(sop.fileName || '').toLowerCase().endsWith('.pdf') ||
+      String(sop.signedScanFileName || '').toLowerCase().endsWith('.pdf') ||
+      String(sop.storagePath || '').toLowerCase().includes('signedscan') ||
+      String(sop.signedScanStoragePath || '').toLowerCase().includes('signedscan')
+    )
+  );
+
   const isExistingDocx = Boolean(
     sop &&
     isExisting &&
+    !hasExistingPdfEvidence &&
     (
       sop.existingSourceFormat === 'DOCX' ||
       String(sop.fileType || '').toLowerCase().includes('wordprocessingml') ||
@@ -205,6 +224,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       String(sop.fileName || '').toLowerCase().endsWith('.doc')
     )
   );
+
+  // Existing PDF/scan must be shown as the original uploaded document.
+  const isExistingPdf = Boolean(sop && isExisting && !isExistingDocx);
 
   // Existing documents (including new-format Draft replacements) must render
   // the uploaded PDF, never the generated A4 template.
@@ -224,6 +246,17 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [resolvedLegacyFileUrl, setResolvedLegacyFileUrl] = useState<string | null>(null);
   const [isLoadingLegacyFile, setIsLoadingLegacyFile] = useState<boolean>(false);
 
+  // Review evidence preview state
+  const [showReviewEvidencePreview, setShowReviewEvidencePreview] = useState<boolean>(false);
+  const [resolvedReviewEvidenceUrl, setResolvedReviewEvidenceUrl] = useState<string | null>(null);
+  const [isLoadingReviewEvidence, setIsLoadingReviewEvidence] = useState<boolean>(false);
+
+  useEffect(() => {
+    setShowReviewEvidencePreview(false);
+    setResolvedReviewEvidenceUrl(null);
+    setIsLoadingReviewEvidence(false);
+  }, [sop?.id, isOpen]);
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -239,10 +272,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       // 1. Resolve a protected cloud URL only after validating it with the
       // current authenticated session. Legacy file IDs may be stale while the
       // durable storagePath is still valid.
-      const cloudUrl = (sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl;
-      const storagePath = (sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath;
+      const cloudUrl = isExistingPdf
+        ? ((sop as any).signedScanUrl || (sop as any).fileUrl || null)
+        : ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl);
+      const storagePath = isExistingPdf
+        ? ((sop as any).signedScanStoragePath || (sop as any).storagePath || null)
+        : ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath);
       if (cloudUrl) {
-        const resolvedCloudUrl = await resolveProtectedStorageUrl(cloudUrl, storagePath);
+        const resolvedCloudUrl = await resolveProtectedStorageUrl(
+          cloudUrl,
+          storagePath,
+          isExistingPdf ? 'signedScan' : undefined
+        );
         if (resolvedCloudUrl) {
           if (!isCancelled) {
             setResolvedLegacyFileUrl(resolvedCloudUrl);
@@ -263,13 +304,29 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       }
 
       // 3. Check server storage by predictable IDs
-      const candidates = [
-        `sop-${sop.id}_signedScan`,
-        `sop-${sop.id}_file`,
-        `sop-${sop.id}_oldFile`,
-        `sop_${sop.id}`,
-        sop.id
-      ];
+      // Existing PDF may only probe the Existing upload slot.  It must never
+      // silently fall through to the Live SPO file or another document type.
+      const cleanId = sop.id.replace(/^sop-/, '');
+      const candidates = isExistingPdf
+        ? [
+            `${sop.id}_signedScan`,
+            `sop-${cleanId}_signedScan`,
+            `${sop.id}_file`,
+            `sop-${cleanId}_file`,
+            `sop-${sop.id}_signedScan`,
+            `sop-${sop.id}_file`
+          ]
+        : [
+            `${sop.id}_signedScan`,
+            `sop-${cleanId}_signedScan`,
+            `${sop.id}_file`,
+            `sop-${cleanId}_file`,
+            `${sop.id}_oldFile`,
+            `sop-${cleanId}_oldFile`,
+            `sop_${sop.id}`,
+            sop.id,
+            `sop-${cleanId}`
+          ];
 
       for (const cand of candidates) {
         try {
@@ -295,7 +352,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       }
 
       // 4. Check inline data URLs
-      const inlineDataUrl = (sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl;
+      const inlineDataUrl = isExistingPdf
+        ? ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl)
+        : ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl);
       if (inlineDataUrl) {
         if (!isCancelled) {
           setResolvedLegacyFileUrl(inlineDataUrl);
@@ -306,31 +365,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // 5. Persistent local IndexedDB cache fallback
       try {
-        const cachedScan = await getFileFromPersistentCacheAsync(sop.id, 'signedScan');
-        if (cachedScan) {
-          if (!isCancelled) {
-            setResolvedLegacyFileUrl(cachedScan);
-            setIsLoadingLegacyFile(false);
+        const cacheTypes = isExistingPdf ? ['signedScan', 'file'] as const : ['signedScan', 'file', 'oldFile'] as const;
+        const idVariations = [sop.id, cleanId, `sop-${cleanId}`];
+        for (const testId of idVariations) {
+          for (const cacheType of cacheTypes) {
+            const cached = await getFileFromPersistentCacheAsync(testId, cacheType);
+            if (cached) {
+              if (!isCancelled) {
+                setResolvedLegacyFileUrl(cached);
+                setIsLoadingLegacyFile(false);
+              }
+              return;
+            }
           }
-          return;
-        }
-
-        const cachedFile = await getFileFromPersistentCacheAsync(sop.id, 'file');
-        if (cachedFile) {
-          if (!isCancelled) {
-            setResolvedLegacyFileUrl(cachedFile);
-            setIsLoadingLegacyFile(false);
-          }
-          return;
-        }
-
-        const cachedOld = await getFileFromPersistentCacheAsync(sop.id, 'oldFile');
-        if (cachedOld) {
-          if (!isCancelled) {
-            setResolvedLegacyFileUrl(cachedOld);
-            setIsLoadingLegacyFile(false);
-          }
-          return;
         }
       } catch (cacheErr) {
         console.warn('Cache lookup warning in SopDetailModal:', cacheErr);
@@ -347,31 +394,135 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [sop?.id, (sop as any)?.fileUrl, (sop as any)?.signedScanUrl, (sop as any)?.oldFileUrl, (sop as any)?.storagePath, (sop as any)?.signedScanStoragePath, (sop as any)?.oldStoragePath, isOpen]);
+  }, [sop?.id, (sop as any)?.fileUrl, (sop as any)?.signedScanUrl, (sop as any)?.oldFileUrl, (sop as any)?.storagePath, (sop as any)?.signedScanStoragePath, (sop as any)?.oldStoragePath, isExistingPdf, isOpen]);
 
   const legacyFileUrl = resolvedLegacyFileUrl;
   const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
 
-  // Review evidence attachment handlers
+  // Toggle preview of the legacy evidence in SPO Riviu
+  const handleToggleReviewEvidencePreview = async () => {
+    if (showReviewEvidencePreview) {
+      setShowReviewEvidencePreview(false);
+      return;
+    }
+
+    if (resolvedReviewEvidenceUrl) {
+      setShowReviewEvidencePreview(true);
+      return;
+    }
+
+    if (!sop) return;
+    setIsLoadingReviewEvidence(true);
+    try {
+      const evidenceUrl =
+        (sop as any).oldFileUrl ||
+        (sop as any).oldSignedScanUrl ||
+        null;
+      const evidenceStoragePath =
+        (sop as any).oldStoragePath ||
+        (sop as any).oldSignedScanStoragePath ||
+        null;
+
+      let resolved = await resolveProtectedStorageUrl(evidenceUrl, evidenceStoragePath, 'oldFile');
+      if (!resolved && (sop as any).oldFileDataUrl) {
+        resolved = (sop as any).oldFileDataUrl;
+      }
+      if (!resolved) {
+        const cleanId = sop.id.replace(/^sop-/, '');
+        for (const candId of [sop.id, cleanId, `sop-${cleanId}`]) {
+          const cached = await getFileFromPersistentCacheAsync(candId, 'oldFile').catch(() => null);
+          if (cached) {
+            resolved = cached;
+            break;
+          }
+        }
+      }
+      if (!resolved && evidenceStoragePath) {
+        resolved = buildStoragePathUrl(evidenceStoragePath);
+      }
+      if (resolved) {
+        setResolvedReviewEvidenceUrl(resolved);
+        setShowReviewEvidencePreview(true);
+      } else {
+        alert('Berkas bukti dukung SPO lama tidak dapat dimuat atau belum tersimpan.');
+      }
+    } catch (err) {
+      console.error('Failed to load review evidence preview:', err);
+      alert('Gagal memuat pratinjau bukti dukung.');
+    } finally {
+      setIsLoadingReviewEvidence(false);
+    }
+  };
+
+  // Review evidence attachment: the old SPO file supplied as supporting evidence.
   const handleDownloadReviewEvidence = async () => {
     if (!sop) return;
-    try {
-      let fileUrl = (sop as any).oldFileUrl || null;
-      if (!fileUrl) {
-        fileUrl = (sop as any).oldFileUrl || null;
-      }
-      const safeNum = (sop.oldSopNumber || sop.sopNumber || 'SPO').replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_');
-      const fileName = sop.oldFileName || `Bukti_Riviu_${safeNum}.pdf`;
 
-      if (fileUrl) {
-        triggerFileDownload(fileUrl, fileName, (sop as any).oldStoragePath || (sop as any).storagePath || (sop as any).signedScanStoragePath);
-      } else {
-        alert(`Berkas bukti fisik riviu (${fileName}) tidak dapat dimuat atau belum tersimpan.`);
+    try {
+      const evidenceUrl =
+        (sop as any).oldFileUrl ||
+        (sop as any).oldSignedScanUrl ||
+        null;
+
+      const evidenceStoragePath =
+        (sop as any).oldStoragePath ||
+        (sop as any).oldSignedScanStoragePath ||
+        null;
+
+      let resolvedEvidenceUrl = resolvedReviewEvidenceUrl;
+      if (!resolvedEvidenceUrl) {
+        resolvedEvidenceUrl = await resolveProtectedStorageUrl(
+          evidenceUrl,
+          evidenceStoragePath,
+          'oldFile'
+        );
       }
+
+      if (!resolvedEvidenceUrl && (sop as any).oldFileDataUrl) {
+        resolvedEvidenceUrl = (sop as any).oldFileDataUrl;
+      }
+
+      if (!resolvedEvidenceUrl) {
+        const cleanId = sop.id.replace(/^sop-/, '');
+        for (const candId of [sop.id, cleanId, `sop-${cleanId}`]) {
+          const cached = await getFileFromPersistentCacheAsync(candId, 'oldFile').catch(() => null);
+          if (cached) {
+            resolvedEvidenceUrl = cached;
+            break;
+          }
+        }
+      }
+
+      if (!resolvedEvidenceUrl && evidenceStoragePath) {
+        resolvedEvidenceUrl = buildStoragePathUrl(evidenceStoragePath);
+      }
+
+      const safeNum = (sop.oldSopNumber || sop.sopNumber || 'SPO')
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .replace(/\s+/g, '_');
+
+      const fileName =
+        sop.oldFileName ||
+        `Bukti_Riviu_${safeNum}.pdf`;
+
+      if (!resolvedEvidenceUrl) {
+        alert(`Berkas bukti dukung (${fileName}) tidak dapat dimuat atau belum tersimpan.`);
+        return;
+      }
+
+      triggerFileDownload(
+        resolvedEvidenceUrl,
+        fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`,
+        evidenceStoragePath || undefined,
+        'oldFile'
+      );
     } catch (err: any) {
-      console.error('Error downloading review file:', err);
-      alert('Gagal mengunduh berkas bukti riviu: ' + (err?.message || 'Terjadi kesalahan'));
+      console.error('Error downloading review evidence:', err);
+      alert(
+        'Gagal mengunduh berkas bukti dukung: ' +
+        (err?.message || 'Terjadi kesalahan')
+      );
     }
   };
 
@@ -1859,6 +2010,69 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     return blob;
   };
 
+  const handleDownloadExisting = async () => {
+    if (!sop) return;
+
+    // Existing PDF: preserve and download the original uploaded PDF.
+    if (isExistingPdf) {
+      const existingStoragePath =
+        (sop as any).storagePath ||
+        (sop as any).signedScanStoragePath ||
+        (sop as any).oldStoragePath ||
+        null;
+
+      let candidateUrl = legacyFileUrl || (sop as any).fileUrl || (sop as any).signedScanUrl || null;
+
+      let resolvedExistingUrl = candidateUrl
+        ? await resolveProtectedStorageUrl(candidateUrl, existingStoragePath, 'signedScan')
+        : null;
+
+      if (!resolvedExistingUrl && ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl)) {
+        resolvedExistingUrl = (sop as any).signedScanDataUrl || (sop as any).fileDataUrl;
+      }
+
+      if (!resolvedExistingUrl) {
+        const cleanId = sop.id.replace(/^sop-/, '');
+        for (const candId of [sop.id, cleanId, `sop-${cleanId}`]) {
+          for (const type of ['signedScan', 'file'] as const) {
+            const cached = await getFileFromPersistentCacheAsync(candId, type).catch(() => null);
+            if (cached) {
+              resolvedExistingUrl = cached;
+              break;
+            }
+          }
+          if (resolvedExistingUrl) break;
+        }
+      }
+
+      if (!resolvedExistingUrl && existingStoragePath) {
+        resolvedExistingUrl = buildStoragePathUrl(existingStoragePath);
+      }
+
+      if (!resolvedExistingUrl) {
+        alert('Berkas PDF asli SPO Existing belum tersedia atau tidak dapat dimuat.');
+        return;
+      }
+
+      const safeName = String(legacyFileName || sop.title || 'Dokumen_SPO_Eksisting')
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || 'Dokumen_SPO_Eksisting.pdf';
+
+      await triggerFileDownload(
+        resolvedExistingUrl,
+        safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
+        existingStoragePath || undefined,
+        'signedScan'
+      );
+      return;
+    }
+
+    // Existing DOCX: DOCX is only the submission/source for LiveForm.
+    // Download the resulting official A4 PDF, not the source DOCX.
+    await handleDownloadDirectPdf();
+  };
+
   const handleDownloadDirectPdf = async () => {
     if (isPdfGenerating) return;
     setIsPdfGenerating(true);
@@ -1901,7 +2115,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
-            {/* EDIT DOKUMEN / UBAH NOMOR */}
             {(Boolean(userSession) && (userSession.role === 'admin' || isSopAccessibleByUser(sop, userSession))) && (
               <AdminTooltip
                 title="Edit Dokumen"
@@ -1922,46 +2135,45 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               </AdminTooltip>
             )}
 
-            {/* DOWNLOAD PDF RESMI — hanya untuk SPO Baru/Riviu */}
-            {!isExisting && (
-              <AdminTooltip
-                title="Simpan PDF Standar Resmi"
-                content="Generate berkas PDF berstandar cetak A4 sesuai format baku RSUD Dr. Soegiri."
-                side="bottom"
+            {/* ACTION BAR UNIVERSAL: semua SPO = Edit / Simpan PDF / Cetak / Tutup.
+                Existing PDF tetap menyimpan PDF asli; Existing DOCX memakai hasil A4 resmi. */}
+            <AdminTooltip
+              title="Simpan PDF"
+              content={isExistingPdf
+                ? "Simpan berkas PDF asli SPO Existing yang tersimpan."
+                : "Generate dan simpan berkas PDF berstandar A4 sesuai format baku RSUD Dr. Soegiri."}
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={isExisting ? handleDownloadExisting : handleDownloadDirectPdf}
+                disabled={
+                  isPdfGenerating ||
+                  isPaginatingOfficial ||
+                  (isExistingPdf && !legacyFileUrl && !isLoadingLegacyFile && !((sop as any)?.signedScanDataUrl || (sop as any)?.fileDataUrl || (sop as any)?.storagePath || (sop as any)?.signedScanStoragePath))
+                }
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
               >
-                <button
-                  type="button"
-                  onClick={handleDownloadDirectPdf}
-                  disabled={isPdfGenerating || isPaginatingOfficial}
-                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
-                >
-                  {isPdfGenerating ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                  <span className="hidden sm:inline">{isPdfGenerating ? 'Membuat PDF…' : 'Simpan PDF'}</span>
-                  <span className="sm:hidden">{isPdfGenerating ? '...' : 'PDF'}</span>
-                </button>
-              </AdminTooltip>
-            )}
+                {isPdfGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{isPdfGenerating ? 'Membuat PDF…' : 'Simpan PDF'}</span>
+                <span className="sm:hidden">{isPdfGenerating ? '...' : 'PDF'}</span>
+              </button>
+            </AdminTooltip>
 
-            {!isExisting && (
-              <AdminTooltip
-                title="Cetak Naskah"
-                content="Kirim dokumen langsung ke jendela cetak peramban atau mesin pencetak fisik."
-                side="bottom"
+            <AdminTooltip
+              title="Cetak Naskah"
+              content="Cetak dokumen menggunakan tampilan pratinjau yang sedang ditampilkan."
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={handlePrintOfficialSop}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[36px]"
               >
-                <button
-                  type="button"
-                  onClick={handlePrintOfficialSop}
-                  className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 active:bg-slate-200 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[36px]"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Cetak</span>
-                </button>
-              </AdminTooltip>
-            )}
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak</span>
+              </button>
+            </AdminTooltip>
 
             <AdminTooltip
               title="Tutup Pratinjau"
@@ -1983,7 +2195,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         {/* Modal Body */}
         <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
           
-          {isExisting && !isExistingDocx ? (
+          {isExistingPdf ? (
             <div className="space-y-4">
               <PreviewMetadata users={users} sop={sop} kind="EKSISTING" />
               {isLoadingLegacyFile ? (
@@ -1993,7 +2205,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               ) : legacyFileUrl ? (
                 <div className="overflow-hidden border border-slate-200 bg-white">
-                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={(sop as any)?.oldStoragePath || (sop as any)?.storagePath || (sop as any)?.signedScanStoragePath} heightClass="h-[68vh] w-full" />
+                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={(sop as any)?.signedScanStoragePath || (sop as any)?.storagePath} heightClass="h-[68vh] w-full" />
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
@@ -2005,20 +2217,20 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
           ) : (
             <>
-              <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : isExistingDocx ? "EKSISTING" : "BARU"} />
-              {isExistingDocx && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-semibold text-blue-900">
-                  DOCX digunakan sebagai sumber pengisian LiveForm. Pratinjau menampilkan dokumen final dengan format resmi SPO.
-                </div>
-              )}
-
+              <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : isExisting ? "EKSISTING" : "BARU"} />
               {/* FORMAT RESMI BAKU (Halaman 6 RSUD Soegiri - untuk SPO Baru/Riviu) */}
           {activeTab === 'official_format' && (
             <div className="space-y-4 sm:space-y-6">
               
 
               {/* BUKTI SPO LAMA — metadata utama sudah digabung di PreviewMetadata agar tidak ada data Riviu yang tampil dua kali */}
-              {isReviewDoc && (sop.oldFileName || legacyFileUrl) && (
+              {isReviewDoc && (
+  ((sop as any)?.oldFileName ||
+   (sop as any)?.oldFileUrl ||
+   (sop as any)?.oldStoragePath ||
+   (sop as any)?.oldSignedScanUrl ||
+   (sop as any)?.oldSignedScanStoragePath)
+) && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs no-print">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -2030,16 +2242,47 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         <div className="text-[11px] text-slate-500 truncate">{sop.oldFileName || 'Bukti Riviu'}</div>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => legacyFileUrl && triggerFileDownload(legacyFileUrl, sop.oldFileName || 'Bukti-Riviu.pdf', (sop as any).oldStoragePath || (sop as any).storagePath || (sop as any).signedScanStoragePath)}
-                      disabled={!legacyFileUrl}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Unduh Bukti</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleToggleReviewEvidencePreview}
+                        disabled={isLoadingReviewEvidence || !((sop as any)?.oldFileUrl || (sop as any)?.oldStoragePath || (sop as any)?.oldSignedScanUrl || (sop as any)?.oldSignedScanStoragePath || (sop as any)?.oldFileDataUrl)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer"
+                      >
+                        {isLoadingReviewEvidence ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : showReviewEvidencePreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span>{showReviewEvidencePreview ? 'Tutup Bukti' : 'Lihat Bukti'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDownloadReviewEvidence}
+                        disabled={!((sop as any)?.oldFileUrl || (sop as any)?.oldStoragePath || (sop as any)?.oldSignedScanUrl || (sop as any)?.oldSignedScanStoragePath || (sop as any)?.oldFileDataUrl)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh Bukti</span>
+                      </button>
+                    </div>
                   </div>
+                  {showReviewEvidencePreview && (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                        <span className="truncate">Pratinjau Dokumen SPO Lama: {sop.oldFileName || 'Bukti Riviu'}</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowReviewEvidencePreview(false)}
+                          className="text-slate-400 hover:text-slate-600 text-xs font-medium ml-2 shrink-0 cursor-pointer"
+                        >
+                          Tutup
+                        </button>
+                      </div>
+                      <DocumentViewer
+                        fileUrl={resolvedReviewEvidenceUrl || undefined}
+                        fileName={sop.oldFileName || 'Bukti_Riviu.pdf'}
+                        storagePath={(sop as any)?.oldStoragePath || (sop as any)?.oldSignedScanStoragePath}
+                        heightClass="h-[550px] w-full"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
