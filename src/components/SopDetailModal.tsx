@@ -273,10 +273,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       // current authenticated session. Legacy file IDs may be stale while the
       // durable storagePath is still valid.
       const cloudUrl = isExistingPdf
-        ? ((sop as any).signedScanUrl || null)
+        ? ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl || null)
         : ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl);
       const storagePath = isExistingPdf
-        ? ((sop as any).signedScanStoragePath || null)
+        ? ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath || null)
         : ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath);
       if (cloudUrl) {
         const resolvedCloudUrl = await resolveProtectedStorageUrl(
@@ -304,14 +304,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       }
 
       // 3. Check server storage by predictable IDs
-      // Existing PDF may only probe the Existing upload slot.  It must never
-      // silently fall through to the Live SPO file or another document type.
+      // Older Existing records were stored in the generic file slot before the
+      // dedicated signedScan slot was introduced. Both slots belong to this
+      // same SPO, so retain the generic candidates as a backwards-compatible
+      // fallback while never looking up another document ID.
       const cleanId = sop.id.replace(/^sop-/, '');
       const candidates = isExistingPdf
         ? [
             `${sop.id}_signedScan`,
             `sop-${cleanId}_signedScan`,
-            `sop-${sop.id}_signedScan`
+            `sop-${sop.id}_signedScan`,
+            `${sop.id}_file`,
+            `sop-${cleanId}_file`,
+            `sop-${sop.id}_file`,
+            `${sop.id}_oldFile`,
+            `sop-${cleanId}_oldFile`
           ]
         : [
             `${sop.id}_signedScan`,
@@ -350,7 +357,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // 4. Check inline data URLs
       const inlineDataUrl = isExistingPdf
-        ? ((sop as any).signedScanDataUrl || null)
+        ? ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl || null)
         : ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl);
       if (inlineDataUrl) {
         if (!isCancelled) {
@@ -2018,18 +2025,29 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     if (isExistingPdf) {
       const existingStoragePath =
         (sop as any).signedScanStoragePath ||
+        (sop as any).storagePath ||
+        (sop as any).oldStoragePath ||
         null;
 
-      let candidateUrl = legacyFileUrl || (sop as any).signedScanUrl || null;
+      let candidateUrl = legacyFileUrl ||
+        (sop as any).signedScanUrl ||
+        (sop as any).fileUrl ||
+        (sop as any).oldFileUrl ||
+        null;
 
       let resolvedExistingUrl = candidateUrl
         ? await resolveProtectedStorageUrl(candidateUrl, existingStoragePath, 'signedScan')
         : null;
 
-      // Existing PDF is cloud-authoritative. Never substitute the Live file
-      // or a browser-local cache during download.
-      if (!resolvedExistingUrl && (sop as any).signedScanDataUrl) {
-        resolvedExistingUrl = (sop as any).signedScanDataUrl;
+      // Inline data is retained only for legacy records that predate durable
+      // cloud storage. Prefer the dedicated scan, then the historical generic
+      // file fields used by those records.
+      if (!resolvedExistingUrl) {
+        resolvedExistingUrl =
+          (sop as any).signedScanDataUrl ||
+          (sop as any).fileDataUrl ||
+          (sop as any).oldFileDataUrl ||
+          null;
       }
 
       if (!resolvedExistingUrl && existingStoragePath) {
