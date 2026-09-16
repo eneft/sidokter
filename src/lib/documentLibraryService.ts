@@ -51,16 +51,21 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
   }
   if (!['SK','MOU'].includes(type)) throw new Error('Jenis dokumen tidak valid.');
   if (!file || file.type !== 'application/pdf') throw new Error('File harus berupa PDF.');
-  if (file.size > 20 * 1024 * 1024) throw new Error('Ukuran PDF maksimal 20 MB.');
+  // Keep the client validation aligned with the Firebase Storage API hard
+  // limit. Allowing 20 MB here previously let a user finish the form only to
+  // have the authoritative upload rejected at 15 MB.
+  if (file.size > 15 * 1024 * 1024) throw new Error('Ukuran PDF maksimal 15 MB.');
   if (!title.trim()) throw new Error('Judul dokumen wajib diisi.');
   const id = `library-${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
   // Upload to Cloud Server Storage so all other devices can access it permanently
   let cloudUrl = '';
+  let cloudStoragePath = '';
   try {
-    const uploadRes = await uploadFileToCloudStorage(file, file.name, id);
-    if (!uploadRes?.url) throw new Error('Cloud storage tidak mengembalikan URL file.');
+    const uploadRes = await uploadFileToCloudStorage(file, file.name, id, type);
+    if (!uploadRes?.url || !uploadRes.storagePath) throw new Error('Cloud storage tidak mengembalikan referensi file permanen.');
     cloudUrl = uploadRes.url;
+    cloudStoragePath = uploadRes.storagePath;
   } catch (uploadErr) {
     await deleteNamedFileFromLocalCache(`library_${id}`).catch(() => {});
     throw uploadErr instanceof Error ? uploadErr : new Error('Gagal mengunggah file ke cloud storage.');
@@ -83,7 +88,7 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type,
-    storagePath: cloudUrl,
+    storagePath: cloudStoragePath,
     downloadUrl: cloudUrl,
     createdAt: now,
     updatedAt: now,
@@ -97,17 +102,29 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
     revisionReason: type === 'SK' && metadata?.revisionReason ? String(metadata.revisionReason).trim() : undefined,
     revisionType: type === 'SK' && metadata?.revisionType ? String(metadata.revisionType).trim() : undefined
   };
+  // The Firestore library record is the cross-PC metadata source of truth.
+  // Do not report an upload as successful until both durable layers commit.
+  try {
+    await saveLibraryDocToFirestore(document, { throwOnError: true });
+  } catch (metadataError) {
+    throw metadataError instanceof Error ? metadataError : new Error('Gagal menyimpan metadata dokumen ke Firestore.');
+  }
   saveDocuments([...getDocuments(), document]);
-  void saveLibraryDocToFirestore(document);
   return document;
 }
 
 export async function updateDocument(id:string, updates:any, updatedBy?:string, actorRole?:UserRole):Promise<void>{
   if(actorRole!=='admin') throw new Error('Akses ditolak. Hanya Admin yang dapat mengedit dokumen.');
   const all=getDocuments(); const i=all.findIndex(d=>d.id===id); if(i<0) throw new Error('Dokumen tidak ditemukan.');
+  const previous = all[i];
   all[i]={...all[i],...updates,title:String(updates.title ?? all[i].title).trim(),updatedAt:new Date().toISOString(),updatedBy};
+  try {
+    await saveLibraryDocToFirestore(all[i], { throwOnError: true });
+  } catch (metadataError) {
+    all[i] = previous;
+    throw metadataError instanceof Error ? metadataError : new Error('Gagal memperbarui metadata dokumen di Firestore.');
+  }
   saveDocuments(all);
-  void saveLibraryDocToFirestore(all[i]);
 }
 export async function deleteDocument(document:LibraryDocument,actorRole?:UserRole):Promise<void>{
   if(actorRole!=='admin') throw new Error('Akses ditolak. Hanya Admin yang dapat menghapus dokumen.');

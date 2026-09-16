@@ -386,12 +386,13 @@ export async function handleStorageUpload(req: Request, res: Response) {
       filename: diskFileName,
       resourceType,
       ownerUid: session.authUid,
-      accessKeys: Array.from(accessKeys)
+      accessKeys: Array.from(accessKeys),
+      storagePath: `sidokter/${resourceType.toLowerCase()}/${diskFileName}`
     };
     metaMap[id] = record;
     saveMeta(metaMap);
 
-    return res.status(200).json({ success: true, fileId: id, url: `/api/storage/files/${id}`, fileName: safeName, fileSize: buffer.length, mimeType });
+    return res.status(200).json({ success: true, fileId: id, url: `/api/storage/files/${id}`, storagePath: record.storagePath, fileName: safeName, fileSize: buffer.length, mimeType });
   } catch (err: any) {
     const code = String(err?.message || '');
     const isAuthError =

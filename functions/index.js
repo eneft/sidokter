@@ -1386,7 +1386,15 @@ async function storageUpload(req, res) {
 
   const isAdmin = normalizeRole(context.user.role) === 'admin';
   const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
-  const type = String(resourceType || (id.includes('_signedScan') || id.includes('_oldFile') || id.includes('_file') ? 'SPO' : 'OTHER')).toUpperCase();
+  // The caller supplies the document domain, but IDs are also interpreted
+  // server-side so a stale client cannot place SK/MOU files under OTHER.
+  const inferredType = id.startsWith('library-sk-') ? 'SK'
+    : id.startsWith('library-mou-') ? 'MOU'
+    : (id.includes('_signedScan') || id.includes('_oldFile') || id.includes('_file') || id.startsWith('sop-') ? 'SPO' : 'OTHER');
+  const requestedType = String(resourceType || inferredType).toUpperCase();
+  const type = inferredType !== 'OTHER'
+    ? inferredType
+    : (['SPO', 'SK', 'MOU', 'OTHER'].includes(requestedType) ? requestedType : 'OTHER');
   if ((type === 'SK' || type === 'MOU') && !(isAdmin || isStructural)) return json(res, 403, { success:false, message:'Akses upload SK/MOU ditolak.' });
 
   const ext = path.extname(safeName) || (mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : '.jpg');
