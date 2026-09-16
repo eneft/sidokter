@@ -1922,8 +1922,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // Official PDF flow: send the exact, already-paginated A4 document DOM and
   // the application's compiled CSS to the authenticated Chromium renderer.
   // No print dialog, canvas, JPEG, or jsPDF is involved.
-  // Generate the official PDF in memory. PDF.js consumes this Blob directly,
-  // so the final SPO can be read inside SopDetailModal without a manual download.
+  // Generate the official PDF in memory so it can be downloaded without
+  // changing the locked, server-rendered A4 document workflow.
   const generateOfficialPdfBlob = async (): Promise<Blob> => {
     if (!officialPages.length) throw new Error('Tunggu sampai pagination SPO selesai.');
     const officialRoot = document.getElementById('printable-sop-official-document');

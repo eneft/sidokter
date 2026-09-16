@@ -8,6 +8,6 @@
 - Browser-local IndexedDB remains cache/offline fallback only; it is not the source of truth when a cloud reference exists.
 
 ## Expected flow
-PC 1 upload -> Firebase Storage -> Firestore `signedScanStoragePath` -> PC 2 reads Firestore -> `storageApi` -> same Storage binary -> PDF.js.
+PC 1 upload -> Firebase Storage -> Firestore `signedScanStoragePath` -> PC 2 reads Firestore -> `storageApi` -> same Storage binary -> native browser PDF viewer.
 
 No PDF regeneration is involved in this path.
