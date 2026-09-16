@@ -264,7 +264,7 @@ export function subscribeToFirestoreSops(
    LIBRARY DOCUMENTS (SK & MOU) FIRESTORE SYNC
 ========================================================================= */
 
-export async function saveLibraryDocToFirestore(document: LibraryDocument): Promise<void> {
+export async function saveLibraryDocToFirestore(document: LibraryDocument, options?: { throwOnError?: boolean }): Promise<void> {
   try {
     if (!document || !document.id) return;
     updateStatus({ isSyncing: true });
@@ -286,6 +286,7 @@ export async function saveLibraryDocToFirestore(document: LibraryDocument): Prom
       isSyncing: false,
       error: err?.message || 'Gagal sinkronisasi SK/MOU ke Firestore'
     });
+    if (options?.throwOnError) throw err instanceof Error ? err : new Error(String(err));
   }
 }
 

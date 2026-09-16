@@ -16,6 +16,8 @@ export interface UploadResult {
   storagePath?: string;
 }
 
+export type StorageResourceType = 'SPO' | 'SK' | 'MOU' | 'OTHER';
+
 /**
  * Uploads a file (File object, Blob, or base64 DataURL) to the cloud storage endpoint.
  * Returns the authenticated download/view URL (e.g. /api/storage/files/:fileId).
@@ -23,7 +25,8 @@ export interface UploadResult {
 export async function uploadFileToCloudStorage(
   fileOrData: File | Blob | string,
   fileName: string,
-  customId?: string
+  customId?: string,
+  resourceType: StorageResourceType = 'SPO'
 ): Promise<UploadResult> {
   let fileDataUrl: string;
   let fileType = 'application/pdf';
@@ -81,7 +84,8 @@ export async function uploadFileToCloudStorage(
       fileData: fileDataUrl,
       fileName,
       fileType,
-      id: customId
+      id: customId,
+      resourceType
     })
   });
 
