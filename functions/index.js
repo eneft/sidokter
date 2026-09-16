@@ -1430,6 +1430,45 @@ function isPrivilegedStorageViewer(context) {
   return isAdmin || isStructural;
 }
 
+async function canReadSopBinaryForUser(context, sopId) {
+  try {
+    const id = String(sopId || '').trim();
+    if (!id) return false;
+    const isAdmin = normalizeRole(context.user.role) === 'admin';
+    const isStructural = Array.isArray(context.user.badges) &&
+      context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
+    const hasGlobalAccess = Boolean(
+      context.user.sopGlobalAccess ||
+      String(context.user.divisionCode || '').trim().toUpperCase() === 'ALL' ||
+      (Array.isArray(context.user.divisionCodes) && context.user.divisionCodes.some(v => String(v).trim().toUpperCase() === 'ALL')) ||
+      (Array.isArray(context.user.assignments) && context.user.assignments.some(a => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL'))
+    );
+    if (isAdmin || isStructural || hasGlobalAccess) return true;
+
+    const snap = await db.collection('sops').doc(id).get();
+    if (!snap.exists) return false;
+    const sop = snap.data() || {};
+    if (Array.isArray(sop.authorizedUids) && sop.authorizedUids.map(String).includes(String(context.user.id))) return true;
+
+    const sopKeys = new Set(
+      (Array.isArray(sop.accessKeys) && sop.accessKeys.length ? sop.accessKeys : getSopAccessKeysServer(sop))
+        .map(v => String(v).trim().toUpperCase()).filter(Boolean)
+    );
+    if (sopKeys.has('ALL')) return true;
+    const userKeys = storageAccessKeys(context.user);
+    return Array.from(sopKeys).some(k => userKeys.has(k));
+  } catch (err) {
+    console.warn('[storage] SOP access lookup failed:', err?.message || err);
+    return false;
+  }
+}
+
+function extractSopIdFromStorageRef(value) {
+  const raw = path.basename(String(value || '').split('?')[0]);
+  const match = raw.match(/^(sop-\d+)(?:_(?:signedScan|oldFile|file))?(?:\.[^.]+)?$/i);
+  return match ? match[1] : null;
+}
+
 function canReadStoragePathWithoutMetadata(context, objectPath) {
   // Legacy SPO files may exist in Storage without a matching storage_files
   // document. They remain protected by application login, not made public.
@@ -1451,7 +1490,11 @@ async function storageDownload(req, res) {
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
-    const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
+      const sopId = extractSopIdFromStorageRef(meta.id || id || meta.objectPath);
+      if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
+    }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
     const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
@@ -1499,7 +1542,11 @@ async function storageDownloadByPath(req, res) {
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
-    const allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
+      const sopId = extractSopIdFromStorageRef(meta.id || meta.objectPath || objectPath);
+      if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
+    }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
     const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
