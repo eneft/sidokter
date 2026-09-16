@@ -37,10 +37,14 @@ SPO status/numbering. It is only the final rendering step, but its worker/CDN
 fallback, PDF parsing, and per-page canvas lifecycle can make the viewer
 unstable.
 
-## Planned minimal change
+## Implemented minimal change
 
-Replace the PDF.js canvas renderer with an authenticated fetch that creates a
-short-lived Blob URL and displays that URL in a native browser `<iframe>`. Keep
-all upload, Storage, Firestore, metadata, path fallback, and download code
-unchanged. Remove the package and the PDF.js-only polyfill if unused after the
-viewer change.
+The PDF.js canvas renderer was replaced with an authenticated fetch that
+creates a short-lived Blob URL and displays that URL in a native browser
+`<iframe>`. Upload, Storage, Firestore, metadata, path fallback, and download
+behavior remain in place. The `pdfjs-dist` package, worker configuration,
+PDF.js page renderer, and PDF.js-only polyfill were removed.
+
+The viewer resolves protected file references through the durable Firebase
+Storage path before fetching. A legacy `local://` reference is not accepted as
+the source of a persisted document when cloud path metadata is available.

@@ -11,7 +11,8 @@ import {
   triggerFileDownload,
   getProtectedStorageHeaders,
   buildStoragePathUrl,
-  normalizeStorageUrl
+  normalizeStorageUrl,
+  resolveProtectedStorageUrl
 } from '../utils/fileStorage';
 
 export interface DocumentViewerProps {
@@ -24,6 +25,22 @@ export interface DocumentViewerProps {
 }
 
 type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
+type ProtectedStorageSlot = 'file' | 'signedScan' | 'oldFile';
+
+function protectedStorageSlotFor(url: string): ProtectedStorageSlot | undefined {
+  const protectedFileId = url.match(/^\/api\/storage\/files\/([^?#]+)/)?.[1];
+  if (!protectedFileId) return undefined;
+
+  let decodedFileId = protectedFileId;
+  try {
+    decodedFileId = decodeURIComponent(protectedFileId);
+  } catch {
+    // Keep matching against the original value when a legacy URL is malformed.
+  }
+
+  const slot = decodedFileId.match(/_(file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/)?.[1];
+  return slot as ProtectedStorageSlot | undefined;
+}
 
 function documentTypeFor(fileName: string, mimeType = ''): DocumentType {
   const lowerName = fileName.toLowerCase();
@@ -95,10 +112,24 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           if (normalizedUrl.startsWith('data:')) {
             blob = dataUrlToBlob(normalizedUrl);
           } else {
-            const headers = requiresProtectedHeaders(normalizedUrl)
+            // Prefer the durable Firebase Storage object path whenever a
+            // legacy browser-local URL is paired with cloud metadata. For
+            // protected URLs, retain the existing fallback probing so stale
+            // file IDs can still resolve through their authoritative path.
+            const resolvedUrl = normalizedUrl.startsWith('local://') && storagePath
+              ? buildStoragePathUrl(storagePath)
+              : await resolveProtectedStorageUrl(
+                  normalizedUrl,
+                  storagePath,
+                  protectedStorageSlotFor(normalizedUrl)
+                );
+            if (!resolvedUrl || resolvedUrl.startsWith('local://')) {
+              throw new Error('Dokumen belum memiliki referensi Firebase Storage yang dapat diakses.');
+            }
+            const headers = requiresProtectedHeaders(resolvedUrl)
               ? await getProtectedStorageHeaders()
               : undefined;
-            const response = await fetch(normalizedUrl, { headers });
+            const response = await fetch(resolvedUrl, { headers });
             if (!response.ok) {
               throw new Error(`Dokumen tidak ditemukan di server (HTTP ${response.status}).`);
             }
