@@ -49,7 +49,7 @@ import {
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HierarchyPicker } from './HierarchyPicker';
 import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
-import { canEditSop } from '../utils/sopEditPolicy';
+import { canEditExistingSop } from '../lib/sopEditPolicy';
 
 export interface EditSopModalProps {
   isOpen: boolean;
@@ -72,7 +72,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
   userSession,
   sops = []
 }) => {
-  if (!sop) return null;
+  if (!sop || !canEditExistingSop(sop, userSession)) return null;
 
   const isAdmin = userSession?.role === 'admin';
   const isExisting = Boolean(
@@ -1713,6 +1713,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
 };
 
 export const EditSopModal: React.FC<EditSopModalProps> = (props) => {
-  if (!props.isOpen || !props.sop || !canEditSop(props.userSession?.role, props.sop.status)) return null;
+  if (!props.isOpen || !props.sop || !canEditExistingSop(props.sop, props.userSession)) return null;
   return <EditSopModalContent {...props} />;
 };

@@ -33,6 +33,7 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
+import { canEditExistingSop } from '../lib/sopEditPolicy';
 import { SopDocument, SopStatus, UserSession, UserAccount, getStandardJenisSpo } from '../types';
 import { formatBytes } from '../utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser, canUserActivateSop } from '../utils/soegiriStructure';
@@ -46,7 +47,6 @@ import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
-import { canEditSop } from '../utils/sopEditPolicy';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -2143,7 +2143,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
-            {(Boolean(userSession) && isSopAccessibleByUser(sop, userSession!) && canEditSop(userSession?.role, sop.status)) && (
+            {canEditExistingSop(sop, userSession) && (
               <AdminTooltip
                 title="Edit Dokumen"
                 content="Perbarui isi dokumen SPO dan data registrasinya."
