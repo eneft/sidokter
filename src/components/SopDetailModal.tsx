@@ -48,6 +48,7 @@ import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
+import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -253,6 +254,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // Retrieve actual uploaded file (supports oldFileDataUrl, fileDataUrl, signedScanDataUrl, or persistent local cache)
   const [resolvedLegacyFileUrl, setResolvedLegacyFileUrl] = useState<string | null>(null);
   const [isLoadingLegacyFile, setIsLoadingLegacyFile] = useState<boolean>(false);
+  const [resolvedLegacySource, setResolvedLegacySource] = useState<{ storagePath?: string; slot: ExistingPdfStorageSlot } | null>(null);
 
   // Review evidence preview state
   const [showReviewEvidencePreview, setShowReviewEvidencePreview] = useState<boolean>(false);
@@ -276,23 +278,38 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
     if (!sop) {
       setResolvedLegacyFileUrl(null);
+      setResolvedLegacySource(null);
       setIsLoadingLegacyFile(false);
       return;
     }
 
     const resolveFile = async () => {
       setIsLoadingLegacyFile(true);
+      setResolvedLegacyFileUrl(null);
+      setResolvedLegacySource(null);
 
       // 1. Resolve a protected cloud URL only after validating it with the
       // current authenticated session. Legacy file IDs may be stale while the
       // durable storagePath is still valid.
       const cloudUrl = isExistingPdf
-        ? ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl || null)
+        ? null
         : ((sop as any).signedScanUrl || (sop as any).fileUrl || (sop as any).oldFileUrl);
       const storagePath = isExistingPdf
-        ? ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath || null)
+        ? null
         : ((sop as any).signedScanStoragePath || (sop as any).storagePath || (sop as any).oldStoragePath);
-      if (cloudUrl) {
+      if (isExistingPdf) {
+        for (const source of getExistingPdfSources(sop)) {
+          const resolvedCloudUrl = await resolveProtectedStorageUrl(source.url, source.storagePath, source.slot);
+          if (resolvedCloudUrl) {
+            if (!isCancelled) {
+              setResolvedLegacyFileUrl(resolvedCloudUrl);
+              setResolvedLegacySource({ storagePath: source.storagePath, slot: source.slot });
+              setIsLoadingLegacyFile(false);
+            }
+            return;
+          }
+        }
+      } else if (cloudUrl) {
         const resolvedCloudUrl = await resolveProtectedStorageUrl(
           cloudUrl,
           storagePath,
@@ -371,7 +388,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // 4. Check inline data URLs
       const inlineDataUrl = isExistingPdf
-        ? ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl || null)
+        ? null
         : ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl);
       if (inlineDataUrl) {
         if (!isCancelled) {
@@ -419,7 +436,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   }, [sop?.id, (sop as any)?.fileUrl, (sop as any)?.signedScanUrl, (sop as any)?.oldFileUrl, (sop as any)?.storagePath, (sop as any)?.signedScanStoragePath, (sop as any)?.oldStoragePath, isExistingPdf, isOpen]);
 
   const legacyFileUrl = resolvedLegacyFileUrl;
-  const legacyFileName = sop ? (sop.signedScanFileName || (isExistingPdf ? 'Dokumen_SPO_Eksisting.pdf' : sop.fileName) || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
+  const legacyFileName = sop ? (sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
   const supportingEvidence = sop ? normalizeSupportingEvidence(sop as any) : [];
 
@@ -2051,35 +2068,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
     // Existing PDF: preserve and download the original uploaded PDF.
     if (isExistingPdf) {
-      const existingStoragePath =
-        (sop as any).signedScanStoragePath ||
-        (sop as any).storagePath ||
-        (sop as any).oldStoragePath ||
-        null;
+      let resolvedExistingUrl = legacyFileUrl;
+      let resolvedSource = resolvedLegacySource;
 
-      let candidateUrl = legacyFileUrl ||
-        (sop as any).signedScanUrl ||
-        (sop as any).fileUrl ||
-        (sop as any).oldFileUrl ||
-        null;
-
-      let resolvedExistingUrl = candidateUrl
-        ? await resolveProtectedStorageUrl(candidateUrl, existingStoragePath, 'signedScan')
-        : null;
-
-      // Inline data is retained only for legacy records that predate durable
-      // cloud storage. Prefer the dedicated scan, then the historical generic
-      // file fields used by those records.
       if (!resolvedExistingUrl) {
-        resolvedExistingUrl =
-          (sop as any).signedScanDataUrl ||
-          (sop as any).fileDataUrl ||
-          (sop as any).oldFileDataUrl ||
-          null;
-      }
-
-      if (!resolvedExistingUrl && existingStoragePath) {
-        resolvedExistingUrl = buildStoragePathUrl(existingStoragePath);
+        for (const source of getExistingPdfSources(sop)) {
+          const resolved = await resolveProtectedStorageUrl(source.url, source.storagePath, source.slot);
+          if (resolved) {
+            resolvedExistingUrl = resolved;
+            resolvedSource = { storagePath: source.storagePath, slot: source.slot };
+            break;
+          }
+        }
       }
 
       if (!resolvedExistingUrl) {
@@ -2095,8 +2095,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       await triggerFileDownload(
         resolvedExistingUrl,
         safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
-        existingStoragePath || undefined,
-        'signedScan',
+        resolvedSource?.storagePath,
+        resolvedSource?.slot,
         true
       );
       return;
@@ -2184,7 +2184,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 disabled={
                   isPdfGenerating ||
                   isPaginatingOfficial ||
-                  (isExistingPdf && !legacyFileUrl && !isLoadingLegacyFile && !((sop as any)?.signedScanDataUrl || (sop as any)?.fileDataUrl || (sop as any)?.storagePath || (sop as any)?.signedScanStoragePath))
+                  (isExistingPdf && !legacyFileUrl && !isLoadingLegacyFile)
                 }
                 className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
               >
@@ -2239,7 +2239,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               ) : legacyFileUrl ? (
                 <div className="overflow-hidden border border-slate-200 bg-white">
-                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={(sop as any)?.signedScanStoragePath || (sop as any)?.storagePath} heightClass="h-[68vh] w-full" />
+                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={resolvedLegacySource?.storagePath} className="w-full" singleScroll />
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
@@ -2482,21 +2482,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </div>
           )}
             </>
-          )}
-
-          {sop.reviewHistory && sop.reviewHistory.length > 0 && (
-            <details className="mx-6 mb-4 rounded-lg border border-slate-200 bg-white no-print">
-              <summary className="cursor-pointer px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">Riwayat Verifikasi ({sop.reviewHistory.length})</summary>
-              <div className="space-y-2 border-t border-slate-100 p-3">
-                {[...sop.reviewHistory].reverse().map((entry) => (
-                  <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-3 text-xs">
-                    <div className="flex justify-between gap-3"><strong>{entry.actorName}</strong><span className="text-slate-500">{new Date(entry.createdAt).toLocaleString('id-ID')}</span></div>
-                    {entry.note && <p className="mt-1 text-slate-700">{entry.note}</p>}
-                    <span className="mt-1 block text-[10px] font-bold text-blue-800">Status: {entry.type === 'REVISION_REQUESTED' ? 'Perbaikan Diminta' : entry.type === 'REVISION_SUBMITTED' ? 'Menunggu Verifikasi Ulang' : 'Terverifikasi'}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
           )}
 
           {/* Modal Footer (Hidden in Print) */}
