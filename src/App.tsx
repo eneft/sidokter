@@ -24,7 +24,9 @@ import {
   detectHierarchyFromSopNumber,
   isNewSopFormat,
   normalizeSopNumberInput,
-  matchMasterHierarchyPattern
+  matchMasterHierarchyPattern,
+  generateSopNumber,
+  getNextRevisionNumber
 } from './utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
@@ -46,6 +48,7 @@ import {
   consumeNumberReservation,
   getAllNumberReservations
 } from './lib/sopService';
+import { activateRiviuInFirestore } from './lib/firestoreService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
 import { subscribeToSKDocuments } from './lib/skService';
@@ -994,6 +997,21 @@ export default function App() {
         throw new Error(`SPO rujukan "${reviewNumber}" tidak ditemukan di database. Untuk SPO lama dari luar aplikasi, unggah PDF yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.`);
       }
       if (referenced && referenced.status !== 'AKTIF') throw new Error(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF untuk dapat diriviu.`);
+      if (!referenced) throw new Error('Riviu hanya dapat dibuat dari SPO terdaftar yang berstatus AKTIF.');
+      const previousRevisionNumber = String(newSopData.previousRevisionNumber || '').trim();
+      const revisionNumber = getNextRevisionNumber(previousRevisionNumber);
+      if (String(newSopData.revisionNumber || '') !== revisionNumber) {
+        throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
+      }
+      authoritativeSopData = {
+        ...newSopData,
+        existingSopId: referenced.id,
+        oldSopNumber: referenced.sopNumber,
+        previousRevisionNumber,
+        revisionNumber,
+        version: revisionNumber,
+        status: 'DRAFT',
+      };
 
       const selectedDiv = String(newSopData.divisionCode || '').trim().toUpperCase();
       const selectedSub = String(newSopData.subHierarchyCode || '').trim();
@@ -1016,6 +1034,43 @@ export default function App() {
     let dupCheck = checkDuplicateSopNumber(sops, targetNumber, newSopData.id);
 
     if (isExistingInput) {
+      if (!targetNumber) throw new Error('Nomor SPO Eksisting wajib diisi.');
+      if (dupCheck.isDuplicate) {
+        throw new Error(`Nomor SPO Eksisting "${targetNumber}" sudah terdaftar dan tidak boleh ditimpa.`);
+      }
+      const fileName = String(newSopData.fileName || '').toLowerCase();
+      const fileType = String(newSopData.fileType || '').toLowerCase();
+      if (!newSopData.fileDataUrl || (fileType !== 'application/pdf' && !fileName.endsWith('.pdf'))) {
+        throw new Error('Registrasi SPO Eksisting baru wajib mengunggah PDF asli.');
+      }
+      const finalExisting = standardizeSopDocument({
+        ...newSopData,
+        id: newSopData.id || `sop-${Date.now()}`,
+        sopNumber: targetNumber,
+        legacySopNumber: targetNumber,
+        sequenceNumber: Number(newSopData.sequenceNumber) || 0,
+        documentType: 'LAMA',
+        jenis_spo: 'EKSISTING',
+        isLegacySop: true,
+        isExistingReplacement: true,
+        existingSourceFormat: 'PDF',
+        status: 'DRAFT',
+        createdAt: now,
+        updatedAt: now,
+        revisionHistory: [{
+          id: `rev-existing-${Date.now()}`,
+          version: newSopData.revisionNumber || newSopData.version || '00',
+          date: newSopData.effectiveDate || now.split('T')[0],
+          author: newSopData.creatorName,
+          notes: 'Registrasi PDF asli SPO Eksisting; menunggu verifikasi Admin.',
+        }],
+      } as SopDocument);
+      await saveSopToLocal(finalExisting);
+      setSops((prev) => [finalExisting, ...prev]);
+      return finalExisting;
+
+      /* Historical replacement/reservation implementation retained below only
+         for source compatibility; new Existing registrations return above. */
       // Aturan Khusus SPO Existing:
       // 1. Format baru + nomor belum ada → ❌ Tidak boleh (harus terbit via alur SPO Baru).
       // 2. Format baru + nomor sudah ada (bukan AKTIF) → ✅ Boleh replace / lengkapi.
@@ -1242,25 +1297,19 @@ export default function App() {
       return finalSop;
     }
 
-    // Riviu selalu memperoleh nomor BARU. Gunakan reservation yang sama dengan
-    // menu Terbitkan Nomor agar nomor terpakai/reserved tidak pernah bentrok.
+    // Riviu selalu memperoleh nomor BARU langsung dari penomoran hirarki.
     if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
-      const reserved = await reserveNextSopNumber({
-        config: numberingConfig,
-        divisionCode: String(newSopData.divisionCode || 'PEL').trim().toUpperCase(),
-        subHierarchyCode: String(newSopData.subHierarchyCode || '').trim() || undefined,
-        dateStr: newSopData.effectiveDate || now.split('T')[0],
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
-        purpose: 'SYSTEM_DOCUMENT'
-      });
-      systemReservationId = reserved.id;
+      const divisionCode = String(newSopData.divisionCode || '').trim().toUpperCase();
+      const subHierarchyCode = String(newSopData.subHierarchyCode || '').trim();
+      const sequenceNumber = getNextSequenceNumber(numberingConfig, divisionCode, subHierarchyCode, sops, (newSopData.effectiveDate || now).slice(0, 4));
+      const { sopNumber } = generateSopNumber({ config: numberingConfig, divisionCode, subHierarchyCode, dateStr: newSopData.effectiveDate, sequenceNum: sequenceNumber });
       authoritativeSopData = {
-        ...newSopData,
+        ...authoritativeSopData,
         id: newSopData.id || `sop-${Date.now()}`,
-        sopNumber: reserved.sopNumber,
-        sequenceNumber: reserved.sequenceNumber,
-        divisionCode: reserved.divisionCode,
-        subHierarchyCode: reserved.subHierarchyCode || '',
+        sopNumber,
+        sequenceNumber,
+        divisionCode,
+        subHierarchyCode,
         documentType: 'RIVIU',
         jenis_spo: 'RIVIU',
         isReviewDocument: true,
@@ -1268,7 +1317,7 @@ export default function App() {
         oldSopNumber: normalizeSopNumberInput(newSopData.oldSopNumber || ''),
         existingSopId: newSopData.existingSopId
       };
-      dupCheck = checkDuplicateSopNumber(sops, reserved.sopNumber, undefined);
+      dupCheck = checkDuplicateSopNumber(sops, sopNumber, undefined);
     }
 
     // Untuk SPO Baru: cegah nomor SPO duplikat
@@ -1286,22 +1335,15 @@ export default function App() {
       const divCode = (newSopData.divisionCode || 'PEL').trim().toUpperCase();
       const subCode = (newSopData.subHierarchyCode || '').trim();
       const dateStr = newSopData.effectiveDate || now.split('T')[0];
-      const reserved = await reserveNextSopNumber({
-        config: numberingConfig,
-        divisionCode: divCode,
-        subHierarchyCode: subCode || undefined,
-        dateStr,
-        reservedBy: newSopData.creatorName || userSession?.name || userSession?.username || 'User',
-        purpose: 'SYSTEM_DOCUMENT'
-      });
-      systemReservationId = reserved.id;
+      const sequenceNumber = getNextSequenceNumber(numberingConfig, divCode, subCode, sops, dateStr.slice(0, 4));
+      const { sopNumber } = generateSopNumber({ config: numberingConfig, divisionCode: divCode, subHierarchyCode: subCode || undefined, dateStr, sequenceNum: sequenceNumber });
       authoritativeSopData = {
         ...newSopData,
         id: newSopData.id || `sop-${Date.now()}`,
-        sopNumber: reserved.sopNumber,
-        sequenceNumber: reserved.sequenceNumber,
-        divisionCode: reserved.divisionCode,
-        subHierarchyCode: reserved.subHierarchyCode || '',
+        sopNumber,
+        sequenceNumber,
+        divisionCode: divCode,
+        subHierarchyCode: subCode,
       };
     }
 
@@ -1672,16 +1714,7 @@ export default function App() {
     if (!target) return;
     const isExisting = target.documentType === 'LAMA' || target.jenis_spo === 'EKSISTING' || target.isLegacySop;
     if (newStatus === 'AKTIF') {
-      if (isExisting) {
-        // SPO Eksisting sudah sah dan bertanda tangan Direktur. Tidak perlu aktivasi ulang.
-        const updated = { ...target, status: 'AKTIF' as SopStatus, updatedAt: new Date().toISOString() };
-        setSops((prev) => prev.map((s) => s.id === id ? updated : s));
-        if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
-        saveSopToLocal(updated).catch((err) => console.error('Error updating existing SPO status:', err));
-        addToast('success', 'SPO Eksisting Aktif', 'SPO Eksisting sudah merupakan dokumen sah dan tidak memerlukan pengesahan ulang.');
-        return;
-      }
-      addToast('info', 'Gunakan Pengesahan', 'SPO Baru/Riviu hanya dapat menjadi Aktif melalui proses Pengesahan/Aktivasi.');
+      addToast('info', 'Gunakan Pengesahan', `${isExisting ? 'SPO Eksisting' : 'SPO Baru/Riviu'} hanya dapat menjadi Aktif melalui verifikasi Admin.`);
       setSelectedSopForActivation(target);
       return;
     }
@@ -1744,7 +1777,7 @@ export default function App() {
     // User tidak boleh menetapkan nomor revisi Riviu secara manual jika rujukan
     // internal ditemukan. Untuk dokumen lama dari luar aplikasi, nilai yang
     // sudah diisi tetap dipakai sebagai fallback.
-    let reviewRevisionNumber = target.revisionNumber || target.version || '00';
+    let reviewRevisionNumber = target.revisionNumber || target.version || '';
     let reviewedSource: SopDocument | undefined;
     if (targetIsRiviu) {
       reviewedSource = (target.existingSopId ? sops.find((s) => s.id === target.existingSopId) : undefined)
@@ -1753,11 +1786,20 @@ export default function App() {
             || normalizeSopNumberInput(s.legacySopNumber) === normalizeSopNumberInput(target.oldSopNumber || ''))
           : undefined);
 
-      if (reviewedSource) {
-        const rawRevision = String(reviewedSource.revisionNumber || reviewedSource.version || '00').trim();
-        const numericRevision = Number.parseInt(rawRevision.replace(/[^0-9]/g, ''), 10);
-        const nextRevision = Number.isFinite(numericRevision) ? numericRevision + 1 : 1;
-        reviewRevisionNumber = String(nextRevision).padStart(2, '0');
+      if (!reviewedSource || reviewedSource.status !== 'AKTIF') {
+        addToast('error', 'Aktivasi Ditolak', 'SPO pendahulu Riviu tidak ditemukan atau tidak lagi AKTIF.');
+        return;
+      }
+      const previousRevision = String(target.previousRevisionNumber || '').trim();
+      try {
+        reviewRevisionNumber = getNextRevisionNumber(previousRevision);
+      } catch (error) {
+        addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
+        return;
+      }
+      if (target.revisionNumber !== reviewRevisionNumber) {
+        addToast('error', 'Aktivasi Ditolak', `Nomor revisi penerus harus ${reviewRevisionNumber}.`);
+        return;
       }
     }
 
@@ -1778,33 +1820,16 @@ export default function App() {
       signedScanDataUrl: activationData.signedScanDataUrl,
     };
     try {
-      await saveSopToLocal(updated);
-
-      // Sinkronkan nomor revisi pada SPO aktif yang menjadi objek Riviu.
-      // Ini menjaga register SPO lama tetap menunjukkan revisi terakhir yang
-      // telah disahkan, sementara dokumen hasil Riviu juga memakai nomor yang sama.
       if (targetIsRiviu && reviewedSource) {
-        const reviewedUpdated: SopDocument = {
-          ...reviewedSource,
-          revisionNumber: reviewRevisionNumber,
-          version: reviewRevisionNumber,
-          updatedAt: new Date().toISOString(),
-          revisionHistory: [
-            ...(reviewedSource.revisionHistory || []),
-            {
-              id: `rev-riviu-sync-${Date.now()}`,
-              version: reviewRevisionNumber,
-              date: updated.activatedAt || new Date().toISOString().split('T')[0],
-              author: activationData.activatedBy || userSession?.name || 'Admin',
-              notes: `Nomor revisi diperbarui otomatis karena SPO ini telah diriviu dan hasil Riviu disahkan. Rujukan Riviu: ${updated.sopNumber || updated.id}.`
-            }
-          ]
-        };
-        await saveSopToLocal(reviewedUpdated);
+        const transition = await activateRiviuInFirestore(updated, reviewedSource.id, String(target.previousRevisionNumber));
+        await restoreSopsToLocal(sops.map((s) => s.id === transition.successor.id
+          ? transition.successor
+          : s.id === transition.predecessor.id ? transition.predecessor : s));
         setSops((prev) => prev.map((s) =>
-          s.id === sopId ? updated : s.id === reviewedUpdated.id ? reviewedUpdated : s
+          s.id === sopId ? transition.successor : s.id === transition.predecessor.id ? transition.predecessor : s
         ));
       } else {
+        await saveSopToLocal(updated);
         setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
       }
       setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);

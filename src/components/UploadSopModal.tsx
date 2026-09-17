@@ -22,7 +22,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, getNextRevisionNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -163,6 +163,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   }, [manualLegacyNumber, documentType, onCheckReservedNumber]);
   const [oldSopNumber, setOldSopNumber] = useState('');
   const [revisionNumber, setRevisionNumber] = useState('01');
+  const [previousRevisionNumber, setPreviousRevisionNumber] = useState('');
   const [adminManualSequence, setAdminManualSequence] = useState('');
   const [reviewReason, setReviewReason] = useState('');
   const [selectedOldFile, setSelectedOldFile] = useState<File | null>(null);
@@ -419,34 +420,15 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         alert("Silakan masukkan Nomor SPO Lama yang sudah ada.");
         return;
       }
-      const hasExtractedDocx = Boolean(parsedDocxSummary) || (pengertian.trim().length > 0 && prosedur.trim().length > 0);
-      if (!selectedFile && !fileDataUrl && !hasExtractedDocx) {
-        alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah berkas scan PDF resmi bertanda tangan Direktur, atau lakukan ekstraksi naskah dari berkas Word (.docx)!");
+      if (!selectedFile || (!selectedFile.name.toLowerCase().endsWith('.pdf') && selectedFile.type !== 'application/pdf')) {
+        alert("Untuk pencatatan SPO Eksisting, Anda WAJIB mengunggah berkas PDF asli.");
         return;
       }
 
-      const isNewFormat = isNewSopFormat(cleanNum);
       const dup = checkDuplicateSopNumber(sops || [], cleanNum);
-
-      // Format baru yang belum menjadi dokumen boleh dipakai Existing hanya
-      // bila nomor tersebut sudah RESERVED melalui menu Terbitkan Nomor.
-      let isReservedNumber = false;
-      if (isNewFormat && !dup.isDuplicate && onCheckReservedNumber) {
-        isReservedNumber = await onCheckReservedNumber(cleanNum);
-      }
-      if (isNewFormat && !dup.isDuplicate && !isReservedNumber) {
-        setSubmitError(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve. Gunakan menu "Terbitkan Nomor" terlebih dahulu.`);
-        alert(`Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve.\n\nGunakan menu "Terbitkan Nomor" terlebih dahulu.`);
-        return;
-      }
-
-      // Validasi aturan: Tidak boleh mereplace SPO yang sudah berstatus AKTIF
       if (dup.isDuplicate && dup.matchedDoc) {
-        if (dup.matchedDoc.status === 'AKTIF') {
-          setSubmitError(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}"). Dokumen berstatus Aktif tidak dapat digantikan melalui alur SPO Eksisting.`);
-          alert(`Nomor SPO "${cleanNum}" sudah terdaftar dengan status AKTIF ("${dup.matchedDoc.title}").\n\nSesuai aturan Rumah Sakit, dokumen berstatus Aktif TIDAK DAPAT digantikan dengan SPO Eksisting. Silakan gunakan alur "SPO Riviu" jika ingin melakukan revisi/pembaruan terhadap SPO Aktif.`);
-          return;
-        }
+        alert(`Nomor SPO "${cleanNum}" sudah terdaftar dan tidak boleh ditimpa.`);
+        return;
       }
     } else {
       // Wajibkan pengisian seluruh Batang Tubuh SPO untuk SPO Baru & Review (Pengertian, Tujuan, Kebijakan, Prosedur, Unit Terkait)
@@ -477,8 +459,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       const reviewNumber = normalizeSopNumberInput(oldSopNumber);
       const referenced = sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
       const hasExternalSignedPdf = Boolean(selectedOldFile && (selectedOldFile.type === 'application/pdf' || selectedOldFile.name.toLowerCase().endsWith('.pdf')) && externalReviewSignedConfirmed);
-      if (!referenced && !hasExternalSignedPdf) {
-        alert(`SPO rujukan "${reviewNumber}" tidak ditemukan di database. Jika SPO berasal dari luar aplikasi, unggah PDF SPO lama yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.`);
+      if (!referenced) {
+        alert(`SPO rujukan "${reviewNumber}" harus merupakan SPO terdaftar yang berstatus AKTIF.`);
         return;
       }
       if (referenced && referenced.status !== 'AKTIF') {
@@ -498,12 +480,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
           return;
         }
       }
-      if (!revisionNumber.trim()) {
-        alert("Silakan isi No. Revisi Baru sebagai pedoman perubahan SPO!");
-        return;
-      }
-      if (!referenced && (!selectedOldFile && !oldFileDataUrl || !hasExternalSignedPdf)) {
-        alert("SPO rujukan tidak ada di aplikasi. Untuk Riviu dari luar aplikasi, wajib unggah PDF SPO lama yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.");
+      try {
+        if (revisionNumber !== getNextRevisionNumber(previousRevisionNumber)) throw new Error('Nomor revisi penerus tidak sesuai.');
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Nomor revisi saat ini tidak valid.');
         return;
       }
     }
@@ -603,9 +583,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       categoryId: cat?.id || 'cat-pelayanan',
       categoryName: cat?.name || 'Pelayanan Medis & Asuhan Pasien',
       version: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
-      status: documentType === 'LAMA'
-        ? (userSession?.role === 'admin' ? 'AKTIF' : 'DRAFT')
-        : 'DRAFT',
+      status: 'DRAFT',
       activationRequestedAt: userSession?.role !== 'admin' ? new Date().toISOString() : undefined,
       activationRequestedBy: userSession?.role !== 'admin'
         ? (userSession?.name || creatorName.trim() || userSession?.username || 'Pengguna')
@@ -644,6 +622,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       prosedur: prosedur.trim(),
       unitTerkait: unitTerkait.trim(),
       revisionNumber: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
+      previousRevisionNumber: documentType === 'REVIEW' ? previousRevisionNumber : undefined,
       halaman: '1 / 1',
       direkturNama: SOEGIRI_HOSPITAL_INFO.director.name,
       direkturNip: SOEGIRI_HOSPITAL_INFO.director.nip,
@@ -666,7 +645,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       isExistingReplacement: documentType === 'LAMA' && !isDocx,
       isReviewDocument: documentType === 'REVIEW',
       isLegacySop: documentType === 'LAMA',
-      existingSourceFormat: documentType === 'LAMA' ? (isDocx ? 'DOCX' : 'PDF') : undefined,
+      existingSourceFormat: documentType === 'LAMA' ? 'PDF' : undefined,
       legacySopNumber: documentType === 'LAMA' ? manualLegacyNumber.trim() : undefined,
       oldSopNumber: documentType === 'REVIEW' ? oldSopNumber.trim() : undefined,
       reviewReason: documentType === 'REVIEW' ? reviewReason.trim() : undefined,
@@ -1051,51 +1030,17 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                               </div>
 
                               {dup.isDuplicate && dup.matchedDoc ? (
-                                (() => {
-                                  const status = dup.matchedDoc.status;
-                                  const statusLabel =
-                                    status === 'DRAFT' ? 'Draft'
-                                      : status === 'AKTIF' ? 'Aktif'
-                                      : status === 'DIARSIPKAN' ? 'Diarsipkan'
-                                      : status || 'Draft';
-
-                                  if (status === 'AKTIF') {
-                                    return (
-                                      <div className="p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
-                                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                                        <span>
-                                          <strong>Ditolak:</strong> Nomor sudah terdaftar dengan status <strong>Aktif</strong> ({dup.matchedDoc.title}). Dokumen aktif tidak dapat diganti via SPO Eksisting. Silakan gunakan alur "SPO Riviu".
-                                        </span>
-                                      </div>
-                                    );
-                                  }
-
-                                  return (
-                                    <div className="p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 text-emerald-950 text-[11px] font-medium flex items-center gap-1.5">
-                                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                                      <span>
-                                        <strong>Boleh Replace:</strong> Ditemukan dokumen terdaftar berstatus <strong>{statusLabel}</strong> ({dup.matchedDoc.title}). Unggahan ini akan mengaktifkan dokumen tersebut.
-                                      </span>
-                                    </div>
-                                  );
-                                })()
-                              ) : isCurrentNumberReserved ? (
-                                <div className="p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 text-emerald-950 text-[11px] font-medium flex items-center gap-1.5">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                                  <span><strong>Nomor Terbit Ditemukan:</strong> Nomor ini sudah diterbitkan dan dapat digunakan untuk SPO Existing → Replace Draft. Sistem tidak akan membuat nomor baru.</span>
-                                </div>
-                              ) : isNewFormat ? (
                                 <div className="p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-900 text-[11px] font-medium flex items-center gap-1.5">
                                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                                   <span>
-                                    <strong>Pola Master Hirarki Belum Terdaftar:</strong> Nomor sesuai pola penomoran Master Hirarki ({patternMatch.hierarchyName || patternMatch.categoryName || patternMatch.categoryCode}) wajib diterbitkan melalui menu "Terbitkan Nomor" terlebih dahulu.
+                                    <strong>Ditolak:</strong> Nomor ini sudah terdaftar ({dup.matchedDoc.title}) dan tidak boleh ditimpa.
                                   </span>
                                 </div>
                               ) : (
                                 <div className="p-2 rounded-lg bg-sky-100/90 border border-sky-300 text-sky-950 text-[11px] font-medium flex items-center gap-1.5">
                                   <CheckCircle2 className="w-4 h-4 text-sky-700 shrink-0" />
                                   <span>
-                                    <strong>Nomor Format Eksisting Siap Diregistrasi:</strong> Nomor ini akan otomatis didaftarkan sebagai SPO Eksisting Aktif di sistem.
+                                    <strong>Nomor Eksisting Siap Diregistrasi:</strong> PDF asli akan disimpan sebagai DRAFT untuk verifikasi Admin.
                                   </span>
                                 </div>
                               )}
@@ -1185,18 +1130,26 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
                       <div>
                         <label className="block text-xs font-bold text-amber-950 mb-1">
-                          No. Revisi <span className="text-rose-500">*</span>
-                          <span className="text-[10px] text-amber-800 font-normal ml-1">(Pedoman Perubahan)</span>
+                          Revisi Saat Ini <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="text"
                           required={documentType === 'REVIEW'}
-                          value={revisionNumber}
-                          onChange={(e) => setRevisionNumber(e.target.value)}
-                          placeholder="Contoh: 01"
+                          value={previousRevisionNumber}
+                          onChange={(e) => {
+                            const current = e.target.value;
+                            setPreviousRevisionNumber(current);
+                            try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
+                          }}
+                          placeholder="Contoh: 00"
                           className="w-full text-xs sm:text-sm border border-amber-300 rounded-xl px-3.5 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-amber-500 font-mono font-bold"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-amber-950 mb-1">No. Revisi Baru (otomatis)</label>
+                      <input type="text" readOnly value={revisionNumber} placeholder="—" className="w-full text-xs sm:text-sm border border-amber-200 rounded-xl px-3.5 py-2 text-slate-900 bg-amber-100/60 font-mono font-bold" />
                     </div>
 
                     <div>

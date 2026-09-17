@@ -146,6 +146,8 @@ export interface SopDocument {
   alur?: string; // 5. ALUR / DIAGRAM ALIR (Opsional)
   unitTerkait?: string; // 6. UNIT TERKAIT
   revisionNumber?: string; // "00"
+  /** Revision confirmed from the active predecessor when creating a Riviu. */
+  previousRevisionNumber?: string;
   halaman?: string; // "1 / 1"
   direkturNama?: string; // "dr. Abdur Rohman, Sp.PD.M.EK."
   direkturNip?: string; // "19770219 200604 1 013"
@@ -285,4 +287,3 @@ export interface FilterOptions {
   sortBy: 'sopNumber' | 'title' | 'effectiveDate' | 'createdAt' | 'updatedAt';
   sortOrder: 'asc' | 'desc';
 }
-

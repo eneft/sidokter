@@ -15,6 +15,19 @@ export function getPaddedNumber(num: number, padding: number = 3): string {
   return String(num).padStart(padding, '0');
 }
 
+/** Validate a revision as digits only and return its numeric successor. */
+export function getNextRevisionNumber(currentRevision: string): string {
+  const normalized = String(currentRevision ?? '').trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error('Nomor revisi saat ini wajib berupa angka non-negatif.');
+  }
+  const next = Number(normalized) + 1;
+  if (!Number.isSafeInteger(next)) {
+    throw new Error('Nomor revisi saat ini tidak valid.');
+  }
+  return String(next).padStart(2, '0');
+}
+
 export interface GenerateNumberParams {
   config: NumberingConfig;
   divisionCode: string;
@@ -926,5 +939,4 @@ export function standardizeAllSops(sops: SopDocument[]): {
     duplicateCount
   };
 }
-
 
