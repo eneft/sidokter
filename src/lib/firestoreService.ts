@@ -107,7 +107,7 @@ function sanitizeForFirestore<T = any>(obj: T): any {
 
 export async function saveSopToFirestore(
   sop: SopDocument,
-  options?: { throwOnError?: boolean; allocateOfficialNumber?: NumberingConfig },
+  options?: { throwOnError?: boolean; allocateOfficialNumber?: NumberingConfig; editExisting?: boolean },
 ): Promise<SopDocument> {
   try {
     if (!sop || !sop.id) return;
@@ -149,8 +149,17 @@ export async function saveSopToFirestore(
     // live in Firebase Cloud Storage. Explicitly delete legacy DataURL fields
     // even when setDoc uses merge:true, otherwise an old browser-local payload
     // can remain in Firestore forever and be mistaken for the real file.
+    let authoritativeSop = sop;
+    if (options?.editExisting) {
+      const currentSnapshot = await getDocFromServer(doc(db, 'sops', sop.id));
+      if (!currentSnapshot.exists()) throw new Error('SPO yang akan diedit tidak ditemukan.');
+      const current = { ...currentSnapshot.data(), id: currentSnapshot.id } as SopDocument;
+      assertCanEditExistingSop(current, currentSessionRaw as UserSession);
+      authoritativeSop = preserveSopWorkflowIdentity(current, sop);
+      Object.assign(sop, authoritativeSop);
+    }
     const cleanSop = sanitizeForFirestore({
-      ...sop,
+      ...authoritativeSop,
       fileDataUrl: deleteField(),
       signedScanDataUrl: deleteField(),
       oldFileDataUrl: deleteField(),

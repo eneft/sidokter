@@ -1713,6 +1713,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
 };
 
 export const EditSopModal: React.FC<EditSopModalProps> = (props) => {
-  if (!props.isOpen || !props.sop) return null;
+  if (!props.isOpen || !props.sop || !canEditExistingSop(props.sop, props.userSession)) return null;
   return <EditSopModalContent {...props} />;
 };

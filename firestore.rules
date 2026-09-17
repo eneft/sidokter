@@ -1,100 +1,33 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return signedIn() && (
-        request.auth.token.email == 'gelapgulita3@gmail.com' ||
-        request.auth.token.role == 'admin' ||
-        request.auth.token.admin == true ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
-        )
-      );
-    }
-
-    function isOwnNotification() {
-      return signedIn() && request.auth.uid == uid;
-    }
-
-    // Default deny: every collection must explicitly opt in below.
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Health check: authenticated SIDOKTER clients only.
-    match /test/{docId} {
-      allow read: if signedIn();
-      allow write: if false;
-    }
-
-    // SOP data is available to authenticated SIDOKTER users.
-    // Business-level hierarchy/role checks remain enforced by the application
-    // and trusted Cloud Functions; unauthenticated direct Firestore access is blocked.
     match /sops/{sopId} {
       allow read: if signedIn();
       allow create: if signedIn();
+
+      // A stale editor is rejected using the currently stored status.
+      // Only the actual Admin role may update approved/archived documents.
+      // Non-Admin users may only update an authorized DRAFT and may not
+      // mutate protected document identity, lifecycle, or access-control fields.
       allow update: if isAdmin() || (
+        signedIn() &&
         resource.data.status == 'DRAFT' &&
         request.resource.data.status == 'DRAFT' &&
         request.auth.uid in resource.data.authorizedUids &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'id', 'status', 'sopNumber', 'sequenceNumber', 'revisionNumber',
-          'version', 'jenis_spo', 'documentType', 'isReviewDocument',
-          'existingSopId', 'previousRevisionNumber', 'oldSopNumber',
-          'authorizedUids', 'accessKeys'
+          'id',
+          'status',
+          'sopNumber',
+          'sequenceNumber',
+          'revisionNumber',
+          'version',
+          'jenis_spo',
+          'documentType',
+          'isReviewDocument',
+          'existingSopId',
+          'previousRevisionNumber',
+          'oldSopNumber',
+          'authorizedUids',
+          'accessKeys'
         ])
       );
+
       allow delete: if isAdmin();
     }
-
-    // SK / MOU library.
-    match /library_documents/{documentId} {
-      allow read, write: if signedIn();
-    }
-
-    // Application configuration is not public.
-    // Some client workflows persist numbering/hierarchy/maintenance state directly,
-    // so authenticated access is retained to avoid breaking existing workflows.
-    match /system_config/{configId} {
-      allow read, write: if signedIn();
-    }
-
-    // User directory: all signed-in users may read the directory as required by
-    // the existing UI; mutations are restricted to administrators.
-    match /users/{userId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Administrator registry is never public and can only be changed by admins.
-    match /admins/{adminId} {
-      allow read: if isAdmin();
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Notifications are private to the authenticated user's own subcollection.
-    match /notifications/{uid}/items/{notificationId} {
-      allow read, write: if isOwnNotification();
-    }
-
-    // Number reservations are authenticated-only. Admin workflows may manage them,
-    // while ordinary signed-in users can use the existing reservation flow.
-    match /sop_number_reservations/{reservationId} {
-      allow read, write: if signedIn();
-    }
-
-    // Audit entries are never public. Existing client-side audit logging is retained
-    // for authenticated users; administrative review can be performed by admins.
-    match /audit_logs/{logId} {
-      allow read: if isAdmin();
-      allow create: if signedIn();
-      allow update, delete: if false;
-    }
-  }
-}
