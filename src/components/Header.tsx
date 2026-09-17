@@ -31,6 +31,33 @@ interface HeaderProps {
   onShowToast?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
+const DesktopAccountHeader: React.FC<{
+  unreadCount: number;
+  userSession?: UserSession | null;
+  onOpenMail: () => void;
+}> = ({ unreadCount, userSession, onOpenMail }) => (
+  <div className="fixed left-72 right-0 top-0 z-40 hidden h-16 items-center justify-end border-b border-slate-200 bg-white/95 px-8 shadow-sm backdrop-blur lg:flex no-print">
+    <div className="flex items-center gap-3">
+      <AdminTooltip title="Pesan" content="Buka Internal Mail SIDOKTER." side="bottom">
+        <button type="button" onClick={onOpenMail} className="relative rounded-xl p-2.5 text-slate-600 transition-colors hover:bg-slate-100 hover:text-emerald-700" aria-label="Pesan" title="Pesan">
+          <Mail className="h-5 w-5" />
+          {unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-emerald-600 px-1 text-center text-[9px] font-black leading-4 text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+        </button>
+      </AdminTooltip>
+      <div className="h-7 w-px bg-slate-200" />
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-xs font-black text-emerald-800 ring-1 ring-emerald-200">
+          {(userSession?.name || userSession?.username || 'P')[0].toUpperCase()}
+        </div>
+        <div className="max-w-48 min-w-0 text-right">
+          <div className="truncate text-xs font-black text-slate-800">{userSession?.name || userSession?.username || 'Pengguna'}</div>
+          <div className="truncate text-[10px] font-medium text-slate-500">{userSession?.role === 'admin' ? 'Administrator' : userSession?.unitName || userSession?.divisionCode || 'User Unit'}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 export const Header: React.FC<HeaderProps> = ({
   activeTab, onTabChange, totalSopCount, activeSopCount, skCount = 0, mouCount = 0,
   finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onSelectDocument, onShowToast
@@ -198,10 +225,6 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
               </div>
-              <button type="button" onClick={() => setIsNotificationOpen(true)} className="relative shrink-0 rounded-xl p-2 text-slate-500 hover:bg-white hover:text-emerald-700" aria-label="Pesan" title="Pesan">
-                <Mail className="h-4 w-4" />
-                {unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-center text-[9px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
-              </button>
               <AdminTooltip
                 title="Keluar Akun"
                 content="Keluar dari sesi akun SIDOKTER dengan aman."
@@ -219,6 +242,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
         </aside>
+
+        <DesktopAccountHeader unreadCount={unreadCount} userSession={userSession} onOpenMail={() => setIsNotificationOpen(true)} />
 
         {/* Mobile Topbar & Drawer */}
         <div className="lg:hidden sticky top-0 z-50 bg-white border-b border-slate-200 no-print">
@@ -472,10 +497,6 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="text-xs font-black text-slate-800 truncate leading-tight">{userSession?.name || 'Administrator'}</div>
               <div className="text-[10px] text-emerald-700 font-bold truncate mt-0.5">Administrator</div>
             </div>
-            <button type="button" onClick={() => setIsNotificationOpen(true)} className="relative shrink-0 rounded-xl p-2 text-slate-500 hover:bg-white hover:text-emerald-700" aria-label="Pesan" title="Pesan">
-              <Mail className="h-4 w-4" />
-              {unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-center text-[9px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
-            </button>
             <AdminTooltip
               title="Keluar Akun"
               content="Keluar dari sesi akun SIDOKTER dengan aman."
@@ -493,6 +514,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </aside>
+
+      <DesktopAccountHeader unreadCount={unreadCount} userSession={userSession} onOpenMail={() => setIsNotificationOpen(true)} />
 
       <div className="lg:hidden sticky top-0 z-50 bg-white border-b border-slate-200 no-print">
         <div className="h-16 px-4 flex items-center justify-between">
