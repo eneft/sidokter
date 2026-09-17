@@ -48,7 +48,7 @@ import {
   LibraryDocument,
   MainMenuTab
 } from '../types';
-import { generateSopNumber, getNextSequenceNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
+import { generateSopNumber, getNextSequenceNumber, getNextRevisionNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { parseSopMetadataFromPdf } from '../utils/pdfParser';
@@ -414,6 +414,7 @@ export const UserView: React.FC<UserViewProps> = ({
   // Mode Lama & Review fields
   const [manualLegacyNumber, setManualLegacyNumber] = useState('');
   const [revisionNumber, setRevisionNumber] = useState('00');
+  const [previousRevisionNumber, setPreviousRevisionNumber] = useState('');
   const [legacyApprover, setLegacyApprover] = useState('Direktur RSUD Dr. Soegiri');
   const [legacySignedDate, setLegacySignedDate] = useState(new Date().toISOString().split('T')[0]);
   const [existingSopId, setExistingSopId] = useState('');
@@ -551,8 +552,8 @@ export const UserView: React.FC<UserViewProps> = ({
   const [parsedDocxSummary, setParsedDocxSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
   const docxInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Khusus SPO Existing: 2 Opsi (DOCX -> Live Form A4, atau PDF -> Pratinjau Asli)
-  const [existingMode, setExistingMode] = useState<'docx' | 'pdf'>('docx');
+  // New SPO Existing registration is PDF-only. DOCX parsing remains for other workflows/legacy display.
+  const [existingMode, setExistingMode] = useState<'docx' | 'pdf'>('pdf');
   const [isParsingPdf, setIsParsingPdf] = useState(false);
   const [parsedPdfSummary, setParsedPdfSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -726,6 +727,7 @@ export const UserView: React.FC<UserViewProps> = ({
     setSelectedFile(null);
     setManualLegacyNumber('');
     setRevisionNumber('00');
+    setPreviousRevisionNumber('');
     setExistingSopId('');
     setOldSopNumber('');
     setReviewReason('');
@@ -767,8 +769,9 @@ export const UserView: React.FC<UserViewProps> = ({
     setWorkflowStep(1);
     if (nextType === 'LAMA') {
       setEffectiveDate('2024-01-02');
+      setExistingMode('pdf');
     } else if (nextType === 'REVIEW') {
-      setRevisionNumber('01');
+      setRevisionNumber('');
     }
   };
 
@@ -833,6 +836,16 @@ export const UserView: React.FC<UserViewProps> = ({
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
           return;
         }
+        try {
+          const nextRevision = getNextRevisionNumber(previousRevisionNumber);
+          if (revisionNumber !== nextRevision) {
+            setSubmitError(`Nomor revisi penerus harus ${nextRevision}.`);
+            return;
+          }
+        } catch (error) {
+          setSubmitError(error instanceof Error ? error.message : 'Nomor revisi saat ini tidak valid.');
+          return;
+        }
         const isNewFormat = isNewSopFormat(reviewNumber);
         const pattern = matchMasterHierarchyPattern(reviewNumber);
         const selectedDiv = String(selectedCatCode || '').trim().toUpperCase();
@@ -884,12 +897,6 @@ export const UserView: React.FC<UserViewProps> = ({
           setSubmitError('Wajib mengunggah scan file PDF asli SPO Eksisting yang sudah bertanda tangan.');
           return;
         }
-      } else {
-        // existingMode === 'docx' (Live Form A4)
-        if (missingSections.length > 0) {
-          setSubmitError(`Bagian batang tubuh SPO Live Form berikut belum lengkap:\n• ${missingSections.join('\n• ')}`);
-          return;
-        }
       }
 
       // Deteksi dokumen terdaftar yang sudah ada di sistem
@@ -901,15 +908,8 @@ export const UserView: React.FC<UserViewProps> = ({
 
       const isNewFormat = isNewSopFormat(cleanNum);
 
-      // Format baru tanpa dokumen hanya boleh jika nomor sudah RESERVED.
-      // Reservation bukan Draft; nomor akan dikonsumsi saat Existing berhasil diregistrasi.
-      const isReservedNumber = !matchedExistingDoc && onCheckReservedNumber
-        ? await onCheckReservedNumber(cleanNum)
-        : false;
-      if (isNewFormat && !matchedExistingDoc && !isReservedNumber) {
-        setSubmitError(
-          `Nomor dengan pola penomoran baru Master Hirarki ("${cleanNum}") belum terdaftar atau belum di-reserve. Gunakan menu "Terbitkan Nomor" terlebih dahulu.`
-        );
+      if (matchedExistingDoc) {
+        setSubmitError(`Nomor SPO Eksisting "${cleanNum}" sudah terdaftar dan tidak boleh ditimpa.`);
         return;
       }
 
@@ -975,9 +975,7 @@ export const UserView: React.FC<UserViewProps> = ({
         categoryId: finalDivCode,
         categoryName: finalDivName,
         version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
-        status: isLegacy ? 'AKTIF' : 'DRAFT',
-        activatedAt: isLegacy ? new Date().toISOString() : undefined,
-        activatedBy: isLegacy ? userSession.name : undefined,
+        status: 'DRAFT',
         activationRequestedAt: new Date().toISOString(),
         activationRequestedBy: userSession.name,
         activationRequestedByUsername: userSession.username,
@@ -1006,10 +1004,11 @@ export const UserView: React.FC<UserViewProps> = ({
         documentType: isLegacy ? 'LAMA' : (isReview ? 'RIVIU' : 'BARU'),
         jenis_spo: isLegacy ? 'EKSISTING' : (isReview ? 'RIVIU' : 'BARU'),
         isLegacySop: isLegacy ? true : false,
-        existingSourceFormat: isLegacy ? (existingMode === 'docx' || Boolean(parsedDocxSummary) ? 'DOCX' : 'PDF') : undefined,
+        existingSourceFormat: isLegacy ? 'PDF' : undefined,
         legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
+        previousRevisionNumber: isReview ? previousRevisionNumber : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
         // but preview must use the uploaded original PDF instead of generating the official template.
         isExistingReplacement: isLegacy && existingMode === 'pdf' && Boolean(matchedExistingDoc),
@@ -1024,27 +1023,6 @@ export const UserView: React.FC<UserViewProps> = ({
       // HARD RULE: Existing must carry the exact Nomor Terbit reservation identity
       // through the submit boundary. A boolean-only check is not sufficient because
       // the parent save handler must know which reservation is authoritative.
-      if (isLegacy) {
-        (sopData as any).numberReservationPurpose = 'EXISTING_REPLACE_ONLY';
-        try {
-          const reservations = await getAllNumberReservations();
-          const matchedReservation = reservations.find((row) =>
-            row.status === 'RESERVED' &&
-            (row.purpose === 'EXISTING_REPLACE_ONLY' || !row.purpose) &&
-            normalizeSopNumberInput(row.sopNumber) === cleanNum
-          );
-          if (matchedReservation) {
-            (sopData as any).numberReservationId = matchedReservation.id;
-            // The reservation is authoritative: never let a later save path
-            // infer a different sequence from the current numbering state.
-            sopData.sopNumber = matchedReservation.sopNumber;
-            sopData.sequenceNumber = matchedReservation.sequenceNumber;
-          }
-        } catch (reservationError) {
-          console.warn('Gagal membaca identitas Nomor Terbit untuk Existing:', reservationError);
-        }
-      }
-
       // Alur is optional in the SPO standard. Keep it in the saved object when
       // present, without forcing a shared-type change in this UI-only refactor.
       if (alur.trim()) {
@@ -1206,7 +1184,7 @@ export const UserView: React.FC<UserViewProps> = ({
                   </button>
                 </AdminTooltip>
 
-                {userSession.role === 'admin' && (
+                {false && userSession.role === 'admin' && (
                   <>
                     <AdminTooltip
                       title="Terbitkan Nomor Resmi"
@@ -1562,8 +1540,9 @@ export const UserView: React.FC<UserViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Switcher 2 Opsi: Upload DOCX vs Upload PDF */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Historical DOCX controls are retained in source for compatibility,
+                          but new Existing registration exposes PDF only. */}
+                      <div className="hidden" aria-hidden="true">
                         <button
                           type="button"
                           onClick={() => setExistingMode('docx')}
@@ -1616,7 +1595,7 @@ export const UserView: React.FC<UserViewProps> = ({
                       </div>
 
                       {/* Dropdown Opsional: Pilih dokumen terdaftar untuk digantikan jika ada */}
-                      {sops && sops.length > 0 && (
+                      {false && sops && sops.length > 0 && (
                         <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-3">
                           <label className="block text-[11px] font-bold text-purple-950 mb-1">
                             Pilih Dokumen Terdaftar untuk Diganti / Diperbarui (Opsional)
@@ -1653,7 +1632,7 @@ export const UserView: React.FC<UserViewProps> = ({
                       )}
 
                       {/* KONTEN OPSI 1: UPLOAD DOCX -> LIVE FORM A4 */}
-                      {existingMode === 'docx' && (
+                      {false && existingMode === 'docx' && (
                         <div className="space-y-5">
                           {/* Dropzone Upload DOCX */}
                           <div className="rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/40 p-5 text-center hover:bg-purple-50/70 transition-colors">
@@ -1926,7 +1905,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                   <span>Jaminan Integritas Berkas Asli</span>
                                 </div>
                                 <p className="text-[11px] text-emerald-800 leading-relaxed">
-                                  Dokumen PDF yang diunggah akan disimpan utuh sebagai dokumen asli bertanda tangan Direktur. Sistem tidak akan menambahkan watermark atau mengubah naskah fisik ini. Dokumen akan langsung berstatus <strong>AKTIF</strong> di Library dan siap untuk diajukan <strong>Riviu</strong> sewaktu-waktu.
+                                  Dokumen PDF yang diunggah akan disimpan utuh sebagai dokumen asli bertanda tangan Direktur. Sistem tidak akan menambahkan watermark atau mengubah naskah fisik ini. Dokumen disimpan sebagai <strong>DRAFT</strong> sampai diverifikasi dan diaktifkan Admin.
                                 </p>
                               </div>
                             </div>
@@ -2005,9 +1984,13 @@ export const UserView: React.FC<UserViewProps> = ({
                                     setProsedur(found.prosedur || '');
                                     setAlur((found as any).alur || '');
                                     setUnitTerkait(found.unitTerkait || '');
-                                    const currentRevNum = parseInt(found.version || '0', 10);
-                                    const nextRev = isNaN(currentRevNum) ? '01' : String(currentRevNum + 1).padStart(2, '0');
-                                    setRevisionNumber(nextRev);
+                                    const currentRevision = String(found.revisionNumber || found.version || '').trim();
+                                    setPreviousRevisionNumber(currentRevision);
+                                    try {
+                                      setRevisionNumber(getNextRevisionNumber(currentRevision));
+                                    } catch {
+                                      setRevisionNumber('');
+                                    }
                                     onShowToast?.('info', 'Data SPO Dimuat', `Data dari "${found.title}" telah dimuat untuk proses riviu.`);
                                   }
                                 }}
@@ -2039,17 +2022,26 @@ export const UserView: React.FC<UserViewProps> = ({
 
                               <div>
                                 <label className="block text-xs font-bold text-amber-950 mb-1.5">
-                                  Nomor Revisi Baru <span className="text-rose-500">*</span>
+                                  Revisi Saat Ini <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                   type="text"
                                   required={documentType === 'REVIEW'}
-                                  value={revisionNumber}
-                                  onChange={(e) => setRevisionNumber(e.target.value)}
-                                  placeholder="01"
+                                  value={previousRevisionNumber}
+                                  onChange={(e) => {
+                                    const current = e.target.value;
+                                    setPreviousRevisionNumber(current);
+                                    try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
+                                  }}
+                                  placeholder="00"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
                               </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-amber-950 mb-1.5">Nomor Revisi Baru (otomatis)</label>
+                              <input type="text" readOnly value={revisionNumber} placeholder="—" className="w-full px-3.5 py-2.5 rounded-xl border border-amber-200 bg-amber-100/60 font-mono text-xs font-bold text-slate-900" />
                             </div>
 
                             <div>
