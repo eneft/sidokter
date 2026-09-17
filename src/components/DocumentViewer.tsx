@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { PDFDocument } from 'pdf-lib';
 import {
   AlertCircle,
   Loader2,
@@ -22,6 +23,8 @@ export interface DocumentViewerProps {
   storagePath?: string;
   className?: string;
   heightClass?: string;
+  /** Let the parent own vertical scrolling by expanding a PDF to all pages. */
+  singleScroll?: boolean;
 }
 
 type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
@@ -68,7 +71,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   fileName,
   storagePath,
   className = '',
-  heightClass = 'h-[500px]'
+  heightClass = 'h-[500px]',
+  singleScroll = false
 }) => {
   const effectiveFileName = fileName || (file as File | undefined)?.name || 'Dokumen_SPO.pdf';
   const effectiveFileUrl = fileUrl || (storagePath ? buildStoragePathUrl(storagePath) : '');
@@ -76,6 +80,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [detectedType, setDetectedType] = useState<DocumentType>('unknown');
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pdfAspectHeight, setPdfAspectHeight] = useState<number | null>(null);
+  const [viewerWidth, setViewerWidth] = useState(0);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!singleScroll || !viewerRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setViewerWidth(entry.contentRect.width));
+    observer.observe(viewerRef.current);
+    return () => observer.disconnect();
+  }, [singleScroll]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +108,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       setError(null);
       setPreviewUrl(null);
       setDetectedType('unknown');
+      setPdfAspectHeight(null);
 
       if (!file && !effectiveFileUrl) {
         if (!cancelled) {
@@ -139,6 +154,23 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
         if (!blob.size) throw new Error('Berkas dokumen kosong atau tidak memiliki data.');
         const type = documentTypeFor(effectiveFileName, blob.type);
+        if (singleScroll && type === 'pdf') {
+          // Read only page geometry. The iframe still renders the original
+          // binary; no regenerated or screenshot PDF is introduced.
+          try {
+            const pdf = await PDFDocument.load(await blob.arrayBuffer(), { updateMetadata: false });
+            const pages = pdf.getPages();
+            const aspectHeight = pages.reduce((total, page) => {
+              const { width, height } = page.getSize();
+              return total + (width > 0 ? height / width : 0);
+            }, 0);
+            setPdfAspectHeight(aspectHeight + Math.max(0, pages.length - 1) * 0.035);
+          } catch (geometryError) {
+            // Keep the original browser preview available for encrypted or
+            // unusual PDFs whose page boxes cannot be inspected client-side.
+            console.warn('[DocumentViewer] PDF page geometry unavailable:', geometryError);
+          }
+        }
         objectUrl = URL.createObjectURL(blob);
         setPreview(objectUrl, type);
       } catch (loadError) {
@@ -155,7 +187,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file, effectiveFileUrl, effectiveFileName]);
+  }, [file, effectiveFileUrl, effectiveFileName, storagePath, singleScroll]);
+
+  const naturalPdfHeight = singleScroll && pdfAspectHeight && viewerWidth
+    ? Math.ceil(viewerWidth * pdfAspectHeight + 64)
+    : undefined;
 
   const handleDownload = () => {
     if (file) {
@@ -168,7 +204,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   };
 
   return (
-    <div className={`flex flex-col bg-white overflow-hidden ${heightClass} ${className}`}>
+    <div ref={viewerRef} className={`flex flex-col bg-white overflow-hidden ${singleScroll ? 'h-auto' : heightClass} ${className}`}>
       {detectedType === 'pdf' && !error && (
         <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-slate-100 bg-white shrink-0 no-print min-h-[34px]">
           <span className="text-[11px] font-semibold text-slate-500">PDF</span>
@@ -179,7 +215,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 bg-slate-50/80 overflow-auto flex flex-col items-center p-0 relative">
+      <div className={`${singleScroll ? '' : 'flex-1 min-h-0 overflow-auto'} bg-slate-50/80 flex flex-col items-center p-0 relative`}>
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400 py-12">
             <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
@@ -188,7 +224,12 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         )}
 
         {!loading && detectedType === 'pdf' && previewUrl && (
-          <iframe title={`Pratinjau ${effectiveFileName}`} src={previewUrl} className="w-full h-full min-h-[420px] border-0 bg-white" />
+          <iframe
+            title={`Pratinjau ${effectiveFileName}`}
+            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+            className={`w-full border-0 bg-white ${singleScroll ? '' : 'h-full min-h-[420px]'}`}
+            style={singleScroll ? { height: `${naturalPdfHeight || 600}px` } : undefined}
+          />
         )}
 
         {!loading && detectedType === 'image' && previewUrl && (
