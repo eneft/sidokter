@@ -21,8 +21,8 @@ Dokumen ini menjelaskan rancangan dan langkah-langkah teknis agar seluruh ekosis
                                │
           ┌────────────────────┴────────────────────┐
           │                                         │
-          │ 2a. Vercel GitHub App                   │ 2b. GitHub Actions CI/CD
-          │     (Webhook push otomatis)             │     (.github/workflows/firebase-deploy.yml)
+          │ 2a. Vercel GitHub App                   │ 2b. Firebase App Hosting
+          │     (Webhook push otomatis)             │     (integrasi terkelola eksternal)
           ▼                                         ▼
 ┌───────────────────────────┐             ┌───────────────────────────┐
 │          Vercel           │             │      Firebase Hosting     │
@@ -77,28 +77,11 @@ Dokumen ini menjelaskan rancangan dan langkah-langkah teknis agar seluruh ekosis
 
 ---
 
-### Pilar 3: GitHub ➔ Firebase Hosting & Cloud Functions (CI/CD Otomatis)
-- **Fungsi:** Men-deploy frontend ke `sidokter-soegiri.web.app` sekaligus memperbarui Cloud Functions (`asia-southeast2`), aturan keamanan Firestore (`firestore.rules`), dan Storage (`storage.rules`).
-- **File Workflow:** `.github/workflows/firebase-deploy.yml` telah dipasang di repositori ini.
-- **Langkah Setup Secret di GitHub (Hanya Perlu Dilakukan Sekali):**
-  1. Dapatkan token Firebase CLI:
-     - Jalankan perintah berikut di komputer / terminal Anda:
-       ```bash
-       npm install -g firebase-tools
-       firebase login:ci
-       ```
-     - Browser akan terbuka untuk login Google akun Firebase Anda. Setelah sukses, token panjang akan muncul di terminal.
-  2. Masuk ke repositori GitHub Anda:
-     - Buka tab **Settings** ➔ **Secrets and variables** ➔ **Actions**.
-     - Klik **New repository secret**.
-     - Masukkan nama: `FIREBASE_TOKEN`
-     - Masukkan nilai token yang didapat dari perintah di atas.
-     *(Alternatif: Anda juga bisa menggunakan Service Account JSON key dengan nama secret `FIREBASE_SERVICE_ACCOUNT_SIDOKTER_SOEGIRI`)*.
-  3. **Hasil:** Setiap ada push ke `main`, GitHub Actions secara otomatis:
-     - Menjalankan instalasi dependensi (root & `functions/`).
-     - Memverifikasi kode Cloud Functions.
-     - Mem-build aplikasi web Vite (`dist`).
-     - Menjalankan `firebase deploy --only functions,hosting,firestore,storage`.
+### Pilar 3: GitHub ➔ Firebase App Hosting (Integrasi Terkelola)
+- Deployment Firebase yang tampil sebagai pemeriksaan **Firebase App Hosting** dikelola di luar workflow GitHub Actions dalam repositori ini.
+- Workflow lama yang men-deploy Hosting, Functions, Firestore rules, dan Storage rules sekaligus pada setiap push telah dinonaktifkan. Workflow tersebut menduplikasi deployment hosting terkelola dan gagal jika secret Firebase CLI lama tidak tersedia.
+- Konfigurasi backend, project, region, dan hubungan repositori Firebase App Hosting harus diperiksa di Firebase Console. Jangan menyimpulkan bahwa backend dapat dihapus hanya dari isi repositori ini.
+- Deployment manual Functions atau rules, jika diperlukan, harus tetap menargetkan project yang telah diverifikasi; penghapusan workflow lama tidak menghapus source, rules, atau konfigurasi Firebase.
 
 ---
 
@@ -122,7 +105,7 @@ Dokumen ini menjelaskan rancangan dan langkah-langkah teknis agar seluruh ekosis
 
 1. **Uji Export:** Lakukan export dari AI Studio ke GitHub dan pastikan commit baru muncul di tab `Commits` GitHub.
 2. **Uji Vercel:** Buka dashboard Vercel, pastikan status deployment hijau (*Ready*).
-3. **Uji GitHub Actions:** Buka tab **Actions** di GitHub, pastikan workflow `Deploy to Firebase (Hosting, Functions, Rules)` berjalan sukses (*Success*).
+3. **Uji Firebase App Hosting:** Periksa masing-masing status backend di GitHub dan Firebase Console; verifikasi project, region, serta branch sumber sebelum mengubah koneksi backend.
 4. **Uji Akses Multi-Domain:**
    - Login ke akun Admin di domain Vercel.
    - Buat atau ubah satu data (misal draft SOP baru).
