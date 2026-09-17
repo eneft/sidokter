@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, LogOut, FileText, FileCheck, Handshake,
-  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Bell, RefreshCw
+  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Mail, RefreshCw
 } from 'lucide-react';
 import { UserSession, MainMenuTab } from '../types';
 import { HospitalLogo } from './HospitalLogo';
@@ -118,17 +118,18 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
             <AdminTooltip
-              title="Notifikasi Sistem"
-              content="Informasi pembaruan naskah, pengumuman rumah sakit, dan pengajuan aktivasi SPO."
+              title="Pesan"
+              content="Informasi dan tindak lanjut dokumen."
               side="bottom"
             >
               <button
                 type="button"
                 onClick={() => setIsNotificationOpen(true)}
-                className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-                aria-label="Pemberitahuan Sistem"
+                className="relative inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
+                aria-label="Pesan"
               >
-                <Bell className="w-4.5 h-4.5" />
+                <Mail className="w-4.5 h-4.5" />
+                <span className="text-[11px] font-bold">Pesan</span>
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -249,10 +250,10 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={() => setIsNotificationOpen(true)}
                 className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-                title="Pemberitahuan Sistem"
-                aria-label="Pemberitahuan Sistem"
+                title="Pesan"
+                aria-label="Pesan"
               >
-                <Bell className="w-5 h-5" />
+                <Mail className="w-5 h-5" />
                 {unreadCount > 0 && (
                   <span className="absolute top-1 right-1 px-1 py-0.2 min-w-3.5 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-xs">
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -357,17 +358,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
           <AdminTooltip
-            title="Notifikasi Sistem"
-            content="Informasi pembaruan naskah, pengumuman rumah sakit, dan pengajuan aktivasi SPO."
+            title="Pesan"
+            content="Informasi dan tindak lanjut dokumen."
             side="bottom"
           >
             <button
               type="button"
               onClick={() => setIsNotificationOpen(true)}
-              className="relative p-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-              aria-label="Pemberitahuan Sistem"
+              className="relative inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
+              aria-label="Pesan"
             >
-              <Bell className="w-4.5 h-4.5" />
+              <Mail className="w-4.5 h-4.5" />
+              <span className="text-[11px] font-bold">Pesan</span>
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
                   {unreadCount > 9 ? '9+' : unreadCount}
@@ -535,10 +537,10 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={() => setIsNotificationOpen(true)}
               className="relative p-2 rounded-xl hover:bg-slate-100 text-slate-700 cursor-pointer"
-              title="Pemberitahuan Sistem"
-              aria-label="Pemberitahuan Sistem"
+              title="Pesan"
+              aria-label="Pesan"
             >
-              <Bell className="w-5 h-5" />
+              <Mail className="w-5 h-5" />
               {unreadCount > 0 && (
                 <span className="absolute top-1 right-1 px-1 py-0.2 min-w-3.5 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-xs">
                   {unreadCount > 9 ? '9+' : unreadCount}

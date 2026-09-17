@@ -1,27 +1,8 @@
-import React, { useState } from 'react';
-import { 
-  Bell, 
-  X, 
-  CheckCheck, 
-  Trash2, 
-  FilePlus2, 
-  CalendarClock, 
-  Volume2, 
-  VolumeX, 
-  ArrowRight, 
-  Check,
-  Clock,
-  Stamp,
-  FileText
-} from 'lucide-react';
-import { 
-  AppNotification, 
-  markNotificationAsRead, 
-  markAllNotificationsAsRead, 
-  clearNotifications,
-  isAudioMuted,
-  setAudioMuted,
-  NotificationType
+import React, { useEffect, useState } from 'react';
+import { Mail, X } from 'lucide-react';
+import {
+  AppNotification,
+  markNotificationAsRead
 } from '../lib/notificationService';
 
 interface NotificationModalProps {
@@ -31,19 +12,32 @@ interface NotificationModalProps {
   onSelectDocument?: (docId: string, docNumber?: string) => void;
 }
 
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Baru saja';
-  if (mins < 60) return `${mins} mnt lalu`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} jam lalu`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} hari lalu`;
-  return new Date(timestamp).toLocaleDateString('id-ID', {
-    day: 'numeric',
-    month: 'short'
-  });
+function formatMessageTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+}
+
+function eventLabel(item: AppNotification): string {
+  const reviewContext = String(item.metadata?.reviewContext || '').toUpperCase();
+  if (reviewContext === 'REVISION_REQUESTED') return 'Perlu Perbaikan';
+  if (reviewContext === 'REVISION_SUBMITTED') return 'Perbaikan Dikirim';
+  if (reviewContext === 'VERIFIED') return 'Dokumen Terverifikasi';
+  if (item.type === 'activation') return 'SPO Diaktifkan';
+  if (item.type === 'proposal') return 'Usulan SPO';
+  if (item.type === 'assignment') return 'Usulan SPO Disetujui';
+  if (item.type === 'review') return 'Riviu SPO';
+  return item.title || 'Informasi';
+}
+
+function documentTitle(item: AppNotification): string {
+  const explicitTitle = item.metadata?.documentTitle || item.metadata?.sopTitle;
+  if (typeof explicitTitle === 'string' && explicitTitle.trim()) return explicitTitle.trim();
+  const quotedTitle = item.message?.match(/SPO\s+[“"]([^”"]+)[”"]/i)?.[1];
+  return quotedTitle ? `SPO ${quotedTitle}` : item.title;
 }
 
 export const NotificationModal: React.FC<NotificationModalProps> = ({
@@ -52,362 +46,103 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   notifications,
   onSelectDocument
 }) => {
-  const [filter, setFilter] = useState<'all' | 'activation' | 'proposal' | 'assignment' | 'review'>('all');
-  const [muted, setMuted] = useState(isAudioMuted());
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+
+  useEffect(() => {
+    if (!isOpen) setFilter('all');
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleToggleMute = () => {
-    const next = !muted;
-    setMuted(next);
-    setAudioMuted(next);
+  const filtered = filter === 'unread' ? notifications.filter((item) => !item.read) : notifications;
+  const unreadCount = notifications.filter((item) => !item.read).length;
+
+  const openMessage = (item: AppNotification) => {
+    markNotificationAsRead(item.id);
+    onClose();
+
+    // Prefer the persisted documentId. Legacy in-memory actions remain a safe fallback.
+    if (item.documentId && onSelectDocument) {
+      onSelectDocument(item.documentId, item.documentNumber);
+    } else if (item.onAction) {
+      item.onAction();
+    }
   };
 
-  const filtered = notifications.filter((n) => {
-    if (filter === 'all') return true;
-    return n.type === filter;
-  });
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-  const countActivation = notifications.filter((n) => n.type === 'activation').length;
-  const countProposal = notifications.filter((n) => n.type === 'proposal').length;
-  const countAssignment = notifications.filter((n) => n.type === 'assignment').length;
-  const countReview = notifications.filter((n) => n.type === 'review').length;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-      <div 
-        className="bg-white rounded-2xl shadow-xl border border-slate-200/90 w-full max-w-xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/30 p-0 sm:items-center sm:p-4" onClick={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pesan-title"
+        className="flex max-h-[100dvh] min-h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:min-h-0 sm:max-h-[78vh] sm:max-w-lg sm:rounded-2xl sm:border sm:border-slate-200"
+        onClick={(event) => event.stopPropagation()}
       >
-        {/* Minimalist Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
-              <Bell className="w-4 h-4" />
-            </div>
+        <header className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <Mail className="h-4 w-4" />
+            </span>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 text-sm leading-tight">
-                  Pemberitahuan
-                </h3>
-                {unreadCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[10px]">
-                    {unreadCount} baru
-                  </span>
-                )}
+                <h2 id="pesan-title" className="text-sm font-black tracking-wide text-slate-900">PESAN</h2>
+                {unreadCount > 0 && <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">{unreadCount}</span>}
               </div>
-              <p className="text-[11px] text-slate-500">
-                Aktivasi, usulan SPO & riviu
-              </p>
+              <p className="mt-0.5 text-xs text-slate-500">Informasi dan tindak lanjut dokumen</p>
             </div>
           </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Tutup Pesan">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
 
-          <div className="flex items-center gap-1.5">
-            {/* Mute Toggle */}
+        <div className="flex gap-1 border-b border-slate-200 bg-slate-50/70 px-5 py-2.5">
+          {([['all', 'Semua'], ['unread', 'Belum Dibaca']] as const).map(([value, label]) => (
             <button
+              key={value}
               type="button"
-              onClick={handleToggleMute}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-              title={muted ? 'Aktifkan Suara Notifikasi' : 'Senyapkan Suara Notifikasi'}
-              aria-label="Toggle suara notifikasi"
+              onClick={() => setFilter(value)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${filter === value ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
             >
-              {muted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4 text-slate-700" />}
+              {label}{value === 'unread' && unreadCount > 0 ? ` (${unreadCount})` : ''}
             </button>
-
-            {/* Close Button */}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-              aria-label="Tutup modal"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          ))}
         </div>
 
-        {/* Minimalist Filter Bar & Actions */}
-        <div className="px-5 py-2.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50/60 text-xs">
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setFilter('all')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                filter === 'all'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/70'
-              }`}
-            >
-              Semua ({notifications.length})
-            </button>
-
-            {countActivation > 0 && (
-              <button
-                type="button"
-                onClick={() => setFilter('activation')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  filter === 'activation'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200/70'
-                }`}
-              >
-                Pengesahan SPO ({countActivation})
-              </button>
-            )}
-
-            {countProposal > 0 && (
-              <button
-                type="button"
-                onClick={() => setFilter('proposal')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  filter === 'proposal'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200/70'
-                }`}
-              >
-                Usulan ({countProposal})
-              </button>
-            )}
-
-            {countAssignment > 0 && (
-              <button
-                type="button"
-                onClick={() => setFilter('assignment')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  filter === 'assignment'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200/70'
-                }`}
-              >
-                Disetujui ({countAssignment})
-              </button>
-            )}
-
-            {countReview > 0 && (
-              <button
-                type="button"
-                onClick={() => setFilter('review')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  filter === 'review'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-200/70'
-                }`}
-              >
-                Riviu ({countReview})
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto">
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={() => markAllNotificationsAsRead()}
-                className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 font-medium transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-white"
-              >
-                <CheckCheck className="w-3 h-3" />
-                <span>Baca Semua</span>
-              </button>
-            )}
-            {notifications.length > 0 && (
-              <button
-                type="button"
-                onClick={() => clearNotifications()}
-                className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-600 font-medium transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-rose-50"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Hapus</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Notifications List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2">
-                <Bell className="w-5 h-5 opacity-40" />
-              </div>
-              <h4 className="font-semibold text-slate-700 text-xs">Belum ada pemberitahuan</h4>
-              <p className="text-[11px] text-slate-400 mt-0.5 max-w-xs mx-auto">
-                Semua pembaruan persetujuan SPO, usulan, dan jadwal riviu akan tampil di sini.
-              </p>
+            <div className="flex flex-col items-center px-6 py-16 text-center">
+              <Mail className="mb-3 h-7 w-7 text-slate-300" />
+              <p className="text-sm font-semibold text-slate-600">{filter === 'unread' ? 'Semua pesan sudah dibaca' : 'Belum ada pesan'}</p>
+              <p className="mt-1 text-xs text-slate-400">Pembaruan workflow dokumen akan tampil di sini.</p>
             </div>
-          ) : (
-            filtered.map((item) => {
-              const isActivation = item.type === 'activation';
-              const isProposal = item.type === 'proposal';
-              const isAssignment = item.type === 'assignment';
-              const isReview = item.type === 'review';
-
-              const canOpenDoc = Boolean(item.onAction || (item.documentId && onSelectDocument));
-
-              const handleItemClick = () => {
-                if (item.onAction) {
-                  markNotificationAsRead(item.id);
-                  item.onAction();
-                  onClose();
-                } else if (item.documentId && onSelectDocument) {
-                  markNotificationAsRead(item.id);
-                  onSelectDocument(item.documentId, item.documentNumber);
-                  onClose();
-                }
-              };
-
-              return (
-                <div
-                  key={item.id}
-                  onClick={canOpenDoc ? handleItemClick : undefined}
-                  className={`p-3 rounded-xl border transition-all text-left ${
-                    canOpenDoc ? 'cursor-pointer hover:shadow-xs' : ''
-                  } ${
-                    !item.read
-                      ? 'bg-slate-50/90 border-slate-200 hover:border-slate-300'
-                      : 'bg-white border-slate-100 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    {/* Small Minimal Icon */}
-                    <div className="shrink-0 mt-0.5">
-                      {isActivation ? (
-                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
-                          <Stamp className="w-3.5 h-3.5" />
-                        </div>
-                      ) : isProposal ? (
-                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
-                          <FileText className="w-3.5 h-3.5" />
-                        </div>
-                      ) : isAssignment ? (
-                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
-                          <FilePlus2 className="w-3.5 h-3.5" />
-                        </div>
-                      ) : isReview ? (
-                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
-                          <CalendarClock className="w-3.5 h-3.5" />
-                        </div>
-                      ) : (
-                        <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center">
-                          <Bell className="w-3.5 h-3.5" />
-                        </div>
-                      )}
+          ) : filtered.map((item) => {
+            const actor = item.metadata?.actorName || item.metadata?.senderName;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openMessage(item)}
+                className={`relative block w-full border-b border-slate-100 px-5 py-3.5 text-left transition-colors last:border-b-0 hover:bg-slate-50 ${!item.read ? 'bg-emerald-50/35' : 'bg-white'}`}
+              >
+                <div className="flex items-start gap-2">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${!item.read ? 'bg-emerald-600' : 'bg-transparent'}`} aria-label={!item.read ? 'Belum dibaca' : undefined} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className={`text-[10px] uppercase tracking-wide text-slate-700 ${!item.read ? 'font-black' : 'font-bold'}`}>{eventLabel(item)}</span>
+                      <time className="shrink-0 text-[10px] text-slate-400">{formatMessageTime(item.timestamp)}</time>
                     </div>
-
-                    {/* Content Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                            'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {isActivation
-                            ? 'Pengesahan SPO'
-                            : isProposal
-                            ? 'Usulan SPO'
-                            : isAssignment
-                            ? 'Disahkan'
-                            : isReview
-                            ? 'Riviu Berkala'
-                            : 'Info'}
-                        </span>
-
-                        {item.divisionCode && (
-                          <span className="text-[9px] font-mono font-medium px-1 py-0.2 rounded bg-slate-100 text-slate-600">
-                            {item.divisionCode}
-                          </span>
-                        )}
-
-                        {item.dueDate && (
-                          <span className={`text-[9px] font-medium flex items-center gap-1 ${
-                            item.isOverdue ? 'text-rose-600 font-bold' : 'text-amber-700'
-                          }`}>
-                            <Clock className="w-2.5 h-2.5" />
-                            {item.dueDate}
-                          </span>
-                        )}
-
-                        <span className="text-[10px] text-slate-400 ml-auto font-normal">
-                          {formatRelativeTime(item.timestamp)}
-                        </span>
-                      </div>
-
-                      <h4 className="font-semibold text-slate-900 text-xs leading-snug">
-                        {item.title}
-                      </h4>
-                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                        {item.message}
-                      </p>
-
-                      {/* Action buttons */}
-                      <div className="mt-2 flex items-center justify-between pt-1.5 border-t border-slate-100/60">
-                        {item.onAction ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              markNotificationAsRead(item.id);
-                              item.onAction?.();
-                              onClose();
-                            }}
-                            className={`inline-flex items-center gap-1 text-[11px] font-bold transition-colors cursor-pointer ${
-                              'text-slate-800 hover:text-slate-950'
-                            }`}
-                          >
-                            <span>{item.actionLabel || (isProposal ? 'Tinjau & Sahkan' : 'Buka Dokumen')}</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        ) : item.documentId && onSelectDocument ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              markNotificationAsRead(item.id);
-                              onSelectDocument(item.documentId!, item.documentNumber);
-                              onClose();
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-800 hover:text-slate-950 transition-colors cursor-pointer"
-                          >
-                            <span>{item.actionLabel || (isProposal ? 'Tinjau & Sahkan' : 'Buka Dokumen')}</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        ) : <div />}
-
-                        {!item.read && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              markNotificationAsRead(item.id);
-                            }}
-                            className="text-[10px] text-slate-400 hover:text-slate-700 transition-colors flex items-center gap-0.5 py-0.5 px-1.5 rounded cursor-pointer"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>Tandai dibaca</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                    <h3 className={`mt-1 truncate text-sm text-slate-900 ${!item.read ? 'font-bold' : 'font-semibold'}`}>{documentTitle(item)}</h3>
+                    {item.documentNumber && <p className="mt-0.5 text-[11px] font-medium text-slate-500">{item.documentNumber}</p>}
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">{item.message}</p>
+                    {actor && <p className="mt-1.5 text-[11px] font-medium text-slate-500">{String(actor)}</p>}
                   </div>
                 </div>
-              );
-            })
-          )}
+              </button>
+            );
+          })}
         </div>
-
-        {/* Minimalist Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between text-[11px] text-slate-400">
-          <span>RSUD Dr. Soegiri Lamongan</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200/90 text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            Tutup
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };
