@@ -47,6 +47,7 @@ import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
+import { SopReviewAction } from '../lib/sopReviewService';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -60,6 +61,7 @@ interface SopDetailModalProps {
   onProposeActivation?: (sop: SopDocument) => void;
   userSession?: UserSession | null;
   users?: UserAccount[];
+  onReviewWorkflow?: (sop: SopDocument, action: SopReviewAction, note?: string) => Promise<void>;
 }
 
 type OfficialBlock = {
@@ -156,7 +158,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   onActivateSop,
   onProposeActivation,
   userSession,
-  users
+  users,
+  onReviewWorkflow
 }) => {
   const [copied, setCopied] = useState(false);
   const [officialPdfBlob, setOfficialPdfBlob] = useState<Blob | null>(null);
@@ -169,6 +172,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [showRevisionRequest, setShowRevisionRequest] = useState(false);
+  const [revisionNote, setRevisionNote] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
 
   // Check if document is a review or legacy document
   const isReviewDoc = Boolean(
@@ -2478,9 +2484,34 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </>
           )}
 
+          {sop.reviewHistory && sop.reviewHistory.length > 0 && (
+            <section className="mx-6 mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 no-print">
+              <h3 className="text-xs font-black uppercase tracking-wide text-slate-700 mb-3">Riwayat Verifikasi</h3>
+              <div className="space-y-2">
+                {[...sop.reviewHistory].reverse().map((entry) => (
+                  <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-3 text-xs">
+                    <div className="flex justify-between gap-3"><strong>{entry.actorName}</strong><span className="text-slate-500">{new Date(entry.createdAt).toLocaleString('id-ID')}</span></div>
+                    {entry.note && <p className="mt-1 text-slate-700">{entry.note}</p>}
+                    <span className="mt-1 block text-[10px] font-bold text-blue-800">Status: {entry.type === 'REVISION_REQUESTED' ? 'Perbaikan Diminta' : entry.type === 'REVISION_SUBMITTED' ? 'Menunggu Verifikasi Ulang' : 'Terverifikasi'}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Modal Footer (Hidden in Print) */}
           <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50 flex items-center justify-between no-print gap-3 flex-wrap">
             <div className="flex items-center gap-2">
+              {(userSession?.role === 'admin' || (userSession?.badges || []).some((b) => String(b).toUpperCase() === 'VERIFIKATOR')) && sop.status === 'DRAFT' && onReviewWorkflow && (
+                <>
+                  {(sop.reviewState === undefined || sop.reviewState === 'NONE' || sop.reviewState === 'REVISION_SUBMITTED' || sop.reviewState === 'VERIFIED') && (
+                    <button type="button" onClick={() => setShowRevisionRequest(true)} className="px-3.5 py-2 text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 rounded-xl">Minta Perbaikan</button>
+                  )}
+                  {sop.reviewState === 'REVISION_SUBMITTED' && (
+                    <button type="button" disabled={reviewBusy} onClick={async () => { setReviewBusy(true); try { await onReviewWorkflow(sop, 'VERIFY'); } finally { setReviewBusy(false); } }} className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl">Tandai Terverifikasi</button>
+                  )}
+                </>
+              )}
               <span className="text-xs text-slate-500 font-medium">Status Dokumen:</span>
               {canUserActivateSop(sop, userSession) ? (
                 isExisting ? (
@@ -2612,6 +2643,21 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               </AdminTooltip>
             </div>
           </div>
+          {showRevisionRequest && (
+            <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={() => setShowRevisionRequest(false)}>
+              <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                <h2 className="text-base font-black text-slate-900">Minta Perbaikan SPO</h2>
+                <label className="mt-4 block text-xs font-bold text-slate-600">Kepada</label>
+                <input readOnly value={sop.creatorName || sop.activationRequestedBy || 'Pembuat/Pengusul SPO'} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm" />
+                <label className="mt-4 block text-xs font-bold text-slate-600">Catatan Perbaikan *</label>
+                <textarea rows={4} value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                <div className="mt-5 flex justify-end gap-2">
+                  <button type="button" onClick={() => setShowRevisionRequest(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+                  <button type="button" disabled={reviewBusy || !revisionNote.trim()} onClick={async () => { if (!revisionNote.trim()) return; setReviewBusy(true); try { await onReviewWorkflow(sop, 'REQUEST_REVISION', revisionNote.trim()); setRevisionNote(''); setShowRevisionRequest(false); } finally { setReviewBusy(false); } }} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Kirim Permintaan</button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
 

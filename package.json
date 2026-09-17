@@ -16,7 +16,8 @@
     "verify:functions": "node --check functions/index.js",
     "test:storage": "node --test functions/storageMetadata.test.js",
     "test:revision": "tsx tests/revision-number.test.ts",
-    "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts"
+    "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts",
+    "test:sop-review": "node --test functions/sopReviewPolicy.test.js"
   },
   "dependencies": {
     "@sparticuz/chromium": "149.0.0",

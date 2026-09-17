@@ -33,5 +33,9 @@ export function preserveSopWorkflowIdentity(stored: SopDocument, submitted: SopD
     existingSopId: stored.existingSopId,
     previousRevisionNumber: stored.previousRevisionNumber,
     oldSopNumber: stored.oldSopNumber,
+    reviewState: stored.reviewState,
+    reviewHistory: stored.reviewHistory,
+    currentReviewRequesterUid: stored.currentReviewRequesterUid,
+    reviewUpdatedAt: stored.reviewUpdatedAt,
   };
 }

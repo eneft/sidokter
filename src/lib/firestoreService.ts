@@ -168,6 +168,16 @@ export async function saveSopToFirestore(
       _syncedAt: new Date().toISOString()
     });
     const docRef = doc(db, 'sops', sop.id);
+    // Activation must honor the server's current verification state, not a
+    // potentially stale client copy. Documents that never entered this flow
+    // remain activatable (NONE/undefined).
+    if (sop.status === 'AKTIF' && !options?.allocateOfficialNumber) {
+      const activationSnapshot = await getDocFromServer(docRef);
+      const serverReviewState = activationSnapshot.exists() ? String(activationSnapshot.data()?.reviewState || 'NONE') : 'NONE';
+      if (serverReviewState === 'REVISION_REQUESTED' || serverReviewState === 'REVISION_SUBMITTED') {
+        throw new Error('Aktivasi ditolak. Alur perbaikan SPO belum diselesaikan.');
+      }
+    }
     if (options?.allocateOfficialNumber) {
       const divisionCode = String(sop.divisionCode || '').trim().toUpperCase();
       const subHierarchyCode = String(sop.subHierarchyCode || '').trim();
@@ -311,6 +321,9 @@ export async function activateRiviuInFirestore(
     const predecessor = { ...predecessorSnapshot.data(), id: predecessorSnapshot.id } as SopDocument;
     if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu tidak lagi berstatus AKTIF.');
     if (storedSuccessor.status !== 'DRAFT') throw new Error('Dokumen penerus bukan draft Riviu yang dapat diaktifkan.');
+    if (storedSuccessor.reviewState === 'REVISION_REQUESTED' || storedSuccessor.reviewState === 'REVISION_SUBMITTED') {
+      throw new Error('Aktivasi ditolak. Alur perbaikan SPO belum diselesaikan.');
+    }
     if (storedSuccessor.jenis_spo !== 'RIVIU' || storedSuccessor.existingSopId !== predecessor.id) {
       throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
     }

@@ -7,6 +7,7 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
+const { assertReviewTransition } = require('./sopReviewPolicy');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -645,6 +646,84 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
     throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
   }
   return { ok: true, id };
+});
+
+// Authoritative, transactional SPO correction workflow. Notification routing is
+// performed here so clients can never choose or impersonate a recipient.
+exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 20, memory: '256MiB' }, async (request) => {
+  const actorUid = request.auth?.uid;
+  if (!actorUid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
+  const sopId = String(request.data?.sopId || '').trim();
+  const action = String(request.data?.action || '').trim();
+  const note = String(request.data?.note || '').trim();
+  if (!sopId || !['REQUEST_REVISION', 'SUBMIT_REVISION', 'VERIFY'].includes(action)) {
+    throw new HttpsError('invalid-argument', 'Permintaan alur verifikasi tidak valid.');
+  }
+  if (action === 'REQUEST_REVISION' && !note) {
+    throw new HttpsError('invalid-argument', 'Catatan perbaikan wajib diisi.');
+  }
+
+  const actorSnap = await db.collection('users').doc(actorUid).get();
+  if (!actorSnap.exists) throw new HttpsError('permission-denied', 'Akun tidak ditemukan.');
+  const actor = actorSnap.data() || {};
+  const sopRef = db.collection('sops').doc(sopId);
+  let notification = null;
+  let resultingSop;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(sopRef);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
+    const sop = snapshot.data() || {};
+    if (sop.status !== 'DRAFT') throw new HttpsError('failed-precondition', 'Permintaan perbaikan hanya berlaku untuk SPO DRAFT.');
+    let creatorUid = String(sop.creatorUid || sop.activationRequestedUid || '').trim();
+    // Backward compatibility for historical records that predate creatorUid:
+    // resolve only an exact, unique account username; display names are never
+    // accepted as routing identities.
+    if (!creatorUid && sop.creatorUsername) {
+      const creatorQuery = db.collection('users').where('username', '==', String(sop.creatorUsername).trim()).limit(2);
+      const creatorMatches = await transaction.get(creatorQuery);
+      if (creatorMatches.size === 1) creatorUid = creatorMatches.docs[0].id;
+    }
+    if (!creatorUid) throw new HttpsError('failed-precondition', 'UID pembuat/pengusul SPO tidak dapat ditentukan.');
+    sop.creatorUid = creatorUid;
+    const now = new Date().toISOString();
+    let nextState;
+    let recipientUid;
+    let eventNote;
+    let transition;
+    try {
+      transition = assertReviewTransition({ action, actor, actorUid, sop, note });
+    } catch (error) {
+      const code = ['DRAFT_REQUIRED', 'CREATOR_REQUIRED', 'INVALID_STATE'].includes(error.message) ? 'failed-precondition' : error.message === 'NOTE_REQUIRED' ? 'invalid-argument' : 'permission-denied';
+      throw new HttpsError(code, error.message === 'NOTE_REQUIRED' ? 'Catatan perbaikan wajib diisi.' : 'Transisi alur perbaikan tidak diizinkan. Muat ulang dokumen.');
+    }
+    if (action === 'REQUEST_REVISION') {
+      nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = note;
+      notification = { uid: creatorUid, title: 'Permintaan Perbaikan SPO', message: `SPO "${sop.title || sop.sopNumber}" memerlukan perbaikan sebelum proses aktivasi.`, key: `sop-revision-requested-${sopId}-${Date.now()}`, note };
+    } else if (action === 'SUBMIT_REVISION') {
+      const requesterUid = String(sop.currentReviewRequesterUid || '').trim();
+      nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = 'Perbaikan telah dikirim.';
+      notification = { uid: requesterUid, title: 'Perbaikan SPO Telah Dikirim', message: `${actor.name || actor.username || 'Pengusul'} telah mengirim perbaikan untuk SPO "${sop.title || sop.sopNumber}".`, key: `sop-revision-submitted-${sopId}-${Date.now()}` };
+    } else {
+      nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = 'Verifikasi selesai.';
+    }
+    const entry = { id: crypto.randomUUID(), type: nextState, actorUid, actorName: String(actor.name || actor.username || 'Pengguna'), recipientUid, note: eventNote, createdAt: now };
+    const update = { reviewState: nextState, reviewHistory: [...(Array.isArray(sop.reviewHistory) ? sop.reviewHistory : []), entry], reviewUpdatedAt: now, updatedAt: now };
+    if (!snapshot.data().creatorUid) update.creatorUid = creatorUid;
+    if (action === 'REQUEST_REVISION') update.currentReviewRequesterUid = actorUid;
+    transaction.update(sopRef, update);
+    resultingSop = { ...sop, id: snapshot.id, ...update };
+    if (notification) {
+      const notifId = notification.key.replace(/\//g, '_').slice(0, 150);
+      transaction.set(db.collection('notifications').doc(notification.uid).collection('items').doc(notifId), {
+        id: notifId, type: 'review', title: notification.title, message: notification.message,
+        documentId: sopId, documentNumber: sop.sopNumber || null, documentType: 'SPO', timestamp: Date.now(), read: false, hidden: false,
+        metadata: { eventKey: notification.key, reviewContext: nextState, correctionNote: notification.note || null, recipientUid: notification.uid }, actionLabel: 'Buka SPO'
+      });
+    }
+  });
+  await audit({ actorUid, username: actor.username, name: actor.name, role: actor.role, event: `SOP_${action}`, details: `SPO ${sopId}: ${resultingSop.reviewState}` });
+  return { ok: true, sop: resultingSop };
 });
 exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
   cors(req, res);
