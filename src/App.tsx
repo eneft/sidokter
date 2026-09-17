@@ -32,6 +32,7 @@ import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasVerificatorBadge } from './utils/soegiriStructure';
 import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
+import { validateSupportingEvidence } from './utils/supportingEvidence';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -1003,10 +1004,12 @@ export default function App() {
       if (String(newSopData.revisionNumber || '') !== revisionNumber) {
         throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
       }
+      validateSupportingEvidence(newSopData.supportingEvidence);
       authoritativeSopData = {
         ...newSopData,
         existingSopId: referenced.id,
-        oldSopNumber: referenced.sopNumber,
+        oldSopNumber: String(newSopData.oldSopNumber || '').trim(),
+        previousSopNumber: String(newSopData.oldSopNumber || '').trim(),
         previousRevisionNumber,
         revisionNumber,
         version: revisionNumber,

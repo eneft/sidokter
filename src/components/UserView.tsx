@@ -75,6 +75,7 @@ import { AdminHubPage } from './AdminHubPage';
 import IssueSopNumberModal from './IssueSopNumberModal';
 import { getAllNumberReservations, SopNumberReservation } from '../lib/sopService';
 import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
+import { SupportingEvidenceInput, createPendingEvidence, PendingEvidence } from './SupportingEvidenceInput';
 
 interface UserViewProps {
   userSession: UserSession;
@@ -422,6 +423,7 @@ export const UserView: React.FC<UserViewProps> = ({
   const [reviewReason, setReviewReason] = useState('');
   const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
+  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([createPendingEvidence(1)]);
 
   // Progressive input workflow.
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1);
@@ -733,6 +735,7 @@ export const UserView: React.FC<UserViewProps> = ({
     setReviewReason('');
     setExternalReviewSignedConfirmed(false);
     setSelectedExistingSopIdForReview('');
+    setSupportingEvidence([createPendingEvidence(1)]);
     setSubmitError(null);
     setIssuedSopNumber(null);
     setIssuedSopId(null);
@@ -829,6 +832,14 @@ export const UserView: React.FC<UserViewProps> = ({
         }
         if (referenced && referenced.status !== 'AKTIF') {
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
+          return;
+        }
+        if (!supportingEvidence[0]?.file) {
+          setSubmitError('Minimal satu Bukti Dukung Riviu wajib diunggah.');
+          return;
+        }
+        if (supportingEvidence.some((item) => !item.file)) {
+          setSubmitError('Hapus baris Bukti Dukung yang kosong atau pilih berkasnya.');
           return;
         }
         try {
@@ -1026,6 +1037,24 @@ export const UserView: React.FC<UserViewProps> = ({
 
       if (isReview) {
         (sopData as any).externalReviewSignedConfirmed = externalReviewSignedConfirmed;
+        sopData.supportingEvidence = await Promise.all(supportingEvidence.map(async (item) => {
+          const file = item.file!;
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error(`Gagal membaca bukti dukung ${file.name}.`));
+            reader.readAsDataURL(file);
+          });
+          return {
+            id: item.id,
+            category: item.category,
+            description: item.description.trim() || undefined,
+            originalName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            size: file.size,
+            dataUrl,
+          };
+        }));
       }
 
       const isDocxFile = selectedFile && (
@@ -2009,7 +2038,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                   type="text"
                                   required={documentType === 'REVIEW'}
                                   value={oldSopNumber}
-                                  readOnly
+                                  onChange={(e) => setOldSopNumber(e.target.value)}
                                   placeholder="Contoh: PEL / 1.1.3 / 015 / 2023 - SPO Rekam Jantung"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
@@ -2023,7 +2052,11 @@ export const UserView: React.FC<UserViewProps> = ({
                                   type="text"
                                   required={documentType === 'REVIEW'}
                                   value={previousRevisionNumber}
-                                  readOnly
+                                  onChange={(e) => {
+                                    const current = e.target.value;
+                                    setPreviousRevisionNumber(current);
+                                    try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
+                                  }}
                                   placeholder="00"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
@@ -2171,6 +2204,10 @@ export const UserView: React.FC<UserViewProps> = ({
                           />
                         </div>
                       </section>
+
+                      {documentType === 'REVIEW' && (
+                        <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} />
+                      )}
 
                       {/* Bukti dokumen hanya untuk SPO Riviu. SPO Baru tidak memiliki upload. */}
                       {false && documentType === 'REVIEW' && (
