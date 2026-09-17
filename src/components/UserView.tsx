@@ -823,13 +823,8 @@ export const UserView: React.FC<UserViewProps> = ({
         const reviewNumber = normalizeSopNumberInput(oldSopNumber);
         const referenced = (selectedExistingSopIdForReview && sops.find((s) => s.id === selectedExistingSopIdForReview))
           || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
-        const hasExternalSignedPdf = Boolean(
-          selectedFile &&
-          (selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')) &&
-          externalReviewSignedConfirmed
-        );
-        if (!reviewNumber || (!referenced && !hasExternalSignedPdf)) {
-          setSubmitError('SPO rujukan Riviu harus berupa SPO AKTIF di aplikasi, atau PDF SPO lama yang sudah ditandatangani Direktur dan dikonfirmasi keabsahannya.');
+        if (!reviewNumber || !referenced) {
+          setSubmitError('SPO rujukan Riviu wajib dipilih dari SPO terdaftar yang berstatus AKTIF.');
           return;
         }
         if (referenced && referenced.status !== 'AKTIF') {
@@ -2014,7 +2009,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                   type="text"
                                   required={documentType === 'REVIEW'}
                                   value={oldSopNumber}
-                                  onChange={(e) => setOldSopNumber(e.target.value)}
+                                  readOnly
                                   placeholder="Contoh: PEL / 1.1.3 / 015 / 2023 - SPO Rekam Jantung"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
@@ -2028,11 +2023,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                   type="text"
                                   required={documentType === 'REVIEW'}
                                   value={previousRevisionNumber}
-                                  onChange={(e) => {
-                                    const current = e.target.value;
-                                    setPreviousRevisionNumber(current);
-                                    try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
-                                  }}
+                                  readOnly
                                   placeholder="00"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
@@ -2182,14 +2173,14 @@ export const UserView: React.FC<UserViewProps> = ({
                       </section>
 
                       {/* Bukti dokumen hanya untuk SPO Riviu. SPO Baru tidak memiliki upload. */}
-                      {documentType === 'REVIEW' && (
+                      {false && documentType === 'REVIEW' && (
                       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <div className="text-xs font-black text-slate-700">
                               Bukti Dokumen SPO Lama (PDF)
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">Wajib hanya jika SPO rujukan tidak berasal dari dokumen Aktif di aplikasi.</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">Riviu hanya berasal dari SPO AKTIF yang terdaftar di aplikasi.</div>
                           </div>
                           <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50">
                             <Upload className="w-4 h-4" />

@@ -372,6 +372,16 @@ export function getUnitKey(divisionCode: string, subHierarchyCode?: string): str
   return cleanSub ? `${cleanDiv}:${cleanSub}` : cleanDiv;
 }
 
+/** Stable Firestore sequence scope: counters never cross hierarchy or year. */
+export function getNumberingSequenceScope(year: string, divisionCode: string, subHierarchyCode?: string): string {
+  return `${String(year).trim()}|${String(divisionCode).trim().toUpperCase()}|${String(subHierarchyCode || '').trim() || 'ROOT'}`;
+}
+
+/** Pure calculation used inside the retryable Firestore creation transaction. */
+export function getNextTransactionalSequence(storedCounter: number, highestExisting: number): number {
+  return Math.max(Number(storedCounter) || 0, Number(highestExisting) || 0) + 1;
+}
+
 /**
  * Calculate the highest existing sequence number for a specific unit (divisionCode + subHierarchyCode)
  */
@@ -939,4 +949,3 @@ export function standardizeAllSops(sops: SopDocument[]): {
     duplicateCount
   };
 }
-

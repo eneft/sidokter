@@ -8,6 +8,7 @@ import {
   setDoc,
   deleteDoc,
   getDocs,
+  getDocsFromServer,
   getDoc,
   getDocFromServer,
   onSnapshot,
@@ -22,6 +23,7 @@ import {
 import { db, auth, authPersistenceReady } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
+import { generateSopNumber, getHighestSequenceForUnit, getNextTransactionalSequence, getNumberingSequenceScope } from '../utils/numbering';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -102,7 +104,10 @@ function sanitizeForFirestore<T = any>(obj: T): any {
    SOP (STANDAR PROSEDUR OPERASIONAL) FIRESTORE SYNC
 ========================================================================= */
 
-export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnError?: boolean }): Promise<void> {
+export async function saveSopToFirestore(
+  sop: SopDocument,
+  options?: { throwOnError?: boolean; allocateOfficialNumber?: NumberingConfig },
+): Promise<SopDocument> {
   try {
     if (!sop || !sop.id) return;
     updateStatus({ isSyncing: true });
@@ -153,13 +158,78 @@ export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnEr
       _syncedAt: new Date().toISOString()
     });
     const docRef = doc(db, 'sops', sop.id);
-    await setDoc(docRef, cleanSop, { merge: true });
+    if (options?.allocateOfficialNumber) {
+      const divisionCode = String(sop.divisionCode || '').trim().toUpperCase();
+      const subHierarchyCode = String(sop.subHierarchyCode || '').trim();
+      const effectiveDate = sop.effectiveDate || new Date().toISOString().slice(0, 10);
+      const year = effectiveDate.slice(0, 4);
+      if (!divisionCode || !/^\d{4}$/.test(year)) throw new Error('Hirarki atau tahun penomoran SPO tidak valid.');
+
+      // Bootstrap a sequence document from authoritative Firestore data. Once it
+      // exists, every Baru/Riviu creation contends on this one unit/year document.
+      // Firestore retries the transaction when another submitter updates it.
+      const serverSops = await getDocsFromServer(collection(db, 'sops'));
+      const existingSops = serverSops.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as SopDocument));
+      const highestExisting = getHighestSequenceForUnit(existingSops, divisionCode, subHierarchyCode, year);
+      const sequenceKey = encodeURIComponent(getNumberingSequenceScope(year, divisionCode, subHierarchyCode));
+      const sequenceRef = doc(db, 'system_config', `spo_sequence_${sequenceKey}`);
+      const isRiviu = sop.jenis_spo === 'RIVIU' || sop.documentType === 'RIVIU' || sop.documentType === 'REVIEW' || sop.isReviewDocument === true;
+
+      await runTransaction(db, async (transaction) => {
+        const sequenceSnapshot = await transaction.get(sequenceRef);
+        const predecessorRef = isRiviu && sop.existingSopId ? doc(db, 'sops', sop.existingSopId) : null;
+        const predecessorSnapshot = predecessorRef ? await transaction.get(predecessorRef) : null;
+
+        if (isRiviu) {
+          if (!predecessorSnapshot?.exists()) throw new Error('SPO pendahulu Riviu tidak ditemukan.');
+          const predecessor = predecessorSnapshot.data() as SopDocument;
+          if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu Riviu tidak lagi berstatus AKTIF.');
+          const storedPrevious = String(predecessor.revisionNumber || predecessor.version || '').trim();
+          const submittedPrevious = String(sop.previousRevisionNumber || '').trim();
+          if (!/^\d+$/.test(storedPrevious) || storedPrevious !== submittedPrevious) {
+            throw new Error('Nomor revisi pendahulu Riviu tidak valid atau sudah berubah.');
+          }
+          const expectedNext = String(Number(storedPrevious) + 1).padStart(2, '0');
+          if (sop.revisionNumber !== expectedNext) throw new Error(`Nomor revisi penerus harus ${expectedNext}.`);
+        }
+
+        const storedCounter = Number(sequenceSnapshot.data()?.lastSequence || 0);
+        const sequenceNumber = getNextTransactionalSequence(storedCounter, highestExisting);
+        const generated = generateSopNumber({
+          config: options.allocateOfficialNumber!,
+          divisionCode,
+          subHierarchyCode: subHierarchyCode || undefined,
+          dateStr: effectiveDate,
+          sequenceNum: sequenceNumber,
+        });
+        if (existingSops.some((existing) => existing.id !== sop.id && String(existing.sopNumber || '').replace(/\s+/g, '').toUpperCase() === generated.sopNumber.replace(/\s+/g, '').toUpperCase())) {
+          throw new Error(`Nomor SPO ${generated.sopNumber} sudah digunakan; muat ulang data lalu coba lagi.`);
+        }
+
+        sop.sequenceNumber = sequenceNumber;
+        sop.sopNumber = generated.sopNumber;
+        cleanSop.sequenceNumber = sequenceNumber;
+        cleanSop.sopNumber = generated.sopNumber;
+        transaction.set(sequenceRef, {
+          id: sequenceRef.id,
+          divisionCode,
+          subHierarchyCode,
+          year,
+          lastSequence: sequenceNumber,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        transaction.set(docRef, cleanSop, { merge: false });
+      });
+    } else {
+      await setDoc(docRef, cleanSop, { merge: true });
+    }
     updateStatus({
       isConnected: true,
       isSyncing: false,
       lastSync: new Date().toISOString(),
       error: null
     });
+    return sop;
   } catch (err: any) {
     console.warn('Firebase sync warning (SOP):', err?.message || err);
     updateStatus({
@@ -167,6 +237,7 @@ export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnEr
       error: err?.message || 'Gagal sinkronisasi SPO ke Firestore'
     });
     if (options?.throwOnError) throw err instanceof Error ? err : new Error(String(err));
+    return sop;
   }
 }
 
@@ -194,7 +265,8 @@ export async function activateRiviuInFirestore(
       throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
     }
     const previous = String(storedSuccessor.previousRevisionNumber || '').trim();
-    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous)) {
+    const predecessorRevision = String(predecessor.revisionNumber || predecessor.version || '').trim();
+    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous) || predecessorRevision !== previous) {
       throw new Error('Nomor revisi pendahulu pada draft Riviu tidak valid.');
     }
     const expectedNext = String(Number(previous) + 1).padStart(2, '0');
@@ -206,7 +278,19 @@ export async function activateRiviuInFirestore(
     }
 
     const archived = sanitizeForFirestore({ ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt });
-    const activated = sanitizeForFirestore({ ...successor, status: 'AKTIF' });
+    const activated = sanitizeForFirestore({
+      ...storedSuccessor,
+      status: 'AKTIF',
+      updatedAt: successor.updatedAt,
+      activatedAt: successor.activatedAt,
+      activatedBy: successor.activatedBy,
+      activationNotes: successor.activationNotes,
+      signedScanFileName: successor.signedScanFileName,
+      signedScanFileSize: successor.signedScanFileSize,
+      signedScanFileType: successor.signedScanFileType,
+      signedScanUrl: successor.signedScanUrl,
+      signedScanStoragePath: successor.signedScanStoragePath,
+    });
     transaction.set(predecessorRef, archived, { merge: true });
     transaction.set(successorRef, activated, { merge: true });
     return { successor: { ...successor, status: 'AKTIF' }, predecessor: { ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt } };

@@ -1297,17 +1297,16 @@ export default function App() {
       return finalSop;
     }
 
-    // Riviu selalu memperoleh nomor BARU langsung dari penomoran hirarki.
+    // Riviu dan Baru memakai boundary transaksi Firestore yang sama di bawah.
+    // Di sini hanya identitas workflow yang ditetapkan; nomor belum diterbitkan.
     if (newSopData.documentType === 'RIVIU' || newSopData.documentType === 'REVIEW' || newSopData.jenis_spo === 'RIVIU' || newSopData.isReviewDocument) {
       const divisionCode = String(newSopData.divisionCode || '').trim().toUpperCase();
       const subHierarchyCode = String(newSopData.subHierarchyCode || '').trim();
-      const sequenceNumber = getNextSequenceNumber(numberingConfig, divisionCode, subHierarchyCode, sops, (newSopData.effectiveDate || now).slice(0, 4));
-      const { sopNumber } = generateSopNumber({ config: numberingConfig, divisionCode, subHierarchyCode, dateStr: newSopData.effectiveDate, sequenceNum: sequenceNumber });
       authoritativeSopData = {
         ...authoritativeSopData,
         id: newSopData.id || `sop-${Date.now()}`,
-        sopNumber,
-        sequenceNumber,
+        sopNumber: '',
+        sequenceNumber: 0,
         divisionCode,
         subHierarchyCode,
         documentType: 'RIVIU',
@@ -1317,7 +1316,7 @@ export default function App() {
         oldSopNumber: normalizeSopNumberInput(newSopData.oldSopNumber || ''),
         existingSopId: newSopData.existingSopId
       };
-      dupCheck = checkDuplicateSopNumber(sops, sopNumber, undefined);
+      dupCheck = { isDuplicate: false };
     }
 
     // Untuk SPO Baru: cegah nomor SPO duplikat
@@ -1329,19 +1328,15 @@ export default function App() {
       }
     }
 
-    // SPO Baru: Jika nomor belum diterbitkan secara eksplisit sebelumnya,
-    // otomatis alokasikan nomor urut dan nomor resmi baru sesuai standar penomoran.
+    // SPO Baru: nomor resmi sengaja tetap kosong sampai transaksi pembuatan final.
     if (isNewSopInput && !isExistingInput && !isCompletingIssuedNumber) {
       const divCode = (newSopData.divisionCode || 'PEL').trim().toUpperCase();
       const subCode = (newSopData.subHierarchyCode || '').trim();
-      const dateStr = newSopData.effectiveDate || now.split('T')[0];
-      const sequenceNumber = getNextSequenceNumber(numberingConfig, divCode, subCode, sops, dateStr.slice(0, 4));
-      const { sopNumber } = generateSopNumber({ config: numberingConfig, divisionCode: divCode, subHierarchyCode: subCode || undefined, dateStr, sequenceNum: sequenceNumber });
       authoritativeSopData = {
         ...newSopData,
         id: newSopData.id || `sop-${Date.now()}`,
-        sopNumber,
-        sequenceNumber,
+        sopNumber: '',
+        sequenceNumber: 0,
         divisionCode: divCode,
         subHierarchyCode: subCode,
       };
@@ -1367,7 +1362,7 @@ export default function App() {
 
     // Cache physical files in local persistent storage
 
-    const finalSop = standardizeSopDocument(newSop);
+    let finalSop = standardizeSopDocument(newSop);
 
     // Calculate updated numbering config per division and unit
     const prevCounters = numberingConfig?.divisionCounters || {};
@@ -1416,9 +1411,16 @@ export default function App() {
     // Persist first. The registration UI must wait for local database acknowledgement
     // before showing the success dialog; local state is updated only after the
     // local write succeeds.
-    await registerSopAndNumberingToLocal(finalSop, updatedConfig);
+    finalSop = await registerSopAndNumberingToLocal(finalSop, updatedConfig);
 
-    setNumberingConfig(updatedConfig);
+    setNumberingConfig((previous) => ({
+      ...previous,
+      currentCounter: Math.max(previous.currentCounter || 0, finalSop.sequenceNumber || 0),
+      divisionCounters: {
+        ...(previous.divisionCounters || {}),
+        [unitKey]: Math.max(previous.divisionCounters?.[unitKey] || 0, finalSop.sequenceNumber || 0),
+      },
+    }));
     setSops((prev) => prev.some((s) => s.id === finalSop.id)
       ? prev.map((s) => (s.id === finalSop.id ? finalSop : s))
       : [finalSop, ...prev]);
