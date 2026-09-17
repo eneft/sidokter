@@ -868,6 +868,13 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   // hidden measurement table, with a small safety allowance so the visible
   // preview never clips the bottom border of a page.
   useEffect(() => {
+    // An uploaded Existing PDF has no hidden A4 measurement tree. Starting
+    // pagination for it leaves isPaginatingOfficial=true when `root` is null,
+    // which in turn permanently disables the universal "Simpan PDF" button.
+    if (isExistingPdf) {
+      setIsPaginatingOfficial(false);
+      return;
+    }
     if (!isOpen || !sop || activeTab !== 'official_format' || layoutBlocks.length === 0) return;
 
     let cancelled = false;
@@ -1639,7 +1646,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
     run();
     return () => { cancelled = true; };
-  }, [isOpen, sop?.id, activeTab, layoutBlocks]);
+  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2183,8 +2190,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 onClick={isExisting ? handleDownloadExisting : handleDownloadDirectPdf}
                 disabled={
                   isPdfGenerating ||
-                  isPaginatingOfficial ||
-                  (isExistingPdf && !legacyFileUrl && !isLoadingLegacyFile)
+                  (!isExistingPdf && isPaginatingOfficial) ||
+                  (isExistingPdf && (isLoadingLegacyFile || !legacyFileUrl))
                 }
                 className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 active:bg-blue-950 disabled:bg-blue-400 rounded-xl shadow-2xs transition-colors cursor-pointer disabled:cursor-wait min-h-[36px]"
               >
