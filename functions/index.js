@@ -1309,6 +1309,8 @@ async function requirePdfSession(req) {
  */
 
 const STORAGE_COLLECTION = 'storage_files';
+const { resolveStorageObjectPath } = require('./storageMetadata');
+const { classifyStorageRequest } = require('./storageRouting');
 const STORAGE_MAX_BYTES = 15 * 1024 * 1024;
 const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 let cachedStorageBucket = null;
@@ -1497,18 +1499,22 @@ async function storageDownload(req, res) {
 
   if (snap.exists) {
     const meta = snap.data();
+    const objectPath = resolveStorageObjectPath(meta);
+    if (!objectPath) {
+      return json(res, 409, { success:false, code:'BROKEN_STORAGE_METADATA', message:'Metadata file tidak memiliki path Firebase Storage yang valid.' });
+    }
     const isAdmin = normalizeRole(context.user.role) === 'admin';
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
     let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
     if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
-      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || id || meta.objectPath);
+      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || id || objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-    const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
+    const served = await streamStorageObject(req, res, getStorageBucket().file(objectPath), meta);
     if (served) return;
     return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
   }
@@ -1549,18 +1555,22 @@ async function storageDownloadByPath(req, res) {
   if (!snap.empty) {
     const metaDoc = snap.docs[0];
     const meta = metaDoc.data();
+    const metadataObjectPath = resolveStorageObjectPath(meta);
+    if (!metadataObjectPath) {
+      return json(res, 409, { success:false, code:'BROKEN_STORAGE_METADATA', message:'Metadata file tidak memiliki path Firebase Storage yang valid.' });
+    }
     const isAdmin = normalizeRole(context.user.role) === 'admin';
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
     let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
     if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
-      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || meta.objectPath || objectPath);
+      const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || metadataObjectPath || objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-    const served = await streamStorageObject(req, res, getStorageBucket().file(meta.objectPath), meta);
+    const served = await streamStorageObject(req, res, getStorageBucket().file(metadataObjectPath), meta);
     if (served) return;
     return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
   }
@@ -1603,7 +1613,9 @@ async function storageDelete(req, res) {
   const snap = await ref.get();
   if (snap.exists) {
     const meta = snap.data();
-    try { await getStorageBucket().file(meta.objectPath).delete({ ignoreNotFound:true }); } catch (e) { console.warn('[storage] delete object warning', e?.message || e); }
+    const objectPath = resolveStorageObjectPath(meta);
+    if (!objectPath) return json(res, 409, { success:false, code:'BROKEN_STORAGE_METADATA', message:'Metadata file tidak memiliki path Firebase Storage yang valid.' });
+    try { await getStorageBucket().file(objectPath).delete({ ignoreNotFound:true }); } catch (e) { console.warn('[storage] delete object warning', e?.message || e); }
     await ref.delete();
   }
   return json(res, 200, { success:true });
@@ -1740,27 +1752,27 @@ exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', cor
   try {
     const rawUrl = String(req.originalUrl || req.url || req.path || '');
     const pathName = getStorageRequestPath(req) || rawUrl;
-    const lowerPath = String(pathName || '').toLowerCase();
+    const storageRoute = classifyStorageRequest(req.method, pathName);
 
-    if (req.method === 'POST' && (lowerPath === '/upload' || lowerPath === '/storageapi/upload' || lowerPath.endsWith('/upload'))) {
+    if (storageRoute === 'upload') {
       return await storageUpload(req, res);
     }
 
-    if ((req.method === 'GET' || req.method === 'HEAD') && lowerPath.includes('/path/')) {
+    if (storageRoute === 'download-path') {
       const storagePath = getStoragePathParam(pathName);
       if (!storagePath) return json(res, 400, { success:false, message:'Storage path tidak valid.' });
       req.params = { storagePath };
       return await storageDownloadByPath(req, res);
     }
 
-    if ((req.method === 'GET' || req.method === 'HEAD') && lowerPath.includes('/files/')) {
+    if (storageRoute === 'download-file') {
       const id = getStorageFileId(pathName);
       if (!id) return json(res, 400, { success:false, message:'File ID tidak valid.' });
       req.params = { id };
       return await storageDownload(req, res);
     }
 
-    if (req.method === 'DELETE' && lowerPath.includes('/files/')) {
+    if (storageRoute === 'delete-file') {
       const id = getStorageFileId(pathName);
       if (!id) return json(res, 400, { success:false, message:'File ID tidak valid.' });
       req.params = { id };
