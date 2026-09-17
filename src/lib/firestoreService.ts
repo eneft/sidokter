@@ -16,7 +16,8 @@ import {
   limit,
   Timestamp,
   serverTimestamp,
-  deleteField
+  deleteField,
+  runTransaction
 } from 'firebase/firestore';
 import { db, auth, authPersistenceReady } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
@@ -167,6 +168,49 @@ export async function saveSopToFirestore(sop: SopDocument, options?: { throwOnEr
     });
     if (options?.throwOnError) throw err instanceof Error ? err : new Error(String(err));
   }
+}
+
+/** Authoritative, all-or-nothing lifecycle transition for a Riviu. */
+export async function activateRiviuInFirestore(
+  successor: SopDocument,
+  predecessorId: string,
+  expectedPreviousRevision: string,
+): Promise<{ successor: SopDocument; predecessor: SopDocument }> {
+  const successorRef = doc(db, 'sops', successor.id);
+  const predecessorRef = doc(db, 'sops', predecessorId);
+  return runTransaction(db, async (transaction) => {
+    const [successorSnapshot, predecessorSnapshot] = await Promise.all([
+      transaction.get(successorRef),
+      transaction.get(predecessorRef),
+    ]);
+    if (!successorSnapshot.exists()) throw new Error('Draft Riviu tidak ditemukan.');
+    if (!predecessorSnapshot.exists()) throw new Error('SPO pendahulu tidak ditemukan.');
+
+    const storedSuccessor = { ...successorSnapshot.data(), id: successorSnapshot.id } as SopDocument;
+    const predecessor = { ...predecessorSnapshot.data(), id: predecessorSnapshot.id } as SopDocument;
+    if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu tidak lagi berstatus AKTIF.');
+    if (storedSuccessor.status !== 'DRAFT') throw new Error('Dokumen penerus bukan draft Riviu yang dapat diaktifkan.');
+    if (storedSuccessor.jenis_spo !== 'RIVIU' || storedSuccessor.existingSopId !== predecessor.id) {
+      throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
+    }
+    const previous = String(storedSuccessor.previousRevisionNumber || '').trim();
+    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous)) {
+      throw new Error('Nomor revisi pendahulu pada draft Riviu tidak valid.');
+    }
+    const expectedNext = String(Number(previous) + 1).padStart(2, '0');
+    if (storedSuccessor.revisionNumber !== expectedNext || successor.revisionNumber !== expectedNext) {
+      throw new Error('Nomor revisi penerus tidak sesuai dengan revisi pendahulu + 1.');
+    }
+    if (!storedSuccessor.sopNumber || storedSuccessor.sopNumber === predecessor.sopNumber) {
+      throw new Error('Riviu wajib memiliki nomor SPO baru yang valid.');
+    }
+
+    const archived = sanitizeForFirestore({ ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt });
+    const activated = sanitizeForFirestore({ ...successor, status: 'AKTIF' });
+    transaction.set(predecessorRef, archived, { merge: true });
+    transaction.set(successorRef, activated, { merge: true });
+    return { successor: { ...successor, status: 'AKTIF' }, predecessor: { ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt } };
+  });
 }
 
 export async function deleteSopFromFirestore(id: string): Promise<void> {
