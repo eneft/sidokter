@@ -1,6 +1,6 @@
 /**
  * NOTIFICATION SERVICE - SIDOKTER SOEGIRI
- * Sistem notifikasi real-time berbasis toast & notification center
+ * Sistem Pesan real-time berbasis notification center
  * untuk penugasan dokumen ke divisi, pengingat riviu berkala,
  * aktivasi SPO oleh Admin bagi User, dan usulan aktivasi bagi Admin.
  */
@@ -648,7 +648,7 @@ type NotificationEventPayload = {
 };
 
 /** Single gate for notification creation and UI side effects. */
-function processNotificationEvent(event: NotificationEventPayload, onToast: RealtimeWatcherOptions['onToast']): AppNotification | null {
+function processNotificationEvent(event: NotificationEventPayload, _onToast: RealtimeWatcherOptions['onToast']): AppNotification | null {
   const key = String(event.eventKey || '').trim();
   if (!key) return null;
   if (emittedSideEffectEventKeys.has(key)) return null;
@@ -676,21 +676,13 @@ function processNotificationEvent(event: NotificationEventPayload, onToast: Real
     divisionName: event.sop.divisionName,
     dueDate: event.dueDate,
     isOverdue: event.isOverdue,
-    metadata: { eventKey: key },
+    metadata: { eventKey: key, documentTitle: event.sop.title },
     actionLabel: event.actionLabel,
     onAction: event.onAction
   });
 
-  // UI side effects happen only after the event has passed the same dedupe gate.
+  // Workflow events belong in Pesan, not in action-feedback toasts.
   playChime(event.type);
-  onToast(event.type, event.title, event.message, {
-    document: event.sop,
-    divisionCode: event.sop.divisionCode,
-    dueDate: event.dueDate,
-    isOverdue: event.isOverdue,
-    actionLabel: event.actionLabel,
-    onAction: event.onAction
-  });
   return item;
 }
 
@@ -1292,7 +1284,7 @@ export function scanDocumentsForProposals(
   sops: SopDocument[],
   userSession: UserSession | null,
   users: UserAccount[] | undefined,
-  onToast: RealtimeWatcherOptions['onToast'],
+  _onToast: RealtimeWatcherOptions['onToast'],
   onSelectDocument?: (doc: SopDocument) => void
 ): void {
   if (!userSession || userSession.role !== 'admin' || !Array.isArray(sops) || sops.length === 0) return;
@@ -1341,24 +1333,7 @@ export function scanDocumentsForProposals(
     });
   });
 
-  const topProposal = pendingProposals[0];
-  const toastKey = `session-proposal-${userSession.authUid || userSession.username}-${topProposal.id}-${topProposal.activationRequestedAt || 'draft'}`;
-  if (!sessionStorage.getItem(toastKey)) {
-    sessionStorage.setItem(toastKey, 'true');
-    playChime('proposal');
-    const meta = getProposalNotificationMeta(topProposal, users || currentUsersList);
-    onToast(
-      'proposal',
-      meta.title,
-      meta.message,
-      {
-        document: topProposal,
-        divisionCode: topProposal.divisionCode,
-        actionLabel: 'Tinjau & Sahkan',
-        onAction: () => onSelectDocument?.(topProposal)
-      }
-    );
-  }
+  // Session discovery is represented by Pesan only; it must not create a workflow toast.
 }
 
 /**
@@ -1368,7 +1343,7 @@ export function scanDocumentsForProposals(
 export function scanDocumentsForActivations(
   sops: SopDocument[],
   userSession: UserSession | null,
-  onToast: RealtimeWatcherOptions['onToast'],
+  _onToast: RealtimeWatcherOptions['onToast'],
   onSelectDocument?: (doc: SopDocument) => void
 ): void {
   if (!userSession || !Array.isArray(sops) || sops.length === 0) return;
@@ -1439,24 +1414,7 @@ export function scanDocumentsForActivations(
     });
   });
 
-  const topActivated = newlyActivatedDocs[0];
-  const toastKey = `session-summary-activation-${userSession.authUid || userSession.username}-${topActivated.id}-${topActivated.activatedAt || 'active'}`;
-  if (!sessionStorage.getItem(toastKey)) {
-    sessionStorage.setItem(toastKey, 'true');
-    playChime('activation');
-    const meta = getActivationNotificationMeta(topActivated);
-    onToast(
-      'activation',
-      meta.title,
-      meta.message,
-      {
-        document: topActivated,
-        divisionCode: topActivated.divisionCode,
-        actionLabel: 'Buka Dokumen',
-        onAction: () => onSelectDocument?.(topActivated)
-      }
-    );
-  }
+  // Session discovery is represented by Pesan only; it must not create a workflow toast.
 }
 
 /**
@@ -1466,7 +1424,7 @@ export function scanDocumentsForActivations(
 export function scanDocumentsForPeriodicReviews(
   sops: SopDocument[],
   userSession: UserSession | null,
-  onToast: RealtimeWatcherOptions['onToast'],
+  _onToast: RealtimeWatcherOptions['onToast'],
   onSelectDocument?: (doc: SopDocument) => void
 ): void {
   if (!userSession || !Array.isArray(sops) || sops.length === 0) return;
@@ -1508,43 +1466,5 @@ export function scanDocumentsForPeriodicReviews(
     }
   });
 
-  // Display summary or top urgent toast on session start
-  const overdueCount = dueDocs.filter((d) => d.status.isOverdue).length;
-  const topDue = dueDocs[0];
-
-  const toastKey = `session-summary-review-${userSession.authUid || userSession.username}-${topDue.sop.id}`;
-  if (!sessionStorage.getItem(toastKey)) {
-    sessionStorage.setItem(toastKey, 'true');
-    playChime('review');
-
-    if (dueDocs.length === 1) {
-      onToast(
-        'review',
-        topDue.status.isOverdue ? 'Dokumen Melewati Siklus Riviu' : 'Dokumen Perlu Riviu Berkala',
-        `SPO "${topDue.sop.title}" (${topDue.sop.sopNumber}): ${topDue.status.reason}`,
-        {
-          document: topDue.sop,
-          divisionCode: topDue.sop.divisionCode,
-          dueDate: topDue.status.dueDate,
-          actionLabel: 'Tinjau Sekarang',
-          onAction: () => onSelectDocument?.(topDue.sop)
-        }
-      );
-    } else {
-      onToast(
-        'review',
-        `${dueDocs.length} Dokumen Perlu Riviu Berkala`,
-        overdueCount > 0
-          ? `${overdueCount} SPO telah melewati batas waktu dan ${dueDocs.length - overdueCount} SPO mendekati jatuh tempo di unit Anda.`
-          : `${dueDocs.length} SPO di unit Anda mendekati batas waktu siklus peninjauan berkala.`,
-        {
-          document: topDue.sop,
-          divisionCode: topDue.sop.divisionCode,
-          dueDate: topDue.status.dueDate,
-          actionLabel: 'Tinjau Dokumen',
-          onAction: () => onSelectDocument?.(topDue.sop)
-        }
-      );
-    }
-  }
+  // Periodic review discovery is represented by Pesan only.
 }

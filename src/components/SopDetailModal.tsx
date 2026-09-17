@@ -2485,9 +2485,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           )}
 
           {sop.reviewHistory && sop.reviewHistory.length > 0 && (
-            <section className="mx-6 mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 no-print">
-              <h3 className="text-xs font-black uppercase tracking-wide text-slate-700 mb-3">Riwayat Verifikasi</h3>
-              <div className="space-y-2">
+            <details className="mx-6 mb-4 rounded-lg border border-slate-200 bg-white no-print">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">Riwayat Verifikasi ({sop.reviewHistory.length})</summary>
+              <div className="space-y-2 border-t border-slate-100 p-3">
                 {[...sop.reviewHistory].reverse().map((entry) => (
                   <div key={entry.id} className="rounded-lg bg-white border border-slate-200 p-3 text-xs">
                     <div className="flex justify-between gap-3"><strong>{entry.actorName}</strong><span className="text-slate-500">{new Date(entry.createdAt).toLocaleString('id-ID')}</span></div>
@@ -2496,7 +2496,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   </div>
                 ))}
               </div>
-            </section>
+            </details>
           )}
 
           {/* Modal Footer (Hidden in Print) */}
@@ -2646,14 +2646,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           {showRevisionRequest && (
             <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={() => setShowRevisionRequest(false)}>
               <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-                <h2 className="text-base font-black text-slate-900">Minta Perbaikan SPO</h2>
-                <label className="mt-4 block text-xs font-bold text-slate-600">Kepada</label>
-                <input readOnly value={sop.creatorName || sop.activationRequestedBy || 'Pembuat/Pengusul SPO'} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm" />
+                <h2 className="text-base font-black text-slate-900">Minta Perbaikan</h2>
+                <p className="mt-1 text-xs text-slate-500">Catatan akan dikirim kepada pembuat SPO.</p>
+                <div className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Pembuat: <strong className="text-slate-800">{sop.creatorName || sop.activationRequestedBy || 'Pembuat/Pengusul SPO'}</strong>
+                </div>
                 <label className="mt-4 block text-xs font-bold text-slate-600">Catatan Perbaikan *</label>
                 <textarea rows={4} value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                 <div className="mt-5 flex justify-end gap-2">
                   <button type="button" onClick={() => setShowRevisionRequest(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
-                  <button type="button" disabled={reviewBusy || !revisionNote.trim()} onClick={async () => { if (!revisionNote.trim()) return; setReviewBusy(true); try { await onReviewWorkflow(sop, 'REQUEST_REVISION', revisionNote.trim()); setRevisionNote(''); setShowRevisionRequest(false); } finally { setReviewBusy(false); } }} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Kirim Permintaan</button>
+                  <button type="button" disabled={reviewBusy || !revisionNote.trim()} onClick={async () => { if (!revisionNote.trim()) return; setReviewBusy(true); try { await onReviewWorkflow(sop, 'REQUEST_REVISION', revisionNote.trim()); setRevisionNote(''); setShowRevisionRequest(false); } finally { setReviewBusy(false); } }} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Kirim</button>
                 </div>
               </div>
             </div>
