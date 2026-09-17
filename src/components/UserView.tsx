@@ -1140,6 +1140,7 @@ export const UserView: React.FC<UserViewProps> = ({
         onOpenSecurity={onOpenSecurity}
         onOpenBackupRestore={onOpenBackupRestore}
         onOpenMaintenance={onOpenMaintenance}
+        onShowToast={onShowToast}
         onStandardizeAllNumbers={onStandardizeAllNumbers}
         onSelectDocument={(docId, docNumber) => {
           const found = sops.find((s) => s.id === docId || (docNumber && s.sopNumber === docNumber));

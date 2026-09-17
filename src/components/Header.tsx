@@ -28,11 +28,12 @@ interface HeaderProps {
   onOpenBackupRestore?: () => void;
   onOpenMaintenance?: () => void;
   onSelectDocument?: (docId: string, docNumber?: string) => void;
+  onShowToast?: (type: 'success' | 'error' | 'info', title: string, message?: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab, onTabChange, totalSopCount, activeSopCount, skCount = 0, mouCount = 0,
-  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onSelectDocument
+  finalDocCount = 0, userSession, onLogout, onOpenUserManagement, onOpenMasterData, onOpenSecurity, onOpenBackupRestore, onOpenMaintenance, onSelectDocument, onShowToast
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -117,26 +118,6 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
               </div>
             </div>
-            <AdminTooltip
-              title="Pesan"
-              content="Informasi dan tindak lanjut dokumen."
-              side="bottom"
-            >
-              <button
-                type="button"
-                onClick={() => setIsNotificationOpen(true)}
-                className="relative inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-                aria-label="Pesan"
-              >
-                <Mail className="w-4.5 h-4.5" />
-                <span className="text-[11px] font-bold">Pesan</span>
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </button>
-            </AdminTooltip>
           </div>
 
           {/* Navigation Menu */}
@@ -217,6 +198,10 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
               </div>
+              <button type="button" onClick={() => setIsNotificationOpen(true)} className="relative shrink-0 rounded-xl p-2 text-slate-500 hover:bg-white hover:text-emerald-700" aria-label="Pesan" title="Pesan">
+                <Mail className="h-4 w-4" />
+                {unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-center text-[9px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+              </button>
               <AdminTooltip
                 title="Keluar Akun"
                 content="Keluar dari sesi akun SIDOKTER dengan aman."
@@ -331,7 +316,9 @@ export const Header: React.FC<HeaderProps> = ({
           isOpen={isNotificationOpen}
           onClose={() => setIsNotificationOpen(false)}
           notifications={notifications}
+          userSession={userSession}
           onSelectDocument={onSelectDocument}
+          onShowToast={onShowToast}
         />
       </>
     );
@@ -357,26 +344,6 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
             </div>
           </div>
-          <AdminTooltip
-            title="Pesan"
-            content="Informasi dan tindak lanjut dokumen."
-            side="bottom"
-          >
-            <button
-              type="button"
-              onClick={() => setIsNotificationOpen(true)}
-              className="relative inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shrink-0"
-              aria-label="Pesan"
-            >
-              <Mail className="w-4.5 h-4.5" />
-              <span className="text-[11px] font-bold">Pesan</span>
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-4 text-center rounded-full bg-emerald-600 text-white font-black text-[9px] shadow-sm animate-pulse">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-          </AdminTooltip>
         </div>
 
         <nav className="flex-1 p-3.5 space-y-1.5 overflow-y-auto">
@@ -505,6 +472,10 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="text-xs font-black text-slate-800 truncate leading-tight">{userSession?.name || 'Administrator'}</div>
               <div className="text-[10px] text-emerald-700 font-bold truncate mt-0.5">Administrator</div>
             </div>
+            <button type="button" onClick={() => setIsNotificationOpen(true)} className="relative shrink-0 rounded-xl p-2 text-slate-500 hover:bg-white hover:text-emerald-700" aria-label="Pesan" title="Pesan">
+              <Mail className="h-4 w-4" />
+              {unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-center text-[9px] font-black text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+            </button>
             <AdminTooltip
               title="Keluar Akun"
               content="Keluar dari sesi akun SIDOKTER dengan aman."
@@ -610,7 +581,9 @@ export const Header: React.FC<HeaderProps> = ({
         isOpen={isNotificationOpen}
         onClose={() => setIsNotificationOpen(false)}
         notifications={notifications}
+        userSession={userSession}
         onSelectDocument={onSelectDocument}
+        onShowToast={onShowToast}
       />
     </>
   );
