@@ -10,6 +10,9 @@ import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
 import { SopDocument, UserSession, UserAccount } from '../types';
 import { userCanAccessSop, getUserHierarchyAccessKeys, hasVerificatorBadge } from './soegiriStructure';
+import { INTERNAL_MAIL_VERSION, isInternalMailItem, isVisibleMailboxItem } from './mailboxPolicy';
+
+export { INTERNAL_MAIL_VERSION, isInternalMailItem } from './mailboxPolicy';
 
 export type NotificationType =
   | 'activation'
@@ -58,7 +61,6 @@ const notifiedProposalDocIds = new Set<string>();
 
 const NOTIF_STORAGE_PREFIX = 'soegiri_active_notifications_v3';
 const NOTIF_MUTE_PREFIX = 'soegiri_notification_muted_v3';
-
 let notificationScopeKey = 'anonymous';
 let notificationAuthUid = '';
 let unsubscribeNotificationCloud: (() => void) | null = null;
@@ -119,7 +121,7 @@ function loadPersistedNotifications(): AppNotification[] {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((n) => n && typeof n.id === 'string' && typeof n.type === 'string')
+        .filter((n) => isVisibleMailboxItem(n))
         .slice(0, 50);
     }
   } catch {}
@@ -174,7 +176,7 @@ function syncNotificationCloudListener(): void {
     seedDedupeSetsFromNotifications(cloudItemsAll);
 
     const cloudItems = cloudItemsAll
-      .filter((n) => n.hidden !== true)
+      .filter(isVisibleMailboxItem)
       .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
       .slice(0, 50);
 
@@ -243,7 +245,7 @@ export function queuePendingAdminProposal(sop: SopDocument, reason?: string): vo
       timestamp: Date.now(),
       read: false,
       hidden: false,
-      metadata: { eventKey },
+      metadata: { eventKey, internalMailVersion: INTERNAL_MAIL_VERSION },
       actionLabel: 'Tinjau & Sahkan'
     };
 
@@ -277,7 +279,7 @@ export function ingestQueuedAdminProposals(): boolean {
     if (!Array.isArray(queued) || queued.length === 0) return false;
 
     let modified = false;
-    queued.forEach((item) => {
+    queued.filter(isInternalMailItem).forEach((item) => {
       const exists = activeNotifications.some(
         (n) => n.id === item.id || (n.metadata?.eventKey && n.metadata.eventKey === item.metadata?.eventKey)
       );
@@ -343,7 +345,7 @@ async function persistNotificationToCloud(item: AppNotification): Promise<void> 
       timestamp: Number(serializable.timestamp || Date.now()),
       read: false,
       hidden: false,
-      metadata: { eventKey: eventKey || docId }
+      metadata: { ...(serializable.metadata || {}), eventKey: eventKey || docId, internalMailVersion: INTERNAL_MAIL_VERSION }
     };
 
     const createNotification = httpsCallable(functions, 'createNotification');
@@ -381,9 +383,26 @@ async function persistNotificationReadToCloud(item: AppNotification): Promise<vo
   }
 }
 
+async function persistNotificationDeleteToCloud(item: AppNotification): Promise<void> {
+  const ref = notificationCollectionRef();
+  if (!ref) return;
+  const eventKey = String(item.metadata?.eventKey || item.id || '').trim();
+  const id = getNotificationDocId(eventKey, item.id);
+  try {
+    await setDoc(doc(ref, id), { id, hidden: true, deletedAt: Date.now() }, { merge: true });
+  } catch (error) {
+    console.warn('Could not hide notification:', error);
+  }
+}
+
+export async function replyToInternalMail(sourceNotificationId: string, body: string): Promise<void> {
+  const replyInternalMail = httpsCallable(functions, 'replyInternalMail');
+  await replyInternalMail({ sourceNotificationId, body: body.trim() });
+}
+
 /* =========================================================================
    AUDIO CHIME (WEB AUDIO API)
-========================================================================= */
+ * ========================================================================= */
 
 let audioCtx: AudioContext | null = null;
 
@@ -480,7 +499,7 @@ export function playChime(
 
 /* =========================================================================
    PERIODIC REVIEW EVALUATION (RSUD DR. SOEGIRI STANDARD)
-========================================================================= */
+ * ========================================================================= */
 
 /**
  * Checks whether an SOP document is due for periodic review.
@@ -568,7 +587,7 @@ export function evaluatePeriodicReview(sop: SopDocument): ReviewStatus {
 
 /* =========================================================================
    USER DIVISION MATCHING
-========================================================================= */
+ * ========================================================================= */
 
 /**
  * Checks whether a document's division code corresponds to the user's division(s).
@@ -612,7 +631,7 @@ export function isAssignedToUserDivision(
 
 /* =========================================================================
    NOTIFICATION STATE & SUBSCRIBERS
-========================================================================= */
+ * ========================================================================= */
 
 export function subscribeToNotifications(
   callback: (notifications: AppNotification[]) => void
@@ -701,7 +720,7 @@ export function addNotification(
     id: docId,
     timestamp: Date.now(),
     read: false,
-    metadata: { ...(notification.metadata || {}), eventKey: eventKey || docId },
+    metadata: { ...(notification.metadata || {}), eventKey: eventKey || docId, internalMailVersion: INTERNAL_MAIL_VERSION },
     hidden: false
   };
 
@@ -718,6 +737,24 @@ export function markNotificationAsRead(id: string): void {
   persistNotifications(activeNotifications);
   notifySubscribers();
   if (item) void persistNotificationReadToCloud({ ...item, read: true });
+}
+
+export function markNotificationAsUnread(id: string): void {
+  const item = activeNotifications.find((n) => n.id === id);
+  activeNotifications = activeNotifications.map((n) => n.id === id ? { ...n, read: false } : n);
+  persistNotifications(activeNotifications);
+  notifySubscribers();
+  if (item) void persistNotificationReadToCloud({ ...item, read: false });
+}
+
+/** Per-user soft delete: hides only this authenticated user's mailbox copy. */
+export function deleteNotification(id: string): void {
+  const item = activeNotifications.find((n) => n.id === id);
+  if (!item) return;
+  activeNotifications = activeNotifications.filter((n) => n.id !== id);
+  persistNotifications(activeNotifications);
+  notifySubscribers();
+  void persistNotificationDeleteToCloud(item);
 }
 
 export function markAllNotificationsAsRead(): void {
@@ -753,7 +790,7 @@ export function clearNotifications(): void {
 
 /* =========================================================================
    REAL-TIME FIRESTORE & LOCAL LISTENER
-========================================================================= */
+ * ========================================================================= */
 
 let currentUsersList: UserAccount[] = [];
 

@@ -9,6 +9,7 @@ const { getStorage } = require('firebase-admin/storage');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
+const { assertMailReply } = require('./internalMailPolicy');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -636,7 +637,7 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
     timestamp: Number.isFinite(Number(item.timestamp)) ? Number(item.timestamp) : Date.now(),
     read: false,
     hidden: false,
-    metadata: { eventKey }
+    metadata: { eventKey, internalMailVersion: 1 }
   };
   Object.keys(safe).forEach((key) => safe[key] === undefined && delete safe[key]);
 
@@ -646,6 +647,54 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
   } catch (error) {
     throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
   }
+  return { ok: true, id };
+});
+
+// Replies are routed exclusively from the authenticated user's source mail.
+// The client never supplies a recipient or sender identity.
+exports.replyInternalMail = onCall({ region: 'asia-southeast2', timeoutSeconds: 15, memory: '256MiB' }, async (request) => {
+  const actorUid = request.auth?.uid;
+  if (!actorUid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
+  const sourceId = String(request.data?.sourceNotificationId || '').trim();
+  const body = String(request.data?.body || '').trim();
+  if (!sourceId || !body || body.length > 2000) throw new HttpsError('invalid-argument', 'Isi balasan wajib diisi dan maksimal 2.000 karakter.');
+
+  const [actorSnap, sourceSnap] = await Promise.all([
+    db.collection('users').doc(actorUid).get(),
+    db.collection('notifications').doc(actorUid).collection('items').doc(sourceId).get()
+  ]);
+  if (!actorSnap.exists || !sourceSnap.exists) throw new HttpsError('permission-denied', 'Pesan tidak dapat dibalas.');
+  const sourceMail = sourceSnap.data() || {};
+  const sopId = String(sourceMail.documentId || '').trim();
+  const sopSnap = await db.collection('sops').doc(sopId).get();
+  if (!sopSnap.exists) throw new HttpsError('not-found', 'SPO terkait tidak ditemukan.');
+  const sop = { id: sopSnap.id, ...sopSnap.data() };
+  let route;
+  try {
+    route = assertMailReply({ actorUid, actor: actorSnap.data(), sourceMail, sop, body });
+  } catch {
+    throw new HttpsError('permission-denied', 'Anda tidak diizinkan membalas pesan ini.');
+  }
+
+  const sender = actorSnap.data() || {};
+  const recipientSnap = await db.collection('users').doc(route.recipientUid).get();
+  if (!recipientSnap.exists) throw new HttpsError('failed-precondition', 'Penerima pesan tidak tersedia.');
+  const id = `mail-reply-${crypto.randomUUID()}`;
+  const subject = String(sourceMail.title || 'Pesan SPO').replace(/^Re:\s*/i, '');
+  const correlationId = String(sourceMail.metadata?.correlationId || sourceMail.metadata?.eventKey || sourceId);
+  const reply = {
+    id, type: 'review', title: `Re: ${subject}`.slice(0, 200), message: body,
+    documentId: sopId, documentNumber: sop.sopNumber || sourceMail.documentNumber || null,
+    documentType: 'SPO', timestamp: Date.now(), read: false, hidden: false, actionLabel: 'Buka SPO',
+    metadata: {
+      eventKey: id, mailKind: 'human', senderUid: actorUid,
+      senderName: String(sender.name || sender.username || 'Pengguna SIDOKTER'),
+      recipientUid: route.recipientUid,
+      recipientName: String(recipientSnap.data()?.name || recipientSnap.data()?.username || 'Pengguna SIDOKTER'),
+      documentTitle: String(sop.title || ''), correlationId, replyTo: sourceId, internalMailVersion: 1
+    }
+  };
+  await db.collection('notifications').doc(route.recipientUid).collection('items').doc(id).set(reply);
   return { ok: true, id };
 });
 
@@ -703,7 +752,7 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     }
     if (action === 'REQUEST_REVISION') {
       nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = note;
-      notification = { uid: creatorUid, title: 'Permintaan Perbaikan SPO', message: `SPO "${sop.title || sop.sopNumber}" memerlukan perbaikan sebelum proses aktivasi.`, key: `sop-revision-requested-${sopId}-${Date.now()}`, note };
+      notification = { uid: creatorUid, title: 'Perlu Perbaikan SPO', message: note, key: `sop-revision-requested-${sopId}-${Date.now()}`, note };
     } else if (action === 'SUBMIT_REVISION') {
       const requesterUid = String(sop.currentReviewRequesterUid || '').trim();
       nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = 'Perbaikan telah dikirim.';
@@ -722,7 +771,9 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
       transaction.set(db.collection('notifications').doc(notification.uid).collection('items').doc(notifId), {
         id: notifId, type: 'review', title: notification.title, message: notification.message,
         documentId: sopId, documentNumber: sop.sopNumber || null, documentType: 'SPO', timestamp: Date.now(), read: false, hidden: false,
-        metadata: { eventKey: notification.key, reviewContext: nextState, correctionNote: notification.note || null, recipientUid: notification.uid }, actionLabel: 'Buka SPO'
+        metadata: { eventKey: notification.key, reviewContext: nextState, correctionNote: notification.note || null,
+          mailKind: 'human', senderUid: actorUid, senderName: String(actor.name || actor.username || 'Reviewer SIDOKTER'),
+          recipientUid: notification.uid, documentTitle: String(sop.title || ''), internalMailVersion: 1 }, actionLabel: 'Buka SPO'
       });
     }
   });
