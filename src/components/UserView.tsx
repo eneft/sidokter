@@ -1140,6 +1140,7 @@ export const UserView: React.FC<UserViewProps> = ({
         onOpenSecurity={onOpenSecurity}
         onOpenBackupRestore={onOpenBackupRestore}
         onOpenMaintenance={onOpenMaintenance}
+        onShowToast={onShowToast}
         onStandardizeAllNumbers={onStandardizeAllNumbers}
         onSelectDocument={(docId, docNumber) => {
           const found = sops.find((s) => s.id === docId || (docNumber && s.sopNumber === docNumber));
@@ -1157,7 +1158,7 @@ export const UserView: React.FC<UserViewProps> = ({
       />
 
       {/* 2. Main Page Container */}
-      <main className="flex-1 min-w-0 w-full lg:ml-72 lg:w-[calc(100%-18rem)] max-w-none mx-0 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+      <main className="flex-1 min-w-0 w-full lg:ml-72 lg:w-[calc(100%-18rem)] max-w-none mx-0 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:pt-24 space-y-6">
         
         {/* TAB 1: DASHBOARD */}
         {activeTab === 'dashboard' && (
