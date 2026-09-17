@@ -45,6 +45,7 @@ import { buildStoragePathUrl } from '../lib/cloudStorageService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
+import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -250,11 +251,17 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [showReviewEvidencePreview, setShowReviewEvidencePreview] = useState<boolean>(false);
   const [resolvedReviewEvidenceUrl, setResolvedReviewEvidenceUrl] = useState<string | null>(null);
   const [isLoadingReviewEvidence, setIsLoadingReviewEvidence] = useState<boolean>(false);
+  const [riviuPreviewTab, setRiviuPreviewTab] = useState<'document' | 'evidence'>('document');
+  const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState<string | null>(null);
+  const [selectedEvidenceName, setSelectedEvidenceName] = useState<string>('');
 
   useEffect(() => {
     setShowReviewEvidencePreview(false);
     setResolvedReviewEvidenceUrl(null);
     setIsLoadingReviewEvidence(false);
+    setRiviuPreviewTab('document');
+    setSelectedEvidenceUrl(null);
+    setSelectedEvidenceName('');
   }, [sop?.id, isOpen]);
 
   useEffect(() => {
@@ -407,6 +414,20 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const legacyFileUrl = resolvedLegacyFileUrl;
   const legacyFileName = sop ? (sop.signedScanFileName || (isExistingPdf ? 'Dokumen_SPO_Eksisting.pdf' : sop.fileName) || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf') : 'Dokumen_SPO_Eksisting.pdf';
   const legacyFileSize = sop ? (sop.signedScanFileSize || sop.fileSize || sop.oldFileSize) : undefined;
+  const supportingEvidence = sop ? normalizeSupportingEvidence(sop as any) : [];
+
+  const openSupportingEvidence = async (evidence: typeof supportingEvidence[number]) => {
+    const resolved = await resolveProtectedStorageUrl(evidence.fileUrl, evidence.storagePath)
+      || (evidence.storagePath ? buildStoragePathUrl(evidence.storagePath) : null)
+      || evidence.dataUrl
+      || null;
+    if (!resolved) {
+      alert(`Bukti dukung ${evidence.originalName} tidak dapat dimuat.`);
+      return;
+    }
+    setSelectedEvidenceUrl(resolved);
+    setSelectedEvidenceName(evidence.originalName);
+  };
 
   // Toggle preview of the legacy evidence in SPO Riviu
   const handleToggleReviewEvidencePreview = async () => {
@@ -2107,7 +2128,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-5 printable-modal-active">
-      <div className="bg-white w-full max-w-4xl h-full sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-slate-200 overflow-hidden flex flex-col printable-modal-overlay">
+      <div className="bg-white w-full sm:max-w-[96vw] h-full sm:h-[94vh] rounded-none sm:rounded-xl shadow-2xl border-0 sm:border border-slate-200 overflow-hidden flex flex-col printable-modal-overlay">
         
         {/* Top Bar (Hidden in Print) */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-slate-100 bg-slate-50/90 no-print flex-wrap gap-2 shrink-0">
@@ -2199,7 +2220,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
+        <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-3">
           
           {isExistingPdf ? (
             <div className="space-y-4">
@@ -2224,13 +2245,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           ) : (
             <>
               <PreviewMetadata users={users} sop={sop} kind={isReviewDoc ? "RIVIU" : isExisting ? "EKSISTING" : "BARU"} />
+              {isReviewDoc && (
+                <div className="no-print inline-flex rounded-lg border border-slate-200 bg-white p-1">
+                  <button type="button" onClick={() => setRiviuPreviewTab('document')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${riviuPreviewTab === 'document' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Dokumen SPO</button>
+                  <button type="button" onClick={() => setRiviuPreviewTab('evidence')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${riviuPreviewTab === 'evidence' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Bukti Dukung ({supportingEvidence.length})</button>
+                </div>
+              )}
               {/* FORMAT RESMI BAKU (Halaman 6 RSUD Soegiri - untuk SPO Baru/Riviu) */}
           {activeTab === 'official_format' && (
             <div className="space-y-4 sm:space-y-6">
               
 
               {/* BUKTI SPO LAMA — metadata utama sudah digabung di PreviewMetadata agar tidak ada data Riviu yang tampil dua kali */}
-              {isReviewDoc && (
+              {isReviewDoc && riviuPreviewTab === 'evidence' && (
   ((sop as any)?.oldFileName ||
    (sop as any)?.oldFileUrl ||
    (sop as any)?.oldStoragePath ||
@@ -2244,8 +2271,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         <FileCheck2 className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
-                        <div className="text-xs font-extrabold text-slate-900">Berkas Bukti SPO Lama</div>
-                        <div className="text-[11px] text-slate-500 truncate">{sop.oldFileName || 'Bukti Riviu'}</div>
+                        <div className="text-xs font-extrabold text-slate-900">Dokumen Sumber</div>
+                        <div className="text-[11px] text-slate-500 truncate">{sop.oldFileName || 'SPO lama yang diriviu'}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2256,7 +2283,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer"
                       >
                         {isLoadingReviewEvidence ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : showReviewEvidencePreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        <span>{showReviewEvidencePreview ? 'Tutup Bukti' : 'Lihat Bukti'}</span>
+                        <span>{showReviewEvidencePreview ? 'Tutup' : 'Lihat Sumber'}</span>
                       </button>
                       <button
                         type="button"
@@ -2265,7 +2292,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Unduh Bukti</span>
+                        <span>Unduh Sumber</span>
                       </button>
                     </div>
                   </div>
@@ -2292,9 +2319,33 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               )}
 
+              {isReviewDoc && riviuPreviewTab === 'evidence' && (
+                <div className="no-print rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-700">Bukti Dukung Riviu</div>
+                  {supportingEvidence.length ? supportingEvidence.map((evidence, index) => (
+                    <div key={evidence.id || index} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-slate-900 truncate">{index + 1}. {evidence.originalName}</div>
+                        <div className="text-[10px] text-slate-500">{evidence.category}{evidence.description ? ` · ${evidence.description}` : ''}</div>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button type="button" onClick={() => void openSupportingEvidence(evidence)} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700">Preview</button>
+                        <button type="button" onClick={() => triggerFileDownload(evidence.fileUrl || buildStoragePathUrl(evidence.storagePath || ''), evidence.originalName, evidence.storagePath)} className="rounded-lg bg-blue-900 px-2.5 py-1.5 text-[11px] font-bold text-white">Unduh</button>
+                      </div>
+                    </div>
+                  )) : <p className="text-xs text-slate-500">Tidak ada bukti dukung tambahan pada data historis ini.</p>}
+                  {selectedEvidenceUrl && (
+                    <div className="overflow-hidden rounded-lg border border-slate-200">
+                      <div className="bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{selectedEvidenceName}</div>
+                      <DocumentViewer fileUrl={selectedEvidenceUrl} fileName={selectedEvidenceName} heightClass="h-[55vh] w-full" />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div 
                 id="printable-sop-official-document" 
-                className="font-bookman flex flex-col items-center gap-6 mt-6"
+                className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
               >
 
                 {/* ==========================================================

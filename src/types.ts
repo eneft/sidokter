@@ -148,6 +148,8 @@ export interface SopDocument {
   revisionNumber?: string; // "00"
   /** Revision confirmed from the active predecessor when creating a Riviu. */
   previousRevisionNumber?: string;
+  /** Editable source number captured for a Riviu; the relationship itself is existingSopId. */
+  previousSopNumber?: string;
   halaman?: string; // "1 / 1"
   direkturNama?: string; // "dr. Abdur Rohman, Sp.PD.M.EK."
   direkturNip?: string; // "19770219 200604 1 013"
@@ -179,6 +181,8 @@ export interface SopDocument {
   oldFileDataUrl?: string;
   oldFileUrl?: string; // Firebase Storage API reference for review evidence
   oldStoragePath?: string; // Firebase Cloud Storage object path for review evidence
+  /** Additional Riviu evidence. The old/source SPO is intentionally not part of this list. */
+  supportingEvidence?: SupportingEvidence[];
   reviewReason?: string;
   externalReviewSignedConfirmed?: boolean;
   isExampleOnly?: boolean; // Flag to indicate master template/example SOP visible only to Admin
@@ -215,6 +219,21 @@ export interface SopDocument {
   numberReservationPurpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
   // ID register Nomor Terbit yang dipakai alur SPO Existing. Bukan ID dokumen.
   numberReservationId?: string;
+}
+
+export type SupportingEvidenceCategory = 'NOTULEN_BA' | 'PERATURAN_PEDOMAN' | 'EVALUASI_AUDIT' | 'SURAT_INSTRUKSI' | 'LAINNYA';
+
+export interface SupportingEvidence {
+  id: string;
+  category: SupportingEvidenceCategory;
+  description?: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  fileUrl?: string;
+  storagePath?: string;
+  /** Transient upload payload; removed before Firestore persistence. */
+  dataUrl?: string;
 }
 
 

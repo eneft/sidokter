@@ -184,12 +184,9 @@ export async function saveSopToFirestore(
           if (!predecessorSnapshot?.exists()) throw new Error('SPO pendahulu Riviu tidak ditemukan.');
           const predecessor = predecessorSnapshot.data() as SopDocument;
           if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu Riviu tidak lagi berstatus AKTIF.');
-          const storedPrevious = String(predecessor.revisionNumber || predecessor.version || '').trim();
           const submittedPrevious = String(sop.previousRevisionNumber || '').trim();
-          if (!/^\d+$/.test(storedPrevious) || storedPrevious !== submittedPrevious) {
-            throw new Error('Nomor revisi pendahulu Riviu tidak valid atau sudah berubah.');
-          }
-          const expectedNext = String(Number(storedPrevious) + 1).padStart(2, '0');
+          if (!/^\d+$/.test(submittedPrevious)) throw new Error('Nomor revisi lama Riviu wajib berupa angka non-negatif.');
+          const expectedNext = String(Number(submittedPrevious) + 1).padStart(2, '0');
           if (sop.revisionNumber !== expectedNext) throw new Error(`Nomor revisi penerus harus ${expectedNext}.`);
         }
 
@@ -265,8 +262,7 @@ export async function activateRiviuInFirestore(
       throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
     }
     const previous = String(storedSuccessor.previousRevisionNumber || '').trim();
-    const predecessorRevision = String(predecessor.revisionNumber || predecessor.version || '').trim();
-    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous) || predecessorRevision !== previous) {
+    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous)) {
       throw new Error('Nomor revisi pendahulu pada draft Riviu tidak valid.');
     }
     const expectedNext = String(Number(previous) + 1).padStart(2, '0');
