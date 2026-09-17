@@ -21,9 +21,10 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { db, auth, authPersistenceReady } from './firebase';
-import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
+import { SopDocument, LibraryDocument, UserAccount, NumberingConfig, UserSession } from '../types';
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
 import { generateSopNumber, getHighestSequenceForUnit, getNextTransactionalSequence, getNumberingSequenceScope } from '../utils/numbering';
+import { assertCanEditExistingSop, preserveSopWorkflowIdentity } from './sopEditPolicy';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -236,6 +237,49 @@ export async function saveSopToFirestore(
     if (options?.throwOnError) throw err instanceof Error ? err : new Error(String(err));
     return sop;
   }
+}
+
+/**
+ * Authoritative boundary for editing an existing SPO. The current record is
+ * reread inside a transaction, preventing a stale DRAFT editor from saving
+ * after another actor activates it.
+ */
+export async function updateExistingSopInFirestore(submitted: SopDocument, actor: UserSession): Promise<SopDocument> {
+  if (!submitted?.id) throw new Error('Dokumen SPO tidak valid.');
+  const sopRef = doc(db, 'sops', submitted.id);
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(sopRef);
+    if (!snapshot.exists()) throw new Error('SPO tidak ditemukan atau sudah dihapus.');
+    const stored = { ...snapshot.data(), id: snapshot.id } as SopDocument;
+    assertCanEditExistingSop(stored, actor);
+
+    const next = preserveSopWorkflowIdentity(stored, submitted);
+    const clean = sanitizeForFirestore({
+      ...next,
+      fileDataUrl: deleteField(),
+      signedScanDataUrl: deleteField(),
+      oldFileDataUrl: deleteField(),
+      accessKeys: getSopAccessKeys(next),
+      authorizedUids: (stored as any).authorizedUids,
+      _syncedAt: new Date().toISOString(),
+    });
+    transaction.set(sopRef, clean, { merge: true });
+
+    const auditRef = doc(collection(db, 'audit_logs'));
+    transaction.set(auditRef, {
+      id: auditRef.id,
+      action: 'SOP_EDITED',
+      documentId: stored.id,
+      documentNumber: stored.sopNumber,
+      documentStatus: stored.status,
+      actorUid: auth.currentUser?.uid || actor.authUid || actor.id || '',
+      actorName: actor.name,
+      actorUsername: actor.username,
+      actorRole: actor.role,
+      timestamp: serverTimestamp(),
+    });
+    return next;
+  });
 }
 
 /** Authoritative, all-or-nothing lifecycle transition for a Riviu. */

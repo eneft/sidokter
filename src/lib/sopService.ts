@@ -4,7 +4,7 @@
  */
 import { SopDocument, NumberingConfig, SopStatus } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
-import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
+import { saveSopToFirestore, updateExistingSopInFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
 import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
@@ -270,7 +270,7 @@ function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string
   return false;
 }
 
-export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig }): Promise<SopDocument> {
+export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig; editActor?: UserSession }): Promise<SopDocument> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
@@ -371,7 +371,10 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   // back the local cache so the UI cannot report a successful save that only
   // exists on this browser.
   try {
-    await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber });
+    const saved = options?.editActor
+      ? await updateExistingSopInFirestore(next, options.editActor)
+      : await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber });
+    Object.assign(next, saved);
   } catch (err) {
     const rollback = all.filter((s) => s.id !== next.id);
     if (previous) rollback.push(previous);
