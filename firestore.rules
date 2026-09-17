@@ -37,7 +37,20 @@ service cloud.firestore {
     // Business-level hierarchy/role checks remain enforced by the application
     // and trusted Cloud Functions; unauthenticated direct Firestore access is blocked.
     match /sops/{sopId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if isAdmin() || (
+        resource.data.status == 'DRAFT' &&
+        request.resource.data.status == 'DRAFT' &&
+        request.auth.uid in resource.data.authorizedUids &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'id', 'status', 'sopNumber', 'sequenceNumber', 'revisionNumber',
+          'version', 'jenis_spo', 'documentType', 'isReviewDocument',
+          'existingSopId', 'previousRevisionNumber', 'oldSopNumber',
+          'authorizedUids', 'accessKeys'
+        ])
+      );
+      allow delete: if isAdmin();
     }
 
     // SK / MOU library.
@@ -79,7 +92,9 @@ service cloud.firestore {
     // Audit entries are never public. Existing client-side audit logging is retained
     // for authenticated users; administrative review can be performed by admins.
     match /audit_logs/{logId} {
-      allow read, write: if signedIn();
+      allow read: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if false;
     }
   }
 }

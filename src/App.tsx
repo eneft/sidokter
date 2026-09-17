@@ -49,6 +49,7 @@ import {
   getAllNumberReservations
 } from './lib/sopService';
 import { activateRiviuInFirestore } from './lib/firestoreService';
+import { canEditExistingSop, preserveSopWorkflowIdentity } from './lib/sopEditPolicy';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
 import { subscribeToSKDocuments } from './lib/skService';
@@ -467,6 +468,15 @@ export default function App() {
   // authoritative local snapshot.
   const awaitingRestoredSnapshotRef = useRef(false);
   const expectedRestoredIdsRef = useRef<Set<string>>(new Set());
+
+  // Realtime status changes invalidate an already-open Petugas editor. The
+  // transaction also enforces this, but closing it avoids exposing stale live
+  // editing controls after a DRAFT becomes AKTIF.
+  useEffect(() => {
+    if (!selectedSopForEdit) return;
+    const current = sops.find((sop) => sop.id === selectedSopForEdit.id);
+    if (current && !canEditExistingSop(current, userSession)) setSelectedSopForEdit(null);
+  }, [selectedSopForEdit, sops, userSession]);
 
   // 4. Toast Notifications
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -1580,6 +1590,13 @@ export default function App() {
 
   // Edit SOP
   const handleUpdateSop = async (updatedSop: SopDocument) => {
+    const currentSop = sops.find((s) => s.id === updatedSop.id);
+    if (!currentSop || !canEditExistingSop(currentSop, userSession)) {
+      addToast('error', 'Edit Ditolak', 'Petugas hanya dapat mengedit SPO berstatus DRAFT sesuai akses hierarkinya.');
+      setSelectedSopForEdit(null);
+      return;
+    }
+    updatedSop = preserveSopWorkflowIdentity(currentSop, updatedSop);
     const isLegacy = updatedSop.documentType === 'LAMA' || updatedSop.isLegacySop;
     const normalizedDivision = (updatedSop.divisionCode || (updatedSop.sopNumber ? updatedSop.sopNumber.split('/')[0]?.trim() : 'PEL') || 'PEL').trim().toUpperCase();
     const normalizedHierarchy = (updatedSop.subHierarchyCode || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
@@ -1624,15 +1641,10 @@ export default function App() {
       ...(isLegacy ? { jenis_spo: 'EKSISTING' as const, documentType: 'LAMA' as const, isLegacySop: true } : {})
     };
 
-    setSops((prev) => prev.map((s) => (s.id === finalUpdatedSop.id ? finalUpdatedSop : s)));
-    
-    // Also update active detail view if it's currently open
-    if (selectedSopForDetail?.id === finalUpdatedSop.id) {
-      setSelectedSopForDetail(finalUpdatedSop);
-    }
-
     try {
-      await saveSopToLocal(finalUpdatedSop);
+      const savedSop = await saveSopToLocal(finalUpdatedSop, { editActor: userSession });
+      setSops((prev) => prev.map((s) => (s.id === savedSop.id ? savedSop : s)));
+      if (selectedSopForDetail?.id === savedSop.id) setSelectedSopForDetail(savedSop);
     } catch (err) {
       console.error('Error updating SOP in local/cloud storage:', err);
       addToast('error', 'Perubahan Belum Tersimpan', err instanceof Error ? err.message : 'Dokumen gagal disimpan ke penyimpanan permanen.');
