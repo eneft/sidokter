@@ -7,6 +7,7 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
+const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
 
 if (!process.env.AWS_EXECUTION_ENV) {
@@ -651,6 +652,7 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
 // Authoritative, transactional SPO correction workflow. Notification routing is
 // performed here so clients can never choose or impersonate a recipient.
 exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 20, memory: '256MiB' }, async (request) => {
+  const requestId = crypto.randomUUID();
   const actorUid = request.auth?.uid;
   if (!actorUid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
   const sopId = String(request.data?.sopId || '').trim();
@@ -663,6 +665,8 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     throw new HttpsError('invalid-argument', 'Catatan perbaikan wajib diisi.');
   }
 
+  logger.info('SPO review request received', { requestId, action, sopId, actorUid });
+  try {
   const actorSnap = await db.collection('users').doc(actorUid).get();
   if (!actorSnap.exists) throw new HttpsError('permission-denied', 'Akun tidak ditemukan.');
   const actor = actorSnap.data() || {};
@@ -722,8 +726,23 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
       });
     }
   });
+  // Audit is deliberately outside the workflow transaction: audit failure is
+  // non-fatal, while transition, history, and notification commit atomically.
   await audit({ actorUid, username: actor.username, name: actor.name, role: actor.role, event: `SOP_${action}`, details: `SPO ${sopId}: ${resultingSop.reviewState}` });
+  logger.info('SPO review request completed', { requestId, action, sopId, actorUid, reviewState: resultingSop.reviewState });
   return { ok: true, sop: resultingSop };
+  } catch (error) {
+    // Preserve intentional client-safe errors. Unexpected Admin/Firestore
+    // details stay in server logs and the reference allows incident tracing.
+    logger.error('SPO review request failed', {
+      requestId, action, sopId, actorUid,
+      errorCode: error?.code || 'unknown',
+      errorMessage: error?.message || String(error),
+      stack: error?.stack
+    });
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError('internal', `Alur perbaikan SPO gagal diproses. Referensi: ${requestId}`);
+  }
 });
 exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', timeoutSeconds: 30, memory: '256MiB' }, async (req, res) => {
   cors(req, res);
