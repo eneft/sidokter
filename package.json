@@ -14,6 +14,7 @@
     "check:pdf": "node -e \"console.log('PDF engine: puppeteer-core 25.1.0 + @sparticuz/chromium 149.0.0 + explicit AL2023 libs')\"",
     "deploy:firebase": "firebase deploy --only functions,hosting,firestore,storage",
     "verify:functions": "node --check functions/index.js",
+    "test:storage": "node --test functions/storageMetadata.test.js",
     "test:revision": "tsx tests/revision-number.test.ts"
   },
   "dependencies": {
