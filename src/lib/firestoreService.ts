@@ -24,6 +24,7 @@ import { db, auth, authPersistenceReady } from './firebase';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig } from '../types';
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
 import { generateSopNumber, getHighestSequenceForUnit, getNextTransactionalSequence, getNumberingSequenceScope } from '../utils/numbering';
+import { assertCanEditSop, preserveSopIdentity } from '../utils/sopEditPolicy';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -106,7 +107,7 @@ function sanitizeForFirestore<T = any>(obj: T): any {
 
 export async function saveSopToFirestore(
   sop: SopDocument,
-  options?: { throwOnError?: boolean; allocateOfficialNumber?: NumberingConfig },
+  options?: { throwOnError?: boolean; allocateOfficialNumber?: NumberingConfig; editExisting?: boolean },
 ): Promise<SopDocument> {
   try {
     if (!sop || !sop.id) return;
@@ -148,8 +149,17 @@ export async function saveSopToFirestore(
     // live in Firebase Cloud Storage. Explicitly delete legacy DataURL fields
     // even when setDoc uses merge:true, otherwise an old browser-local payload
     // can remain in Firestore forever and be mistaken for the real file.
+    let authoritativeSop = sop;
+    if (options?.editExisting) {
+      const currentSnapshot = await getDocFromServer(doc(db, 'sops', sop.id));
+      if (!currentSnapshot.exists()) throw new Error('SPO yang akan diedit tidak ditemukan.');
+      const current = { ...currentSnapshot.data(), id: currentSnapshot.id } as SopDocument;
+      assertCanEditSop(currentSessionRaw?.role, current.status);
+      authoritativeSop = preserveSopIdentity(current, sop);
+      Object.assign(sop, authoritativeSop);
+    }
     const cleanSop = sanitizeForFirestore({
-      ...sop,
+      ...authoritativeSop,
       fileDataUrl: deleteField(),
       signedScanDataUrl: deleteField(),
       oldFileDataUrl: deleteField(),
@@ -184,12 +194,9 @@ export async function saveSopToFirestore(
           if (!predecessorSnapshot?.exists()) throw new Error('SPO pendahulu Riviu tidak ditemukan.');
           const predecessor = predecessorSnapshot.data() as SopDocument;
           if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu Riviu tidak lagi berstatus AKTIF.');
-          const storedPrevious = String(predecessor.revisionNumber || predecessor.version || '').trim();
           const submittedPrevious = String(sop.previousRevisionNumber || '').trim();
-          if (!/^\d+$/.test(storedPrevious) || storedPrevious !== submittedPrevious) {
-            throw new Error('Nomor revisi pendahulu Riviu tidak valid atau sudah berubah.');
-          }
-          const expectedNext = String(Number(storedPrevious) + 1).padStart(2, '0');
+          if (!/^\d+$/.test(submittedPrevious)) throw new Error('Nomor revisi lama Riviu wajib berupa angka non-negatif.');
+          const expectedNext = String(Number(submittedPrevious) + 1).padStart(2, '0');
           if (sop.revisionNumber !== expectedNext) throw new Error(`Nomor revisi penerus harus ${expectedNext}.`);
         }
 
@@ -265,8 +272,7 @@ export async function activateRiviuInFirestore(
       throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
     }
     const previous = String(storedSuccessor.previousRevisionNumber || '').trim();
-    const predecessorRevision = String(predecessor.revisionNumber || predecessor.version || '').trim();
-    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous) || predecessorRevision !== previous) {
+    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous)) {
       throw new Error('Nomor revisi pendahulu pada draft Riviu tidak valid.');
     }
     const expectedNext = String(Number(previous) + 1).padStart(2, '0');

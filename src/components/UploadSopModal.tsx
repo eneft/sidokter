@@ -35,6 +35,7 @@ import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { RichTextEditor } from './RichTextEditor';
 import { HierarchyPicker } from './HierarchyPicker';
 import { SopLiveTemplate } from './SopLiveTemplate';
+import { SupportingEvidenceInput, createPendingEvidence, PendingEvidence } from './SupportingEvidenceInput';
 
 interface UploadSopModalProps {
   isOpen: boolean;
@@ -169,6 +170,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   const [selectedOldFile, setSelectedOldFile] = useState<File | null>(null);
   const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [oldFileDataUrl, setOldFileDataUrl] = useState<string | undefined>(undefined);
+  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([createPendingEvidence(1)]);
 
   const [activeTab, setActiveTab] = useState<'info' | 'konten' | 'lampiran'>('info');
   const [missingSections, setMissingSections] = useState<string[]>([]);
@@ -356,6 +358,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     setRevisionNumber('01');
     setAdminManualSequence('');
     setReviewReason('');
+    setSupportingEvidence([createPendingEvidence(1)]);
     setActiveTab('info');
     setMissingSections([]);
     setLatestCreatedSop(null);
@@ -484,6 +487,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         if (revisionNumber !== getNextRevisionNumber(previousRevisionNumber)) throw new Error('Nomor revisi penerus tidak sesuai.');
       } catch (error) {
         alert(error instanceof Error ? error.message : 'Nomor revisi saat ini tidak valid.');
+        return;
+      }
+      if (!supportingEvidence[0]?.file || supportingEvidence.some((item) => !item.file)) {
+        alert('Minimal satu Bukti Dukung Riviu wajib diunggah; hapus baris tambahan yang kosong.');
         return;
       }
     }
@@ -659,6 +666,19 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       signedScanFileType: documentType === 'LAMA' && !isDocx ? selectedFile?.type || 'application/pdf' : undefined,
       signedScanDataUrl: documentType === 'LAMA' && !isDocx ? resolvedFileDataUrl : undefined,
     };
+
+    if (documentType === 'REVIEW') {
+      newSopDoc.supportingEvidence = await Promise.all(supportingEvidence.map(async (item) => {
+        const file = item.file!;
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error(`Gagal membaca bukti dukung ${file.name}.`));
+          reader.readAsDataURL(file);
+        });
+        return { id: item.id, category: item.category, description: item.description.trim() || undefined, originalName: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, dataUrl };
+      }));
+    }
 
     // Hard marker: Existing submissions may consume only an existing Draft/issued number.
     // This marker prevents the parent from ever treating the submission as a new-number flow.
@@ -1362,10 +1382,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
             {(documentType === 'REVIEW' || documentType === 'LAMA') && (
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                 <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center justify-between">
-                  <span>{documentType === 'LAMA' ? '3. Unggah Dokumen Resmi SPO Eksisting (Sudah Ditandatangani Direktur)' : '4. Bukti Dokumen SPO Lama (PDF)'}</span>
+                  <span>{documentType === 'LAMA' ? '3. Unggah Dokumen Resmi SPO Eksisting (Sudah Ditandatangani Direktur)' : '4. Dokumen Sumber SPO Lama (PDF, opsional)'}</span>
                   {documentType === 'REVIEW' ? (
                     <span className="text-[11px] font-bold text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
-                      Wajib Unggah SPO Lama Sebagai Bukti Dukung *
+                      Dokumen Sumber (bukan Bukti Dukung Riviu)
                     </span>
                   ) : (
                     <span className="text-[11px] font-bold text-purple-900 bg-purple-100 px-2.5 py-0.5 rounded-full border border-purple-300">
@@ -1375,12 +1395,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 </label>
 
                 {documentType === 'REVIEW' ? (
-                  /* UPLOAD MODE FOR SPO RIVIU: ONLY OLD SPO AS SUPPORTING PROOF */
+                  /* Dokumen sumber lama disimpan terpisah dari Bukti Dukung Riviu. */
                   <div className="p-4 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/60 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-amber-700" />
-                        Berkas SPO Lama Yang Diriviu (Bukti Dukung Perubahan SPO) <span className="text-rose-500">*</span>
+                        Berkas SPO Lama Yang Diriviu (Dokumen Sumber)
                       </span>
                       {selectedOldFile && (
                         <button
@@ -1407,7 +1427,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                       </div>
                     ) : (
                       <p className="text-[11px] text-amber-900 leading-relaxed">
-                        * Unggah salinan/pindaian berkas naskah SPO lama yang diriviu sebagai bukti dukung perubahan tata naskah SPO RSUD Dr. Soegiri.
+                        Opsional bila dokumen sumber sudah terdaftar di SIDOKTER. Berkas ini tidak dihitung sebagai Bukti Dukung Riviu.
                       </p>
                     )}
                     <label className="flex items-start gap-2 p-3 rounded-lg border border-amber-300 bg-amber-50 text-[11px] text-amber-950 cursor-pointer">
@@ -1458,6 +1478,11 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                         * Unggah pindaian/scan dokumen SPO lama resmi yang sudah bertanda tangan Direktur RSUD Dr. Soegiri (PDF/Gambar). Untuk naskah Word (.docx), gunakan tombol 'Upload Draft DOCX' untuk mengekstrak naskah ke formulir A4.
                       </p>
                     )}
+                  </div>
+                )}
+                {documentType === 'REVIEW' && (
+                  <div className="mt-3">
+                    <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} />
                   </div>
                 )}
               </div>

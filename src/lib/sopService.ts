@@ -8,6 +8,7 @@ import { saveSopToFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
 import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
+import { validateSupportingEvidence } from '../utils/supportingEvidence';
 import { getFileFromPersistentCacheAsync, saveFileToLocalCache } from '../utils/fileStorage';
 
 const KEYS = {
@@ -269,7 +270,7 @@ function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string
   return false;
 }
 
-export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig }): Promise<SopDocument> {
+export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig; editExisting?: boolean }): Promise<SopDocument> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
@@ -293,6 +294,27 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   }
   if (isDocxBinaryData(next.oldFileDataUrl, next.oldFileName, next.oldFileType)) {
     delete next.oldFileDataUrl;
+  }
+
+  // New Riviu submissions are required to carry this array at the App boundary.
+  // Do not make unrelated saves of historical Riviu records fail solely because
+  // those records predate the supportingEvidence schema.
+  if ((next.jenis_spo === 'RIVIU' || next.documentType === 'RIVIU' || next.documentType === 'REVIEW' || next.isReviewDocument)
+      && next.supportingEvidence !== undefined) {
+    validateSupportingEvidence(next.supportingEvidence);
+    for (const evidence of next.supportingEvidence || []) {
+      if (!evidence.dataUrl) continue;
+      const result = await uploadFileToCloudStorage(
+        evidence.dataUrl,
+        evidence.originalName,
+        `${next.id}_evidence_${evidence.id}`,
+        'SPO'
+      );
+      evidence.fileUrl = result.url;
+      evidence.storagePath = result.storagePath;
+      delete evidence.dataUrl;
+    }
+    validateSupportingEvidence(next.supportingEvidence);
   }
 
   // IMPORTANT: file upload is part of the authoritative save. The old code
@@ -349,7 +371,7 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   // back the local cache so the UI cannot report a successful save that only
   // exists on this browser.
   try {
-    await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber });
+    await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber, editExisting: options?.editExisting });
   } catch (err) {
     const rollback = all.filter((s) => s.id !== next.id);
     if (previous) rollback.push(previous);

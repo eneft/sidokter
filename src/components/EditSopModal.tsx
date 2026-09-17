@@ -49,6 +49,7 @@ import {
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HierarchyPicker } from './HierarchyPicker';
 import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
+import { canEditSop } from '../utils/sopEditPolicy';
 
 export interface EditSopModalProps {
   isOpen: boolean;
@@ -1712,6 +1713,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
 };
 
 export const EditSopModal: React.FC<EditSopModalProps> = (props) => {
-  if (!props.isOpen || !props.sop) return null;
+  if (!props.isOpen || !props.sop || !canEditSop(props.userSession?.role, props.sop.status)) return null;
   return <EditSopModalContent {...props} />;
 };

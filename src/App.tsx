@@ -32,6 +32,7 @@ import { SOEGIRI_HOSPITAL_INFO } from './utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from './lib/hierarchyService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasVerificatorBadge } from './utils/soegiriStructure';
 import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
+import { validateSupportingEvidence } from './utils/supportingEvidence';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -48,7 +49,8 @@ import {
   consumeNumberReservation,
   getAllNumberReservations
 } from './lib/sopService';
-import { activateRiviuInFirestore } from './lib/firestoreService';
+import { activateRiviuInFirestore, logAuditToFirestore } from './lib/firestoreService';
+import { assertCanEditSop, preserveSopIdentity } from './utils/sopEditPolicy';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
 import { subscribeToSKDocuments } from './lib/skService';
@@ -1003,10 +1005,12 @@ export default function App() {
       if (String(newSopData.revisionNumber || '') !== revisionNumber) {
         throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
       }
+      validateSupportingEvidence(newSopData.supportingEvidence);
       authoritativeSopData = {
         ...newSopData,
         existingSopId: referenced.id,
-        oldSopNumber: referenced.sopNumber,
+        oldSopNumber: String(newSopData.oldSopNumber || '').trim(),
+        previousSopNumber: String(newSopData.oldSopNumber || '').trim(),
         previousRevisionNumber,
         revisionNumber,
         version: revisionNumber,
@@ -1580,6 +1584,22 @@ export default function App() {
 
   // Edit SOP
   const handleUpdateSop = async (updatedSop: SopDocument) => {
+    const currentSop = sops.find((s) => s.id === updatedSop.id);
+    if (!currentSop || !userSession) {
+      addToast('error', 'Perubahan Ditolak', 'Dokumen atau sesi pengguna tidak ditemukan.');
+      return;
+    }
+    try {
+      assertCanEditSop(userSession.role, currentSop.status);
+    } catch (error) {
+      addToast('error', 'Perubahan Ditolak', error instanceof Error ? error.message : 'Anda tidak berwenang mengedit SPO ini.');
+      setSelectedSopForEdit(null);
+      return;
+    }
+    if (!isSopAccessibleByUser(currentSop, userSession)) {
+      addToast('error', 'Akses Ditolak', 'SPO berada di luar hirarki akses akun Anda.');
+      return;
+    }
     const isLegacy = updatedSop.documentType === 'LAMA' || updatedSop.isLegacySop;
     const normalizedDivision = (updatedSop.divisionCode || (updatedSop.sopNumber ? updatedSop.sopNumber.split('/')[0]?.trim() : 'PEL') || 'PEL').trim().toUpperCase();
     const normalizedHierarchy = (updatedSop.subHierarchyCode || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
@@ -1610,7 +1630,7 @@ export default function App() {
       return;
     }
 
-    const finalUpdatedSop: SopDocument = {
+    let finalUpdatedSop: SopDocument = {
       ...updatedSop,
       sopNumber: normalizedNumber,
       sequenceNumber: normalizedSequence,
@@ -1624,20 +1644,29 @@ export default function App() {
       ...(isLegacy ? { jenis_spo: 'EKSISTING' as const, documentType: 'LAMA' as const, isLegacySop: true } : {})
     };
 
-    setSops((prev) => prev.map((s) => (s.id === finalUpdatedSop.id ? finalUpdatedSop : s)));
-    
-    // Also update active detail view if it's currently open
-    if (selectedSopForDetail?.id === finalUpdatedSop.id) {
-      setSelectedSopForDetail(finalUpdatedSop);
+    // Approved/archived document edits are content corrections by Admin, never
+    // a numbering, revision, workflow, or lifecycle operation.
+    if (currentSop.status === 'AKTIF' || currentSop.status === 'DIARSIPKAN') {
+      finalUpdatedSop = preserveSopIdentity(currentSop, finalUpdatedSop);
     }
 
     try {
-      await saveSopToLocal(finalUpdatedSop);
+      await saveSopToLocal(finalUpdatedSop, { editExisting: true });
     } catch (err) {
       console.error('Error updating SOP in local/cloud storage:', err);
       addToast('error', 'Perubahan Belum Tersimpan', err instanceof Error ? err.message : 'Dokumen gagal disimpan ke penyimpanan permanen.');
       return;
     }
+
+    setSops((prev) => prev.map((s) => (s.id === finalUpdatedSop.id ? finalUpdatedSop : s)));
+    if (selectedSopForDetail?.id === finalUpdatedSop.id) setSelectedSopForDetail(finalUpdatedSop);
+
+    await logAuditToFirestore({
+      action: 'SPO_EDIT',
+      actorName: userSession.name || userSession.username,
+      actorRole: userSession.role,
+      details: `SPO ${finalUpdatedSop.id} (${finalUpdatedSop.sopNumber}) diedit; status ${currentSop.status}.`,
+    });
 
     addToast('success', 'Perubahan Disimpan', `Dokumen ${finalUpdatedSop.sopNumber} berhasil diperbarui.`);
 
