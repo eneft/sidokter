@@ -269,7 +269,7 @@ function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string
   return false;
 }
 
-export async function saveSopToLocal(sop: SopDocument): Promise<void> {
+export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig }): Promise<SopDocument> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
@@ -349,7 +349,7 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
   // back the local cache so the UI cannot report a successful save that only
   // exists on this browser.
   try {
-    await saveSopToFirestore(next, { throwOnError: true });
+    await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber });
   } catch (err) {
     const rollback = all.filter((s) => s.id !== next.id);
     if (previous) rollback.push(previous);
@@ -360,6 +360,7 @@ export async function saveSopToLocal(sop: SopDocument): Promise<void> {
 
   await idbPutSops(all);
   notifySopSubscribers();
+  return next;
 }
 
 /**
@@ -641,6 +642,17 @@ export async function restoreNumberReservations(reservations: SopNumberReservati
   });
 }
 
-export async function registerSopAndNumberingToLocal(sop: SopDocument, config: NumberingConfig): Promise<void> {
-  await saveSopToLocal(sop); await saveConfigToLocal(config);
+export async function registerSopAndNumberingToLocal(sop: SopDocument, config: NumberingConfig): Promise<SopDocument> {
+  const saved = await saveSopToLocal(sop, { allocateOfficialNumber: config });
+  const unitKey = `${saved.divisionCode}${saved.subHierarchyCode ? `:${saved.subHierarchyCode}` : ''}`;
+  const nextConfig = {
+    ...config,
+    currentCounter: Math.max(config.currentCounter || 0, saved.sequenceNumber || 0),
+    divisionCounters: {
+      ...(config.divisionCounters || {}),
+      [unitKey]: Math.max(config.divisionCounters?.[unitKey] || 0, saved.sequenceNumber || 0),
+    },
+  };
+  await saveConfigToLocal(nextConfig);
+  return saved;
 }
