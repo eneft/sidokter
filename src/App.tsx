@@ -51,6 +51,7 @@ import {
 } from './lib/sopService';
 import { activateRiviuInFirestore } from './lib/firestoreService';
 import { canEditExistingSop, preserveSopWorkflowIdentity } from './lib/sopEditPolicy';
+import { mutateSopReview, SopReviewAction } from './lib/sopReviewService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
 import { subscribeToMaintenanceMode, getMaintenanceMode, setMaintenanceMode } from './lib/maintenanceService';
 import { subscribeToSKDocuments } from './lib/skService';
@@ -1646,8 +1647,11 @@ export default function App() {
 
     try {
       const savedSop = await saveSopToLocal(finalUpdatedSop, { editActor: userSession });
-      setSops((prev) => prev.map((s) => (s.id === savedSop.id ? savedSop : s)));
-      if (selectedSopForDetail?.id === savedSop.id) setSelectedSopForDetail(savedSop);
+      const shouldSubmitRevision = currentSop.reviewState === 'REVISION_REQUESTED'
+        && (currentSop.creatorUid || currentSop.activationRequestedUid) === (userSession?.authUid || userSession?.id);
+      const finalSavedSop = shouldSubmitRevision ? await mutateSopReview(savedSop.id, 'SUBMIT_REVISION') : savedSop;
+      setSops((prev) => prev.map((s) => (s.id === finalSavedSop.id ? finalSavedSop : s)));
+      if (selectedSopForDetail?.id === finalSavedSop.id) setSelectedSopForDetail(finalSavedSop);
     } catch (err) {
       console.error('Error updating SOP in local/cloud storage:', err);
       addToast('error', 'Perubahan Belum Tersimpan', err instanceof Error ? err.message : 'Dokumen gagal disimpan ke penyimpanan permanen.');
@@ -1659,6 +1663,18 @@ export default function App() {
     const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);
     if (reviewStatus.isDue) {
       dispatchDocumentEvent('review', finalUpdatedSop, `Dokumen ${finalUpdatedSop.sopNumber}: ${reviewStatus.reason}`);
+    }
+  };
+
+  const handleReviewWorkflow = async (sop: SopDocument, action: SopReviewAction, note?: string) => {
+    try {
+      const updated = await mutateSopReview(sop.id, action, note);
+      setSops((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+      setSelectedSopForDetail(updated);
+      addToast('success', action === 'REQUEST_REVISION' ? 'Permintaan Terkirim' : 'Verifikasi Selesai', action === 'REQUEST_REVISION' ? 'Permintaan perbaikan telah dikirim kepada pengusul.' : 'Perbaikan SPO telah diverifikasi.');
+    } catch (error) {
+      addToast('error', 'Proses Ditolak', error instanceof Error ? error.message : 'Alur verifikasi gagal diproses.');
+      throw error;
     }
   };
 
@@ -1749,6 +1765,10 @@ export default function App() {
     const target = sops.find((s) => s.id === sopId);
     if (!target || target.status !== 'DRAFT') {
       addToast('error', 'Aktivasi Ditolak', 'Hanya pengajuan SPO Baru, Riviu, atau Existing dengan status Draft yang dapat diaktifkan.');
+      return;
+    }
+    if (target.reviewState === 'REVISION_REQUESTED' || target.reviewState === 'REVISION_SUBMITTED') {
+      addToast('error', 'Aktivasi Ditolak', 'Alur perbaikan SPO harus diselesaikan sebelum aktivasi.');
       return;
     }
 
@@ -2118,6 +2138,7 @@ export default function App() {
             setSelectedSopForActivation(sop);
           }}
           onProposeActivation={handleProposeActivation}
+          onReviewWorkflow={handleReviewWorkflow}
           userSession={userSession}
           users={users}
         />
@@ -2212,6 +2233,7 @@ export default function App() {
           setSelectedSopForActivation(sop);
         }}
         onProposeActivation={handleProposeActivation}
+        onReviewWorkflow={handleReviewWorkflow}
         userSession={userSession}
       />
 

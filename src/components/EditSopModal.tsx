@@ -1701,7 +1701,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                 className="flex-1 sm:flex-initial px-5 py-2.5 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Simpan Perubahan</span>
+                <span>{sop.reviewState === 'REVISION_REQUESTED' ? 'Simpan & Kirim Perbaikan' : 'Simpan Perubahan'}</span>
               </button>
             </div>
           </div>

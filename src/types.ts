@@ -101,6 +101,19 @@ export interface RevisionLog {
   changedFields?: string[];
 }
 
+export type SopReviewState = 'NONE' | 'REVISION_REQUESTED' | 'REVISION_SUBMITTED' | 'VERIFIED';
+export type SopReviewEventType = Exclude<SopReviewState, 'NONE'>;
+
+export interface SopReviewHistoryEntry {
+  id: string;
+  type: SopReviewEventType;
+  actorUid: string;
+  actorName: string;
+  recipientUid?: string;
+  note?: string;
+  createdAt: string;
+}
+
 export interface SopDocument {
   id: string;
   sopNumber: string; // e.g. PEL / 1.1.3 / 001 / 2026 or PROGNAS / 001 / 2026
@@ -193,6 +206,11 @@ export interface SopDocument {
   createdAt: string;
   updatedAt: string;
   revisionHistory: RevisionLog[];
+  /** Verification workflow is independent from the locked document status. */
+  reviewState?: SopReviewState;
+  reviewHistory?: SopReviewHistoryEntry[];
+  currentReviewRequesterUid?: string;
+  reviewUpdatedAt?: string;
   
   // Pengesahan Tanda Tangan Direktur & Aktivasi oleh Admin Tata Naskah
   activatedAt?: string; // Tanggal verifikasi & aktivasi (YYYY-MM-DD)
