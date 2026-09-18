@@ -1,5 +1,6 @@
 import mammoth from 'mammoth';
 import DOMPurify from 'dompurify';
+import { preserveDocxTableGeometry } from './docxTableGeometry';
 
 export interface ParsedSopDocx {
   title?: string;
@@ -144,9 +145,10 @@ function cleanSectionHtml(html: string, sectionName: string): string {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
       'ol', 'ul', 'li', 'div', 'span', 'sub', 'sup',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td'
+      'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'colspan', 'rowspan']
+    ALLOWED_ATTR: ['style', 'start', 'type', 'colspan', 'rowspan', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'],
+    ALLOW_DATA_ATTR: true
   }).trim();
 }
 
@@ -216,7 +218,7 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
 
   // Convert to HTML (preserves tables, lists, formatting)
   const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
-  const rawHtml = htmlResult.value || '';
+  const rawHtml = await preserveDocxTableGeometry(arrayBuffer, htmlResult.value || '');
 
   // Extract raw text as backup
   const textResult = await mammoth.extractRawText({ arrayBuffer });

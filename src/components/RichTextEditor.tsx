@@ -226,7 +226,7 @@ const normalizePastedRichText = (source: string): string => {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike',
       'ol', 'ul', 'li', 'div', 'span', 'sub', 'sup',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
+      'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
     ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align'],

@@ -127,7 +127,7 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
     const sanitizedHtml = DOMPurify.sanitize(raw, {
       ALLOWED_TAGS: [
         'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike',
-        'ol', 'ul', 'li', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+        'ol', 'ul', 'li', 'img', 'figure', 'figcaption', 'table', 'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
         'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'sub', 'sup', 'blockquote'
       ],
       ALLOWED_ATTR: [
@@ -243,5 +243,4 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
     />
   );
 };
-
 
