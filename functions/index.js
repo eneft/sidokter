@@ -11,6 +11,7 @@ const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
 const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
+const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -649,6 +650,61 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
     throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
   }
   return { ok: true, id };
+});
+
+// Admin-only atomic correction of the canonical SPO number and every piece of
+// current-document display metadata. Storage object paths/binaries and all
+// predecessor/revision-history fields deliberately remain untouched.
+exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30, memory: '256MiB' }, async (request) => {
+  const actorUid = request.auth?.uid;
+  if (!actorUid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
+  const submitted = request.data?.sop;
+  const sopId = String(submitted?.id || '').trim();
+  if (!sopId) throw new HttpsError('invalid-argument', 'Dokumen SPO tidak valid.');
+
+  const actorSnap = await db.collection('users').doc(actorUid).get();
+  const actor = actorSnap.exists ? actorSnap.data() || {} : {};
+  if (!actorSnap.exists || normalizeRole(actor.role) !== 'admin') {
+    throw new HttpsError('permission-denied', 'Koreksi nomor SPO hanya dapat dilakukan oleh Admin.');
+  }
+
+  const sopRef = db.collection('sops').doc(sopId);
+  let result;
+  try {
+    await db.runTransaction(async transaction => {
+      const [sopSnap, allSopsSnap, storageSnap, notificationSnap] = await Promise.all([
+        transaction.get(sopRef),
+        transaction.get(db.collection('sops')),
+        transaction.get(db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId)),
+        transaction.get(db.collectionGroup('items').where('documentId', '==', sopId)),
+      ]);
+      if (!sopSnap.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
+      const stored = { id: sopSnap.id, ...sopSnap.data() };
+      const allSops = allSopsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let newNumber;
+      try { newNumber = validateNumberCorrection(stored, submitted, allSops); }
+      catch (error) { throw new HttpsError('failed-precondition', error.message); }
+      const next = buildAdminNumberUpdate(stored, submitted, newNumber);
+      const now = FieldValue.serverTimestamp();
+
+      transaction.set(sopRef, { ...next, _syncedAt: new Date().toISOString() }, { merge: true });
+      for (const file of storageSnap.docs) transaction.update(file.ref, { documentNumber: newNumber });
+      for (const notification of notificationSnap.docs) transaction.update(notification.ref, { documentNumber: newNumber });
+      const auditRef = db.collection('audit_logs').doc();
+      transaction.set(auditRef, {
+        id: auditRef.id, action: 'SOP_NUMBER_UPDATED', documentId: sopId,
+        documentNumber: newNumber, oldNumber: stored.sopNumber || '', newNumber,
+        actorUid, actorName: actor.name || actor.username || 'Administrator',
+        actorUsername: actor.username || '', actorRole: 'admin', timestamp: now,
+      });
+      result = next;
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Atomic SOP number correction failed', { sopId, actorUid, error });
+    throw new HttpsError('internal', 'Koreksi nomor SPO gagal disimpan secara atomik.');
+  }
+  return { ok: true, sop: result };
 });
 
 // Replies are routed exclusively from the authenticated user's source mail.

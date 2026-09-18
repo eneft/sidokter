@@ -37,7 +37,7 @@ test('stale Petugas save is rejected after the current document becomes active',
   );
 });
 
-test('Admin can edit every status and active identity is preserved', () => {
+test('Admin can edit every status, correct current number, and preserve historical identity', () => {
   for (const status of ['DRAFT', 'AKTIF', 'DIARSIPKAN'] as const) {
     assert.equal(canEditExistingSop(sop(status), actor('admin')), true);
   }
@@ -45,10 +45,21 @@ test('Admin can edit every status and active identity is preserved', () => {
   const result = preserveSopWorkflowIdentity(stored, {
     ...stored, title: 'Changed', status: 'DRAFT', sopNumber: 'CHANGED', sequenceNumber: 99,
     revisionNumber: '01', version: '01', jenis_spo: 'RIVIU', existingSopId: 'other',
-  });
+  }, actor('admin'));
   assert.equal(result.title, 'Changed');
   assert.deepEqual(
     [result.id, result.sopNumber, result.sequenceNumber, result.revisionNumber, result.version, result.status, result.jenis_spo, result.existingSopId],
-    ['spo-1', 'PEL / 001 / 2026', 1, '00', '00', 'AKTIF', 'BARU', undefined],
+    ['spo-1', 'CHANGED', 99, '00', '00', 'AKTIF', 'BARU', undefined],
   );
+});
+
+test('ordinary user cannot change canonical or historical numbers', () => {
+  const stored = { ...sop('DRAFT'), oldSopNumber: 'OLD', previousSopNumber: 'PREVIOUS' };
+  const result = preserveSopWorkflowIdentity(stored, {
+    ...stored, sopNumber: 'CHANGED', sequenceNumber: 99, oldSopNumber: 'MUTATED', previousSopNumber: 'MUTATED',
+  }, actor('user'));
+  assert.equal(result.sopNumber, stored.sopNumber);
+  assert.equal(result.sequenceNumber, stored.sequenceNumber);
+  assert.equal(result.oldSopNumber, 'OLD');
+  assert.equal(result.previousSopNumber, 'PREVIOUS');
 });

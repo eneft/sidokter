@@ -18,13 +18,20 @@ export function assertCanEditExistingSop(sop: SopDocument, actor: UserSession | 
 
 // Editing never performs a lifecycle transition. In particular, an Admin edit
 // of an active/archive document retains the document's registered identity.
-export function preserveSopWorkflowIdentity(stored: SopDocument, submitted: SopDocument): SopDocument {
+export function preserveSopWorkflowIdentity(
+  stored: SopDocument,
+  submitted: SopDocument,
+  actor?: UserSession | null,
+): SopDocument {
+  const adminNumberCorrection = actor?.role === 'admin';
   return {
     ...submitted,
     id: stored.id,
     status: stored.status,
-    sopNumber: stored.sopNumber,
-    sequenceNumber: stored.sequenceNumber,
+    // sopNumber is the one canonical current-document number. Admins may
+    // correct it; historical predecessor/reference fields remain immutable.
+    sopNumber: adminNumberCorrection ? submitted.sopNumber : stored.sopNumber,
+    sequenceNumber: adminNumberCorrection ? submitted.sequenceNumber : stored.sequenceNumber,
     revisionNumber: stored.revisionNumber,
     version: stored.version,
     jenis_spo: stored.jenis_spo,
@@ -32,6 +39,7 @@ export function preserveSopWorkflowIdentity(stored: SopDocument, submitted: SopD
     isReviewDocument: stored.isReviewDocument,
     existingSopId: stored.existingSopId,
     previousRevisionNumber: stored.previousRevisionNumber,
+    previousSopNumber: stored.previousSopNumber,
     oldSopNumber: stored.oldSopNumber,
     reviewState: stored.reviewState,
     reviewHistory: stored.reviewHistory,
