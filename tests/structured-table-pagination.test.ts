@@ -215,6 +215,7 @@ test('single context toolbar production minimal, selection-safe, dan terpisah da
   assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
   assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
   assert.match(cssSource, /\.toolbar-icon\.is-active/);
+  assert.match(liveTemplateSource, /map\(\(\[c,l\]\)=><button type="button" key=\{c\} className="table-tools-danger"/);
 });
 
 test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
