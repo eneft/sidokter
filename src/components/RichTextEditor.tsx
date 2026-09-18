@@ -859,6 +859,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const selectFigureElement = useCallback((figure: HTMLElement) => {
     if (!containerRef.current || !editorRef.current) return;
 
+    // Image pointer handling prevents the browser's default focus change. Tell
+    // the parent which editor owns the figure before publishing image context,
+    // so toolbar commands cannot be routed to a previously active section.
+    onFocus?.();
     setSelectedFigure(figure);
     const figBound = figure.getBoundingClientRect();
     const containerBound = containerRef.current.getBoundingClientRect();
@@ -892,7 +896,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
       imageWrap: wrapMode,
     }));
-  }, []);
+  }, [onFocus]);
 
   const clearFigureSelection = useCallback(() => {
     setSelectedFigure(null);

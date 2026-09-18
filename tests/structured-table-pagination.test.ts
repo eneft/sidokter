@@ -123,6 +123,15 @@ test('toolbar mempertahankan selection dan menyediakan formatting context-aware'
   assert.match(editorSource, /processAndInsertImageFiles\(files\)/);
 });
 
+test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image context', () => {
+  const selectionStart = editorSource.indexOf('const selectFigureElement');
+  const ownerActivation = editorSource.indexOf('onFocus?.();', selectionStart);
+  const contextPublication = editorSource.indexOf('setSelectedFigure(figure)', selectionStart);
+  assert.ok(selectionStart >= 0);
+  assert.ok(ownerActivation > selectionStart);
+  assert.ok(contextPublication > ownerActivation);
+});
+
 test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
   const noop = () => undefined;
   const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
