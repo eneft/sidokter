@@ -28,6 +28,7 @@ import {
   Maximize2,
   Type
 } from 'lucide-react';
+import type { TableCommand } from '../utils/editorTableCommands';
 import { RichTextEditor, PRESET_COLORS, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
@@ -98,6 +99,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeSectionId, setActiveSectionId] = useState<string>('sec-pengertian');
   const [activeTableSection, setActiveTableSection] = useState<'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait'>('pengertian');
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [activeColor, setActiveColor] = useState('#0f172a');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
   const pengertianEditorRef = useRef<RichTextEditorHandle>(null);
@@ -108,8 +110,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const unitTerkaitEditorRef = useRef<RichTextEditorHandle>(null);
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false, italic: false, underline: false, align: 'left',
-    orderedList: false, unorderedList: false, fontSize: null,
+    orderedList: false, unorderedList: false, fontSize: null, inTable: false,
   });
+
+  const handleTableCommand = (command: TableCommand) => getActiveEditor()?.executeTableCommand(command);
 
   const getActiveEditor = (): RichTextEditorHandle | null => ({
     pengertian: pengertianEditorRef.current,
@@ -701,8 +705,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
             <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
 
-            {/* Gambar / Bagan Upload Tool */}
-            <div className="flex items-center shrink-0">
+            {/* Compact Insert menu; image keeps the existing upload/storage path. */}
+            <div className="flex items-center shrink-0 relative">
               <input
                 ref={tableFileInputRef}
                 type="file"
@@ -713,19 +717,36 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               />
               <button
                 type="button"
-                onClick={() => {
-                  if (tableFileInputRef.current) {
-                    tableFileInputRef.current.value = '';
-                    tableFileInputRef.current.click();
-                  }
-                }}
-                title="Sisipkan Gambar/Bagan ke Bagian Aktif"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowInsertMenu(value => !value)}
+                title="Sisipkan tabel atau gambar"
                 className="h-6 px-2 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded text-[10px] font-bold transition-all cursor-pointer shadow-xs"
               >
-                <ImagePlus className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Gambar</span>
+                <span>Insert ▾</span>
               </button>
+              {showInsertMenu && <div className="absolute top-full right-0 z-50 mt-1 w-40 rounded-md border border-slate-200 bg-white p-2 text-slate-700 shadow-xl">
+                <p className="mb-1 text-[10px] font-bold">Tabel</p>
+                <div className="grid grid-cols-4 gap-1">
+                  {[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([rows, columns]) => <button key={`${rows}-${columns}`} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { getActiveEditor()?.insertTable(rows, columns); setShowInsertMenu(false); }} className="rounded border border-slate-200 px-1 py-1 text-[10px] hover:bg-indigo-50">{rows}×{columns}</button>)}
+                </div>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setShowInsertMenu(false); if (tableFileInputRef.current) { tableFileInputRef.current.value = ''; tableFileInputRef.current.click(); } }} className="mt-2 flex w-full items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-slate-100"><ImagePlus className="h-3 w-3" /> Gambar</button>
+              </div>}
             </div>
+
+            {activeFormatting.inTable && <>
+              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+              <div className="flex items-center gap-0.5 shrink-0" aria-label="Table Tools">
+                <span className="px-1 text-[9px] font-bold text-indigo-700">Tabel</span>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-row')} className="table-tool-button">+Baris</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-column')} className="table-tool-button">+Kolom</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('delete-row')} className="table-tool-button">−Baris</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('delete-column')} className="table-tool-button">−Kolom</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('merge-right')} className="table-tool-button">Merge →</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('merge-down')} className="table-tool-button">Merge ↓</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('split-cell')} className="table-tool-button">Split</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('delete-table')} className="table-tool-button text-rose-600">Hapus</button>
+              </div>
+            </>}
           </div>
 
           <div className="overflow-x-auto no-scrollbar rounded-xl border border-slate-300 bg-white shadow-sm mx-auto w-full max-w-[900px]">

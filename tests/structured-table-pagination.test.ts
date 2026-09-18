@@ -154,3 +154,46 @@ test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \*,\s*#printable[\s\S]{0,180}font-size: 12pt !important/);
   assert.match(rendererSource, /'style', 'class', 'colspan', 'rowspan'/);
 });
+
+test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => {
+  const editor = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  assert.match(editor, /restoreSavedSelection\(\)[\s\S]{0,300}createSemanticTable/);
+  assert.match(editor, /placeCaretInCell\(inserted\?\.rows\[0\]\?\.cells\[0\]/);
+  assert.match(editor, /Insert ▾/);
+  assert.match(editor, /activeFormatting\.inTable/);
+  assert.match(commands, /createElement\('table'\)/);
+  assert.match(commands, /createTBody\(\)/);
+  assert.match(commands, /insertRow/);
+  assert.match(commands, /insertCell/);
+  assert.doesNotMatch(commands, /canvas|\|---/);
+});
+
+test('operasi table span-aware mencakup row, column, merge horizontal/vertical, split dan delete', () => {
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  for (const command of ['add-row', 'add-column', 'delete-row', 'delete-column', 'merge-right', 'merge-down', 'split-cell', 'delete-table']) {
+    assert.match(commands, new RegExp(command));
+  }
+  assert.match(commands, /tableGrid/);
+  assert.match(commands, /cell\.colSpan \+=/);
+  assert.match(commands, /cell\.rowSpan \+=/);
+  assert.match(commands, /appendContent\(cell, other\.cell\)/);
+  assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
+});
+
+test('manual table memakai geometri proporsional canonical dan pipeline render yang sama', () => {
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.match(commands, /table\.style\.width = '100%'/);
+  assert.match(commands, /col\.style\.width = `\$\{100 \/ columns\}%`/);
+  assert.match(css, /table\[data-editor-table="true"\][\s\S]{0,160}table-layout: fixed/);
+  assert.match(rendererSource, /'table', 'colgroup', 'col'/);
+});
+
+test('Tab di list dalam cell mempertahankan nesting semantic dan tidak memindahkan td', () => {
+  const editor = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+  assert.match(editor, /const inList = Boolean\(element\?\.closest\('li'\)\)/);
+  assert.match(editor, /const inCell = Boolean\(element\?\.closest\('td,th'\)\)/);
+  assert.match(editor, /if \(inList \|\| inCell\) e\.preventDefault\(\)/);
+  assert.match(editor, /executeCommand\(e\.shiftKey \? 'outdent' : 'indent'\)/);
+});

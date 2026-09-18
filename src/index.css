@@ -1748,6 +1748,32 @@ button, a, input, select, textarea {
   -ms-hyphens: none !important;
 }
 
+.table-tool-button {
+  height: 1.5rem;
+  flex: none;
+  border-radius: 0.25rem;
+  padding: 0 0.35rem;
+  font-size: 10px;
+  font-weight: 600;
+  color: #475569;
+}
+.table-tool-button:hover { background: #eef2ff; color: #4338ca; }
+
+/* Manual tables and imported DOCX tables deliberately share this canonical
+   percentage-based A4 geometry. No viewport pixel widths are serialized. */
+.rich-text-editor-content table[data-editor-table="true"] {
+  width: 100% !important;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.rich-text-editor-content table[data-editor-table="true"] td,
+.rich-text-editor-content table[data-editor-table="true"] th {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
 .rich-text-editor-content img,
 .rich-text-editor-content video,
 .rich-text-editor-content svg {

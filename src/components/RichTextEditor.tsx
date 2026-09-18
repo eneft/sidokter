@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
+import { createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
 import {
   Bold,
   Italic,
@@ -91,6 +92,7 @@ export interface RichTextFormattingState {
   orderedList: boolean;
   unorderedList: boolean;
   fontSize: '10pt' | '12pt' | null;
+  inTable: boolean;
 }
 
 export interface RichTextEditorHandle {
@@ -98,6 +100,8 @@ export interface RichTextEditorHandle {
   insertCustomList: (listType: '1' | 'a' | 'i') => void;
   applyFontSize: (fontSize: '10pt' | '12pt') => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
+  insertTable: (rows: number, columns: number) => void;
+  executeTableCommand: (command: TableCommand) => void;
   focus: () => void;
 }
 
@@ -559,6 +563,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showInsertMenu, setShowInsertMenu] = useState(false);
+  const [tablePickerSize, setTablePickerSize] = useState({ rows: 2, columns: 2 });
   const [activeColor, setActiveColor] = useState('#0f172a');
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
@@ -579,6 +585,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     orderedList: false,
     unorderedList: false,
     fontSize: null,
+    inTable: false,
   });
 
   useEffect(() => {
@@ -634,6 +641,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         orderedList: isOrdered,
         unorderedList: isUnordered,
         fontSize,
+        inTable: Boolean((selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th')),
       });
     } catch {
       // Browser safety fallback
@@ -1236,12 +1244,15 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // 1. Tab / Shift+Tab for Indenting & Outdenting in lists (Sub-bullets & Sub-numbers)
     if (e.key === 'Tab') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        executeCommand('outdent');
-      } else {
-        executeCommand('indent');
-      }
+      const selection = window.getSelection();
+      const anchor = selection?.anchorNode;
+      const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+      const inList = Boolean(element?.closest('li'));
+      const inCell = Boolean(element?.closest('td,th'));
+      // Never let the browser use Tab to jump between table cells: in a list it
+      // changes semantic nesting, while a plain cell simply retains its caret.
+      if (inList || inCell) e.preventDefault();
+      if (inList) executeCommand(e.shiftKey ? 'outdent' : 'indent');
       return;
     }
 
@@ -2012,6 +2023,52 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     await processAndInsertImageFiles(files);
   };
 
+  const placeCaretInCell = useCallback((cell: HTMLTableCellElement | null) => {
+    if (!cell) return;
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    savedRangeRef.current = range.cloneRange();
+    editorRef.current?.focus();
+    updateActiveFormatting();
+  }, [updateActiveFormatting]);
+
+  const insertTable = useCallback((rows: number, columns: number) => {
+    if (!editorRef.current) return;
+    restoreSavedSelection();
+    const table = createSemanticTable(rows, columns);
+    const marker = `table-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    table.dataset.insertionMarker = marker;
+    // insertHTML is intentionally used so insertion participates in the native
+    // contentEditable undo stack, just like text formatting and lists.
+    document.execCommand('insertHTML', false, `${table.outerHTML}<p><br></p>`);
+    const inserted = editorRef.current.querySelector<HTMLTableElement>(`table[data-insertion-marker="${marker}"]`);
+    inserted?.removeAttribute('data-insertion-marker');
+    placeCaretInCell(inserted?.rows[0]?.cells[0] || null);
+    setShowInsertMenu(false);
+    handleInput();
+  }, [handleInput, placeCaretInCell, restoreSavedSelection]);
+
+  const executeTableCommand = useCallback((command: TableCommand) => {
+    if (!editorRef.current) return;
+    restoreSavedSelection();
+    const selection = window.getSelection();
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const cell = element?.closest('td,th') as HTMLTableCellElement | null;
+    if (!cell || !editorRef.current.contains(cell)) return;
+    const nextCell = mutateTable(cell, command);
+    handleInput();
+    if (nextCell) placeCaretInCell(nextCell);
+    else {
+      setActiveFormatting(current => ({ ...current, inTable: false }));
+      editorRef.current.focus();
+    }
+  }, [handleInput, placeCaretInCell, restoreSavedSelection]);
+
   // The desktop Live A4 uses one shared toolbar outside the six seamless
   // editors. Expose the exact same selection-safe command pipeline instead of
   // maintaining a second set of document.execCommand handlers in the parent.
@@ -2020,6 +2077,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     insertCustomList,
     applyFontSize,
     insertImageFiles: async (files) => processAndInsertImageFiles(files),
+    insertTable,
+    executeTableCommand,
     focus: () => editorRef.current?.focus(),
   }));
 
@@ -2334,7 +2393,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                 </button>
               </div>
 
-              {/* SISIPKAN GAMBAR */}
+              {/* INSERT: one compact command path for tables and existing image flow. */}
               {allowImageUpload && (
                 <>
                   <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
@@ -2347,24 +2406,53 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                       onChange={handleImageFileSelect}
                       className="hidden"
                     />
+                    <div className="relative">
                     <button
                       type="button"
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = '';
-                          fileInputRef.current.click();
-                        }
-                      }}
-                      title="Sisipkan Gambar / Bagan (JPG, PNG, WebP)"
+                      onClick={() => setShowInsertMenu(value => !value)}
+                      title="Sisipkan tabel atau gambar"
                       className="h-5.5 px-1.5 inline-flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-700 border border-indigo-200/80 rounded text-[10px] font-semibold transition-all cursor-pointer touch-manipulation"
                     >
-                      <ImagePlus className="w-3 h-3 text-indigo-600" />
-                      <span>Gambar</span>
+                      <Plus className="w-3 h-3 text-indigo-600" />
+                      <span>Insert ▾</span>
                     </button>
+                    {showInsertMenu && (
+                      <div className="absolute top-full right-0 mt-1 z-50 w-40 rounded-md border border-slate-200 bg-white p-2 shadow-xl">
+                        <p className="mb-1 text-[10px] font-semibold text-slate-600">Tabel {tablePickerSize.rows} × {tablePickerSize.columns}</p>
+                        <div className="grid grid-cols-5 gap-0.5" onMouseLeave={() => setTablePickerSize({ rows: 2, columns: 2 })}>
+                          {Array.from({ length: 25 }, (_, index) => {
+                            const row = Math.floor(index / 5) + 1, column = index % 5 + 1;
+                            const active = row <= tablePickerSize.rows && column <= tablePickerSize.columns;
+                            return <button key={index} type="button" aria-label={`Sisipkan tabel ${row} × ${column}`}
+                              onMouseEnter={() => setTablePickerSize({ rows: row, columns: column })}
+                              onMouseDown={(e) => e.preventDefault()} onClick={() => insertTable(row, column)}
+                              className={`h-4 rounded-sm border ${active ? 'border-indigo-500 bg-indigo-100' : 'border-slate-300 bg-white'}`} />;
+                          })}
+                        </div>
+                        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setShowInsertMenu(false); if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
+                          className="mt-2 flex w-full items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-slate-100"><ImagePlus className="h-3 w-3" /> Gambar</button>
+                      </div>
+                    )}
+                    </div>
                   </div>
                 </>
               )}
+
+              {activeFormatting.inTable && <>
+                <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+                <div className="flex items-center gap-0.5 shrink-0" aria-label="Table Tools">
+                  <span className="px-1 text-[9px] font-bold text-indigo-700">Tabel</span>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('add-row')} className="table-tool-button" title="Tambah baris setelah sel">+Baris</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('add-column')} className="table-tool-button" title="Tambah kolom setelah sel">+Kolom</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-row')} className="table-tool-button" title="Hapus baris">−Baris</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-column')} className="table-tool-button" title="Hapus kolom">−Kolom</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('merge-right')} className="table-tool-button" title="Gabungkan dengan sel kanan">Merge →</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('merge-down')} className="table-tool-button" title="Gabungkan dengan sel bawah">Merge ↓</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('split-cell')} className="table-tool-button" title="Pisahkan sel">Split</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-table')} className="table-tool-button text-rose-600" title="Hapus tabel"><Trash2 className="h-3 w-3" /></button>
+                </div>
+              </>}
 
               {/* TOMBOL LAYAR PENUH / FULLSCREEN FOCUS */}
               <div className="flex items-center shrink-0 ml-auto pl-1">
