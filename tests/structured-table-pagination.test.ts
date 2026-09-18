@@ -134,10 +134,13 @@ test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
     prosedur: '<table><tbody><tr><td><span style="font-size:10pt">Isi</span></td></tr></tbody></table>', onProsedurChange: noop,
     alur: '', onAlurChange: noop, unitTerkait: '<p>Unit</p>', onUnitTerkaitChange: noop,
   }));
-  assert.match(html, /aria-label="Ukuran huruf Batang Tubuh"/);
+  assert.match(html, /aria-label="Ukuran huruf"/);
   assert.match(html, /<option value="10pt">10 pt<\/option>/);
   assert.match(html, /<option value="12pt"(?: selected="")?>12 pt<\/option>/);
   assert.doesNotMatch(html, /Campur/);
+  assert.doesNotMatch(html, /Warna Teks|Insert ▾/);
+  assert.match(html, /title="Sisipkan Gambar"/);
+  assert.match(html, /title="Sisipkan Tabel"/);
   // RichTextEditor hydrates value.innerHTML in an effect; server rendering is
   // intentionally used here only to prove the production desktop toolbar JSX.
 });
@@ -184,12 +187,14 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
   assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
 });
 
-test('floating table tools production minimal, selection-safe, dan terpisah dari text alignment', () => {
+test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => {
   const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
   for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi ▾', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
-  assert.match(liveTemplateSource, /handleTableAlignment\(alignment\)/);
+  assert.match(liveTemplateSource, /handleTableAlignment\(a\)/);
   assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
-  assert.match(cssSource, /\.table-floating-tools/);
+  assert.match(cssSource, /\.live-spo-context-toolbar/);
+  assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
+  assert.match(liveTemplateSource, /toggleTableWrap/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {

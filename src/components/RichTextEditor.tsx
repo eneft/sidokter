@@ -94,6 +94,13 @@ export interface RichTextFormattingState {
   unorderedList: boolean;
   fontSize: '10pt' | '12pt' | null;
   inTable: boolean;
+  context: 'text' | 'table' | 'image';
+  tableWrap: boolean;
+  canMerge: boolean;
+  canSplit: boolean;
+  imageWidth?: number;
+  imageAlign?: 'left' | 'center' | 'right';
+  imageWrap?: WordWrapMode;
 }
 
 export interface RichTextEditorHandle {
@@ -104,6 +111,12 @@ export interface RichTextEditorHandle {
   insertTable: (rows: number, columns: number) => void;
   executeTableCommand: (command: TableCommand) => void;
   alignTable: (alignment: TableAlignment) => void;
+  toggleTableWrap: () => void;
+  applyImageWidth: (percent: number) => void;
+  applyImageAlignment: (alignment: 'left' | 'center' | 'right') => void;
+  applyImageWrap: (mode: WordWrapMode) => void;
+  resetImage: () => void;
+  deleteImage: () => void;
   focus: () => void;
 }
 
@@ -589,6 +602,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     unorderedList: false,
     fontSize: null,
     inTable: false,
+    context: 'text',
+    tableWrap: true,
+    canMerge: false,
+    canSplit: false,
   });
 
   useEffect(() => {
@@ -637,6 +654,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         }
       }
 
+      const activeCell = (selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th') as HTMLTableCellElement | null;
       setActiveFormatting({
         bold: isBold,
         italic: isItalic,
@@ -645,7 +663,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         orderedList: isOrdered,
         unorderedList: isUnordered,
         fontSize,
-        inTable: Boolean((selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th')),
+        inTable: Boolean(activeCell),
+        context: activeCell ? 'table' : 'text',
+        tableWrap: activeCell ? activeCell.style.whiteSpace !== 'nowrap' : true,
+        canMerge: Boolean(activeCell?.nextElementSibling),
+        canSplit: Boolean(activeCell && (activeCell.rowSpan > 1 || activeCell.colSpan > 1)),
       });
     } catch {
       // Browser safety fallback
@@ -864,6 +886,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
     figure.classList.add('figure-selected');
+    setActiveFormatting(current => ({
+      ...current, context: 'image', inTable: false,
+      imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
+      imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
+      imageWrap: wrapMode,
+    }));
   }, []);
 
   const clearFigureSelection = useCallback(() => {
@@ -873,6 +901,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     if (editorRef.current) {
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
+    setActiveFormatting(current => ({ ...current, context: 'text' }));
   }, []);
 
   // Direct native capture listener on editor to guarantee 100% click/pointer capture on images and context menu
@@ -2118,6 +2147,21 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   }, [handleInput, placeCaretInCell, restoreSavedSelection]);
 
+  const toggleTableWrap = useCallback(() => {
+    restoreSavedSelection();
+    const selection = window.getSelection();
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const cell = element?.closest('td,th') as HTMLTableCellElement | null;
+    if (!cell || !editorRef.current?.contains(cell)) return;
+    const wrap = cell.style.whiteSpace === 'nowrap';
+    cell.style.whiteSpace = wrap ? 'normal' : 'nowrap';
+    cell.style.overflowWrap = wrap ? 'break-word' : 'normal';
+    cell.setAttribute('data-wrap', wrap ? 'on' : 'off');
+    handleInput();
+    setActiveFormatting(current => ({ ...current, tableWrap: wrap, context: 'table' }));
+  }, [handleInput, restoreSavedSelection]);
+
   // The desktop Live A4 uses one shared toolbar outside the six seamless
   // editors. Expose the exact same selection-safe command pipeline instead of
   // maintaining a second set of document.execCommand handlers in the parent.
@@ -2129,6 +2173,24 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     insertTable,
     executeTableCommand,
     alignTable,
+    toggleTableWrap,
+    applyImageWidth: applyFigurePercentWidth,
+    applyImageAlignment: (alignment) => {
+      if (!selectedFigure) return;
+      applyFigureAlignment(selectedFigure, alignment, currentWrapMode);
+      handleInput();
+      updateFigureRect();
+      setActiveFormatting(current => ({ ...current, imageAlign: alignment, context: 'image' }));
+    },
+    applyImageWrap: applyWordWrapMode,
+    resetImage: () => {
+      if (!selectedFigure) return;
+      selectedFigure.style.transform = '';
+      selectedFigure.setAttribute('data-rotation', '0');
+      applyFigurePercentWidth(75);
+      applyWordWrapMode('top-bottom', 'center');
+    },
+    deleteImage: deleteSelectedFigure,
     focus: () => editorRef.current?.focus(),
   }));
 
@@ -2556,7 +2618,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
         {/* INTERACTIVE IMAGE SELECTION + 6 RESIZE HANDLES + FLOATING QUICK ACTION BAR */}
         {/* INTERACTIVE IMAGE SELECTION + 6 RESIZE HANDLES + FLOATING QUICK ACTION BAR */}
-        {selectedFigure && figureRect && (() => {
+        {!hideToolbar && selectedFigure && figureRect && (() => {
           const containerW = containerRef.current ? containerRef.current.clientWidth : 700;
           const currentPct = figureRect.percentWidth || parseInt(selectedFigure.getAttribute('data-width') || '75', 10) || 75;
           const currentAlign = (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (currentWrapMode === 'top-bottom' ? 'center' : 'left');

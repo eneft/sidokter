@@ -1855,12 +1855,6 @@ button, a, input, select, textarea {
 .sop-live-a4-document .sop-batang-tubuh-content {
   padding: 0.625rem !important;
 }
-.table-floating-tools { display: flex; align-items: center; gap: 0.15rem; }
-.table-tool-button { height: 1.5rem; border-radius: 0.25rem; padding-inline: 0.4rem; font-size: 10px; font-weight: 700; color: #4338ca; background: #eef2ff; }
-.table-tools-more { display: none; }
-.table-floating-tools > .relative:last-child:focus-within .table-tools-more,
-.table-floating-tools > .relative:last-child:hover .table-tools-more { display: block; }
-
 @media (max-width: 900px) {
   .sop-live-a4-page-stack { transform-origin: top left; }
 }
@@ -2853,3 +2847,11 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-output thead {
   display: table-header-group;
 }
+
+/* LiveSPOEditor's single context-aware chrome; never contributes to A4 geometry. */
+.live-spo-context-toolbar { min-height: 36px; white-space: nowrap; }
+.live-spo-context-toolbar .toolbar-icon { width: 24px; height: 24px; padding: 5px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: #475569; }
+.live-spo-context-toolbar .toolbar-icon:hover { background: #f1f5f9; color: #4f46e5; }
+.live-spo-context-toolbar .toolbar-icon svg { width: 14px; height: 14px; }
+.live-spo-context-toolbar .toolbar-text { height: 24px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.live-spo-context-toolbar .toolbar-text:hover { background: #f1f5f9; color: #4f46e5; }
