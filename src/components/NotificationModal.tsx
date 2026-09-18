@@ -137,9 +137,7 @@ export const NotificationModal: React.FC<
   const filtered =
     filter === 'unread'
       ? notifications.filter(
-          (item) =>
-            !item.read ||
-            item.id === selectedId
+          (item) => !item.read || item.id === selectedId
         )
       : notifications;
 
@@ -611,9 +609,8 @@ export const NotificationModal: React.FC<
                     </div>
 
                     <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-                      Pesan tetap tersimpan
-                      di tab Semua setelah
-                      dibaca. Buka SPO untuk
+                      Pesan tetap tersimpan di tab Semua setelah dibaca.
+                      Buka SPO untuk
                       menggunakan tindakan
                       edit atau verifikasi
                       yang tersedia sesuai
@@ -649,11 +646,9 @@ export const NotificationModal: React.FC<
                               suggestion
                             }
                             type="button"
-                            onClick={() =>
-                              insertSuggestion(
-                                suggestion
-                              )
-                            }
+                            onClick={() => insertSuggestion(
+                              suggestion
+                            )}
                             className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"
                           >
                             {

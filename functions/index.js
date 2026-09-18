@@ -10,6 +10,7 @@ const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https')
 const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
+const { resolveSopOwnerUid, buildRevisionRequestNotification } = require('./sopReviewOwnership');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -728,15 +729,14 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     if (!snapshot.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
     const sop = snapshot.data() || {};
     if (sop.status !== 'DRAFT') throw new HttpsError('failed-precondition', 'Permintaan perbaikan hanya berlaku untuk SPO DRAFT.');
-    let creatorUid = String(sop.creatorUid || sop.activationRequestedUid || '').trim();
-    // Backward compatibility for historical records that predate creatorUid:
-    // resolve only an exact, unique account username; display names are never
-    // accepted as routing identities.
-    if (!creatorUid && sop.creatorUsername) {
-      const creatorQuery = db.collection('users').where('username', '==', String(sop.creatorUsername).trim()).limit(2);
-      const creatorMatches = await transaction.get(creatorQuery);
-      if (creatorMatches.size === 1) creatorUid = creatorMatches.docs[0].id;
-    }
+    const creatorUid = await resolveSopOwnerUid(sop, {
+      hasUid: async (uid) => (await transaction.get(db.collection('users').doc(uid))).exists,
+      findUidsByUsername: async (username, limit) => {
+        const query = db.collection('users').where('username', '==', username).limit(limit);
+        const matches = await transaction.get(query);
+        return matches.docs.map((doc) => doc.id);
+      }
+    });
     if (!creatorUid) throw new HttpsError('failed-precondition', 'UID pembuat/pengusul SPO tidak dapat ditentukan.');
     sop.creatorUid = creatorUid;
     const now = new Date().toISOString();
@@ -752,7 +752,7 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     }
     if (action === 'REQUEST_REVISION') {
       nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = note;
-      notification = { uid: creatorUid, title: 'Perlu Perbaikan SPO', message: note, key: `sop-revision-requested-${sopId}-${Date.now()}`, note };
+      notification = { uid: creatorUid, title: 'Perlu Perbaikan SPO', message: note, key: `sop-revision-requested-${sopId}-${Date.now()}`, note, revisionRequest: true };
     } else if (action === 'SUBMIT_REVISION') {
       const requesterUid = String(sop.currentReviewRequesterUid || '').trim();
       nextState = transition.nextState; recipientUid = transition.recipientUid; eventNote = 'Perbaikan telah dikirim.';
@@ -768,13 +768,16 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     resultingSop = { ...sop, id: snapshot.id, ...update };
     if (notification) {
       const notifId = notification.key.replace(/\//g, '_').slice(0, 150);
-      transaction.set(db.collection('notifications').doc(notification.uid).collection('items').doc(notifId), {
+      const notificationData = notification.revisionRequest
+        ? buildRevisionRequestNotification({ id: notifId, eventKey: notification.key, sop: { ...sop, id: sopId }, actorUid, actor, recipientUid: notification.uid, note, timestamp: Date.now() })
+        : {
         id: notifId, type: 'review', title: notification.title, message: notification.message,
         documentId: sopId, documentNumber: sop.sopNumber || null, documentType: 'SPO', timestamp: Date.now(), read: false, hidden: false,
         metadata: { eventKey: notification.key, reviewContext: nextState, correctionNote: notification.note || null,
           mailKind: 'human', senderUid: actorUid, senderName: String(actor.name || actor.username || 'Reviewer SIDOKTER'),
           recipientUid: notification.uid, documentTitle: String(sop.title || ''), internalMailVersion: 1 }, actionLabel: 'Buka SPO'
-      });
+      };
+      transaction.set(db.collection('notifications').doc(notification.uid).collection('items').doc(notifId), notificationData);
     }
   });
   // Audit is deliberately outside the workflow transaction: audit failure is
