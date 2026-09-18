@@ -675,7 +675,10 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
     // collection-group index. Discover the existing notification mailboxes and
     // query each concrete items collection instead, so this correction works
     // with the indexes already used by SIDOKTER.
-    const notificationOwners = await db.collection('notifications').listDocuments();
+    const [notificationOwners, sopRefs] = await Promise.all([
+      db.collection('notifications').listDocuments(),
+      db.collection('sops').listDocuments(),
+    ]);
     const [storageSnap, ...notificationSnapshots] = await Promise.all([
       db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId).get(),
       ...notificationOwners.map(owner => owner.collection('items').where('documentId', '==', sopId).get()),
@@ -683,13 +686,15 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
     const storageRefs = storageSnap.docs.map(item => item.ref);
     const notificationRefs = notificationSnapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref));
     await db.runTransaction(async transaction => {
-      const [sopSnap, allSopsSnap] = await Promise.all([
-        transaction.get(sopRef),
-        transaction.get(db.collection('sops')),
-      ]);
-      if (!sopSnap.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
+      // The named Firestore database accepts document reads in transactions,
+      // but production rejected the previous collection-query transaction.
+      // Lock every currently registered SOP through getAll(document refs).
+      const transactionSopRefs = sopRefs.some(ref => ref.id === sopId) ? sopRefs : [sopRef, ...sopRefs];
+      const sopSnapshots = await transaction.getAll(...transactionSopRefs);
+      const sopSnap = sopSnapshots.find(snapshot => snapshot.id === sopId);
+      if (!sopSnap?.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
       const stored = { id: sopSnap.id, ...sopSnap.data() };
-      const allSops = allSopsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const allSops = sopSnapshots.filter(snapshot => snapshot.exists).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
       let newNumber;
       try { newNumber = validateNumberCorrection(stored, submitted, allSops); }
       catch (error) { throw new HttpsError('failed-precondition', error.message); }
