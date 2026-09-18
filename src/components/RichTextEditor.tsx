@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
 import { createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
+import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
   Bold,
   Italic,
@@ -102,6 +103,7 @@ export interface RichTextEditorHandle {
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
   executeTableCommand: (command: TableCommand) => void;
+  alignTable: (alignment: TableAlignment) => void;
   focus: () => void;
 }
 
@@ -823,6 +825,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   const handleInput = useCallback(() => {
     if (isUpdatingFromPropRef.current || !editorRef.current) return;
+    normalizeStructuredTables(editorRef.current);
     const html = editorRef.current.innerHTML;
     const cleanHtml = html === '<br>' || html.trim() === '' ? '' : html;
     lastEmittedValueRef.current = cleanHtml;
@@ -2054,6 +2057,17 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     handleInput();
   }, [handleInput, placeCaretInCell, restoreSavedSelection]);
 
+  const alignTable = useCallback((alignment: TableAlignment) => {
+    restoreSavedSelection();
+    const selection = window.getSelection();
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const table = element?.closest('table') as HTMLTableElement | null;
+    if (!table || !editorRef.current?.contains(table)) return;
+    applyTableAlignment(table, alignment);
+    handleInput();
+  }, [handleInput, restoreSavedSelection]);
+
   const executeTableCommand = useCallback((command: TableCommand) => {
     if (!editorRef.current) return;
     restoreSavedSelection();
@@ -2114,6 +2128,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     insertImageFiles: async (files) => processAndInsertImageFiles(files),
     insertTable,
     executeTableCommand,
+    alignTable,
     focus: () => editorRef.current?.focus(),
   }));
 
@@ -2256,7 +2271,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
               <select
                 aria-label="Ukuran huruf"
                 title="Ukuran Huruf"
-                value={activeFormatting.fontSize || ''}
+                value={activeFormatting.fontSize || '12pt'}
                 onMouseDown={(e) => {
                   // A native select must open, but capture the editor range
                   // before focus moves into the control.
@@ -2268,7 +2283,6 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                 onChange={(e) => applyFontSize(e.target.value as '10pt' | '12pt')}
                 className="h-5.5 max-w-16 rounded border border-slate-300 bg-white px-1 text-[10px] text-slate-700"
               >
-                <option value="" disabled>Campur</option>
                 <option value="10pt">10 pt</option>
                 <option value="12pt">12 pt</option>
               </select>

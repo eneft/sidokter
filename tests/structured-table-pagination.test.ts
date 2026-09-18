@@ -15,6 +15,7 @@ const geometrySource = readFileSync(new URL('../src/utils/docxTableGeometry.ts',
 const editorSource = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
 const editorCommandsSource = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
 const cssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+const a4Source = readFileSync(new URL('../src/utils/a4Layout.ts', import.meta.url), 'utf8');
 
 test('tabel sederhana tetap utuh jika muat', () => {
   assert.equal(largestFittingTablePrefix([[1], [1]], () => false), 0);
@@ -135,7 +136,8 @@ test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
   }));
   assert.match(html, /aria-label="Ukuran huruf Batang Tubuh"/);
   assert.match(html, /<option value="10pt">10 pt<\/option>/);
-  assert.match(html, /<option value="12pt">12 pt<\/option>/);
+  assert.match(html, /<option value="12pt"(?: selected="")?>12 pt<\/option>/);
+  assert.doesNotMatch(html, /Campur/);
   // RichTextEditor hydrates value.innerHTML in an effect; server rendering is
   // intentionally used here only to prove the production desktop toolbar JSX.
 });
@@ -182,20 +184,31 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
   assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
 });
 
-test('toolbar tabel production tetap compact, selection-safe, dan mendukung empat arah insert', () => {
+test('floating table tools production minimal, selection-safe, dan terpisah dari text alignment', () => {
   const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
-  for (const source of [editorSource, liveTemplateSource]) {
-    assert.match(source, />Tabel ▾<\/button>/);
-    assert.match(source, /Tambah Baris di Atas/);
-    assert.match(source, /Tambah Baris di Bawah/);
-    assert.match(source, /Tambah Kolom di Kiri/);
-    assert.match(source, /Tambah Kolom di Kanan/);
-    assert.match(source, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
-    assert.doesNotMatch(source, />\+Baris<\/button>/);
-    assert.doesNotMatch(source, />Merge →<\/button>/);
+  for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi ▾', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
+  assert.match(liveTemplateSource, /handleTableAlignment\(alignment\)/);
+  assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
+  assert.match(cssSource, /\.table-floating-tools/);
+});
+
+test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
+  for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 30', 'contentWidthMm: 160']) {
+    assert.ok(a4Source.includes(value), value);
   }
-  assert.match(editorCommandsSource, /command === 'add-row-before'/);
-  assert.match(editorCommandsSource, /command === 'add-column-before'/);
+  assert.match(cssSource, /--sop-a4-content-width: 160mm/);
+  assert.match(cssSource, /\.sop-live-a4-document[\s\S]{0,180}var\(--sop-a4-content-width\)/);
+  assert.match(pdfSource, /padding:20mm 20mm 20mm 30mm/);
+});
+
+test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
+  assert.match(a4Source, /values\[index\][\s\S]{0,80}\/ total/);
+  assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
+  assert.match(a4Source, /table\.style\.tableLayout = 'fixed'/);
+  assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
+  assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
+  assert.match(rendererSource, /normalizeStructuredHtml/);
+  assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/);
 });
 
 test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => {

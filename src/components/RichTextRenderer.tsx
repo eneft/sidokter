@@ -1,5 +1,6 @@
 import React from 'react';
 import DOMPurify from 'dompurify';
+import { normalizeStructuredHtml } from '../utils/a4Layout';
 
 interface RichTextRendererProps {
   content: string | undefined | null;
@@ -120,7 +121,7 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
 
   // Preview must render the exact HTML produced by the editor.
   // Security cleanup is handled by DOMPurify below while preserving list types and numbering.
-  const raw = content.trim();
+  const raw = normalizeStructuredHtml(content.trim());
 
   if (hasHtmlTags(raw)) {
     // Sanitize with DOMPurify to prevent XSS attacks while preserving formatting
@@ -243,4 +244,3 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
     />
   );
 };
-

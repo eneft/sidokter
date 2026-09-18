@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+:root {
+  --sop-a4-width: 210mm;
+  --sop-a4-height: 297mm;
+  --sop-a4-margin-top: 20mm;
+  --sop-a4-margin-right: 20mm;
+  --sop-a4-margin-bottom: 20mm;
+  --sop-a4-margin-left: 30mm;
+  --sop-a4-content-width: 160mm;
+  --sop-a4-content-height: 257mm;
+}
+
 /* Official Indonesian Hospital SPO Typography: Standard Universal Web-Safe Serif */
 .font-bookman,
 .font-bookman *,
@@ -1820,7 +1831,38 @@ button, a, input, select, textarea {
 
 .rich-text-editor-content table {
   width: auto;
+  max-width: 100% !important;
   table-layout: fixed !important;
+}
+
+/* Live desktop canvas uses the same physical containing block as Preview/PDF.
+   Browser zoom may scale the sheet visually, but never changes its layout width. */
+.sop-live-a4-page-stack {
+  position: relative;
+  width: var(--sop-a4-width);
+  min-height: var(--sop-a4-height);
+  margin-inline: auto;
+  padding: var(--sop-a4-margin-top) var(--sop-a4-margin-right) var(--sop-a4-margin-bottom) var(--sop-a4-margin-left);
+  box-sizing: border-box;
+  background: #fff;
+  box-shadow: 0 1px 5px rgb(15 23 42 / 0.2);
+}
+.sop-live-a4-document {
+  width: var(--sop-a4-content-width) !important;
+  max-width: var(--sop-a4-content-width) !important;
+  min-width: 0 !important;
+}
+.sop-live-a4-document .sop-batang-tubuh-content {
+  padding: 0.625rem !important;
+}
+.table-floating-tools { display: flex; align-items: center; gap: 0.15rem; }
+.table-tool-button { height: 1.5rem; border-radius: 0.25rem; padding-inline: 0.4rem; font-size: 10px; font-weight: 700; color: #4338ca; background: #eef2ff; }
+.table-tools-more { display: none; }
+.table-floating-tools > .relative:last-child:focus-within .table-tools-more,
+.table-floating-tools > .relative:last-child:hover .table-tools-more { display: block; }
+
+@media (max-width: 900px) {
+  .sop-live-a4-page-stack { transform-origin: top left; }
 }
 
 .rich-text-editor-content [style*="font-size"],
@@ -2791,7 +2833,8 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-output table {
   width: auto;
   border-collapse: collapse !important;
-  table-layout: auto !important;
+  /* Keep normalized colgroup proportions authoritative in Live, Preview and PDF. */
+  table-layout: fixed !important;
 }
 .sop-batang-tubuh-content .rich-text-document-content th,
 .sop-batang-tubuh-content .rich-text-document-content td,
