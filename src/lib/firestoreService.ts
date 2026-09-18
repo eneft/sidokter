@@ -20,7 +20,8 @@ import {
   deleteField,
   runTransaction
 } from 'firebase/firestore';
-import { db, auth, authPersistenceReady } from './firebase';
+import { db, auth, authPersistenceReady, functions } from './firebase';
+import { httpsCallable } from 'firebase/functions';
 import { SopDocument, LibraryDocument, UserAccount, NumberingConfig, UserSession } from '../types';
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
 import { generateSopNumber, getHighestSequenceForUnit, getNextTransactionalSequence, getNumberingSequenceScope } from '../utils/numbering';
@@ -63,6 +64,23 @@ export function subscribeToFirebaseStatus(callback: (status: FirebaseConnectionS
 
 export function getFirebaseStatus(): FirebaseConnectionStatus {
   return connectionStatus;
+}
+
+export function getSopNumberUpdateError(error: any): Error {
+  const code = String(error?.code || '');
+  const rawMessage = String(error?.message || '').trim();
+  if (code === 'functions/not-found' || code === 'functions/unimplemented') {
+    return new Error('Layanan koreksi nomor SPO belum tersedia. Deploy function updateSopNumber lalu coba kembali.');
+  }
+  if (code === 'functions/permission-denied' || code === 'functions/unauthenticated') {
+    return new Error('Sesi Admin tidak berwenang mengoreksi nomor SPO. Silakan masuk ulang.');
+  }
+  if (code === 'functions/failed-precondition' && rawMessage && !/^failed-precondition(?:\s*\[\d+\])?$/i.test(rawMessage)) {
+    return new Error(rawMessage);
+  }
+  // Firebase callable transport sometimes reduces server errors to
+  // "internal [0]". Never expose that opaque value in the Admin toast.
+  return new Error('Koreksi nomor SPO gagal disimpan secara atomik. Muat ulang data dan coba kembali.');
 }
 
 /**
@@ -265,6 +283,24 @@ export async function saveSopToFirestore(
  */
 export async function updateExistingSopInFirestore(submitted: SopDocument, actor: UserSession): Promise<SopDocument> {
   if (!submitted?.id) throw new Error('Dokumen SPO tidak valid.');
+  // A number correction has dependent metadata and must cross the backend
+  // transaction boundary. Content-only edits retain the existing direct path.
+  if (actor.role === 'admin') {
+    const currentSnapshot = await getDocFromServer(doc(db, 'sops', submitted.id));
+    if (!currentSnapshot.exists()) throw new Error('SPO tidak ditemukan atau sudah dihapus.');
+    const stored = { ...currentSnapshot.data(), id: currentSnapshot.id } as SopDocument;
+    if (String(stored.sopNumber || '').trim() !== String(submitted.sopNumber || '').trim()) {
+      try {
+        const callable = httpsCallable(functions, 'updateSopNumber');
+        const result = await callable({ sop: sanitizeForFirestore(submitted) });
+        const data = result.data as { sop?: SopDocument };
+        if (!data?.sop) throw new Error('Respons koreksi nomor SPO tidak valid.');
+        return data.sop;
+      } catch (error: any) {
+        throw getSopNumberUpdateError(error);
+      }
+    }
+  }
   const sopRef = doc(db, 'sops', submitted.id);
   return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(sopRef);
@@ -272,7 +308,7 @@ export async function updateExistingSopInFirestore(submitted: SopDocument, actor
     const stored = { ...snapshot.data(), id: snapshot.id } as SopDocument;
     assertCanEditExistingSop(stored, actor);
 
-    const next = preserveSopWorkflowIdentity(stored, submitted);
+    const next = preserveSopWorkflowIdentity(stored, submitted, actor);
     const clean = sanitizeForFirestore({
       ...next,
       fileDataUrl: deleteField(),

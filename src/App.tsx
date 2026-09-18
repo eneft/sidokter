@@ -1600,7 +1600,7 @@ export default function App() {
       setSelectedSopForEdit(null);
       return;
     }
-    updatedSop = preserveSopWorkflowIdentity(currentSop, updatedSop);
+    updatedSop = preserveSopWorkflowIdentity(currentSop, updatedSop, userSession);
     const isLegacy = updatedSop.documentType === 'LAMA' || updatedSop.isLegacySop;
     const normalizedDivision = (updatedSop.divisionCode || (updatedSop.sopNumber ? updatedSop.sopNumber.split('/')[0]?.trim() : 'PEL') || 'PEL').trim().toUpperCase();
     const normalizedHierarchy = (updatedSop.subHierarchyCode || '').trim().replace(/\.+/g, '.').replace(/^\.|\.$/g, '');

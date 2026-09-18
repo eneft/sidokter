@@ -11,6 +11,7 @@ const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
 const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
+const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -649,6 +650,82 @@ exports.createNotification = onCall({ region: 'asia-southeast2', timeoutSeconds:
     throw new HttpsError('internal', `Gagal menyimpan notification: ${error?.message || error}`);
   }
   return { ok: true, id };
+});
+
+// Admin-only atomic correction of the canonical SPO number and every piece of
+// current-document display metadata. Storage object paths/binaries and all
+// predecessor/revision-history fields deliberately remain untouched.
+exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30, memory: '256MiB' }, async (request) => {
+  const actorUid = request.auth?.uid;
+  if (!actorUid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
+  const submitted = request.data?.sop;
+  const sopId = String(submitted?.id || '').trim();
+  if (!sopId) throw new HttpsError('invalid-argument', 'Dokumen SPO tidak valid.');
+
+  const actorSnap = await db.collection('users').doc(actorUid).get();
+  const actor = actorSnap.exists ? actorSnap.data() || {} : {};
+  if (!actorSnap.exists || normalizeRole(actor.role) !== 'admin') {
+    throw new HttpsError('permission-denied', 'Koreksi nomor SPO hanya dapat dilakukan oleh Admin.');
+  }
+
+  const sopRef = db.collection('sops').doc(sopId);
+  let result;
+  try {
+    // A collection-group query on notifications requires a separately deployed
+    // collection-group index. Discover the existing notification mailboxes and
+    // query each concrete items collection instead, so this correction works
+    // with the indexes already used by SIDOKTER.
+    const [notificationOwners, sopRefs] = await Promise.all([
+      db.collection('notifications').listDocuments(),
+      db.collection('sops').listDocuments(),
+    ]);
+    const [storageSnap, ...notificationSnapshots] = await Promise.all([
+      db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId).get(),
+      ...notificationOwners.map(owner => owner.collection('items').where('documentId', '==', sopId).get()),
+    ]);
+    const storageRefs = storageSnap.docs.map(item => item.ref);
+    const notificationRefs = notificationSnapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref));
+    await db.runTransaction(async transaction => {
+      // The named Firestore database accepts document reads in transactions,
+      // but production rejected the previous collection-query transaction.
+      // Lock every currently registered SOP through getAll(document refs).
+      const transactionSopRefs = sopRefs.some(ref => ref.id === sopId) ? sopRefs : [sopRef, ...sopRefs];
+      const sopSnapshots = await transaction.getAll(...transactionSopRefs);
+      const sopSnap = sopSnapshots.find(snapshot => snapshot.id === sopId);
+      if (!sopSnap?.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
+      const stored = { id: sopSnap.id, ...sopSnap.data() };
+      const allSops = sopSnapshots.filter(snapshot => snapshot.exists).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      let newNumber;
+      try { newNumber = validateNumberCorrection(stored, submitted, allSops); }
+      catch (error) { throw new HttpsError('failed-precondition', error.message); }
+      const next = buildAdminNumberUpdate(stored, submitted, newNumber);
+      const now = FieldValue.serverTimestamp();
+
+      transaction.set(sopRef, { ...next, _syncedAt: new Date().toISOString() }, { merge: true });
+      for (const fileRef of storageRefs) transaction.update(fileRef, { documentNumber: newNumber });
+      for (const notificationRef of notificationRefs) transaction.update(notificationRef, { documentNumber: newNumber });
+      const auditRef = db.collection('audit_logs').doc();
+      transaction.set(auditRef, {
+        id: auditRef.id, action: 'SOP_NUMBER_UPDATED', documentId: sopId,
+        documentNumber: newNumber, oldNumber: stored.sopNumber || '', newNumber,
+        actorUid, actorName: actor.name || actor.username || 'Administrator',
+        actorUsername: actor.username || '', actorRole: 'admin', timestamp: now,
+      });
+      result = next;
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Atomic SOP number correction failed', { sopId, actorUid, error });
+    const code = String(error?.code || '');
+    const retryable = code.includes('aborted') || code.includes('deadline') || code.includes('unavailable');
+    throw new HttpsError(
+      retryable ? 'aborted' : 'failed-precondition',
+      retryable
+        ? 'Data SPO berubah saat disimpan. Muat ulang data dan coba kembali.'
+        : 'Metadata SPO tidak dapat diproses. Pastikan function updateSopNumber terbaru sudah aktif.',
+    );
+  }
+  return { ok: true, sop: result };
 });
 
 // Replies are routed exclusively from the authenticated user's source mail.
