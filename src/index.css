@@ -1748,6 +1748,68 @@ button, a, input, select, textarea {
   -ms-hyphens: none !important;
 }
 
+.table-tools-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  z-index: 60;
+  width: 12rem;
+  padding: 0.3rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #334155;
+  box-shadow: 0 10px 25px rgb(15 23 42 / 0.16);
+}
+.table-tools-menu > button {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border-radius: 0.3rem;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+}
+.table-tools-menu > button:hover { background: #eef2ff; color: #4338ca; }
+.table-tools-separator { height: 1px; margin: 0.25rem; background: #e2e8f0; }
+.table-tools-merge { display: flex; align-items: center; gap: 0.2rem; padding: 0.2rem 0.45rem; font-size: 10px; font-weight: 600; }
+.table-tools-merge > span { margin-right: auto; }
+.table-tools-merge > button { border-radius: 0.25rem; padding: 0.2rem 0.3rem; color: #4338ca; }
+.table-tools-merge > button:hover { background: #eef2ff; }
+.table-tools-menu > .table-tools-danger { color: #be123c; }
+
+/* Manual tables and imported DOCX tables deliberately share this canonical
+   percentage-based A4 geometry. No viewport pixel widths are serialized. */
+.rich-text-editor-content table[data-editor-table="true"] {
+  width: 100% !important;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.rich-text-editor-content table[data-editor-table="true"] td,
+.rich-text-editor-content table[data-editor-table="true"] th {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+/* Editing guides live only on the contentEditable surface. An inset guide does
+   not replace imported DOCX borders and, unlike inline styles, is never saved
+   into the SPO HTML or carried into Preview/PDF renderers. */
+.rich-text-editor-content table {
+  border-collapse: collapse;
+}
+.rich-text-editor-content table td,
+.rich-text-editor-content table th {
+  height: 1.75em;
+  min-height: 1.75em;
+  box-shadow: inset 0 0 0 1px rgb(99 102 241 / 0.28);
+  cursor: text;
+}
+.rich-text-editor-content table td:empty::after,
+.rich-text-editor-content table th:empty::after {
+  content: "\00a0";
+}
+
 .rich-text-editor-content img,
 .rich-text-editor-content video,
 .rich-text-editor-content svg {
@@ -1784,6 +1846,13 @@ button, a, input, select, textarea {
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
+}
+
+/* Let an opened command popover escape the toolbar's horizontal scrollport.
+   Closed narrow toolbars retain touch scrolling and never overflow the editor. */
+.rich-text-toolbar:has(.table-tools-menu),
+.rich-text-toolbar:has(.insert-menu-popover) {
+  overflow: visible !important;
 }
 
 /* Offset sticky toolbar when scrolling on page with top header (e.g. UserView) */

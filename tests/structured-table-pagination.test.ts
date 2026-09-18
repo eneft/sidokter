@@ -13,6 +13,7 @@ const rendererSource = readFileSync(new URL('../src/components/RichTextRenderer.
 const pdfSource = readFileSync(new URL('../server/pdfRenderer.ts', import.meta.url), 'utf8');
 const geometrySource = readFileSync(new URL('../src/utils/docxTableGeometry.ts', import.meta.url), 'utf8');
 const editorSource = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+const editorCommandsSource = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
 const cssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 
 test('tabel sederhana tetap utuh jika muat', () => {
@@ -153,4 +154,79 @@ test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
   assert.match(geometrySource, /wrapTextInterval/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \*,\s*#printable[\s\S]{0,180}font-size: 12pt !important/);
   assert.match(rendererSource, /'style', 'class', 'colspan', 'rowspan'/);
+});
+
+test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => {
+  const editor = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  assert.match(editor, /restoreSavedSelection\(\)[\s\S]{0,300}createSemanticTable/);
+  assert.match(editor, /placeCaretInCell\(inserted\?\.rows\[0\]\?\.cells\[0\]/);
+  assert.match(editor, /Insert ▾/);
+  assert.match(editor, /activeFormatting\.inTable/);
+  assert.match(commands, /createElement\('table'\)/);
+  assert.match(commands, /createTBody\(\)/);
+  assert.match(commands, /insertRow/);
+  assert.match(commands, /insertCell/);
+  assert.doesNotMatch(commands, /canvas|\|---/);
+});
+
+test('operasi table span-aware mencakup row, column, merge horizontal/vertical, split dan delete', () => {
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  for (const command of ['add-row', 'add-column', 'delete-row', 'delete-column', 'merge-right', 'merge-down', 'split-cell', 'delete-table']) {
+    assert.match(commands, new RegExp(command));
+  }
+  assert.match(commands, /tableGrid/);
+  assert.match(commands, /cell\.colSpan \+=/);
+  assert.match(commands, /cell\.rowSpan \+=/);
+  assert.match(commands, /appendContent\(cell, other\.cell\)/);
+  assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
+});
+
+test('toolbar tabel production tetap compact, selection-safe, dan mendukung empat arah insert', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  for (const source of [editorSource, liveTemplateSource]) {
+    assert.match(source, />Tabel ▾<\/button>/);
+    assert.match(source, /Tambah Baris di Atas/);
+    assert.match(source, /Tambah Baris di Bawah/);
+    assert.match(source, /Tambah Kolom di Kiri/);
+    assert.match(source, /Tambah Kolom di Kanan/);
+    assert.match(source, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
+    assert.doesNotMatch(source, />\+Baris<\/button>/);
+    assert.doesNotMatch(source, />Merge →<\/button>/);
+  }
+  assert.match(editorCommandsSource, /command === 'add-row-before'/);
+  assert.match(editorCommandsSource, /command === 'add-column-before'/);
+});
+
+test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => {
+  assert.match(cssSource, /\.rich-text-editor-content table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.match(cssSource, /\.rich-text-editor-content table td:empty::after/);
+  assert.doesNotMatch(cssSource, /\.rich-text-document-content table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.doesNotMatch(cssSource, /#printable-sop-official-document table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.doesNotMatch(editorCommandsSource, /box-shadow|border:/);
+});
+
+test('mutasi table masuk native undo history tanpa mengubah DOM editor langsung', () => {
+  assert.match(editorSource, /const clonedTable = table\.cloneNode\(true\)/);
+  assert.match(editorSource, /mutateTable\(clonedCell, command\)/);
+  assert.match(editorSource, /replacementRange\.selectNode\(table\)/);
+  assert.match(editorSource, /document\.execCommand\('insertHTML', false, replacement\)/);
+  assert.doesNotMatch(editorSource, /mutateTable\(cell, command\)/);
+});
+
+test('manual table memakai geometri proporsional canonical dan pipeline render yang sama', () => {
+  const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.match(commands, /table\.style\.width = '100%'/);
+  assert.match(commands, /col\.style\.width = `\$\{100 \/ columns\}%`/);
+  assert.match(css, /table\[data-editor-table="true"\][\s\S]{0,160}table-layout: fixed/);
+  assert.match(rendererSource, /'table', 'colgroup', 'col'/);
+});
+
+test('Tab di list dalam cell mempertahankan nesting semantic dan tidak memindahkan td', () => {
+  const editor = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+  assert.match(editor, /const inList = Boolean\(element\?\.closest\('li'\)\)/);
+  assert.match(editor, /const inCell = Boolean\(element\?\.closest\('td,th'\)\)/);
+  assert.match(editor, /if \(inList \|\| inCell\) e\.preventDefault\(\)/);
+  assert.match(editor, /executeCommand\(e\.shiftKey \? 'outdent' : 'indent'\)/);
 });
