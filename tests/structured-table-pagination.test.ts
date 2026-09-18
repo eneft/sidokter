@@ -205,6 +205,8 @@ test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke conte
   assert.match(a4Source, /values\[index\][\s\S]{0,80}\/ total/);
   assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
   assert.match(a4Source, /table\.style\.tableLayout = 'fixed'/);
+  assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
+  assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
   assert.match(rendererSource, /normalizeStructuredHtml/);
   assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/);
 });

@@ -2833,7 +2833,8 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-output table {
   width: auto;
   border-collapse: collapse !important;
-  table-layout: auto !important;
+  /* Keep normalized colgroup proportions authoritative in Live, Preview and PDF. */
+  table-layout: fixed !important;
 }
 .sop-batang-tubuh-content .rich-text-document-content th,
 .sop-batang-tubuh-content .rich-text-document-content td,
