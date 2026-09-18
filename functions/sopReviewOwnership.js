@@ -4,44 +4,86 @@ function clean(value) {
   return String(value || '').trim();
 }
 
-/**
- * Resolve an SPO owner exclusively from persisted ownership metadata.
- *
- * UID fields are checked against the user directory rather than trusted just
- * because they are present. Historical string fields are accepted only when
- * they are an exact, unique username in that directory. They are never
- * interpreted as display names, units, or a reason to route to an Admin.
- */
-async function resolveSopOwnerUid(sop, directory) {
-  const uidCandidates = [sop?.creatorUid, sop?.activationRequestedUid]
-    .map(clean)
-    .filter((value, index, values) => value && values.indexOf(value) === index);
-
-  for (const uid of uidCandidates) {
-    if (await directory.hasUid(uid)) return uid;
-  }
-
-  // activationRequestedBy and creatorName could contain a username in the
-  // oldest SPO schema. A directory lookup by the username field keeps this
-  // compatibility safe: names and organizational labels do not match unless
-  // they really are the unique username of an existing account.
-  const usernameCandidates = [
-    sop?.creatorUsername,
-    sop?.activationRequestedByUsername,
-    sop?.activationRequestedUsername,
-    sop?.activationRequestedBy,
-    sop?.creatorName
-  ].map(clean).filter((value, index, values) => value && values.indexOf(value) === index);
-
-  for (const username of usernameCandidates) {
-    const matches = await directory.findUidsByUsername(username, 2);
-    if (matches.length === 1) return matches[0];
-  }
-
-  return null;
+function normalizeIdentity(value) {
+  return clean(value).replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
 }
 
-function buildRevisionRequestNotification({ id, eventKey, sop, actorUid, actor, recipientUid, note, timestamp }) {
+class SopOwnerResolutionError extends Error {
+  constructor(reason, field, value) {
+    super(reason === 'AMBIGUOUS'
+      ? `Pemilik SPO ambigu pada ${field}.`
+      : 'UID pembuat/pengusul SPO tidak dapat ditentukan.');
+    this.name = 'SopOwnerResolutionError';
+    this.reason = reason;
+    this.field = field;
+    this.value = value;
+  }
+}
+
+/**
+ * Resolve an SPO owner from persisted ownership metadata and the authoritative
+ * users directory. UID metadata wins. Legacy text is accepted only when its
+ * normalized, exact value identifies precisely one profile or assignment.
+ */
+async function resolveSopOwner(sop, directory) {
+  const uidFields = ['creatorUid', 'activationRequestedUid'];
+  const checkedUids = new Set();
+  for (const field of uidFields) {
+    const uid = clean(sop?.[field]);
+    if (!uid || checkedUids.has(uid)) continue;
+    checkedUids.add(uid);
+    if (await directory.hasUid(uid)) {
+      return { uid, source: field, shouldBackfillCreatorUid: clean(sop?.creatorUid) !== uid };
+    }
+  }
+
+  const legacyFields = [
+    ['creatorUsername', 'username'],
+    ['activationRequestedByUsername', 'username'],
+    ['activationRequestedUsername', 'username'],
+    ['activationRequestedBy', 'identity'],
+    ['creatorName', 'identity']
+  ];
+  const checkedValues = new Set();
+  for (const [field, kind] of legacyFields) {
+    const value = clean(sop?.[field]);
+    const normalized = normalizeIdentity(value);
+    if (!normalized || checkedValues.has(`${kind}:${normalized}`)) continue;
+    checkedValues.add(`${kind}:${normalized}`);
+    const matches = await directory.findUidsByIdentity(value, { kind, limit: 2 });
+    const uniqueMatches = [...new Set(matches.map(clean).filter(Boolean))];
+    if (uniqueMatches.length === 1) {
+      return { uid: uniqueMatches[0], source: field, shouldBackfillCreatorUid: true };
+    }
+    if (uniqueMatches.length > 1) throw new SopOwnerResolutionError('AMBIGUOUS', field, value);
+  }
+
+  throw new SopOwnerResolutionError('NOT_FOUND');
+}
+
+async function resolveSopOwnerUid(sop, directory) {
+  try {
+    return (await resolveSopOwner(sop, directory)).uid;
+  } catch (error) {
+    if (error instanceof SopOwnerResolutionError) return null;
+    throw error;
+  }
+}
+
+function userMatchesIdentity(user, value, kind = 'identity') {
+  const target = normalizeIdentity(value);
+  if (!target) return false;
+  const values = [user?.username];
+  if (kind !== 'username') {
+    values.push(user?.name, user?.unitName);
+    for (const assignment of Array.isArray(user?.assignments) ? user.assignments : []) {
+      values.push(assignment?.label, assignment?.unitName);
+    }
+  }
+  return values.some((candidate) => normalizeIdentity(candidate) === target);
+}
+
+function buildRevisionRequestNotification({ id, eventKey, sop, actorUid, actor, recipientUid, recipient, note, timestamp }) {
   return {
     id,
     type: 'review',
@@ -62,10 +104,18 @@ function buildRevisionRequestNotification({ id, eventKey, sop, actorUid, actor, 
       senderUid: actorUid,
       senderName: String(actor?.name || actor?.username || 'Reviewer SIDOKTER'),
       recipientUid,
+      recipientName: String(recipient?.name || recipient?.username || 'Pengguna SIDOKTER'),
       documentTitle: String(sop.title || ''),
       internalMailVersion: 1
     }
   };
 }
 
-module.exports = { resolveSopOwnerUid, buildRevisionRequestNotification };
+module.exports = {
+  SopOwnerResolutionError,
+  normalizeIdentity,
+  userMatchesIdentity,
+  resolveSopOwner,
+  resolveSopOwnerUid,
+  buildRevisionRequestNotification
+};

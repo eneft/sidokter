@@ -10,7 +10,7 @@ const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https')
 const logger = require('firebase-functions/logger');
 const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
-const { resolveSopOwnerUid, buildRevisionRequestNotification } = require('./sopReviewOwnership');
+const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -729,15 +729,23 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     if (!snapshot.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
     const sop = snapshot.data() || {};
     if (sop.status !== 'DRAFT') throw new HttpsError('failed-precondition', 'Permintaan perbaikan hanya berlaku untuk SPO DRAFT.');
-    const creatorUid = await resolveSopOwnerUid(sop, {
+    let usersDirectoryPromise;
+    const owner = await resolveSopOwner(sop, {
       hasUid: async (uid) => (await transaction.get(db.collection('users').doc(uid))).exists,
-      findUidsByUsername: async (username, limit) => {
-        const query = db.collection('users').where('username', '==', username).limit(limit);
-        const matches = await transaction.get(query);
-        return matches.docs.map((doc) => doc.id);
+      findUidsByIdentity: async (value, { kind, limit }) => {
+        // Assignment label/unitName are nested profile data and cannot be
+        // queried portably. Read the authoritative directory transactionally,
+        // then require an exact normalized and unique match.
+        usersDirectoryPromise ||= transaction.get(db.collection('users'));
+        const users = await usersDirectoryPromise;
+        return users.docs
+          .filter((doc) => userMatchesIdentity(doc.data(), value, kind))
+          .slice(0, limit)
+          .map((doc) => doc.id);
       }
     });
-    if (!creatorUid) throw new HttpsError('failed-precondition', 'UID pembuat/pengusul SPO tidak dapat ditentukan.');
+    const creatorUid = owner.uid;
+    const recipientSnap = await transaction.get(db.collection('users').doc(creatorUid));
     sop.creatorUid = creatorUid;
     const now = new Date().toISOString();
     let nextState;
@@ -762,14 +770,14 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
     }
     const entry = { id: crypto.randomUUID(), type: nextState, actorUid, actorName: String(actor.name || actor.username || 'Pengguna'), recipientUid, note: eventNote, createdAt: now };
     const update = { reviewState: nextState, reviewHistory: [...(Array.isArray(sop.reviewHistory) ? sop.reviewHistory : []), entry], reviewUpdatedAt: now, updatedAt: now };
-    if (!snapshot.data().creatorUid) update.creatorUid = creatorUid;
+    if (owner.shouldBackfillCreatorUid) update.creatorUid = creatorUid;
     if (action === 'REQUEST_REVISION') update.currentReviewRequesterUid = actorUid;
     transaction.update(sopRef, update);
     resultingSop = { ...sop, id: snapshot.id, ...update };
     if (notification) {
       const notifId = notification.key.replace(/\//g, '_').slice(0, 150);
       const notificationData = notification.revisionRequest
-        ? buildRevisionRequestNotification({ id: notifId, eventKey: notification.key, sop: { ...sop, id: sopId }, actorUid, actor, recipientUid: notification.uid, note, timestamp: Date.now() })
+        ? buildRevisionRequestNotification({ id: notifId, eventKey: notification.key, sop: { ...sop, id: sopId }, actorUid, actor, recipientUid: notification.uid, recipient: recipientSnap.data(), note, timestamp: Date.now() })
         : {
         id: notifId, type: 'review', title: notification.title, message: notification.message,
         documentId: sopId, documentNumber: sop.sopNumber || null, documentType: 'SPO', timestamp: Date.now(), read: false, hidden: false,
@@ -795,6 +803,12 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
       stack: error?.stack
     });
     if (error instanceof HttpsError) throw error;
+    if (error instanceof SopOwnerResolutionError) {
+      const message = error.reason === 'AMBIGUOUS'
+        ? `Pemilik SPO tidak unik: metadata ${error.field} cocok dengan lebih dari satu akun.`
+        : 'UID pembuat/pengusul SPO tidak dapat ditentukan dari direktori user atau assignment.';
+      throw new HttpsError('failed-precondition', message);
+    }
     throw new HttpsError('internal', `Alur perbaikan SPO gagal diproses. Referensi: ${requestId}`);
   }
 });
