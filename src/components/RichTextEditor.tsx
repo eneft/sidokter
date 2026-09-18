@@ -2060,9 +2060,42 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const element = node instanceof Element ? node : node?.parentElement;
     const cell = element?.closest('td,th') as HTMLTableCellElement | null;
     if (!cell || !editorRef.current.contains(cell)) return;
-    const nextCell = mutateTable(cell, command);
+
+    const table = cell.closest('table') as HTMLTableElement | null;
+    if (!table) return;
+
+    // Build the result away from the live contentEditable DOM, then replace the
+    // table through execCommand. Direct DOM mutations are not recorded by the
+    // browser, whereas insertHTML creates the same native undo transaction used
+    // by the rest of this toolbar. This is especially important for destructive
+    // commands, whose removed cell contents must be recoverable with Undo.
+    const staging = document.createElement('div');
+    const clonedTable = table.cloneNode(true) as HTMLTableElement;
+    staging.appendChild(clonedTable);
+    const rowIndex = cell.parentElement instanceof HTMLTableRowElement
+      ? cell.parentElement.rowIndex
+      : -1;
+    const clonedCell = clonedTable.rows[rowIndex]?.cells[cell.cellIndex] || null;
+    if (!clonedCell) return;
+
+    const nextCell = mutateTable(clonedCell, command);
+    const caretMarker = `table-caret-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    nextCell?.setAttribute('data-table-caret-marker', caretMarker);
+
+    const replacement = staging.innerHTML || '<p><br></p>';
+    const replacementRange = document.createRange();
+    replacementRange.selectNode(table);
+    selection?.removeAllRanges();
+    selection?.addRange(replacementRange);
+    const inserted = document.execCommand('insertHTML', false, replacement);
+    if (!inserted) return;
+
+    const insertedCell = editorRef.current.querySelector<HTMLTableCellElement>(
+      `[data-table-caret-marker="${caretMarker}"]`,
+    );
+    insertedCell?.removeAttribute('data-table-caret-marker');
     handleInput();
-    if (nextCell) placeCaretInCell(nextCell);
+    if (insertedCell) placeCaretInCell(insertedCell);
     else {
       setActiveFormatting(current => ({ ...current, inTable: false }));
       editorRef.current.focus();

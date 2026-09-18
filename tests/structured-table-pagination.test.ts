@@ -181,6 +181,14 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
   assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
 });
 
+test('mutasi table masuk native undo history tanpa mengubah DOM editor langsung', () => {
+  assert.match(editorSource, /const clonedTable = table\.cloneNode\(true\)/);
+  assert.match(editorSource, /mutateTable\(clonedCell, command\)/);
+  assert.match(editorSource, /replacementRange\.selectNode\(table\)/);
+  assert.match(editorSource, /document\.execCommand\('insertHTML', false, replacement\)/);
+  assert.doesNotMatch(editorSource, /mutateTable\(cell, command\)/);
+});
+
 test('manual table memakai geometri proporsional canonical dan pipeline render yang sama', () => {
   const commands = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
