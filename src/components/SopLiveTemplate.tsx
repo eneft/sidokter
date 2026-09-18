@@ -28,7 +28,7 @@ import {
   Maximize2,
   Type
 } from 'lucide-react';
-import { RichTextEditor, PRESET_COLORS, compressImageToDataUrl } from './RichTextEditor';
+import { RichTextEditor, PRESET_COLORS, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
@@ -100,48 +100,44 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [activeColor, setActiveColor] = useState('#0f172a');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
+  const pengertianEditorRef = useRef<RichTextEditorHandle>(null);
+  const tujuanEditorRef = useRef<RichTextEditorHandle>(null);
+  const kebijakanEditorRef = useRef<RichTextEditorHandle>(null);
+  const prosedurEditorRef = useRef<RichTextEditorHandle>(null);
+  const alurEditorRef = useRef<RichTextEditorHandle>(null);
+  const unitTerkaitEditorRef = useRef<RichTextEditorHandle>(null);
+  const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
+    bold: false, italic: false, underline: false, align: 'left',
+    orderedList: false, unorderedList: false, fontSize: null,
+  });
+
+  const getActiveEditor = (): RichTextEditorHandle | null => ({
+    pengertian: pengertianEditorRef.current,
+    tujuan: tujuanEditorRef.current,
+    kebijakan: kebijakanEditorRef.current,
+    prosedur: prosedurEditorRef.current,
+    alur: alurEditorRef.current,
+    unitTerkait: unitTerkaitEditorRef.current,
+  })[activeTableSection];
 
   const handleExecCommand = (cmd: string, val: string = '') => {
-    document.execCommand(cmd, false, val);
+    getActiveEditor()?.executeCommand(cmd, val || undefined);
   };
 
   const handleApplyColor = (color: string) => {
     setActiveColor(color);
-    document.execCommand('foreColor', false, color);
+    getActiveEditor()?.executeCommand('foreColor', color);
     setShowColorPicker(false);
   };
 
   const handleInsertList = (type: '1' | 'a') => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    document.execCommand('insertOrderedList');
-    if (type === 'a') {
-      const parentList = selection.anchorNode?.parentElement?.closest('ol');
-      if (parentList) {
-        parentList.type = 'a';
-        parentList.style.listStyleType = 'lower-alpha';
-      }
-    }
+    getActiveEditor()?.insertCustomList(type);
   };
 
   const handleInsertImageToActiveSection = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (file.type.startsWith('image/')) {
-        const dataUrl = await compressImageToDataUrl(file);
-        if (dataUrl) {
-          const figureHtml = `<figure class="my-3 figure-wrapper figure-wrap-top-bottom cursor-pointer select-none" data-wrap="top-bottom" data-width="75%" data-align="center" contenteditable="false" style="display: block; margin: 12px auto; text-align: center; max-width: 75%; clear: both; cursor: pointer; position: relative;"><img src="${dataUrl}" data-local-image="true" alt="Lampiran Bagan SPO" draggable="false" style="width: 100%; height: auto; border: none; border-radius: 0; display: inline-block; box-shadow: none; cursor: pointer; pointer-events: auto;" /><figcaption style="font-size: 11px; color: #64748b; margin-top: 4px; font-family: Bookman Old Style, serif;">Gambar / Bagan Alur</figcaption></figure><p><br></p>`;
-          if (activeTableSection === 'pengertian') onPengertianChange((pengertian || '') + figureHtml);
-          else if (activeTableSection === 'tujuan') onTujuanChange((tujuan || '') + figureHtml);
-          else if (activeTableSection === 'kebijakan') onKebijakanChange((kebijakan || '') + figureHtml);
-          else if (activeTableSection === 'prosedur') onProsedurChange((prosedur || '') + figureHtml);
-          else if (activeTableSection === 'alur') onAlurChange((alur || '') + figureHtml);
-          else if (activeTableSection === 'unitTerkait') onUnitTerkaitChange((unitTerkait || '') + figureHtml);
-        }
-      }
-    }
+    await getActiveEditor()?.insertImageFiles(files);
     if (tableFileInputRef.current) {
       tableFileInputRef.current.value = '';
     }
@@ -505,6 +501,18 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               </button>
             </div>
 
+            <select
+              aria-label="Ukuran huruf Batang Tubuh"
+              title="Ukuran Huruf"
+              value={activeFormatting.fontSize || ''}
+              onChange={(event) => getActiveEditor()?.applyFontSize(event.target.value as '10pt' | '12pt')}
+              className="h-6 w-[58px] shrink-0 rounded-lg border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            >
+              <option value="" disabled>Campur</option>
+              <option value="10pt">10 pt</option>
+              <option value="12pt">12 pt</option>
+            </select>
+
             <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
 
             {/* Font Styling (B, I, U, S) */}
@@ -807,6 +815,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
+                      ref={pengertianEditorRef}
                       label=""
                       value={pengertian}
                       onChange={onPengertianChange}
@@ -816,6 +825,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('pengertian')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>
@@ -828,6 +838,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
+                      ref={tujuanEditorRef}
                       label=""
                       value={tujuan}
                       onChange={onTujuanChange}
@@ -837,6 +848,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('tujuan')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>
@@ -849,6 +861,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
+                      ref={kebijakanEditorRef}
                       label=""
                       value={kebijakan}
                       onChange={onKebijakanChange}
@@ -858,6 +871,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('kebijakan')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>
@@ -870,6 +884,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
+                      ref={prosedurEditorRef}
                       label=""
                       value={prosedur}
                       onChange={onProsedurChange}
@@ -880,6 +895,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('prosedur')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>
@@ -894,6 +910,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className="border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content">
                     <RichTextEditor
+                      ref={alurEditorRef}
                       label=""
                       value={alur}
                       onChange={onAlurChange}
@@ -903,6 +920,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('alur')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>
@@ -915,6 +933,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                   </td>
                   <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
+                      ref={unitTerkaitEditorRef}
                       label=""
                       value={unitTerkait}
                       onChange={onUnitTerkaitChange}
@@ -924,6 +943,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       hideToolbar={true}
                       variant="seamless"
                       onFocus={() => setActiveTableSection('unitTerkait')}
+                      onFormattingChange={setActiveFormatting}
                     />
                   </td>
                 </tr>

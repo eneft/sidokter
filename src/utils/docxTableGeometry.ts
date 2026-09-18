@@ -33,6 +33,59 @@ const setStyle = (element: HTMLElement, property: string, value: string | null) 
   if (value) element.style.setProperty(property, value);
 };
 
+const explicitRunFontSize = (run: Element): string | null => {
+  const halfPoints = Number(wordAttr(direct(direct(run, 'rPr'), 'sz'), 'val'));
+  if (!Number.isFinite(halfPoints)) return null;
+  const points = halfPoints / 2;
+  return points >= 6 && points <= 72 ? `${Number(points.toFixed(2))}pt` : null;
+};
+
+/** Wrap a character interval without replacing the paragraph's existing
+ * strong/em/u hierarchy. Ranges are applied from right to left by the caller,
+ * so earlier OOXML offsets remain stable. */
+const wrapTextInterval = (root: HTMLElement, start: number, end: number, fontSize: string) => {
+  if (end <= start) return;
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Array<{ node: Text; start: number; end: number }> = [];
+  let offset = 0;
+  let current = walker.nextNode() as Text | null;
+  while (current) {
+    const length = current.data.length;
+    nodes.push({ node: current, start: offset, end: offset + length });
+    offset += length;
+    current = walker.nextNode() as Text | null;
+  }
+  const first = nodes.find((entry) => entry.end > start);
+  const last = [...nodes].reverse().find((entry) => entry.start < end);
+  if (!first || !last) return;
+  const range = root.ownerDocument.createRange();
+  range.setStart(first.node, Math.max(0, start - first.start));
+  range.setEnd(last.node, Math.min(last.node.data.length, end - last.start));
+  const span = root.ownerDocument.createElement('span');
+  span.style.fontSize = fontSize;
+  span.appendChild(range.extractContents());
+  range.insertNode(span);
+};
+
+const applyExplicitRunTypography = (wordParagraph: Element, htmlParagraph: HTMLElement) => {
+  let offset = 0;
+  const intervals: Array<{ start: number; end: number; fontSize: string }> = [];
+  Array.from(wordParagraph.children).forEach((child) => {
+    if (child.localName !== 'r') return;
+    const textLength = Array.from(child.getElementsByTagNameNS(WORD_NS, 't'))
+      .reduce((sum, text) => sum + (text.textContent || '').length, 0);
+    const breakLength = Array.from(child.children)
+      .filter((node) => node.localName === 'tab' || node.localName === 'br').length;
+    const length = textLength + breakLength;
+    const fontSize = explicitRunFontSize(child);
+    if (fontSize && length) intervals.push({ start: offset, end: offset + length, fontSize });
+    offset += length;
+  });
+  intervals.reverse().forEach((interval) => {
+    wrapTextInterval(htmlParagraph, interval.start, interval.end, interval.fontSize);
+  });
+};
+
 function applyBoxProperties(target: HTMLElement, properties: Element | null) {
   if (!properties) return;
   const borders = direct(properties, properties.localName === 'tblPr' ? 'tblBorders' : 'tcBorders');
@@ -131,6 +184,9 @@ export async function preserveDocxTableGeometry(arrayBuffer: ArrayBuffer, html: 
           const paragraphAlignment = wordAttr(direct(direct(paragraph, 'pPr')!, 'jc'), 'val');
           if (htmlParagraphs[paragraphIndex] && paragraphAlignment) {
             htmlParagraphs[paragraphIndex].style.textAlign = paragraphAlignment === 'both' ? 'justify' : paragraphAlignment;
+          }
+          if (htmlParagraphs[paragraphIndex]) {
+            applyExplicitRunTypography(paragraph, htmlParagraphs[paragraphIndex]);
           }
         });
       });

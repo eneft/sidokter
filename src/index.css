@@ -264,15 +264,23 @@ table.sop-official-table td.sop-document-type-label,
 }
 
 .sop-batang-tubuh-content,
-.sop-batang-tubuh-content *,
 #printable-sop-official-document .sop-batang-tubuh-content,
-#printable-sop-official-document .sop-batang-tubuh-content *,
-#printable-sop-official-document .rich-text-output,
-#printable-sop-official-document .rich-text-output * {
+#printable-sop-official-document .rich-text-output {
   font-family: "Bookman Old Style", "URW Bookman", serif !important;
   font-size: 12pt !important;
   line-height: 1.5 !important;
   color: #000000 !important;
+}
+
+/* Descendants inherit the 12pt SPO baseline. Explicit safe inline font sizes
+   authored/imported as structured content remain authoritative in Live A4,
+   Preview, print and the PDF DOM. */
+.sop-batang-tubuh-content *,
+#printable-sop-official-document .sop-batang-tubuh-content *,
+#printable-sop-official-document .rich-text-output * {
+  font-family: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 /* Strictly strip all nested borders, frames, outlines and inner boxes inside rich-text-output */

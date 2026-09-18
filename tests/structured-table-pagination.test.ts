@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { largestFittingTablePrefix, safeTableRowBoundaries } from '../src/utils/structuredTablePagination';
+import { SopLiveTemplate } from '../src/components/SopLiveTemplate';
 
 const detailSource = readFileSync(new URL('../src/components/SopDetailModal.tsx', import.meta.url), 'utf8');
 const docxSource = readFileSync(new URL('../src/utils/docxParser.ts', import.meta.url), 'utf8');
@@ -82,4 +85,72 @@ test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => {
   assert.match(detailSource, /officialPages\.length/);
   assert.match(pdfSource, /const documentHtml = String\(body\?\.html/);
   assert.match(pdfSource, /table-header-group/);
+});
+
+test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => {
+  const html = readFileSync(new URL('./fixtures/structured-spo-content.html', import.meta.url), 'utf8');
+  assert.equal((html.match(/<table\b/g) || []).length, 2);
+  assert.match(html, /<ol>[\s\S]*<li>[\s\S]*<table/);
+  assert.match(html, /<ol start="5">/);
+  assert.match(html, /rowspan="2"/);
+  assert.match(html, /colspan="2"/);
+  assert.match(html, /font-size:10pt/);
+  assert.match(html, /font-size:12pt/);
+  assert.match(html, /<strong>1<\/strong>/);
+  assert.match(html, /text-align:center/);
+  assert.match(html, /<tfoot>/);
+  assert.ok((html.match(/<tbody>/g) || []).length >= 2);
+});
+
+test('section extraction tidak memasukkan nested table cells sebagai sibling outer cells', () => {
+  assert.match(docxSource, /Array\.from\(table\.rows\)\.filter/);
+  assert.match(docxSource, /Array\.from\(tr\.cells\)\.filter/);
+  assert.doesNotMatch(docxSource, /tr\.querySelectorAll\('td, th'\)/);
+});
+
+test('toolbar mempertahankan selection dan menyediakan formatting context-aware', () => {
+  for (const command of [
+    'undo', 'redo', 'bold', 'italic', 'underline', 'justifyLeft', 'justifyCenter',
+    'justifyRight', 'justifyFull', 'outdent', 'indent', 'insertUnorderedList', 'removeFormat'
+  ]) assert.ok(editorSource.includes(`executeCommand('${command}')`), command);
+  assert.match(editorSource, /restoreSavedSelection\(\)/);
+  assert.match(editorSource, /document\.execCommand\('fontSize', false, '7'\)/);
+  assert.match(editorSource, /font\.replaceWith\(span\)/);
+  assert.match(editorSource, /activeFormatting\.fontSize/);
+  assert.match(editorSource, /range\.intersectsNode\(textNode\)/);
+  assert.match(editorSource, /processAndInsertImageFiles\(files\)/);
+});
+
+test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
+  const noop = () => undefined;
+  const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
+    title: 'SPO Uji', onTitleChange: noop, sopNumber: '001', version: '00',
+    effectiveDate: '2026-01-01', onEffectiveDateChange: noop, approverName: 'Direktur',
+    pengertian: '<p>Pengertian</p>', onPengertianChange: noop,
+    tujuan: '<p>Tujuan</p>', onTujuanChange: noop,
+    kebijakan: '<p>Kebijakan</p>', onKebijakanChange: noop,
+    prosedur: '<table><tbody><tr><td><span style="font-size:10pt">Isi</span></td></tr></tbody></table>', onProsedurChange: noop,
+    alur: '', onAlurChange: noop, unitTerkait: '<p>Unit</p>', onUnitTerkaitChange: noop,
+  }));
+  assert.match(html, /aria-label="Ukuran huruf Batang Tubuh"/);
+  assert.match(html, /<option value="10pt">10 pt<\/option>/);
+  assert.match(html, /<option value="12pt">12 pt<\/option>/);
+  // RichTextEditor hydrates value.innerHTML in an effect; server rendering is
+  // intentionally used here only to prove the production desktop toolbar JSX.
+});
+
+test('toolbar desktop memakai command bridge editor aktif, bukan execCommand kedua', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.executeCommand/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.insertCustomList/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.applyFontSize/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.insertImageFiles/);
+  assert.doesNotMatch(liveTemplateSource, /document\.execCommand/);
+});
+
+test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
+  assert.match(geometrySource, /explicitRunFontSize/);
+  assert.match(geometrySource, /wrapTextInterval/);
+  assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \*,\s*#printable[\s\S]{0,180}font-size: 12pt !important/);
+  assert.match(rendererSource, /'style', 'class', 'colspan', 'rowspan'/);
 });

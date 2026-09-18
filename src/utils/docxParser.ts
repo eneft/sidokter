@@ -145,7 +145,7 @@ function cleanSectionHtml(html: string, sectionName: string): string {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
       'ol', 'ul', 'li', 'div', 'span', 'sub', 'sup',
-      'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td'
+      'table', 'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'
     ],
     ALLOWED_ATTR: ['style', 'start', 'type', 'colspan', 'rowspan', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'],
     ALLOW_DATA_ATTR: true
@@ -238,9 +238,13 @@ export async function parseSopFromDocx(file: File): Promise<ParsedSopDocx> {
   let tableHeaderFound = false;
 
   for (const table of tables) {
-    const rows = Array.from(table.querySelectorAll('tr'));
+    // Only inspect rows/cells owned by this table. querySelectorAll used to
+    // include descendants from a table embedded in a section cell, causing
+    // the section extractor to select the nested table's last cell and flatten
+    // the rest of its rows/columns.
+    const rows = Array.from(table.rows).filter((row) => row.closest('table') === table);
     for (const tr of rows) {
-      const cells = Array.from(tr.querySelectorAll('td, th'));
+      const cells = Array.from(tr.cells).filter((cell) => cell.closest('table') === table);
       if (cells.length === 0) continue;
 
       // Extract text content of cells
