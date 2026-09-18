@@ -676,14 +676,17 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
     // query each concrete items collection instead, so this correction works
     // with the indexes already used by SIDOKTER.
     const notificationOwners = await db.collection('notifications').listDocuments();
+    const [storageSnap, ...notificationSnapshots] = await Promise.all([
+      db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId).get(),
+      ...notificationOwners.map(owner => owner.collection('items').where('documentId', '==', sopId).get()),
+    ]);
+    const storageRefs = storageSnap.docs.map(item => item.ref);
+    const notificationRefs = notificationSnapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref));
     await db.runTransaction(async transaction => {
-      const reads = await Promise.all([
+      const [sopSnap, allSopsSnap] = await Promise.all([
         transaction.get(sopRef),
         transaction.get(db.collection('sops')),
-        transaction.get(db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId)),
-        ...notificationOwners.map(owner => transaction.get(owner.collection('items').where('documentId', '==', sopId))),
       ]);
-      const [sopSnap, allSopsSnap, storageSnap, ...notificationSnapshots] = reads;
       if (!sopSnap.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
       const stored = { id: sopSnap.id, ...sopSnap.data() };
       const allSops = allSopsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -694,10 +697,8 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
       const now = FieldValue.serverTimestamp();
 
       transaction.set(sopRef, { ...next, _syncedAt: new Date().toISOString() }, { merge: true });
-      for (const file of storageSnap.docs) transaction.update(file.ref, { documentNumber: newNumber });
-      for (const snapshot of notificationSnapshots) {
-        for (const notification of snapshot.docs) transaction.update(notification.ref, { documentNumber: newNumber });
-      }
+      for (const fileRef of storageRefs) transaction.update(fileRef, { documentNumber: newNumber });
+      for (const notificationRef of notificationRefs) transaction.update(notificationRef, { documentNumber: newNumber });
       const auditRef = db.collection('audit_logs').doc();
       transaction.set(auditRef, {
         id: auditRef.id, action: 'SOP_NUMBER_UPDATED', documentId: sopId,
@@ -710,7 +711,14 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     logger.error('Atomic SOP number correction failed', { sopId, actorUid, error });
-    throw new HttpsError('internal', 'Koreksi nomor SPO gagal disimpan secara atomik.');
+    const code = String(error?.code || '');
+    const retryable = code.includes('aborted') || code.includes('deadline') || code.includes('unavailable');
+    throw new HttpsError(
+      retryable ? 'aborted' : 'failed-precondition',
+      retryable
+        ? 'Data SPO berubah saat disimpan. Muat ulang data dan coba kembali.'
+        : 'Metadata SPO tidak dapat diproses. Pastikan function updateSopNumber terbaru sudah aktif.',
+    );
   }
   return { ok: true, sop: result };
 });
