@@ -132,6 +132,12 @@ test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image con
   assert.ok(contextPublication > ownerActivation);
 });
 
+test('klik langsung pada sel menerbitkan table context tanpa bergantung pada selection browser', () => {
+  assert.match(editorSource, /onPointerDown=\{handleEditorPointerDown\}/);
+  assert.match(editorSource, /target\?\.closest\('td,th'\)/);
+  assert.match(editorSource, /context: 'table',[\s\S]{0,80}inTable: true/);
+});
+
 test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
   const noop = () => undefined;
   const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
@@ -198,12 +204,15 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
 
 test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => {
   const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
-  for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi ▾', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
+  for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi:', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
   assert.match(liveTemplateSource, /handleTableAlignment\(a\)/);
   assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
   assert.match(cssSource, /\.live-spo-context-toolbar/);
   assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
   assert.match(liveTemplateSource, /toggleTableWrap/);
+  assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
+  assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
+  assert.match(cssSource, /\.toolbar-icon\.is-active/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {

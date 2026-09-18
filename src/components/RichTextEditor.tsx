@@ -96,6 +96,7 @@ export interface RichTextFormattingState {
   inTable: boolean;
   context: 'text' | 'table' | 'image';
   tableWrap: boolean;
+  tableAlign: TableAlignment;
   canMerge: boolean;
   canSplit: boolean;
   imageWidth?: number;
@@ -604,6 +605,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     inTable: false,
     context: 'text',
     tableWrap: true,
+    tableAlign: 'left',
     canMerge: false,
     canSplit: false,
   });
@@ -655,6 +657,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       }
 
       const activeCell = (selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th') as HTMLTableCellElement | null;
+      const activeTable = activeCell?.closest('table') as HTMLTableElement | null;
+      const tableAlign = activeTable?.dataset.align;
       setActiveFormatting({
         bold: isBold,
         italic: isItalic,
@@ -666,12 +670,34 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         inTable: Boolean(activeCell),
         context: activeCell ? 'table' : 'text',
         tableWrap: activeCell ? activeCell.style.whiteSpace !== 'nowrap' : true,
+        tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
         canMerge: Boolean(activeCell?.nextElementSibling),
         canSplit: Boolean(activeCell && (activeCell.rowSpan > 1 || activeCell.colSpan > 1)),
       });
     } catch {
       // Browser safety fallback
     }
+  }, []);
+
+  const handleEditorPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
+    if (!activeCell || !editorRef.current?.contains(activeCell)) return;
+
+    const activeTable = activeCell.closest('table') as HTMLTableElement | null;
+    const tableAlign = activeTable?.dataset.align;
+    // A click on cell padding or an empty cell may not move the browser
+    // selection. Publish table context directly from the pointer target so the
+    // shared toolbar switches modes immediately and consistently.
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'table',
+      inTable: true,
+      tableWrap: activeCell.style.whiteSpace !== 'nowrap',
+      tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
+      canMerge: Boolean(activeCell.nextElementSibling),
+      canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
+    }));
   }, []);
 
   useEffect(() => {
@@ -2595,11 +2621,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           ref={editorRef}
           contentEditable
           onFocus={onFocus}
+          onPointerDown={handleEditorPointerDown}
           onInput={handleInput}
           onBlur={handleInput}
           onKeyDown={handleEditorKeyDown}
-          onKeyUp={updateActiveFormatting}
-          onMouseUp={updateActiveFormatting}
+          onKeyUp={() => updateActiveFormatting()}
+          onMouseUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}
           onDragOver={handleEditorDragOver}
           onDragLeave={handleEditorDragLeave}
