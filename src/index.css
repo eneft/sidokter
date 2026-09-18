@@ -2867,6 +2867,17 @@ main .rich-text-toolbar,
   color: #3730a3;
   font-weight: 700;
 }
+.live-spo-context-toolbar .toolbar-cell-indicator {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 700;
+}
 
 /* Content-sized tables opt out of the canonical fixed grid only when the
    author explicitly enables AutoFit. The containing SPO cell remains the hard
@@ -2877,4 +2888,9 @@ main .rich-text-toolbar,
   width: fit-content !important;
   max-width: 100% !important;
   table-layout: auto !important;
+}
+.rich-text-editor-content table[data-table-autofit="true"] > colgroup > col,
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"] > colgroup > col,
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] > colgroup > col {
+  width: auto !important;
 }

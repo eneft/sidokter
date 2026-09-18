@@ -97,6 +97,9 @@ export interface RichTextFormattingState {
   context: 'text' | 'table' | 'image';
   tableAutoFit: boolean;
   tableAlign: TableAlignment;
+  tableRow?: number;
+  tableColumn?: number;
+  tableColumnCount?: number;
   canMerge: boolean;
   canSplit: boolean;
   imageWidth?: number;
@@ -120,6 +123,18 @@ export interface RichTextEditorHandle {
   deleteImage: () => void;
   focus: () => void;
 }
+
+const getTableCellPosition = (cell: HTMLTableCellElement, table: HTMLTableElement | null) => {
+  const row = cell.parentElement instanceof HTMLTableRowElement ? cell.parentElement : null;
+  const precedingCells = row ? Array.from(row.cells).slice(0, cell.cellIndex) : [];
+  return {
+    row: row ? row.rowIndex + 1 : undefined,
+    column: precedingCells.reduce((total, item) => total + item.colSpan, 0) + 1,
+    columnCount: table?.rows[0]
+      ? Array.from(table.rows[0].cells).reduce((total, item) => total + item.colSpan, 0)
+      : undefined,
+  };
+};
 
 
 /**
@@ -659,6 +674,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const activeCell = (selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th') as HTMLTableCellElement | null;
       const activeTable = activeCell?.closest('table') as HTMLTableElement | null;
       const tableAlign = activeTable?.dataset.align;
+      const cellPosition = activeCell ? getTableCellPosition(activeCell, activeTable) : null;
       setActiveFormatting({
         bold: isBold,
         italic: isItalic,
@@ -671,6 +687,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         context: activeCell ? 'table' : 'text',
         tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
         tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
+        tableRow: cellPosition?.row,
+        tableColumn: cellPosition?.column,
+        tableColumnCount: cellPosition?.columnCount,
         canMerge: Boolean(activeCell?.nextElementSibling),
         canSplit: Boolean(activeCell && (activeCell.rowSpan > 1 || activeCell.colSpan > 1)),
       });
@@ -686,6 +705,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
     const activeTable = activeCell.closest('table') as HTMLTableElement | null;
     const tableAlign = activeTable?.dataset.align;
+    const cellPosition = getTableCellPosition(activeCell, activeTable);
+    const cellRange = document.createRange();
+    cellRange.selectNodeContents(activeCell);
+    cellRange.collapse(true);
+    // Keep table commands pinned to the cell that was actually clicked. This
+    // covers empty cells and padding clicks where the browser leaves its native
+    // selection in the previously active cell.
+    savedRangeRef.current = cellRange;
     // A click on cell padding or an empty cell may not move the browser
     // selection. Publish table context directly from the pointer target so the
     // shared toolbar switches modes immediately and consistently.
@@ -695,10 +722,33 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       inTable: true,
       tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
       tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
+      tableRow: cellPosition.row,
+      tableColumn: cellPosition.column,
+      tableColumnCount: cellPosition.columnCount,
       canMerge: Boolean(activeCell.nextElementSibling),
       canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
     }));
   }, []);
+
+  const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
+    if (activeCell && editorRef.current?.contains(activeCell)) {
+      const selection = window.getSelection();
+      const anchorElement = selection?.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection?.anchorNode?.parentElement;
+      if (anchorElement?.closest('td,th') !== activeCell) {
+        const range = document.createRange();
+        range.selectNodeContents(activeCell);
+        range.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        savedRangeRef.current = range.cloneRange();
+      }
+    }
+    updateActiveFormatting();
+  }, [updateActiveFormatting]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -2623,11 +2673,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           contentEditable
           onFocus={onFocus}
           onPointerDown={handleEditorPointerDown}
+          onPointerUp={handleEditorPointerUp}
           onInput={handleInput}
           onBlur={handleInput}
           onKeyDown={handleEditorKeyDown}
           onKeyUp={() => updateActiveFormatting()}
-          onMouseUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}
           onDragOver={handleEditorDragOver}
           onDragLeave={handleEditorDragLeave}

@@ -210,7 +210,8 @@ test('single context toolbar production minimal, selection-safe, dan terpisah da
   assert.match(cssSource, /\.live-spo-context-toolbar/);
   assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
   assert.match(liveTemplateSource, /toggleTableAutoFit/);
-  assert.match(liveTemplateSource, />AutoFit<\/button>/);
+  assert.match(liveTemplateSource, />AutoFit Tabel<\/button>/);
+  assert.match(liveTemplateSource, /Sel B\{activeFormatting\.tableRow/);
   assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
   assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
   assert.match(cssSource, /\.toolbar-icon\.is-active/);
@@ -218,8 +219,10 @@ test('single context toolbar production minimal, selection-safe, dan terpisah da
 
 test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
   assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/);
+  assert.match(editorSource, /savedRangeRef\.current = cellRange/);
   assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
   assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col[\s\S]{0,300}width: auto !important/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
