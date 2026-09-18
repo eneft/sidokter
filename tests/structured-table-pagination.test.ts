@@ -209,6 +209,13 @@ test('single context toolbar production minimal, selection-safe, dan terpisah da
   assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
   assert.match(cssSource, /\.live-spo-context-toolbar/);
   assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
+  assert.match(liveTemplateSource, /aria-label="Mode toolbar"/);
+  assert.match(liveTemplateSource, /setToolbarMode\('text'\)/);
+  assert.match(liveTemplateSource, /setToolbarMode\('table'\)/);
+  assert.match(liveTemplateSource, /setToolbarMode\('image'\)/);
+  assert.match(liveTemplateSource, /toolbarMode === 'text'/);
+  assert.match(liveTemplateSource, /toolbarMode === 'table'/);
+  assert.match(liveTemplateSource, /toolbarMode === 'image'/);
   assert.match(liveTemplateSource, /toggleTableAutoFit/);
   assert.match(liveTemplateSource, />AutoFit Tabel<\/button>/);
   assert.match(liveTemplateSource, /Sel B\{activeFormatting\.tableRow/);
