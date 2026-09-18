@@ -185,6 +185,12 @@ const normalizePastedRichText = (source: string): string => {
     );
 
     const color = el.style.color;
+    // Font size is document content, not editor chrome.  In particular Word
+    // commonly uses 10pt inside dense tables while the SPO body defaults to
+    // 12pt, so do not discard it while removing Word-only CSS.
+    const fontSize = /^(?:10|12)pt$/i.test(el.style.fontSize.trim())
+      ? el.style.fontSize.toLowerCase()
+      : '';
     const isBold = el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight || '0', 10) >= 600;
     const isItalic = el.style.fontStyle === 'italic';
     const isUnderline = el.style.textDecoration?.includes('underline');
@@ -210,13 +216,14 @@ const normalizePastedRichText = (source: string): string => {
     if (isUnderline && el.tagName.toLowerCase() !== 'u') {
       el.style.textDecoration = 'underline';
     }
+    if (fontSize) el.style.fontSize = fontSize;
   });
 
   // Remove unwanted attributes except safe list & table attributes
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -229,7 +236,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -551,6 +558,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     align: 'left' | 'center' | 'right' | 'justify';
     orderedList: boolean;
     unorderedList: boolean;
+    fontSize: '10pt' | '12pt' | null;
   }>({
     bold: false,
     italic: false,
@@ -558,6 +566,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     align: 'left',
     orderedList: false,
     unorderedList: false,
+    fontSize: null,
   });
 
   const updateActiveFormatting = useCallback(() => {
@@ -575,6 +584,32 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       else if (document.queryCommandState('justifyRight')) align = 'right';
       else if (document.queryCommandState('justifyLeft')) align = 'left';
 
+      const selection = window.getSelection();
+      let fontSize: '10pt' | '12pt' | null = null;
+      if (selection?.rangeCount && editorRef.current.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+        const sizes = new Set<string>();
+        const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
+        let textNode = walker.nextNode();
+        while (textNode) {
+          if ((range.collapsed && textNode === range.startContainer) || (!range.collapsed && range.intersectsNode(textNode))) {
+            const parent = textNode.parentElement;
+            if (parent && (textNode.textContent || '').length) sizes.add(getComputedStyle(parent).fontSize);
+          }
+          textNode = walker.nextNode();
+        }
+        if (!sizes.size) {
+          const element = selection.anchorNode?.nodeType === Node.ELEMENT_NODE
+            ? selection.anchorNode as Element
+            : selection.anchorNode?.parentElement;
+          if (element) sizes.add(getComputedStyle(element).fontSize);
+        }
+        const points = [...sizes].map((size) => Math.round(parseFloat(size) * 72 / 96));
+        if (points.length && points.every((point) => point === points[0]) && (points[0] === 10 || points[0] === 12)) {
+          fontSize = `${points[0]}pt` as '10pt' | '12pt';
+        }
+      }
+
       setActiveFormatting({
         bold: isBold,
         italic: isItalic,
@@ -582,6 +617,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         align,
         orderedList: isOrdered,
         unorderedList: isUnordered,
+        fontSize,
       });
     } catch {
       // Browser safety fallback
@@ -731,6 +767,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       lastEmittedValueRef.current = value || '';
       isUpdatingFromPropRef.current = true;
       editorRef.current.innerHTML = value || '';
+      savedRangeRef.current = null;
       isUpdatingFromPropRef.current = false;
       if (selectedFigure && !editorRef.current.contains(selectedFigure)) {
         setSelectedFigure(null);
@@ -1156,6 +1193,28 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
       savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
+  };
+
+  const applyFontSize = (fontSize: '10pt' | '12pt') => {
+    if (!editorRef.current) return;
+    restoreSavedSelection();
+    try {
+      // execCommand is retained here because it is the browser's native
+      // history-aware mutation path for contentEditable.  Convert its legacy
+      // FONT output immediately to semantic inline CSS before serialization.
+      document.execCommand('styleWithCSS', false, 'false');
+      document.execCommand('fontSize', false, '7');
+      editorRef.current.querySelectorAll<HTMLFontElement>('font[size="7"]').forEach((font) => {
+        const span = document.createElement('span');
+        span.style.fontSize = fontSize;
+        while (font.firstChild) span.appendChild(font.firstChild);
+        font.replaceWith(span);
+      });
+    } catch {
+      // Unsupported browser: leave the current content and selection intact.
+    }
+    handleInput();
+    updateActiveFormatting();
   };
 
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2072,6 +2131,29 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
+              {/* Ukuran huruf SPO: selection-scoped, including text in cells. */}
+              <select
+                aria-label="Ukuran huruf"
+                title="Ukuran Huruf"
+                value={activeFormatting.fontSize || ''}
+                onMouseDown={(e) => {
+                  // A native select must open, but capture the editor range
+                  // before focus moves into the control.
+                  const selection = window.getSelection();
+                  if (selection?.rangeCount && editorRef.current?.contains(selection.anchorNode)) {
+                    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+                  }
+                }}
+                onChange={(e) => applyFontSize(e.target.value as '10pt' | '12pt')}
+                className="h-5.5 max-w-16 rounded border border-slate-300 bg-white px-1 text-[10px] text-slate-700"
+              >
+                <option value="" disabled>Campur</option>
+                <option value="10pt">10 pt</option>
+                <option value="12pt">12 pt</option>
+              </select>
+
+              <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+
               {/* Warna Teks */}
               <div className="relative shrink-0">
                 <button
@@ -2240,6 +2322,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                     />
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         if (fileInputRef.current) {
                           fileInputRef.current.value = '';
