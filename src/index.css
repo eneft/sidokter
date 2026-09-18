@@ -2707,3 +2707,29 @@ main .rich-text-toolbar,
   }
 }
 
+
+/* Native rich-content tables in Batang Tubuh. Keep their grid/formatting and
+   treat each row as the smallest printable unit; React performs page splits. */
+.sop-batang-tubuh-content .rich-text-document-content table,
+.sop-batang-tubuh-content .rich-text-output table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+}
+.sop-batang-tubuh-content .rich-text-document-content th,
+.sop-batang-tubuh-content .rich-text-document-content td,
+.sop-batang-tubuh-content .rich-text-output th,
+.sop-batang-tubuh-content .rich-text-output td {
+  border: 1px solid #000;
+  padding: 2mm;
+  vertical-align: top;
+}
+.sop-batang-tubuh-content .rich-text-document-content tr,
+.sop-batang-tubuh-content .rich-text-output tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.sop-batang-tubuh-content .rich-text-document-content thead,
+.sop-batang-tubuh-content .rich-text-output thead {
+  display: table-header-group;
+}

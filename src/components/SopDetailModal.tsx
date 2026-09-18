@@ -49,6 +49,7 @@ import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
 import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
+import { splitStructuredTable } from '../utils/structuredTablePagination';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -1156,45 +1157,14 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               return [source];
             }
 
-            // Table splitting row-by-row: allows procedures or tables to continue naturally to next page
+            // Structured tables are split only at safe row boundaries. The helper
+            // preserves section/cell attributes (including colspan/rowspan), repeats
+            // an explicit thead, and retains captions/colgroups/tfoot.
             if (first.tagName.toLowerCase() === 'table') {
-              const table = first;
-              const thead = table.querySelector('thead');
-              const theadHtml = thead ? thead.outerHTML : '';
-              const allRows = Array.from(table.querySelectorAll('tr'));
-              const bodyRows = allRows.filter((r) => !thead || !thead.contains(r));
-
-              if (bodyRows.length > 1) {
-                if (fits(table.outerHTML)) {
-                  host.remove();
-                  return [source];
-                }
-
-                const tableTag = 'table';
-                const tableAttrs = Array.from(table.attributes)
-                  .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-                  .join('');
-
-                const makeTable = (rowHtmls: string[], includeThead = true) => {
-                  return `<${tableTag}${tableAttrs}>${includeThead ? theadHtml : ''}<tbody>${rowHtmls.join('')}</tbody></${tableTag}>`;
-                };
-
-                let fitCount = 0;
-                for (let i = 0; i < bodyRows.length; i++) {
-                  const candidate = makeTable(bodyRows.slice(0, i + 1).map((r) => r.outerHTML), true);
-                  if (fits(candidate)) {
-                    fitCount = i + 1;
-                  } else {
-                    break;
-                  }
-                }
-
-                if (fitCount > 0 && fitCount < bodyRows.length) {
-                  host.remove();
-                  const firstTable = makeTable(bodyRows.slice(0, fitCount).map((r) => r.outerHTML), true);
-                  const secondTable = makeTable(bodyRows.slice(fitCount).map((r) => r.outerHTML), Boolean(theadHtml));
-                  return [firstTable, secondTable];
-                }
+              const tableParts = splitStructuredTable(first as HTMLTableElement, fits);
+              if (tableParts.length > 1) {
+                host.remove();
+                return tableParts;
               }
             }
 
@@ -1252,9 +1222,34 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   return [firstPart, remainingPart];
                 }
 
-                // Case 2: Not even the first item fits in maxHeight
+                // Case 2: Not even the first item fits in maxHeight. A table
+                // inside a list item remains structured: split its rows and keep the
+                // logical list number on the first fragment only.
                 if (fitCount === 0) {
                   const item = items[0];
+                  const nestedTable = item.querySelector('table');
+                  if (nestedTable) {
+                    const wrapTable = (tableHtml: string, continuation: boolean) => {
+                      const clonedItem = item.cloneNode(true) as HTMLElement;
+                      const clonedTable = clonedItem.querySelector('table');
+                      if (clonedTable) clonedTable.outerHTML = tableHtml;
+                      return makeList([clonedItem.outerHTML], 0, continuation, explicitStart);
+                    };
+                    const tableParts = splitStructuredTable(
+                      nestedTable as HTMLTableElement,
+                      (tableHtml) => fits(wrapTable(tableHtml, false))
+                    );
+                    if (tableParts.length > 1) {
+                      const firstPart = wrapTable(tableParts[0], false);
+                      const continuationParts = tableParts.slice(1).map((part) => wrapTable(part, true));
+                      const remainingItems = items.slice(1).map((el) => el.outerHTML);
+                      const remainingList = remainingItems.length
+                        ? makeList(remainingItems, 1, false, explicitStart + 1)
+                        : '';
+                      host.remove();
+                      return [firstPart, [...continuationParts, remainingList].filter(Boolean).join('')];
+                    }
+                  }
                   const itemParts = splitElementPreservingMarkup(
                     item,
                     maxHeight,
