@@ -1566,7 +1566,7 @@ button, a, input, select, textarea {
 }
 
 .sop-batang-tubuh-content table {
-  width: 100% !important;
+  width: auto;
   table-layout: fixed !important;
   border-collapse: collapse !important;
 }
@@ -1749,7 +1749,7 @@ button, a, input, select, textarea {
 }
 
 .rich-text-editor-content table {
-  width: 100% !important;
+  width: auto;
   table-layout: fixed !important;
 }
 
@@ -2712,7 +2712,7 @@ main .rich-text-toolbar,
    treat each row as the smallest printable unit; React performs page splits. */
 .sop-batang-tubuh-content .rich-text-document-content table,
 .sop-batang-tubuh-content .rich-text-output table {
-  width: 100% !important;
+  width: auto;
   border-collapse: collapse !important;
   table-layout: auto !important;
 }

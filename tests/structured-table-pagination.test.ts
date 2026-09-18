@@ -8,6 +8,9 @@ const docxSource = readFileSync(new URL('../src/utils/docxParser.ts', import.met
 const tableSource = readFileSync(new URL('../src/utils/structuredTablePagination.ts', import.meta.url), 'utf8');
 const rendererSource = readFileSync(new URL('../src/components/RichTextRenderer.tsx', import.meta.url), 'utf8');
 const pdfSource = readFileSync(new URL('../server/pdfRenderer.ts', import.meta.url), 'utf8');
+const geometrySource = readFileSync(new URL('../src/utils/docxTableGeometry.ts', import.meta.url), 'utf8');
+const editorSource = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+const cssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 
 test('tabel sederhana tetap utuh jika muat', () => {
   assert.equal(largestFittingTablePrefix([[1], [1]], () => false), 0);
@@ -36,9 +39,42 @@ test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () =>
 });
 
 test('import DOCX mengizinkan dan mempertahankan struktur tabel', () => {
-  for (const tag of ['table', 'thead', 'tbody', 'tr', 'th', 'td']) assert.ok(docxSource.includes(`'${tag}'`));
-  assert.match(docxSource, /ALLOWED_ATTR: \['style', 'start', 'type', 'colspan', 'rowspan'\]/);
+  for (const tag of ['table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td']) assert.ok(docxSource.includes(`'${tag}'`));
+  assert.match(docxSource, /preserveDocxTableGeometry\(arrayBuffer/);
   assert.match(docxSource, /const cellHtmls = cells\.map\(c => c\.innerHTML\.trim\(\)\)/);
+});
+
+test('DOCX geometry menjadi satu representasi tabel terstruktur untuk Live SPO', () => {
+  assert.match(geometrySource, /getElementsByTagNameNS\(WORD_NS, 'tbl'\)/);
+  assert.match(geometrySource, /direct\(properties!, 'tblW'\)/);
+  assert.match(geometrySource, /direct\(properties!, 'tblInd'\)/);
+  assert.match(geometrySource, /localName === 'gridCol'/);
+  assert.match(geometrySource, /direct\(cellProperties!, 'tcW'\)/);
+  assert.match(geometrySource, /gridWidth \/ gridTotal \* 100/);
+  assert.match(geometrySource, /vertical-align/);
+  assert.match(geometrySource, /paragraphAlignment === 'both' \? 'justify'/);
+  assert.match(geometrySource, /tblBorders/);
+  assert.match(geometrySource, /tblCellMar/);
+  assert.match(editorSource, /'table', 'colgroup', 'col', 'thead'/);
+});
+
+test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => {
+  const xml = readFileSync(new URL('./fixtures/prosedur-unequal-table.xml', import.meta.url), 'utf8');
+  assert.match(xml, /<w:t>PROSEDUR<\/w:t>/);
+  assert.match(xml, /<w:tblW w:w="6000" w:type="dxa"\/>/);
+  assert.match(xml, /<w:tblInd w:w="360" w:type="dxa"\/>/);
+  const nestedGridXml = xml.match(/<w:tblGrid><w:gridCol w:w="576"\/>[\s\S]*?<\/w:tblGrid>/)?.[0] || '';
+  const nestedGrid = [...nestedGridXml.matchAll(/<w:gridCol w:w="(\d+)"\/>/g)].map((match) => Number(match[1]));
+  assert.deepEqual(nestedGrid, [576, 2952, 1800, 1872]);
+  assert.deepEqual(nestedGrid.map((width) => width / 7200 * 100), [8, 41, 25, 26]);
+  assert.match(xml, /<w:vMerge w:val="restart"\/>/);
+  assert.match(xml, /<w:gridSpan w:val="2"\/>/);
+});
+
+test('Live SPO dan A4 tidak memaksa tabel isi DOCX menjadi full-width', () => {
+  assert.doesNotMatch(cssSource, /\.rich-text-editor-content table \{\s*width: 100% !important/);
+  assert.doesNotMatch(cssSource, /\.rich-text-document-content table,[\s\S]{0,160}width: 100% !important/);
+  assert.match(cssSource, /\.rich-text-editor-content table \{\s*width: auto/);
 });
 
 test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => {
