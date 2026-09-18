@@ -209,6 +209,8 @@ test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke conte
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
   assert.match(rendererSource, /normalizeStructuredHtml/);
   assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/);
+  assert.match(a4Source, /isFullContentWidthTable\(table\)[\s\S]{0,80}table\.style\.width = '100%'/);
+  assert.match(cssSource, /table\[data-editor-table="true"\][\s\S]{0,100}width: 100% !important/);
 });
 
 test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => {

@@ -14,6 +14,17 @@ export const SPO_A4 = {
 
 export type TableAlignment = 'left' | 'center' | 'right';
 
+/**
+ * Tables created by LiveSPOEditor are authored against the complete Batang
+ * Tubuh content cell.  This marker survives storage and is therefore the
+ * renderer-independent width contract for Preview and PDF as well.
+ *
+ * Imported DOCX tables intentionally do not use this contract: their authored
+ * width (which may be narrower than the cell) remains authoritative.
+ */
+export const isFullContentWidthTable = (table: Pick<HTMLTableElement, 'dataset'>): boolean =>
+  table.dataset.editorTable === 'true';
+
 const numericWidth = (value: string | null): number | null => {
   if (!value) return null;
   const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)(?:px|pt|mm|cm|in|%|dxa)?$/i);
@@ -24,6 +35,7 @@ const numericWidth = (value: string | null): number | null => {
 /** Normalize imported absolute column geometry without changing table semantics. */
 export function normalizeStructuredTables(root: ParentNode): void {
   root.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
+    if (isFullContentWidthTable(table)) table.style.width = '100%';
     table.style.maxWidth = '100%';
     table.style.tableLayout = 'fixed';
     table.style.boxSizing = 'border-box';
