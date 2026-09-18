@@ -103,7 +103,7 @@ function sanitizeForFirestore<T = any>(obj: T): any {
 
 /* =========================================================================
    SOP (STANDAR PROSEDUR OPERASIONAL) FIRESTORE SYNC
-========================================================================= */
+ * ========================================================================= */
 
 export async function saveSopToFirestore(
   sop: SopDocument,
@@ -452,7 +452,7 @@ export function subscribeToFirestoreSops(
 
 /* =========================================================================
    LIBRARY DOCUMENTS (SK & MOU) FIRESTORE SYNC
-========================================================================= */
+ * ========================================================================= */
 
 export async function saveLibraryDocToFirestore(document: LibraryDocument, options?: { throwOnError?: boolean }): Promise<void> {
   try {
@@ -553,7 +553,7 @@ export function subscribeToFirestoreLibraryDocs(
 
 /* =========================================================================
    SYSTEM CONFIG & NUMBERING
-========================================================================= */
+ * ========================================================================= */
 
 export async function saveSystemConfigToFirestore(key: string, value: any): Promise<void> {
   try {
@@ -587,7 +587,7 @@ function normalizeUserBadges(value: unknown): UserAccount['badges'] {
 
 /* =========================================================================
    USERS SYNC
-========================================================================= */
+ * ========================================================================= */
 
 export async function saveUserToFirestore(user: UserAccount): Promise<void> {
   try {
@@ -694,7 +694,7 @@ export function subscribeToFirestoreUsers(callback: (users: UserAccount[]) => vo
 
 /* =========================================================================
    AUDIT LOGS
-========================================================================= */
+ * ========================================================================= */
 
 export async function logAuditToFirestore(audit: {
   action: string;
@@ -717,7 +717,7 @@ export async function logAuditToFirestore(audit: {
 
 /* =========================================================================
    INITIALIZATION & HEALTH CHECK
-========================================================================= */
+ * ========================================================================= */
 
 export async function checkFirebaseConnection(): Promise<boolean> {
   try {

@@ -10,6 +10,9 @@ import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
 import { SopDocument, UserSession, UserAccount } from '../types';
 import { userCanAccessSop, getUserHierarchyAccessKeys, hasVerificatorBadge } from './soegiriStructure';
+import { INTERNAL_MAIL_VERSION, isInternalMailItem, isVisibleMailboxItem } from './mailboxPolicy';
+
+export { INTERNAL_MAIL_VERSION, isInternalMailItem } from './mailboxPolicy';
 
 export type NotificationType =
   | 'activation'
@@ -58,16 +61,6 @@ const notifiedProposalDocIds = new Set<string>();
 
 const NOTIF_STORAGE_PREFIX = 'soegiri_active_notifications_v3';
 const NOTIF_MUTE_PREFIX = 'soegiri_notification_muted_v3';
-/**
- * Schema boundary for the new Internal Mail mailbox. Legacy notification-center
- * records remain intact for audit/dedupe purposes, but are not shown as email.
- */
-export const INTERNAL_MAIL_VERSION = 1;
-
-export function isInternalMailItem(item: Pick<AppNotification, 'metadata'>): boolean {
-  return Number(item?.metadata?.internalMailVersion || 0) === INTERNAL_MAIL_VERSION;
-}
-
 let notificationScopeKey = 'anonymous';
 let notificationAuthUid = '';
 let unsubscribeNotificationCloud: (() => void) | null = null;
@@ -128,7 +121,7 @@ function loadPersistedNotifications(): AppNotification[] {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((n) => n && typeof n.id === 'string' && typeof n.type === 'string' && isInternalMailItem(n))
+        .filter((n) => isVisibleMailboxItem(n))
         .slice(0, 50);
     }
   } catch {}
@@ -183,7 +176,7 @@ function syncNotificationCloudListener(): void {
     seedDedupeSetsFromNotifications(cloudItemsAll);
 
     const cloudItems = cloudItemsAll
-      .filter((n) => n.hidden !== true && isInternalMailItem(n))
+      .filter(isVisibleMailboxItem)
       .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
       .slice(0, 50);
 
@@ -409,7 +402,7 @@ export async function replyToInternalMail(sourceNotificationId: string, body: st
 
 /* =========================================================================
    AUDIO CHIME (WEB AUDIO API)
-========================================================================= */
+ * ========================================================================= */
 
 let audioCtx: AudioContext | null = null;
 
@@ -506,7 +499,7 @@ export function playChime(
 
 /* =========================================================================
    PERIODIC REVIEW EVALUATION (RSUD DR. SOEGIRI STANDARD)
-========================================================================= */
+ * ========================================================================= */
 
 /**
  * Checks whether an SOP document is due for periodic review.
@@ -594,7 +587,7 @@ export function evaluatePeriodicReview(sop: SopDocument): ReviewStatus {
 
 /* =========================================================================
    USER DIVISION MATCHING
-========================================================================= */
+ * ========================================================================= */
 
 /**
  * Checks whether a document's division code corresponds to the user's division(s).
@@ -638,7 +631,7 @@ export function isAssignedToUserDivision(
 
 /* =========================================================================
    NOTIFICATION STATE & SUBSCRIBERS
-========================================================================= */
+ * ========================================================================= */
 
 export function subscribeToNotifications(
   callback: (notifications: AppNotification[]) => void
@@ -797,7 +790,7 @@ export function clearNotifications(): void {
 
 /* =========================================================================
    REAL-TIME FIRESTORE & LOCAL LISTENER
-========================================================================= */
+ * ========================================================================= */
 
 let currentUsersList: UserAccount[] = [];
 

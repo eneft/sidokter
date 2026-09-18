@@ -763,8 +763,8 @@ export const UserView: React.FC<UserViewProps> = ({
     setSpoSubTab('input');
   };
 
-  // Every workflow entry starts from a clean SPO form. Data is inherited only
-  // by an explicit action (for example, selecting a source SPO for Riviu).
+  // Every workflow entry starts from a clean SPO form. A Riviu source supplies
+  // reference identity only; its Live A4/body content is never inherited.
   const startDocumentWorkflow = (nextType: 'BARU' | 'LAMA' | 'REVIEW') => {
     resetForm();
     setDocumentType(nextType);
@@ -1987,11 +1987,11 @@ export const UserView: React.FC<UserViewProps> = ({
                             <span>Rujukan Dokumen SPO Lama yang Direview</span>
                           </div>
 
-                          {/* Dropdown pilih SPO terdaftar untuk auto-populate */}
+                          {/* Dropdown sumber hanya mengikat referensi/metadata Riviu. */}
                           <div className="space-y-3">
                             <div>
                               <label className="block text-xs font-bold text-amber-950 mb-1.5">
-                                Pilih SPO Terdaftar untuk Diriviu (Otomatis Isi Data)
+                                Pilih SPO Terdaftar sebagai Dokumen Sumber
                               </label>
                               <select
                                 value={selectedExistingSopIdForReview}
@@ -2001,14 +2001,16 @@ export const UserView: React.FC<UserViewProps> = ({
                                   setExistingSopId(chosenId);
                                   const found = sops.find((s) => s.id === chosenId);
                                   if (found) {
-                                    setTitle(found.title || '');
+                                    // HARD RULE: predecessor content is reference-only. Every
+                                    // Riviu Live A4 starts blank and must be authored explicitly.
+                                    setTitle('');
                                     setOldSopNumber(found.sopNumber || '');
-                                    setPengertian(found.pengertian || '');
-                                    setTujuan(found.tujuan || '');
-                                    setKebijakan(found.kebijakan || '');
-                                    setProsedur(found.prosedur || '');
-                                    setAlur((found as any).alur || '');
-                                    setUnitTerkait(found.unitTerkait || '');
+                                    setPengertian('');
+                                    setTujuan('');
+                                    setKebijakan('');
+                                    setProsedur('');
+                                    setAlur('');
+                                    setUnitTerkait('');
                                     const currentRevision = String(found.revisionNumber || found.version || '').trim();
                                     setPreviousRevisionNumber(currentRevision);
                                     try {
@@ -2016,7 +2018,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                     } catch {
                                       setRevisionNumber('');
                                     }
-                                    onShowToast?.('info', 'Data SPO Dimuat', `Data dari "${found.title}" telah dimuat untuk proses riviu.`);
+                                    onShowToast?.('info', 'Dokumen Sumber Dipilih', `"${found.title}" digunakan sebagai referensi. Lembar Live A4 Riviu tetap kosong.`);
                                   }
                                 }}
                                 className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"

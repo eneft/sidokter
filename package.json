@@ -18,7 +18,7 @@
     "test:revision": "tsx tests/revision-number.test.ts",
     "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts",
     "test:sop-review": "node --test functions/sopReviewPolicy.test.js",
-    "test:mail": "node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs"
+    "test:mail": "node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs && tsx --test tests/mailbox-filter.test.ts"
   },
   "dependencies": {
     "@sparticuz/chromium": "149.0.0",
