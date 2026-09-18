@@ -2836,6 +2836,13 @@ main .rich-text-toolbar,
   /* Keep normalized colgroup proportions authoritative in Live, Preview and PDF. */
   table-layout: fixed !important;
 }
+/* Canonical semantic-table width contract. RichTextRenderer also applies this
+   inline through normalizeStructuredTables; this selector is the safe fallback
+   while the editor DOM is mounting and for historical already-rendered markup. */
+.sop-batang-tubuh-content .rich-text-document-content table[data-editor-table="true"],
+.sop-batang-tubuh-content .rich-text-output table[data-editor-table="true"] {
+  width: 100% !important;
+}
 .sop-batang-tubuh-content .rich-text-document-content th,
 .sop-batang-tubuh-content .rich-text-document-content td,
 .sop-batang-tubuh-content .rich-text-output th,
