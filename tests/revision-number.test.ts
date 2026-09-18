@@ -64,11 +64,12 @@ console.log(
   'Transactional numbering tests passed: retry increment and hierarchy/year isolation.',
 );
 
-// Riviu supporting evidence.
-assert.throws(
-  () => validateSupportingEvidence([]),
-  /Minimal satu/,
-  'Riviu without evidence must be rejected',
+// Additional Riviu evidence starts at #2 and is optional. Source evidence #1
+// is represented by existingSopId or the separately stored original PDF.
+assert.deepEqual(
+  validateSupportingEvidence([]),
+  [],
+  'Riviu without additional evidence must remain valid',
 );
 
 const evidence = [
@@ -124,5 +125,5 @@ assert.equal(
 );
 
 console.log(
-  'Supporting evidence tests passed: required, multiple, unique, and legacy normalization.',
+  'Supporting evidence tests passed: optional additions, multiple, unique, and legacy normalization.',
 );

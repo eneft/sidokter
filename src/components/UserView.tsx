@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FilePlus, 
   Eye, 
@@ -75,7 +75,8 @@ import { AdminHubPage } from './AdminHubPage';
 import IssueSopNumberModal from './IssueSopNumberModal';
 import { getAllNumberReservations, SopNumberReservation } from '../lib/sopService';
 import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
-import { SupportingEvidenceInput, createPendingEvidence, PendingEvidence } from './SupportingEvidenceInput';
+import { SupportingEvidenceInput, PendingEvidence } from './SupportingEvidenceInput';
+import { getEligibleReviewSources, isSopInReviewHierarchy } from '../utils/sopReviewSource';
 
 interface UserViewProps {
   userSession: UserSession;
@@ -423,7 +424,7 @@ export const UserView: React.FC<UserViewProps> = ({
   const [reviewReason, setReviewReason] = useState('');
   const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
-  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([createPendingEvidence(1)]);
+  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([]);
 
   // Progressive input workflow.
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1);
@@ -501,6 +502,38 @@ export const UserView: React.FC<UserViewProps> = ({
     poliCode: selectedPoliCode,
     subUnitCode: selectedSubUnitCode
   });
+
+  const reviewHierarchyIdentity = useMemo(() => ({
+    divisionCode: selectedCatCode,
+    subHierarchyCode,
+  }), [selectedCatCode, subHierarchyCode]);
+  const eligibleReviewSources = useMemo(
+    () => getEligibleReviewSources(accessibleSops, reviewHierarchyIdentity),
+    [accessibleSops, reviewHierarchyIdentity],
+  );
+  const selectedReviewSource = useMemo(
+    () => eligibleReviewSources.find((sop) => sop.id === selectedExistingSopIdForReview),
+    [eligibleReviewSources, selectedExistingSopIdForReview],
+  );
+
+  const resetReviewSource = () => {
+    setSelectedExistingSopIdForReview('');
+    setExistingSopId('');
+    setOldSopNumber('');
+    setPreviousRevisionNumber('');
+    setRevisionNumber('');
+    setSelectedFile(null);
+    setSupportingEvidence([]);
+  };
+
+  const previousReviewHierarchyKey = useRef('');
+  useEffect(() => {
+    const nextKey = `${reviewHierarchyIdentity.divisionCode.trim().toUpperCase()}|${reviewHierarchyIdentity.subHierarchyCode.trim().toUpperCase()}`;
+    if (documentType === 'REVIEW' && previousReviewHierarchyKey.current && previousReviewHierarchyKey.current !== nextKey) {
+      resetReviewSource();
+    }
+    previousReviewHierarchyKey.current = nextKey;
+  }, [documentType, reviewHierarchyIdentity]);
 
   const handleIssueNumber = async () => {
     if (userSession.role !== 'admin') {
@@ -735,7 +768,7 @@ export const UserView: React.FC<UserViewProps> = ({
     setReviewReason('');
     setExternalReviewSignedConfirmed(false);
     setSelectedExistingSopIdForReview('');
-    setSupportingEvidence([createPendingEvidence(1)]);
+    setSupportingEvidence([]);
     setSubmitError(null);
     setIssuedSopNumber(null);
     setIssuedSopId(null);
@@ -824,18 +857,23 @@ export const UserView: React.FC<UserViewProps> = ({
 
       if (isReview) {
         const reviewNumber = normalizeSopNumberInput(oldSopNumber);
-        const referenced = (selectedExistingSopIdForReview && sops.find((s) => s.id === selectedExistingSopIdForReview))
-          || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
-        if (!reviewNumber || !referenced) {
-          setSubmitError('SPO rujukan Riviu wajib dipilih dari SPO terdaftar yang berstatus AKTIF.');
+        const referenced = selectedExistingSopIdForReview
+          ? sops.find((s) => s.id === selectedExistingSopIdForReview)
+          : undefined;
+        if (!reviewNumber) {
+          setSubmitError('Nomor / Judul Rujukan SPO Lama wajib diisi.');
           return;
         }
-        if (referenced && referenced.status !== 'AKTIF') {
+        if (selectedExistingSopIdForReview && (!referenced || referenced.status !== 'AKTIF')) {
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
           return;
         }
-        if (!supportingEvidence[0]?.file) {
-          setSubmitError('Minimal satu Bukti Dukung Riviu wajib diunggah.');
+        if (referenced && !isSopInReviewHierarchy(referenced, reviewHierarchyIdentity)) {
+          setSubmitError('SPO rujukan Riviu tidak berasal dari hirarki yang dipilih.');
+          return;
+        }
+        if (!referenced && !selectedFile) {
+          setSubmitError('Unggah PDF SPO yang diriviu.');
           return;
         }
         if (supportingEvidence.some((item) => !item.file)) {
@@ -1013,6 +1051,7 @@ export const UserView: React.FC<UserViewProps> = ({
         existingSourceFormat: isLegacy ? 'PDF' : undefined,
         legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
+        oldSopNumber: isReview ? oldSopNumber.trim() : undefined,
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
         previousRevisionNumber: isReview ? previousRevisionNumber : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
@@ -1036,7 +1075,7 @@ export const UserView: React.FC<UserViewProps> = ({
       }
 
       if (isReview) {
-        (sopData as any).externalReviewSignedConfirmed = externalReviewSignedConfirmed;
+        (sopData as any).externalReviewSignedConfirmed = !selectedExistingSopIdForReview && Boolean(selectedFile);
         sopData.supportingEvidence = await Promise.all(supportingEvidence.map(async (item) => {
           const file = item.file!;
           const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -1981,25 +2020,27 @@ export const UserView: React.FC<UserViewProps> = ({
                     <>
                       {/* Rujukan & Identitas SPO Riviu */}
                       {documentType === 'REVIEW' && (
-                        <section className="rounded-2xl border border-amber-300 bg-amber-50/80 p-4 sm:p-5 space-y-4">
-                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-950">
-                            <RefreshCw className="w-4 h-4 text-amber-700" />
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4">
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-800">
+                            <RefreshCw className="w-4 h-4 text-emerald-700" />
                             <span>Rujukan Dokumen SPO Lama yang Direview</span>
                           </div>
 
                           {/* Dropdown sumber hanya mengikat referensi/metadata Riviu. */}
                           <div className="space-y-3">
                             <div>
-                              <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                              <label className="block text-xs font-bold text-slate-800 mb-1.5">
                                 Pilih SPO Terdaftar sebagai Dokumen Sumber
                               </label>
                               <select
                                 value={selectedExistingSopIdForReview}
                                 onChange={(e) => {
                                   const chosenId = e.target.value;
+                                  setSelectedFile(null);
+                                  setSupportingEvidence([]);
                                   setSelectedExistingSopIdForReview(chosenId);
                                   setExistingSopId(chosenId);
-                                  const found = sops.find((s) => s.id === chosenId);
+                                  const found = eligibleReviewSources.find((s) => s.id === chosenId);
                                   if (found) {
                                     // HARD RULE: predecessor content is reference-only. Every
                                     // Riviu Live A4 starts blank and must be authored explicitly.
@@ -2019,41 +2060,60 @@ export const UserView: React.FC<UserViewProps> = ({
                                       setRevisionNumber('');
                                     }
                                     onShowToast?.('info', 'Dokumen Sumber Dipilih', `"${found.title}" digunakan sebagai referensi. Lembar Live A4 Riviu tetap kosong.`);
+                                  } else {
+                                    setOldSopNumber('');
+                                    setPreviousRevisionNumber('');
+                                    setRevisionNumber('');
                                   }
                                 }}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
+                                className="w-full max-h-48 px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
                               >
                                 <option value="">-- Pilih dari Daftar Dokumen SPO Tersedia --</option>
-                                {accessibleSops.filter((s) => s.status === 'AKTIF').map((s) => (
+                                {eligibleReviewSources.map((s) => (
                                   <option key={s.id} value={s.id}>
-                                    [{s.sopNumber || 'Tanpa No'}] {s.title} (Rev: {s.version || '00'})
+                                    {s.sopNumber || s.legacySopNumber || 'Tanpa No'} — {s.title} — Rev. {s.revisionNumber || s.version || '00'}
                                   </option>
                                 ))}
                               </select>
                             </div>
 
+                            {selectedReviewSource && (
+                              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0 text-[11px] text-slate-700">
+                                  <span className="font-bold">{selectedReviewSource.sopNumber || selectedReviewSource.legacySopNumber} — {selectedReviewSource.title}</span>
+                                  <span className="ml-2 whitespace-nowrap text-slate-500">Rev. {selectedReviewSource.revisionNumber || selectedReviewSource.version || '00'}</span>
+                                </div>
+                                <button type="button" onClick={() => onViewDetail(selectedReviewSource)} className="shrink-0 text-[11px] font-bold text-blue-700 hover:text-blue-900">Lihat Dokumen</button>
+                              </div>
+                            )}
+
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div className="sm:col-span-2">
-                                <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                <label className="block text-xs font-bold text-slate-800 mb-1.5">
                                   Nomor / Judul Rujukan SPO Lama <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                   type="text"
                                   required={documentType === 'REVIEW'}
+                                  readOnly={Boolean(selectedReviewSource)}
                                   value={oldSopNumber}
-                                  onChange={(e) => setOldSopNumber(e.target.value)}
+                                  onChange={(e) => {
+                                    setOldSopNumber(e.target.value);
+                                    setSelectedFile(null);
+                                  }}
                                   placeholder="Contoh: PEL / 1.1.3 / 015 / 2023 - SPO Rekam Jantung"
-                                  className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 read-only:bg-slate-50"
                                 />
                               </div>
 
                               <div>
-                                <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                                <label className="block text-xs font-bold text-slate-800 mb-1.5">
                                   Revisi Saat Ini <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                   type="text"
                                   required={documentType === 'REVIEW'}
+                                  readOnly={Boolean(selectedReviewSource)}
                                   value={previousRevisionNumber}
                                   onChange={(e) => {
                                     const current = e.target.value;
@@ -2061,18 +2121,18 @@ export const UserView: React.FC<UserViewProps> = ({
                                     try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
                                   }}
                                   placeholder="00"
-                                  className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 read-only:bg-slate-50"
                                 />
                               </div>
                             </div>
 
                             <div>
-                              <label className="block text-xs font-bold text-amber-950 mb-1.5">Nomor Revisi Baru (otomatis)</label>
-                              <input type="text" readOnly value={revisionNumber} placeholder="—" className="w-full px-3.5 py-2.5 rounded-xl border border-amber-200 bg-amber-100/60 font-mono text-xs font-bold text-slate-900" />
+                              <label className="block text-xs font-bold text-slate-800 mb-1.5">Nomor Revisi Baru (otomatis)</label>
+                              <input type="text" readOnly value={revisionNumber} placeholder="—" className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-mono text-xs font-bold text-slate-900" />
                             </div>
 
                             <div>
-                              <label className="block text-xs font-bold text-amber-950 mb-1.5">
+                              <label className="block text-xs font-bold text-slate-800 mb-1.5">
                                 Dasar Kebijakan / Alasan Riviu & Catatan Perubahan
                               </label>
                               <textarea
@@ -2080,7 +2140,7 @@ export const UserView: React.FC<UserViewProps> = ({
                                 value={reviewReason}
                                 onChange={(e) => setReviewReason(e.target.value)}
                                 placeholder="Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026."
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
                               />
                             </div>
                           </div>
@@ -2209,7 +2269,24 @@ export const UserView: React.FC<UserViewProps> = ({
                       </section>
 
                       {documentType === 'REVIEW' && (
-                        <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} />
+                        <SupportingEvidenceInput
+                          value={supportingEvidence}
+                          onChange={setSupportingEvidence}
+                          source={selectedReviewSource}
+                          manualSourceFile={selectedFile}
+                          onManualSourceFileChange={(file) => {
+                            if (file && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                              setSubmitError('Unggah PDF SPO yang diriviu.');
+                              return;
+                            }
+                            setSubmitError(null);
+                            setSelectedFile(file);
+                          }}
+                          onViewSource={() => {
+                            if (selectedReviewSource) onViewDetail(selectedReviewSource);
+                            else if (selectedFile) window.open(URL.createObjectURL(selectedFile), '_blank', 'noopener,noreferrer');
+                          }}
+                        />
                       )}
 
                       {/* Bukti dokumen hanya untuk SPO Riviu. SPO Baru tidak memiliki upload. */}
@@ -2258,7 +2335,7 @@ export const UserView: React.FC<UserViewProps> = ({
 
                   {/* Final action hanya boleh muncul setelah tahap 3 tercapai. */}
                   {workflowStep >= 3 && (
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+                    <div className="mx-2 px-2 sm:px-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
                       <AdminTooltip
                         title="Kembali ke Langkah Sebelumnya"
                         content="Kembali ke pemilihan unit atau jenis naskah untuk melakukan penyesuaian data."
