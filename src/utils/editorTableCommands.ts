@@ -3,6 +3,8 @@ export type TableCommand =
   | 'delete-row' | 'delete-column'
   | 'merge-right' | 'merge-down' | 'split-cell' | 'delete-table';
 
+export type { TableAlignment } from './a4Layout';
+
 type Slot = { cell: HTMLTableCellElement; originRow: number; originCol: number };
 
 const span = (cell: HTMLTableCellElement, name: 'rowSpan' | 'colSpan') => Math.max(1, cell[name] || 1);

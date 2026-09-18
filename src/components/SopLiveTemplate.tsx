@@ -115,6 +115,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   });
 
   const handleTableCommand = (command: TableCommand) => getActiveEditor()?.executeTableCommand(command);
+  const handleTableAlignment = (alignment: 'left' | 'center' | 'right') => getActiveEditor()?.alignTable(alignment);
 
   useEffect(() => {
     if (!activeFormatting.inTable) setShowTableMenu(false);
@@ -513,11 +514,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <select
               aria-label="Ukuran huruf Batang Tubuh"
               title="Ukuran Huruf"
-              value={activeFormatting.fontSize || ''}
+              value={activeFormatting.fontSize || '12pt'}
               onChange={(event) => getActiveEditor()?.applyFontSize(event.target.value as '10pt' | '12pt')}
               className="h-6 w-[58px] shrink-0 rounded-lg border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
             >
-              <option value="" disabled>Campur</option>
               <option value="10pt">10 pt</option>
               <option value="12pt">12 pt</option>
             </select>
@@ -740,27 +740,20 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
             {activeFormatting.inTable && <>
               <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-              <div className="relative shrink-0" aria-label="Table Tools">
-                <button type="button" aria-haspopup="menu" aria-expanded={showTableMenu}
-                  onMouseDown={e => e.preventDefault()} onClick={() => setShowTableMenu(value => !value)}
-                  className="h-6 rounded border border-indigo-200 bg-indigo-50 px-2 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100">Tabel ▾</button>
-                {showTableMenu && <div role="menu" className="table-tools-menu right-0">
-                  {[
-                    ['add-row-before', 'Tambah Baris di Atas'], ['add-row', 'Tambah Baris di Bawah'],
-                    ['add-column-before', 'Tambah Kolom di Kiri'], ['add-column', 'Tambah Kolom di Kanan'],
-                  ].map(([command, label]) => <button key={command} type="button" role="menuitem" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableCommand(command as TableCommand); setShowTableMenu(false); }}>{label}</button>)}
-                  <div className="table-tools-separator" />
-                  <div className="table-tools-merge"><span>Merge Cell</span><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableCommand('merge-right'); setShowTableMenu(false); }}>Kanan →</button><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableCommand('merge-down'); setShowTableMenu(false); }}>Bawah ↓</button></div>
-                  <button type="button" role="menuitem" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableCommand('split-cell'); setShowTableMenu(false); }}>Split Cell</button>
-                  <div className="table-tools-separator" />
-                  {([['delete-row', 'Hapus Baris'], ['delete-column', 'Hapus Kolom'], ['delete-table', 'Hapus Tabel']] as const).map(([command, label]) => <button key={command} type="button" role="menuitem" className="table-tools-danger" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableCommand(command); setShowTableMenu(false); }}>{label}</button>)}
-                </div>}
+              <div className="table-floating-tools relative shrink-0" aria-label="Table Tools">
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-row')} className="table-tool-button">+ Baris</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-column')} className="table-tool-button">+ Kolom</button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('merge-right')} className="table-tool-button">Gabung</button>
+                <div className="relative"><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowTableMenu(value => !value)} className="table-tool-button">Posisi ▾</button>
+                  {showTableMenu && <div role="menu" className="table-tools-menu right-0">{(['left', 'center', 'right'] as const).map((alignment) => <button key={alignment} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableAlignment(alignment); setShowTableMenu(false); }}>{alignment === 'left' ? 'Kiri' : alignment === 'center' ? 'Tengah' : 'Kanan'}</button>)}</div>}
+                </div>
+                <div className="relative"><button type="button" onMouseDown={e => e.preventDefault()} className="table-tool-button">⋯</button><div className="table-tools-menu table-tools-more right-0">{([['delete-row', 'Hapus Baris'], ['delete-column', 'Hapus Kolom'], ['delete-table', 'Hapus Tabel']] as const).map(([command, label]) => <button key={command} type="button" className="table-tools-danger" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand(command)}>{label}</button>)}</div></div>
               </div>
             </>}
           </div>
 
-          <div className="overflow-x-auto no-scrollbar rounded-xl border border-slate-300 bg-white shadow-sm mx-auto w-full max-w-[900px]">
-            <table className="w-full min-w-[620px] sm:min-w-[720px] border-collapse table-fixed font-bookman text-black" style={{ border: '1px solid #000' }}>
+          <div className="sop-live-a4-page-stack">
+            <table className="sop-official-table sop-live-a4-document font-bookman text-black" style={{ border: '1px solid #000' }}>
               <colgroup>
                 <col style={{ width: '28%' }} />
                 <col style={{ width: '24%' }} />
@@ -844,7 +837,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                  <td colSpan={3} className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
                       ref={pengertianEditorRef}
                       label=""
@@ -867,7 +860,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                  <td colSpan={3} className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
                       ref={tujuanEditorRef}
                       label=""
@@ -890,7 +883,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                  <td colSpan={3} className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
                       ref={kebijakanEditorRef}
                       label=""
@@ -913,7 +906,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                  <td colSpan={3} className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
                       ref={prosedurEditorRef}
                       label=""
@@ -939,7 +932,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       </span>
                     </div>
                   </td>
-                  <td colSpan={3} className="border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content">
+                  <td colSpan={3} className="border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content">
                     <RichTextEditor
                       ref={alurEditorRef}
                       label=""
@@ -962,7 +955,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       
                     </div>
                   </td>
-                  <td colSpan={3} className={`border border-black p-1 sm:p-1.5 align-top font-bookman sop-batang-tubuh-content`}>
+                  <td colSpan={3} className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content`}>
                     <RichTextEditor
                       ref={unitTerkaitEditorRef}
                       label=""
