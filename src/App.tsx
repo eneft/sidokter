@@ -33,6 +33,7 @@ import { subscribeToHierarchyMaster } from './lib/hierarchyService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, hasVerificatorBadge } from './utils/soegiriStructure';
 import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import { validateSupportingEvidence } from './utils/supportingEvidence';
+import { isSopInReviewHierarchy } from './utils/sopReviewSource';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -997,19 +998,22 @@ export default function App() {
       const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
       if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
 
-      const referenced = (newSopData.existingSopId ? sops.find((s) => s.id === newSopData.existingSopId) : undefined)
-        || sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      const referenced = newSopData.existingSopId
+        ? sops.find((s) => s.id === newSopData.existingSopId)
+        : undefined;
       const externalSignedPdf = Boolean(
-        (newSopData as any).externalReviewSignedConfirmed &&
         (newSopData.fileDataUrl || (newSopData as any).oldFileDataUrl)
         && (String(newSopData.fileType || (newSopData as any).oldFileType || '').toLowerCase() === 'application/pdf'
           || String(newSopData.fileName || (newSopData as any).oldFileName || '').toLowerCase().endsWith('.pdf'))
       );
       if (!referenced && !externalSignedPdf) {
-        throw new Error(`SPO rujukan "${reviewNumber}" tidak ditemukan di database. Untuk SPO lama dari luar aplikasi, unggah PDF yang sudah ditandatangani Direktur dan konfirmasi keabsahannya.`);
+        throw new Error('Unggah PDF SPO yang diriviu.');
       }
       if (referenced && referenced.status !== 'AKTIF') throw new Error(`SPO rujukan "${reviewNumber}" harus berstatus AKTIF untuk dapat diriviu.`);
-      if (!referenced) throw new Error('Riviu hanya dapat dibuat dari SPO terdaftar yang berstatus AKTIF.');
+      if (referenced && !isSopInReviewHierarchy(referenced, {
+        divisionCode: newSopData.divisionCode,
+        subHierarchyCode: newSopData.subHierarchyCode || '',
+      })) throw new Error('SPO rujukan Riviu tidak berasal dari hirarki yang dipilih.');
       const previousRevisionNumber = String(newSopData.previousRevisionNumber || '').trim();
       const revisionNumber = getNextRevisionNumber(previousRevisionNumber);
       if (String(newSopData.revisionNumber || '') !== revisionNumber) {
@@ -1018,7 +1022,7 @@ export default function App() {
       validateSupportingEvidence(newSopData.supportingEvidence);
       authoritativeSopData = {
         ...newSopData,
-        existingSopId: referenced.id,
+        existingSopId: referenced?.id,
         oldSopNumber: String(newSopData.oldSopNumber || '').trim(),
         previousSopNumber: String(newSopData.oldSopNumber || '').trim(),
         previousRevisionNumber,
@@ -1034,7 +1038,7 @@ export default function App() {
       // Deteksi otomatis format nomor SPO rujukan:
       // Format Baru -> Harus sesuai dengan hirarki yang dipilih
       // Format Lama -> Abaikan validasi ketidaksesuaian hirarki; hirarki SPO Riviu tetap mengikuti hirarki yang dipilih
-      const isNewFormat = isNewSopFormat(reviewNumber);
+      const isNewFormat = Boolean(referenced) && isNewSopFormat(reviewNumber);
       const newPattern = matchMasterHierarchyPattern(reviewNumber);
       if (isNewFormat && newPattern.isMatch) {
         const numberDiv = String(newPattern.categoryCode || '').trim().toUpperCase();

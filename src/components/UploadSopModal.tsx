@@ -1482,7 +1482,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 )}
                 {documentType === 'REVIEW' && (
                   <div className="mt-3">
-                    <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} />
+                    <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} showPrimary={false} />
                   </div>
                 )}
               </div>

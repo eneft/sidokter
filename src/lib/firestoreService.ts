@@ -219,9 +219,14 @@ export async function saveSopToFirestore(
         const predecessorSnapshot = predecessorRef ? await transaction.get(predecessorRef) : null;
 
         if (isRiviu) {
-          if (!predecessorSnapshot?.exists()) throw new Error('SPO pendahulu Riviu tidak ditemukan.');
-          const predecessor = predecessorSnapshot.data() as SopDocument;
-          if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu Riviu tidak lagi berstatus AKTIF.');
+          if (predecessorRef && !predecessorSnapshot?.exists()) throw new Error('SPO pendahulu Riviu tidak ditemukan.');
+          const predecessor = predecessorSnapshot?.exists() ? predecessorSnapshot.data() as SopDocument : null;
+          if (predecessor && predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu Riviu tidak lagi berstatus AKTIF.');
+          if (predecessor && (
+            String(predecessor.divisionCode || '').trim().toUpperCase() !== divisionCode
+            || String(predecessor.subHierarchyCode || '').trim().toUpperCase() !== subHierarchyCode.toUpperCase()
+          )) throw new Error('SPO pendahulu Riviu tidak berasal dari hirarki yang dipilih.');
+          if (!predecessor && !(sop.oldFileUrl && sop.oldStoragePath)) throw new Error('Unggah PDF SPO yang diriviu.');
           const submittedPrevious = String(sop.previousRevisionNumber || '').trim();
           if (!/^\d+$/.test(submittedPrevious)) throw new Error('Nomor revisi lama Riviu wajib berupa angka non-negatif.');
           const expectedNext = String(Number(submittedPrevious) + 1).padStart(2, '0');

@@ -6,7 +6,6 @@ export function isValidRevision(value: string | undefined): boolean {
 
 export function validateSupportingEvidence(items: SupportingEvidence[] | undefined): SupportingEvidence[] {
   const evidence = Array.isArray(items) ? items : [];
-  if (evidence.length === 0) throw new Error('Minimal satu Bukti Dukung Riviu wajib diunggah.');
   evidence.forEach((item, index) => {
     if (!item.id || !item.originalName || !item.mimeType || !Number.isFinite(item.size) || item.size < 0) {
       throw new Error(`Metadata Bukti Dukung Riviu #${index + 1} tidak lengkap.`);
