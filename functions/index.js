@@ -671,13 +671,19 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
   const sopRef = db.collection('sops').doc(sopId);
   let result;
   try {
+    // A collection-group query on notifications requires a separately deployed
+    // collection-group index. Discover the existing notification mailboxes and
+    // query each concrete items collection instead, so this correction works
+    // with the indexes already used by SIDOKTER.
+    const notificationOwners = await db.collection('notifications').listDocuments();
     await db.runTransaction(async transaction => {
-      const [sopSnap, allSopsSnap, storageSnap, notificationSnap] = await Promise.all([
+      const reads = await Promise.all([
         transaction.get(sopRef),
         transaction.get(db.collection('sops')),
         transaction.get(db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId)),
-        transaction.get(db.collectionGroup('items').where('documentId', '==', sopId)),
+        ...notificationOwners.map(owner => transaction.get(owner.collection('items').where('documentId', '==', sopId))),
       ]);
+      const [sopSnap, allSopsSnap, storageSnap, ...notificationSnapshots] = reads;
       if (!sopSnap.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
       const stored = { id: sopSnap.id, ...sopSnap.data() };
       const allSops = allSopsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -689,7 +695,9 @@ exports.updateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 30
 
       transaction.set(sopRef, { ...next, _syncedAt: new Date().toISOString() }, { merge: true });
       for (const file of storageSnap.docs) transaction.update(file.ref, { documentNumber: newNumber });
-      for (const notification of notificationSnap.docs) transaction.update(notification.ref, { documentNumber: newNumber });
+      for (const snapshot of notificationSnapshots) {
+        for (const notification of snapshot.docs) transaction.update(notification.ref, { documentNumber: newNumber });
+      }
       const auditRef = db.collection('audit_logs').doc();
       transaction.set(auditRef, {
         id: auditRef.id, action: 'SOP_NUMBER_UPDATED', documentId: sopId,

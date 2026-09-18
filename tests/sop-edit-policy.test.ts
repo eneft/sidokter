@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assertCanEditExistingSop, canEditExistingSop, preserveSopWorkflowIdentity } from '../src/lib/sopEditPolicy';
+import { getSopNumberUpdateError } from '../src/lib/firestoreService';
 import type { SopDocument, UserSession } from '../src/types';
 
 const sop = (status: SopDocument['status']): SopDocument => ({
@@ -62,4 +63,16 @@ test('ordinary user cannot change canonical or historical numbers', () => {
   assert.equal(result.sequenceNumber, stored.sequenceNumber);
   assert.equal(result.oldSopNumber, 'OLD');
   assert.equal(result.previousSopNumber, 'PREVIOUS');
+});
+
+test('callable failures produce actionable Admin toast messages', () => {
+  assert.match(getSopNumberUpdateError({ code: 'functions/not-found', message: 'not-found' }).message, /Deploy function updateSopNumber/);
+  assert.equal(
+    getSopNumberUpdateError({ code: 'functions/internal', message: 'internal [0]' }).message,
+    'Koreksi nomor SPO gagal disimpan secara atomik. Muat ulang data dan coba kembali.',
+  );
+  assert.equal(
+    getSopNumberUpdateError({ code: 'functions/failed-precondition', message: 'Nomor SPO sudah digunakan.' }).message,
+    'Nomor SPO sudah digunakan.',
+  );
 });
