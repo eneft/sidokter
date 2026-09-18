@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { largestFittingTablePrefix, safeTableRowBoundaries } from '../src/utils/structuredTablePagination';
+import { SopLiveTemplate } from '../src/components/SopLiveTemplate';
 
 const detailSource = readFileSync(new URL('../src/components/SopDetailModal.tsx', import.meta.url), 'utf8');
 const docxSource = readFileSync(new URL('../src/utils/docxParser.ts', import.meta.url), 'utf8');
@@ -116,6 +119,33 @@ test('toolbar mempertahankan selection dan menyediakan formatting context-aware'
   assert.match(editorSource, /activeFormatting\.fontSize/);
   assert.match(editorSource, /range\.intersectsNode\(textNode\)/);
   assert.match(editorSource, /processAndInsertImageFiles\(files\)/);
+});
+
+test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
+  const noop = () => undefined;
+  const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
+    title: 'SPO Uji', onTitleChange: noop, sopNumber: '001', version: '00',
+    effectiveDate: '2026-01-01', onEffectiveDateChange: noop, approverName: 'Direktur',
+    pengertian: '<p>Pengertian</p>', onPengertianChange: noop,
+    tujuan: '<p>Tujuan</p>', onTujuanChange: noop,
+    kebijakan: '<p>Kebijakan</p>', onKebijakanChange: noop,
+    prosedur: '<table><tbody><tr><td><span style="font-size:10pt">Isi</span></td></tr></tbody></table>', onProsedurChange: noop,
+    alur: '', onAlurChange: noop, unitTerkait: '<p>Unit</p>', onUnitTerkaitChange: noop,
+  }));
+  assert.match(html, /aria-label="Ukuran huruf Batang Tubuh"/);
+  assert.match(html, /<option value="10pt">10 pt<\/option>/);
+  assert.match(html, /<option value="12pt">12 pt<\/option>/);
+  // RichTextEditor hydrates value.innerHTML in an effect; server rendering is
+  // intentionally used here only to prove the production desktop toolbar JSX.
+});
+
+test('toolbar desktop memakai command bridge editor aktif, bukan execCommand kedua', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.executeCommand/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.insertCustomList/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.applyFontSize/);
+  assert.match(liveTemplateSource, /getActiveEditor\(\)\?\.insertImageFiles/);
+  assert.doesNotMatch(liveTemplateSource, /document\.execCommand/);
 });
 
 test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {

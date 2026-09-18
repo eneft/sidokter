@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Bold,
@@ -80,6 +80,25 @@ interface RichTextEditorProps {
   hideToolbar?: boolean;
   variant?: 'default' | 'seamless';
   onFocus?: () => void;
+  onFormattingChange?: (formatting: RichTextFormattingState) => void;
+}
+
+export interface RichTextFormattingState {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  align: 'left' | 'center' | 'right' | 'justify';
+  orderedList: boolean;
+  unorderedList: boolean;
+  fontSize: '10pt' | '12pt' | null;
+}
+
+export interface RichTextEditorHandle {
+  executeCommand: (command: string, arg?: string) => void;
+  insertCustomList: (listType: '1' | 'a' | 'i') => void;
+  applyFontSize: (fontSize: '10pt' | '12pt') => void;
+  insertImageFiles: (files: FileList | File[]) => Promise<void>;
+  focus: () => void;
 }
 
 
@@ -519,7 +538,7 @@ const MS_WORD_WRAP_OPTIONS: Array<{
   },
 ];
 
-export const RichTextEditor: React.FC<RichTextEditorProps> = ({
+export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor({
   label,
   required = false,
   value,
@@ -533,7 +552,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   hideToolbar = false,
   variant = 'default',
   onFocus,
-}) => {
+  onFormattingChange,
+}, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -551,15 +571,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Active text formatting state (for toolbar button active states)
-  const [activeFormatting, setActiveFormatting] = useState<{
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-    align: 'left' | 'center' | 'right' | 'justify';
-    orderedList: boolean;
-    unorderedList: boolean;
-    fontSize: '10pt' | '12pt' | null;
-  }>({
+  const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false,
     italic: false,
     underline: false,
@@ -568,6 +580,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     unorderedList: false,
     fontSize: null,
   });
+
+  useEffect(() => {
+    onFormattingChange?.(activeFormatting);
+  }, [activeFormatting, onFormattingChange]);
 
   const updateActiveFormatting = useCallback(() => {
     if (!editorRef.current) return;
@@ -1996,6 +2012,17 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     await processAndInsertImageFiles(files);
   };
 
+  // The desktop Live A4 uses one shared toolbar outside the six seamless
+  // editors. Expose the exact same selection-safe command pipeline instead of
+  // maintaining a second set of document.execCommand handlers in the parent.
+  useImperativeHandle(forwardedRef, () => ({
+    executeCommand,
+    insertCustomList,
+    applyFontSize,
+    insertImageFiles: async (files) => processAndInsertImageFiles(files),
+    focus: () => editorRef.current?.focus(),
+  }));
+
   return (
     <div className={`space-y-1.5 ${className}`}>
       {label && (
@@ -2782,4 +2809,4 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       </div>
     </div>
   );
-};
+});
