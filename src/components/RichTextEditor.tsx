@@ -564,6 +564,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
+  const [showTableMenu, setShowTableMenu] = useState(false);
   const [tablePickerSize, setTablePickerSize] = useState({ rows: 2, columns: 2 });
   const [activeColor, setActiveColor] = useState('#0f172a');
   const [imageError, setImageError] = useState<string | null>(null);
@@ -590,6 +591,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   useEffect(() => {
     onFormattingChange?.(activeFormatting);
+    if (!activeFormatting.inTable) setShowTableMenu(false);
   }, [activeFormatting, onFormattingChange]);
 
   const updateActiveFormatting = useCallback(() => {
@@ -2155,7 +2157,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
       <div
         ref={containerRef}
-        className={`relative transition-colors w-full overflow-hidden ${
+        className={`relative transition-colors w-full ${isFullscreen ? 'overflow-hidden' : 'overflow-visible'} ${
           variant === 'seamless'
             ? 'border-0 rounded-none bg-transparent'
             : 'border border-slate-200 hover:border-slate-300 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-400 rounded-lg bg-white'
@@ -2451,7 +2453,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                       <span>Insert ▾</span>
                     </button>
                     {showInsertMenu && (
-                      <div className="absolute top-full right-0 mt-1 z-50 w-40 rounded-md border border-slate-200 bg-white p-2 shadow-xl">
+                      <div className="insert-menu-popover absolute top-full right-0 mt-1 z-50 w-40 rounded-md border border-slate-200 bg-white p-2 shadow-xl">
                         <p className="mb-1 text-[10px] font-semibold text-slate-600">Tabel {tablePickerSize.rows} × {tablePickerSize.columns}</p>
                         <div className="grid grid-cols-5 gap-0.5" onMouseLeave={() => setTablePickerSize({ rows: 2, columns: 2 })}>
                           {Array.from({ length: 25 }, (_, index) => {
@@ -2474,16 +2476,21 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               {activeFormatting.inTable && <>
                 <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
-                <div className="flex items-center gap-0.5 shrink-0" aria-label="Table Tools">
-                  <span className="px-1 text-[9px] font-bold text-indigo-700">Tabel</span>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('add-row')} className="table-tool-button" title="Tambah baris setelah sel">+Baris</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('add-column')} className="table-tool-button" title="Tambah kolom setelah sel">+Kolom</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-row')} className="table-tool-button" title="Hapus baris">−Baris</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-column')} className="table-tool-button" title="Hapus kolom">−Kolom</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('merge-right')} className="table-tool-button" title="Gabungkan dengan sel kanan">Merge →</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('merge-down')} className="table-tool-button" title="Gabungkan dengan sel bawah">Merge ↓</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('split-cell')} className="table-tool-button" title="Pisahkan sel">Split</button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => executeTableCommand('delete-table')} className="table-tool-button text-rose-600" title="Hapus tabel"><Trash2 className="h-3 w-3" /></button>
+                <div className="relative shrink-0" aria-label="Table Tools">
+                  <button type="button" aria-haspopup="menu" aria-expanded={showTableMenu}
+                    onMouseDown={e => e.preventDefault()} onClick={() => setShowTableMenu(value => !value)}
+                    className="h-5.5 rounded border border-indigo-200 bg-indigo-50 px-1.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100">Tabel ▾</button>
+                  {showTableMenu && <div role="menu" className="table-tools-menu left-auto right-0">
+                    {[
+                      ['add-row-before', 'Tambah Baris di Atas'], ['add-row', 'Tambah Baris di Bawah'],
+                      ['add-column-before', 'Tambah Kolom di Kiri'], ['add-column', 'Tambah Kolom di Kanan'],
+                    ].map(([command, label]) => <button key={command} type="button" role="menuitem" onMouseDown={e => e.preventDefault()} onClick={() => { executeTableCommand(command as TableCommand); setShowTableMenu(false); }}>{label}</button>)}
+                    <div className="table-tools-separator" />
+                    <div className="table-tools-merge"><span>Merge Cell</span><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { executeTableCommand('merge-right'); setShowTableMenu(false); }}>Kanan →</button><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { executeTableCommand('merge-down'); setShowTableMenu(false); }}>Bawah ↓</button></div>
+                    <button type="button" role="menuitem" onMouseDown={e => e.preventDefault()} onClick={() => { executeTableCommand('split-cell'); setShowTableMenu(false); }}>Split Cell</button>
+                    <div className="table-tools-separator" />
+                    {([['delete-row', 'Hapus Baris'], ['delete-column', 'Hapus Kolom'], ['delete-table', 'Hapus Tabel']] as const).map(([command, label]) => <button key={command} type="button" role="menuitem" className="table-tools-danger" onMouseDown={e => e.preventDefault()} onClick={() => { executeTableCommand(command); setShowTableMenu(false); }}>{label}</button>)}
+                  </div>}
                 </div>
               </>}
 

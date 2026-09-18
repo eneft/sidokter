@@ -1,5 +1,6 @@
 export type TableCommand =
-  | 'add-row' | 'add-column' | 'delete-row' | 'delete-column'
+  | 'add-row-before' | 'add-row' | 'add-column-before' | 'add-column'
+  | 'delete-row' | 'delete-column'
   | 'merge-right' | 'merge-down' | 'split-cell' | 'delete-table';
 
 type Slot = { cell: HTMLTableCellElement; originRow: number; originCol: number };
@@ -70,8 +71,8 @@ export function mutateTable(cell: HTMLTableCellElement, command: TableCommand): 
   if (!location || rowIndex < 0) return null;
 
   if (command === 'delete-table') { table.remove(); return null; }
-  if (command === 'add-row') {
-    const boundary = rowIndex + span(cell, 'rowSpan');
+  if (command === 'add-row' || command === 'add-row-before') {
+    const boundary = command === 'add-row-before' ? rowIndex : rowIndex + span(cell, 'rowSpan');
     const row = table.insertRow(Math.min(boundary, table.rows.length));
     const width = Math.max(...grid.map(r => r.length));
     for (let c = 0; c < width; c++) {
@@ -82,8 +83,8 @@ export function mutateTable(cell: HTMLTableCellElement, command: TableCommand): 
     }
     return row.cells[0] || cell;
   }
-  if (command === 'add-column') {
-    const boundary = colIndex + span(cell, 'colSpan');
+  if (command === 'add-column' || command === 'add-column-before') {
+    const boundary = command === 'add-column-before' ? colIndex : colIndex + span(cell, 'colSpan');
     const widened = new Set<HTMLTableCellElement>();
     Array.from(table.rows).forEach((row, r) => {
       const covering = grid[r]?.[boundary - 1];

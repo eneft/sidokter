@@ -13,6 +13,7 @@ const rendererSource = readFileSync(new URL('../src/components/RichTextRenderer.
 const pdfSource = readFileSync(new URL('../server/pdfRenderer.ts', import.meta.url), 'utf8');
 const geometrySource = readFileSync(new URL('../src/utils/docxTableGeometry.ts', import.meta.url), 'utf8');
 const editorSource = readFileSync(new URL('../src/components/RichTextEditor.tsx', import.meta.url), 'utf8');
+const editorCommandsSource = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
 const cssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 
 test('tabel sederhana tetap utuh jika muat', () => {
@@ -179,6 +180,30 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
   assert.match(commands, /cell\.rowSpan \+=/);
   assert.match(commands, /appendContent\(cell, other\.cell\)/);
   assert.match(commands, /cell\.rowSpan = 1; cell\.colSpan = 1/);
+});
+
+test('toolbar tabel production tetap compact, selection-safe, dan mendukung empat arah insert', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  for (const source of [editorSource, liveTemplateSource]) {
+    assert.match(source, />Tabel ▾<\/button>/);
+    assert.match(source, /Tambah Baris di Atas/);
+    assert.match(source, /Tambah Baris di Bawah/);
+    assert.match(source, /Tambah Kolom di Kiri/);
+    assert.match(source, /Tambah Kolom di Kanan/);
+    assert.match(source, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
+    assert.doesNotMatch(source, />\+Baris<\/button>/);
+    assert.doesNotMatch(source, />Merge →<\/button>/);
+  }
+  assert.match(editorCommandsSource, /command === 'add-row-before'/);
+  assert.match(editorCommandsSource, /command === 'add-column-before'/);
+});
+
+test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => {
+  assert.match(cssSource, /\.rich-text-editor-content table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.match(cssSource, /\.rich-text-editor-content table td:empty::after/);
+  assert.doesNotMatch(cssSource, /\.rich-text-document-content table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.doesNotMatch(cssSource, /#printable-sop-official-document table td,[\s\S]{0,100}box-shadow: inset/);
+  assert.doesNotMatch(editorCommandsSource, /box-shadow|border:/);
 });
 
 test('mutasi table masuk native undo history tanpa mengubah DOM editor langsung', () => {
