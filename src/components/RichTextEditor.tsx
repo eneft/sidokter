@@ -95,7 +95,7 @@ export interface RichTextFormattingState {
   fontSize: '10pt' | '12pt' | null;
   inTable: boolean;
   context: 'text' | 'table' | 'image';
-  tableWrap: boolean;
+  tableAutoFit: boolean;
   tableAlign: TableAlignment;
   canMerge: boolean;
   canSplit: boolean;
@@ -112,7 +112,7 @@ export interface RichTextEditorHandle {
   insertTable: (rows: number, columns: number) => void;
   executeTableCommand: (command: TableCommand) => void;
   alignTable: (alignment: TableAlignment) => void;
-  toggleTableWrap: () => void;
+  toggleTableAutoFit: () => void;
   applyImageWidth: (percent: number) => void;
   applyImageAlignment: (alignment: 'left' | 'center' | 'right') => void;
   applyImageWrap: (mode: WordWrapMode) => void;
@@ -262,7 +262,7 @@ const normalizePastedRichText = (source: string): string => {
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -275,7 +275,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -604,7 +604,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     fontSize: null,
     inTable: false,
     context: 'text',
-    tableWrap: true,
+    tableAutoFit: false,
     tableAlign: 'left',
     canMerge: false,
     canSplit: false,
@@ -669,7 +669,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         fontSize,
         inTable: Boolean(activeCell),
         context: activeCell ? 'table' : 'text',
-        tableWrap: activeCell ? activeCell.style.whiteSpace !== 'nowrap' : true,
+        tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
         tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
         canMerge: Boolean(activeCell?.nextElementSibling),
         canSplit: Boolean(activeCell && (activeCell.rowSpan > 1 || activeCell.colSpan > 1)),
@@ -693,7 +693,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       ...current,
       context: 'table',
       inTable: true,
-      tableWrap: activeCell.style.whiteSpace !== 'nowrap',
+      tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
       tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
       canMerge: Boolean(activeCell.nextElementSibling),
       canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
@@ -2177,19 +2177,20 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   }, [handleInput, placeCaretInCell, restoreSavedSelection]);
 
-  const toggleTableWrap = useCallback(() => {
+  const toggleTableAutoFit = useCallback(() => {
     restoreSavedSelection();
     const selection = window.getSelection();
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
     const cell = element?.closest('td,th') as HTMLTableCellElement | null;
     if (!cell || !editorRef.current?.contains(cell)) return;
-    const wrap = cell.style.whiteSpace === 'nowrap';
-    cell.style.whiteSpace = wrap ? 'normal' : 'nowrap';
-    cell.style.overflowWrap = wrap ? 'break-word' : 'normal';
-    cell.setAttribute('data-wrap', wrap ? 'on' : 'off');
+    const table = cell.closest('table') as HTMLTableElement | null;
+    if (!table) return;
+    const autoFit = table.dataset.tableAutofit !== 'true';
+    if (autoFit) table.dataset.tableAutofit = 'true';
+    else delete table.dataset.tableAutofit;
     handleInput();
-    setActiveFormatting(current => ({ ...current, tableWrap: wrap, context: 'table' }));
+    setActiveFormatting(current => ({ ...current, tableAutoFit: autoFit, context: 'table' }));
   }, [handleInput, restoreSavedSelection]);
 
   // The desktop Live A4 uses one shared toolbar outside the six seamless
@@ -2203,7 +2204,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     insertTable,
     executeTableCommand,
     alignTable,
-    toggleTableWrap,
+    toggleTableAutoFit,
     applyImageWidth: applyFigurePercentWidth,
     applyImageAlignment: (alignment) => {
       if (!selectedFigure) return;

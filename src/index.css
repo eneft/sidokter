@@ -2867,3 +2867,14 @@ main .rich-text-toolbar,
   color: #3730a3;
   font-weight: 700;
 }
+
+/* Content-sized tables opt out of the canonical fixed grid only when the
+   author explicitly enables AutoFit. The containing SPO cell remains the hard
+   maximum, so long content cannot overflow the A4 document geometry. */
+.rich-text-editor-content table[data-table-autofit="true"],
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"],
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] {
+  width: fit-content !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+}

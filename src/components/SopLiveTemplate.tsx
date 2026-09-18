@@ -106,7 +106,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false, italic: false, underline: false, align: 'left',
     orderedList: false, unorderedList: false, fontSize: null, inTable: false,
-    context: 'text', tableWrap: true, canMerge: false, canSplit: false,
+    context: 'text', tableAutoFit: false, canMerge: false, canSplit: false,
     tableAlign: 'left',
   });
 
@@ -483,7 +483,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowInsertMenu(v=>!v)} className="toolbar-text" title="Sisipkan Tabel">▦</button>{showInsertMenu && <div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border bg-white p-2 shadow-xl"><p className="mb-1 text-[10px] font-bold">Sisipkan Tabel</p><div className="grid grid-cols-3 gap-1">{[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([r,c])=><button key={`${r}-${c}`} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{getActiveEditor()?.insertTable(r,c);setShowInsertMenu(false)}} className="rounded border p-1 text-[10px] hover:bg-indigo-50">{r}×{c}</button>)}</div></div>}</div>
             </>}
             {activeFormatting.context === 'table' && <>
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.toggleTableWrap()} aria-pressed={activeFormatting.tableWrap} className={`toolbar-text ${activeFormatting.tableWrap?'is-active':''}`}>Wrap</button>
+              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.toggleTableAutoFit()} aria-pressed={activeFormatting.tableAutoFit} className={`toolbar-text ${activeFormatting.tableAutoFit?'is-active':''}`} title="Sesuaikan lebar tabel dengan isi teks">AutoFit</button>
               <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-row')} className="toolbar-text">+ Baris</button><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-column')} className="toolbar-text">+ Kolom</button>
               <button type="button" disabled={!activeFormatting.canMerge} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('merge-right')} className="toolbar-text disabled:opacity-40">Gabung</button>
               <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowTableMenu(v=>!v)} aria-expanded={showTableMenu} className="toolbar-text">Posisi: {activeFormatting.tableAlign==='left'?'Kiri':activeFormatting.tableAlign==='center'?'Tengah':'Kanan'} ▾</button>{showTableMenu && <div className="table-tools-menu right-0">{(['left','center','right'] as const).map(a=><button key={a} aria-pressed={activeFormatting.tableAlign===a} className={activeFormatting.tableAlign===a?'is-active':''} onMouseDown={e=>e.preventDefault()} onClick={()=>{handleTableAlignment(a);setActiveFormatting(current=>({...current,tableAlign:a}));setShowTableMenu(false)}}>{a==='left'?'Kiri':a==='center'?'Tengah':'Kanan'}</button>)}</div>}</div>

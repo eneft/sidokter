@@ -25,8 +25,10 @@ const numericWidth = (value: string | null): number | null => {
 export function normalizeStructuredTables(root: ParentNode): void {
   root.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
     table.style.maxWidth = '100%';
-    table.style.tableLayout = 'fixed';
     table.style.boxSizing = 'border-box';
+    // AutoFit tables retain their authored column hints, but allow the browser
+    // to size the grid from cell content instead of forcing the fixed A4 grid.
+    table.style.tableLayout = table.dataset.tableAutofit === 'true' ? 'auto' : 'fixed';
     const cols = Array.from(table.querySelectorAll<HTMLTableColElement>(':scope > colgroup > col'));
     const values = cols.map((col) => numericWidth(col.style.width || col.getAttribute('width')));
     const total = values.reduce<number>((sum, value) => sum + (value || 0), 0);

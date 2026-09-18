@@ -209,10 +209,17 @@ test('single context toolbar production minimal, selection-safe, dan terpisah da
   assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
   assert.match(cssSource, /\.live-spo-context-toolbar/);
   assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
-  assert.match(liveTemplateSource, /toggleTableWrap/);
+  assert.match(liveTemplateSource, /toggleTableAutoFit/);
+  assert.match(liveTemplateSource, />AutoFit<\/button>/);
   assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
   assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
   assert.match(cssSource, /\.toolbar-icon\.is-active/);
+});
+
+test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
+  assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/);
+  assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
@@ -227,7 +234,7 @@ test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () 
 test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
   assert.match(a4Source, /values\[index\][\s\S]{0,80}\/ total/);
   assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
-  assert.match(a4Source, /table\.style\.tableLayout = 'fixed'/);
+  assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
   assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
   assert.match(rendererSource, /normalizeStructuredHtml/);
