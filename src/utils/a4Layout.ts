@@ -50,6 +50,13 @@ export function normalizeStructuredTables(root: ParentNode): void {
         col.removeAttribute('width');
       });
     }
+    table.querySelectorAll<HTMLTableRowElement>('tr[data-row-min-height]').forEach((row) => {
+      const minimum = Number(row.dataset.rowMinHeight);
+      if (Number.isFinite(minimum) && minimum > 0) {
+        row.style.minHeight = `${minimum}px`;
+        row.style.height = `${minimum}px`;
+      }
+    });
     const value = table.dataset.align || table.dataset.docxAlign || table.getAttribute('align');
     applyTableAlignment(table, value === 'center' || value === 'right' ? value : 'left');
   });

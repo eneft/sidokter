@@ -3021,6 +3021,30 @@ main .rich-text-toolbar,
   box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
   touch-action: none;
 }
+.table-selection-overlay .table-column-boundary,
+.table-selection-overlay .table-row-boundary {
+  position: absolute;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  touch-action: none;
+}
+.table-selection-overlay .table-column-boundary {
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  margin-left: -4.5px;
+  cursor: col-resize;
+}
+.table-selection-overlay .table-row-boundary {
+  left: 0;
+  right: 0;
+  height: 9px;
+  margin-top: -4.5px;
+  cursor: row-resize;
+}
+.table-selection-overlay .table-column-boundary:hover,
+.table-selection-overlay .table-row-boundary:hover { background: rgb(79 70 229 / 25%); }
 .table-selection-overlay .table-move-handle {
   left: -10px;
   top: -10px;
