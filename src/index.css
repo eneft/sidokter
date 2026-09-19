@@ -2920,3 +2920,39 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] > colgroup > col {
   width: auto !important;
 }
+.rich-text-editor-content table[data-table-width],
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-width],
+.sop-batang-tubuh-content .rich-text-output table[data-table-width] {
+  width: var(--table-width) !important;
+  max-width: 100% !important;
+}
+.table-selection-overlay {
+  border: 2px solid #4f46e5;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 80%);
+}
+.table-selection-overlay .table-move-handle,
+.table-selection-overlay .table-resize-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #6366f1;
+  background: #fff;
+  color: #4338ca;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
+  touch-action: none;
+}
+.table-selection-overlay .table-move-handle {
+  left: -10px;
+  top: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.table-selection-overlay .table-move-handle svg { width: 12px; height: 12px; }
+.table-selection-overlay .table-resize-handle {
+  right: -9px;
+  bottom: -9px;
+  cursor: nwse-resize;
+}

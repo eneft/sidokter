@@ -136,6 +136,8 @@ test('klik langsung pada sel menerbitkan table context tanpa bergantung pada sel
   assert.match(editorSource, /onPointerDown=\{handleEditorPointerDown\}/);
   assert.match(editorSource, /target\?\.closest\('td,th'\)/);
   assert.match(editorSource, /context: 'table',[\s\S]{0,80}inTable: true/);
+  assert.match(editorSource, /setSelectedTable\(activeTable\)/);
+  assert.match(editorSource, /className="table-selection-overlay/);
 });
 
 test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
@@ -231,6 +233,8 @@ test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen'
   assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
   assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
   assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col[\s\S]{0,300}width: auto !important/);
+  assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/);
+  assert.match(cssSource, /\.table-selection-overlay[\s\S]{0,500}\.table-move-handle[\s\S]{0,500}\.table-resize-handle/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {

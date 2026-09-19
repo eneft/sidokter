@@ -277,7 +277,7 @@ const normalizePastedRichText = (source: string): string => {
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -290,7 +290,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -607,6 +607,36 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   // selection that was made in the editor, not to the caret created by the button.
   const savedRangeRef = useRef<Range | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<HTMLTableElement | null>(null);
+  const [tableRect, setTableRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const tableResizeRef = useRef<{ startX: number; startWidth: number; editorWidth: number } | null>(null);
+  const tableMoveRef = useRef<{ startX: number } | null>(null);
+
+  const updateTableRect = useCallback((table: HTMLTableElement | null = selectedTable) => {
+    if (!table || !containerRef.current || !editorRef.current?.contains(table)) {
+      setTableRect(null);
+      return;
+    }
+    const bounds = table.getBoundingClientRect();
+    const containerBounds = containerRef.current.getBoundingClientRect();
+    setTableRect({
+      top: bounds.top - containerBounds.top + containerRef.current.scrollTop,
+      left: bounds.left - containerBounds.left + containerRef.current.scrollLeft,
+      width: bounds.width,
+      height: bounds.height,
+    });
+  }, [selectedTable]);
+
+  useEffect(() => {
+    updateTableRect();
+    const refresh = () => updateTableRect();
+    window.addEventListener('resize', refresh);
+    containerRef.current?.addEventListener('scroll', refresh, { passive: true });
+    return () => {
+      window.removeEventListener('resize', refresh);
+      containerRef.current?.removeEventListener('scroll', refresh);
+    };
+  }, [updateTableRect]);
 
   // Active text formatting state (for toolbar button active states)
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
@@ -701,9 +731,15 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const handleEditorPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
     const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
-    if (!activeCell || !editorRef.current?.contains(activeCell)) return;
+    if (!activeCell || !editorRef.current?.contains(activeCell)) {
+      setSelectedTable(null);
+      setTableRect(null);
+      return;
+    }
 
     const activeTable = activeCell.closest('table') as HTMLTableElement | null;
+    setSelectedTable(activeTable);
+    updateTableRect(activeTable);
     const tableAlign = activeTable?.dataset.align;
     const cellPosition = getTableCellPosition(activeCell, activeTable);
     const cellRange = document.createRange();
@@ -728,7 +764,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       canMerge: Boolean(activeCell.nextElementSibling),
       canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
     }));
-  }, []);
+  }, [updateTableRect]);
 
   const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -2237,11 +2273,72 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const table = cell.closest('table') as HTMLTableElement | null;
     if (!table) return;
     const autoFit = table.dataset.tableAutofit !== 'true';
-    if (autoFit) table.dataset.tableAutofit = 'true';
+    if (autoFit) {
+      table.dataset.tableAutofit = 'true';
+      delete table.dataset.tableWidth;
+      table.style.removeProperty('--table-width');
+    }
     else delete table.dataset.tableAutofit;
     handleInput();
     setActiveFormatting(current => ({ ...current, tableAutoFit: autoFit, context: 'table' }));
   }, [handleInput, restoreSavedSelection]);
+
+  const handleTableResizeStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !editorRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tableResizeRef.current = {
+      startX: event.clientX,
+      startWidth: selectedTable.getBoundingClientRect().width,
+      editorWidth: editorRef.current.getBoundingClientRect().width,
+    };
+  }, [selectedTable]);
+
+  const handleTableResizeMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !tableResizeRef.current) return;
+    const { startX, startWidth, editorWidth } = tableResizeRef.current;
+    const width = Math.min(editorWidth, Math.max(80, startWidth + event.clientX - startX));
+    const percent = Math.round((width / editorWidth) * 1000) / 10;
+    delete selectedTable.dataset.tableAutofit;
+    selectedTable.dataset.tableWidth = String(percent);
+    selectedTable.style.setProperty('--table-width', `${percent}%`);
+    setActiveFormatting(current => ({ ...current, tableAutoFit: false, context: 'table' }));
+    updateTableRect(selectedTable);
+  }, [selectedTable, updateTableRect]);
+
+  const handleTableResizeEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!tableResizeRef.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    tableResizeRef.current = null;
+    handleInput();
+    updateTableRect(selectedTable);
+  }, [handleInput, selectedTable, updateTableRect]);
+
+  const handleTableMoveStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tableMoveRef.current = { startX: event.clientX };
+  }, []);
+
+  const handleTableMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !tableMoveRef.current || !editorRef.current) return;
+    const delta = event.clientX - tableMoveRef.current.startX;
+    const threshold = Math.max(24, editorRef.current.clientWidth * 0.08);
+    const alignment: TableAlignment = delta < -threshold ? 'left' : delta > threshold ? 'right' : 'center';
+    applyTableAlignment(selectedTable, alignment);
+    setActiveFormatting(current => ({ ...current, tableAlign: alignment, context: 'table' }));
+    updateTableRect(selectedTable);
+  }, [selectedTable, updateTableRect]);
+
+  const handleTableMoveEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!tableMoveRef.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    tableMoveRef.current = null;
+    handleInput();
+    updateTableRect(selectedTable);
+  }, [handleInput, selectedTable, updateTableRect]);
 
   // The desktop Live A4 uses one shared toolbar outside the six seamless
   // editors. Expose the exact same selection-safe command pipeline instead of
@@ -2686,6 +2783,37 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           data-placeholder={placeholder}
           className={`rich-text-editor-content p-2 sm:p-2.5 text-xs sm:text-[13px] text-slate-900 focus:outline-none font-bookman leading-normal empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none [word-break:normal] [overflow-wrap:break-word] [word-wrap:break-word] [hyphens:none] ${isFullscreen ? "flex-1 min-h-0" : ""}`}
         />
+
+        {/* Persistent table selection chrome keeps table context visually clear
+            while text and structure tools share the external toolbar. */}
+        {selectedTable && tableRect && (
+          <div
+            className="table-selection-overlay pointer-events-none absolute z-30"
+            style={{ top: tableRect.top, left: tableRect.left, width: tableRect.width, height: tableRect.height }}
+            aria-hidden="true"
+          >
+            <button
+              type="button"
+              tabIndex={-1}
+              className="table-move-handle pointer-events-auto"
+              title="Geser posisi tabel"
+              onPointerDown={handleTableMoveStart}
+              onPointerMove={handleTableMove}
+              onPointerUp={handleTableMoveEnd}
+              onPointerCancel={handleTableMoveEnd}
+            ><Move /></button>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="table-resize-handle pointer-events-auto"
+              title="Ubah lebar tabel"
+              onPointerDown={handleTableResizeStart}
+              onPointerMove={handleTableResizeMove}
+              onPointerUp={handleTableResizeEnd}
+              onPointerCancel={handleTableResizeEnd}
+            />
+          </div>
+        )}
 
         {/* DRAG-AND-DROP FILE OVERLAY */}
         {isDraggingFileOver && (
