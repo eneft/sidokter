@@ -2870,17 +2870,37 @@ main .rich-text-toolbar,
   margin-bottom: 0 !important;
 }
 
-.rich-text-editor-content table :is(td, th) :is(p, li),
-.rich-text-document-content table :is(td, th) :is(p, li),
-.rich-text-output table :is(td, th) :is(p, li) {
+/* Imported DOCX content can carry line-height on spans/divs, not only on its
+   paragraphs. Reset every text-bearing descendant so inline Word styles cannot
+   make a cell look compact in Live but loose again in Preview/PDF. */
+.rich-text-editor-content table td *,
+.rich-text-editor-content table th *,
+.rich-text-document-content table td *,
+.rich-text-document-content table th *,
+.rich-text-output table td *,
+.rich-text-output table th * {
   line-height: 1 !important;
 }
 
-.rich-text-editor-content table :is(td, th) p,
-.rich-text-document-content table :is(td, th) p,
-.rich-text-output table :is(td, th) p {
+.rich-text-editor-content table td p,
+.rich-text-editor-content table th p,
+.rich-text-document-content table td p,
+.rich-text-document-content table th p,
+.rich-text-output table td p,
+.rich-text-output table th p {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
+}
+
+/* Keep the paragraph/list contract explicit even though the descendant reset
+   above also protects imported wrappers. */
+.rich-text-editor-content table td li,
+.rich-text-editor-content table th li,
+.rich-text-document-content table td li,
+.rich-text-document-content table th li,
+.rich-text-output table td li,
+.rich-text-output table th li {
+  line-height: 1 !important;
 }
 
 /* LiveSPOEditor's single context-aware chrome; never contributes to A4 geometry. */

@@ -334,11 +334,16 @@ test('table-cell typography single-spaced sama di Live, Preview, dan PDF', () =>
   for (const surface of ['.rich-text-editor-content', '.rich-text-document-content', '.rich-text-output']) {
     assert.ok(typographyCss.includes(`${surface} table td`));
     assert.ok(typographyCss.includes(`${surface} table th`));
-    assert.ok(typographyCss.includes(`${surface} table :is(td, th) :is(p, li)`));
-    assert.ok(typographyCss.includes(`${surface} table :is(td, th) p`));
+    assert.ok(typographyCss.includes(`${surface} table td *`));
+    assert.ok(typographyCss.includes(`${surface} table th *`));
+    assert.ok(typographyCss.includes(`${surface} table td p`));
+    assert.ok(typographyCss.includes(`${surface} table th p`));
+    assert.ok(typographyCss.includes(`${surface} table td li`));
+    assert.ok(typographyCss.includes(`${surface} table th li`));
   }
   assert.match(typographyCss, /line-height: 1 !important;/);
   assert.match(typographyCss, /margin-top: 0 !important;/);
   assert.match(typographyCss, /margin-bottom: 0 !important;/);
   assert.doesNotMatch(typographyCss, /\.sop-official-table/);
+  assert.doesNotMatch(typographyCss, /(?:padding|width|table-layout|break-inside|page-break)\s*:/);
 });
