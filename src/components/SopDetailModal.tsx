@@ -50,6 +50,7 @@ import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
 import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
 import { splitStructuredTable } from '../utils/structuredTablePagination';
+import { responseToPdfBlob } from '../utils/pdfBinary';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -1978,9 +1979,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       }
     }
     if (!response?.ok) throw new Error(`PDF gagal dibuat${lastFailure ? ` (${lastFailure})` : ''}.`);
-    const blob = await response.blob();
-    if (!blob.size) throw new Error('File PDF yang diterima kosong.');
-    return blob;
+    return responseToPdfBlob(response);
   };
 
   const handleDownloadExisting = async () => {
