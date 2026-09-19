@@ -49,7 +49,7 @@ import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
 import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
-import { splitStructuredTable } from '../utils/structuredTablePagination';
+import { splitStructuredTable, splitStructuredTableV2 } from '../utils/structuredTablePagination';
 import { responseToPdfBlob } from '../utils/pdfBinary';
 
 interface SopDetailModalProps {
@@ -1058,8 +1058,34 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 }
               }
 
-              host.remove();
               if (fitCount > 0 && fitCount < elements.length) {
+                const nextEl = elements[fitCount];
+                if (nextEl && nextEl.tagName.toLowerCase() === 'table') {
+                  const prefixHtml = elements.slice(0, fitCount).map((el) => el.outerHTML).join('');
+                  const tableParts = splitStructuredTableV2(
+                    nextEl as HTMLTableElement,
+                    (tableCandidate) => fits(prefixHtml + tableCandidate)
+                  );
+                  if (tableParts.length > 1) {
+                    host.remove();
+                    // A short label/heading immediately above a table is part of the
+                    // table's visual identity (for example "C. INTERPRETASI HASIL").
+                    // Repeat it on continuation pages so the table never appears
+                    // detached from its title after an A4 page break.
+                    const headingCandidate = elements[fitCount - 1];
+                    const repeatHeading = headingCandidate && /^(p|h1|h2|h3|h4|h5|h6)$/i.test(headingCandidate.tagName)
+                      ? headingCandidate.outerHTML
+                      : '';
+                    const firstPart = prefixHtml + tableParts[0];
+                    const continuationPrefix = repeatHeading
+                      ? repeatHeading.replace(/^<([a-z0-9]+)\b/i, '<$1 data-sop-table-continuation-heading="true"')
+                      : '';
+                    const secondPart = [continuationPrefix, tableParts[1], ...elements.slice(fitCount + 1).map((el) => el.outerHTML)].join('');
+                    const laterParts = tableParts.slice(2).map((part) => `${continuationPrefix}${part}`);
+                    return [firstPart, secondPart, ...laterParts];
+                  }
+                }
+                host.remove();
                 return [
                   elements.slice(0, fitCount).map((el) => el.outerHTML).join(''),
                   elements.slice(fitCount).map((el) => el.outerHTML).join('')
@@ -1068,11 +1094,14 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               // If the first element itself is taller than the remaining space,
               // try the same content-driven splitter on that element
               if (fitCount === 0 && elements.length > 0 && maxHeight >= 20) {
+                host.remove();
                 const firstParts = splitHtmlForCapacity(elements[0].outerHTML, maxHeight, template);
                 if (firstParts.length > 1) {
                   return [firstParts[0], [firstParts[1], ...elements.slice(1).map((el) => el.outerHTML)].join('')];
                 }
+                return [source];
               }
+              host.remove();
               return [source];
             }
 
@@ -1081,10 +1110,11 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             // an explicit thead, and retains captions/colgroups/tfoot.
             if (first.tagName.toLowerCase() === 'table') {
               const tableParts = splitStructuredTable(first as HTMLTableElement, fits);
+              host.remove();
               if (tableParts.length > 1) {
-                host.remove();
                 return tableParts;
               }
+              return [source];
             }
 
             // Ordered/unordered lists: keep list structure and ONLY split at WHOLE <li> item boundaries.
@@ -1205,7 +1235,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             const descendantLists = Array.from(doc.body.querySelectorAll('ol, ul')).filter((list) => {
               let parent = list.parentElement;
               while (parent && parent !== doc.body) {
-                if (/^(ol|ul)$/i.test(parent.tagName)) return false;
+                if (/^(ol|ul|table|tbody|thead|tfoot|tr|td|th)$/i.test(parent.tagName)) return false;
                 parent = parent.parentElement;
               }
               return true;
@@ -1220,7 +1250,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 const surroundingLists = Array.from(surrounding.querySelectorAll('ol, ul')).filter((list) => {
                   let parent = list.parentElement;
                   while (parent && parent !== surrounding) {
-                    if (/^(ol|ul)$/i.test(parent.tagName)) return false;
+                    if (/^(ol|ul|table|tbody|thead|tfoot|tr|td|th)$/i.test(parent.tagName)) return false;
                     parent = parent.parentElement;
                   }
                   return true;
@@ -1343,7 +1373,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
             // Single paragraph or element: split by word boundary preserving markup
             if (!fits(source)) {
-              if (maxHeight < 24) {
+              if (maxHeight < 24 || first.tagName.toLowerCase() === 'table' || Boolean(first.querySelector('table'))) {
                 host.remove();
                 return [source];
               }
