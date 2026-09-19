@@ -32,9 +32,15 @@ export function largestFittingTablePrefix(
  * for a table taller than an empty page, left to the browser rather than
  * corrupting its structure).
  */
+export interface StructuredTableGeometry {
+  tableWidthPx: number;
+  columnWidthsPx: number[];
+}
+
 export function splitStructuredTable(
   table: HTMLTableElement,
-  fits: (html: string) => boolean
+  fits: (html: string) => boolean,
+  geometry?: StructuredTableGeometry
 ): string[] {
   if (fits(table.outerHTML)) return [table.outerHTML];
 
@@ -67,6 +73,38 @@ export function splitStructuredTable(
   const buildFragment = (start: number, end: number, final: boolean): string => {
     const clone = table.cloneNode(false) as HTMLTableElement;
     structuralChildren.forEach((child) => clone.appendChild(child.cloneNode(true)));
+
+    // A split fragment has a different set of body rows, so an auto-sized table
+    // can otherwise recompute a completely different intrinsic width/column grid.
+    // Freeze the geometry measured from the unsplit table for every continuation.
+    // This is deliberately fragment-only: the authored Live SPO table remains
+    // untouched and keeps its original responsive/editor semantics.
+    if (geometry?.tableWidthPx && geometry.tableWidthPx > 0) {
+      clone.style.width = `${geometry.tableWidthPx}px`;
+      clone.style.maxWidth = '100%';
+      clone.style.tableLayout = 'fixed';
+      delete clone.dataset.tableAutofit;
+
+      let colgroup = clone.querySelector<HTMLTableColElement>(':scope > colgroup');
+      if (!colgroup && geometry.columnWidthsPx.length) {
+        colgroup = table.ownerDocument.createElement('colgroup');
+        clone.insertBefore(colgroup, clone.firstChild);
+      }
+      if (colgroup && geometry.columnWidthsPx.length) {
+        const cols = Array.from(colgroup.querySelectorAll<HTMLTableColElement>(':scope > col'));
+        geometry.columnWidthsPx.forEach((width, index) => {
+          let col = cols[index];
+          if (!col) {
+            col = table.ownerDocument.createElement('col');
+            colgroup!.appendChild(col);
+            cols.push(col);
+          }
+          col.style.width = `${width}px`;
+          col.removeAttribute('width');
+        });
+      }
+    }
+
     headerSections.forEach((head) => clone.appendChild(head.cloneNode(true)));
 
     let activeOriginal: HTMLTableSectionElement | null | undefined;
