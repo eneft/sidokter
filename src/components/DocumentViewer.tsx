@@ -56,7 +56,9 @@ function documentTypeFor(fileName: string, mimeType = ''): DocumentType {
 }
 
 function requiresProtectedHeaders(url: string): boolean {
-  return url.startsWith('/api/storage/files/') || url.startsWith('/api/storage/path');
+  return url.startsWith('/api/storage/files/') ||
+    url.startsWith('/api/storage/path') ||
+    url.startsWith('/api/storage/sop/');
 }
 
 /**

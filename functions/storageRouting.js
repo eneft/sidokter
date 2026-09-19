@@ -13,6 +13,9 @@ function classifyStorageRequest(method, pathName) {
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && normalizedPath.includes('/path/')) {
     return 'download-path';
   }
+  if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && normalizedPath.includes('/sop/')) {
+    return 'download-sop';
+  }
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && normalizedPath.includes('/files/')) {
     return 'download-file';
   }

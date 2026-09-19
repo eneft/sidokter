@@ -335,96 +335,14 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         return;
       }
 
-      // 3. Check server storage by predictable IDs
-      // Older Existing records were stored in the generic file slot before the
-      // dedicated signedScan slot was introduced. Both slots belong to this
-      // same SPO, so retain the generic candidates as a backwards-compatible
-      // fallback while never looking up another document ID.
-      const cleanId = sop.id.replace(/^sop-/, '');
-      const candidates = isExistingPdf
-        ? [
-            `${sop.id}_signedScan`,
-            `sop-${cleanId}_signedScan`,
-            `sop-${sop.id}_signedScan`,
-            `${sop.id}_file`,
-            `sop-${cleanId}_file`,
-            `sop-${sop.id}_file`,
-            `${sop.id}_oldFile`,
-            `sop-${cleanId}_oldFile`
-          ]
-        : [
-            `${sop.id}_signedScan`,
-            `sop-${cleanId}_signedScan`,
-            `${sop.id}_file`,
-            `sop-${cleanId}_file`,
-            `${sop.id}_oldFile`,
-            `sop-${cleanId}_oldFile`,
-            `sop_${sop.id}`,
-            sop.id,
-            `sop-${cleanId}`
-          ];
-
-      for (const cand of candidates) {
-        try {
-          const testUrl = `/api/storage/files/${cand}`;
-          const session = getPersistedClientSession();
-          const token = await getCurrentAuthToken();
-          const headRes = await fetch(testUrl, { method: 'HEAD', headers: {
-            ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
-            ...(session?.authUid ? { 'X-Soegiri-Auth-Uid': session.authUid } : {}),
-            ...(session?.username ? { 'X-User-Username': session.username } : {}),
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-          } });
-          if (headRes.ok) {
-            if (!isCancelled) {
-              setResolvedLegacyFileUrl(testUrl);
-              setIsLoadingLegacyFile(false);
-            }
-            return;
-          }
-        } catch {
-          // ignore network check error
-        }
-      }
-
-      // 4. Check inline data URLs
-      const inlineDataUrl = isExistingPdf
-        ? null
-        : ((sop as any).signedScanDataUrl || (sop as any).fileDataUrl || (sop as any).oldFileDataUrl);
-      if (inlineDataUrl) {
-        if (!isCancelled) {
-          setResolvedLegacyFileUrl(inlineDataUrl);
-          setIsLoadingLegacyFile(false);
-        }
-        return;
-      }
-
-      // 5. Browser-local cache is allowed only for non-Existing legacy flows.
-      // Existing PDF must prove that the binary is available in cloud storage;
-      // otherwise PC 1 could appear to work while PC 2 cannot.
-      if (!isExistingPdf) {
-        try {
-          const cacheTypes = ['signedScan', 'file', 'oldFile'] as const;
-          const idVariations = [sop.id, cleanId, `sop-${cleanId}`];
-          for (const testId of idVariations) {
-            for (const cacheType of cacheTypes) {
-              const cached = await getFileFromPersistentCacheAsync(testId, cacheType);
-              if (cached) {
-                if (!isCancelled) {
-                  setResolvedLegacyFileUrl(cached);
-                  setIsLoadingLegacyFile(false);
-                }
-                return;
-              }
-            }
-          }
-        } catch (cacheErr) {
-          console.warn('Cache lookup warning in SopDetailModal:', cacheErr);
-        }
-      }
-
+      // 3. Metadata fields can be absent on historical SPO records. Ask the
+      // server once: it first resolves storage_files.sopId -> objectPath, and
+      // only when no metadata exists does it try conventional legacy names.
+      // DocumentViewer performs the authenticated GET with SIDOKTER headers.
+      const legacyServerUrl = `/api/storage/sop/${encodeURIComponent(sop.id)}`;
       if (!isCancelled) {
-        setResolvedLegacyFileUrl(null);
+        setResolvedLegacyFileUrl(legacyServerUrl);
+        setResolvedLegacySource(null);
         setIsLoadingLegacyFile(false);
       }
     };
