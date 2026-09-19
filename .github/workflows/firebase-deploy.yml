@@ -1,0 +1,40 @@
+name: SIDOKTER Build Verification
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify SIDOKTER
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Functions Dependencies
+        run: npm ci --prefix functions
+
+      - name: Verify Functions
+        run: npm run verify:functions
+
+      - name: Test Tables
+        run: npm run test:tables
+
+      - name: Build Web Client
+        run: npm run build:client
