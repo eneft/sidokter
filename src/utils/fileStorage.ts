@@ -68,9 +68,22 @@ export async function resolveProtectedStorageUrl(
       : buildStoragePathUrl(normalizedPath);
   }
 
-  // /files/:id is resolved by storageApi through storage_files.objectPath. Do
-  // not issue a preliminary HEAD: the authenticated GET/HEAD consumer uses the
-  // same SIDOKTER headers and the server owns any legacy resolution.
+  // Historical URL fields can point at deleted storage_files documents. Check
+  // that metadata-backed ID before accepting it so callers can continue to the
+  // next persisted source (and ultimately /api/storage/sop/:sopId). This is a
+  // single check of the stored ID, not the former chain of guessed filenames.
+  if (normalizedRawUrl.startsWith('/api/storage/files/')) {
+    try {
+      const response = await fetch(normalizedRawUrl, {
+        method: 'HEAD',
+        headers: await getProtectedStorageHeaders()
+      });
+      return response.ok ? normalizedRawUrl : null;
+    } catch {
+      return null;
+    }
+  }
+
   if (normalizedRawUrl && !isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
   return normalizedRawUrl || null;
 }
