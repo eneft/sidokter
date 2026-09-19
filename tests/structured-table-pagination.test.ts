@@ -98,6 +98,7 @@ test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX',
   assert.match(html, /colspan="2"/);
   assert.match(html, /font-size:10pt/);
   assert.match(html, /font-size:12pt/);
+  assert.match(html, /font-size:8pt/);
   assert.match(html, /<strong>1<\/strong>/);
   assert.match(html, /text-align:center/);
   assert.match(html, /<tfoot>/);
@@ -140,7 +141,7 @@ test('klik langsung pada sel menerbitkan table context tanpa bergantung pada sel
   assert.match(editorSource, /className="table-selection-overlay/);
 });
 
-test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
+test('toolbar production Live A4 desktop merender selector canonical 12/10/8 pt', () => {
   const noop = () => undefined;
   const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
     title: 'SPO Uji', onTitleChange: noop, sopNumber: '001', version: '00',
@@ -154,6 +155,9 @@ test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
   assert.match(html, /aria-label="Ukuran huruf"/);
   assert.match(html, /<option value="10pt">10 pt<\/option>/);
   assert.match(html, /<option value="12pt"(?: selected="")?>12 pt<\/option>/);
+  assert.match(html, /<option value="8pt">8 pt<\/option>/);
+  assert.ok(html.indexOf('12 pt</option>') < html.indexOf('10 pt</option>'));
+  assert.ok(html.indexOf('10 pt</option>') < html.indexOf('8 pt</option>'));
   assert.doesNotMatch(html, /Campur/);
   assert.doesNotMatch(html, /Warna Teks|Insert ▾/);
   assert.match(html, /title="Sisipkan Gambar"/);
@@ -176,6 +180,27 @@ test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
   assert.match(geometrySource, /wrapTextInterval/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \*,\s*#printable[\s\S]{0,180}font-size: 12pt !important/);
   assert.match(rendererSource, /'style', 'class', 'colspan', 'rowspan'/);
+});
+
+test('8pt bertahan apply, save, reload, LiveSPOEditor, Preview, dan penyerahan PDF', () => {
+  const appliedInTable = '<table><tbody><tr><td><span style="font-size: 8pt;">Teks kecil</span></td></tr></tbody></table>';
+  const saved = JSON.stringify({ prosedur: appliedInTable });
+  const reloaded = JSON.parse(saved).prosedur as string;
+
+  assert.match(editorSource, /export type LiveSopFontSize = '8pt' \| '10pt' \| '12pt'/);
+  assert.match(editorSource, /applyFontSize: \(fontSize: LiveSopFontSize\)/);
+  assert.match(editorSource, /\(points\[0\] === 8 \|\| points\[0\] === 10 \|\| points\[0\] === 12\)/);
+  assert.match(reloaded, /font-size: 8pt/);
+
+  // Preview passes the reloaded HTML through the structured renderer, whose
+  // sanitizer explicitly retains inline style. PDF then embeds that Preview
+  // document HTML without rewriting it.
+  assert.match(rendererSource, /const raw = normalizeStructuredHtml\(content\.trim\(\)\)/);
+  assert.match(rendererSource, /ALLOWED_ATTR:\s*\[[\s\S]{0,80}'style'/);
+  const previewDocumentHtml = `<div class="rich-text-output">${reloaded}</div>`;
+  assert.match(previewDocumentHtml, /font-size:\s*8pt/);
+  assert.match(pdfSource, /const pdfDocumentHtml = inlineLocalPdfImages\(documentHtml\)/);
+  assert.match(pdfSource, /<body>\$\{pdfDocumentHtml\}<\/body>/);
 });
 
 test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => {
