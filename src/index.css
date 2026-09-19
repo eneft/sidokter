@@ -2855,6 +2855,34 @@ main .rich-text-toolbar,
   display: table-header-group;
 }
 
+/* Canonical table-cell typography shared by LiveSPOEditor, Preview SPO and
+   the HTML used by the PDF renderer. Keep this scoped to authored rich-text
+   tables: the outer official SPO layout is also a table, but its cells contain
+   normal document prose whose 1.5 line height must remain unchanged. */
+.rich-text-editor-content table td,
+.rich-text-editor-content table th,
+.rich-text-document-content table td,
+.rich-text-document-content table th,
+.rich-text-output table td,
+.rich-text-output table th {
+  line-height: 1 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.rich-text-editor-content table :is(td, th) :is(p, li),
+.rich-text-document-content table :is(td, th) :is(p, li),
+.rich-text-output table :is(td, th) :is(p, li) {
+  line-height: 1 !important;
+}
+
+.rich-text-editor-content table :is(td, th) p,
+.rich-text-document-content table :is(td, th) p,
+.rich-text-output table :is(td, th) p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
 /* LiveSPOEditor's single context-aware chrome; never contributes to A4 geometry. */
 .live-spo-context-toolbar { min-height: 36px; white-space: nowrap; }
 .live-spo-context-toolbar .toolbar-icon { width: 24px; height: 24px; padding: 5px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: #475569; }
