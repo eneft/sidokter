@@ -12,6 +12,7 @@ const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
 const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
 const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
+const { sendPdf } = require('./pdfBinary');
 
 if (!process.env.AWS_EXECUTION_ENV) {
   process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs22.x';
@@ -2315,11 +2316,7 @@ ${documentHtml}
     await browser.close();
     browser = null;
 
-    res.status(200);
-    res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `attachment; filename="${filename}"`);
-    res.set('Cache-Control', 'private, no-store, max-age=0');
-    res.send(pdf);
+    return sendPdf(res, pdf, filename);
   } catch (error) {
     console.error('pdfApi failed', error);
     if (browser) {
