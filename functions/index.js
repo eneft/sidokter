@@ -1783,6 +1783,67 @@ async function storageDownload(req, res) {
   return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
 }
 
+async function storageDownloadBySop(req, res) {
+  const context = await requireStorageAuth(req);
+  const sopId = String(req.params.sopId || '').trim();
+  if (!/^sop-[a-zA-Z0-9_-]+$/.test(sopId)) {
+    return json(res, 400, { success:false, message:'ID SPO tidak valid.' });
+  }
+
+  // Current uploads persist sopId alongside objectPath. Resolve all records for
+  // this SPO first, then stream the selected authoritative objectPath. A stale
+  // or missing object must not silently select a guessed binary.
+  const snap = await db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId).get();
+  if (!snap.empty) {
+    const slotPriority = ['signedscan', 'file', 'oldfile'];
+    const records = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const slotRank = meta => {
+      const identity = `${meta.id || ''} ${meta.objectPath || ''}`.toLowerCase();
+      const index = slotPriority.findIndex(slot => identity.includes(`_${slot}`));
+      return index < 0 ? slotPriority.length : index;
+    };
+    records.sort((a, b) => slotRank(a) - slotRank(b) || String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));
+    const meta = records[0];
+    const objectPath = resolveStorageObjectPath(meta);
+    if (!objectPath) {
+      return json(res, 409, { success:false, code:'BROKEN_STORAGE_METADATA', message:'Metadata file tidak memiliki path Firebase Storage yang valid.' });
+    }
+    const isAdmin = normalizeRole(context.user.role) === 'admin';
+    const keys = storageAccessKeys(context.user);
+    let allowed = isAdmin || isPrivilegedStorageViewer(context) || meta.ownerUid === context.user.id ||
+      (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
+    if (!allowed) allowed = await canReadSopBinaryForUser(context, sopId);
+    if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+
+    const served = await streamStorageObject(req, res, getStorageBucket().file(objectPath), meta);
+    if (served) return;
+    return json(res, 404, { success:false, message:'File metadata tidak ditemukan di Firebase Storage.' });
+  }
+
+  // Legacy-only branch: records created before storage_files.sopId/objectPath
+  // are allowed to use the old naming conventions. This happens server-side
+  // behind one authenticated request, avoiding a browser-side HEAD 404 chain.
+  if (!(await canReadSopBinaryForUser(context, sopId)) && !isPrivilegedStorageViewer(context)) {
+    return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
+  }
+  const bareId = sopId.replace(/^sop-/, '');
+  const legacyIds = [
+    `${sopId}_signedScan`, `${sopId}_file`, `${sopId}_oldFile`,
+    `sop-${bareId}_signedScan`, `sop-${bareId}_file`, `sop-${bareId}_oldFile`,
+    sopId
+  ];
+  for (const id of Array.from(new Set(legacyIds))) {
+    for (const ext of ['.pdf', '.png', '.jpg']) {
+      const objectPath = `sidokter/spo/${id}${ext}`;
+      const served = await streamStorageObject(req, res, getStorageBucket().file(objectPath), {
+        originalName: path.basename(objectPath)
+      });
+      if (served) return;
+    }
+  }
+  return json(res, 404, { success:false, message:'File legacy tidak ditemukan di Firebase Storage.' });
+}
+
 async function storageDownloadByPath(req, res) {
   const context = await requireStorageAuth(req);
   const raw = String(req.params.storagePath || '');
@@ -1901,6 +1962,14 @@ function getStorageFileId(pathName) {
   return pathName.slice(idx + marker.length).replace(/\/?$/, '').split('/').filter(Boolean).pop() || '';
 }
 
+function getStorageSopId(pathName) {
+  const marker = '/sop/';
+  const idx = pathName.toLowerCase().indexOf(marker);
+  if (idx < 0) return '';
+  const encoded = pathName.slice(idx + marker.length).replace(/\/?$/, '').split('/').filter(Boolean).pop() || '';
+  try { return decodeURIComponent(encoded); } catch { return encoded; }
+}
+
 // Server-side hierarchy REST endpoint used as the Firebase Hosting fallback
 // for multi-device master-data synchronization. The browser also syncs directly
 // with Firestore, but /api/hierarchy must exist in Firebase Hosting because the
@@ -2013,6 +2082,13 @@ exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', cor
       if (!id) return json(res, 400, { success:false, message:'File ID tidak valid.' });
       req.params = { id };
       return await storageDownload(req, res);
+    }
+
+    if (storageRoute === 'download-sop') {
+      const sopId = getStorageSopId(pathName);
+      if (!sopId) return json(res, 400, { success:false, message:'ID SPO tidak valid.' });
+      req.params = { sopId };
+      return await storageDownloadBySop(req, res);
     }
 
     if (storageRoute === 'delete-file') {

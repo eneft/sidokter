@@ -44,6 +44,12 @@ test('routes the verified current file through GET and HEAD without path initial
   assert.equal(classifyStorageRequest('HEAD', pathName), 'download-file');
 });
 
+test('routes one authenticated SPO resolver request for metadata-first legacy retrieval', () => {
+  const pathName = '/sop/sop-1789624975867';
+  assert.equal(classifyStorageRequest('GET', pathName), 'download-sop');
+  assert.equal(classifyStorageRequest('HEAD', pathName), 'download-sop');
+});
+
 test('does not route unsafe object paths around storage path validation', () => {
   assert.equal(classifyStorageRequest('GET', '/path/..%2Fsecret.pdf'), 'download-path');
   assert.equal(resolveStorageObjectPath({ objectPath: '../secret.pdf' }), null);

@@ -33,7 +33,7 @@ export function buildStoragePathUrl(storagePath: string): string {
 export function normalizeStorageUrl(url: string | null | undefined): string {
   if (!url) return '';
   const trimmed = String(url).trim();
-  const cfMatch = trimmed.match(/^https?:\/\/[^/]*cloudfunctions\.net\/storageApi\/(files|path)\/(.*)$/i);
+  const cfMatch = trimmed.match(/^https?:\/\/[^/]*cloudfunctions\.net\/storageApi\/(files|path|sop)\/(.*)$/i);
   if (cfMatch) {
     return `/api/storage/${cfMatch[1]}/${cfMatch[2]}`;
   }
@@ -52,69 +52,26 @@ export async function resolveProtectedStorageUrl(
       value &&
       (
         value.startsWith('/api/storage/files/') ||
-        value.startsWith('/api/storage/path')
+        value.startsWith('/api/storage/path') ||
+        value.startsWith('/api/storage/sop/')
       )
     );
 
-  if (normalizedRawUrl && !isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
-
-  const headers = await getProtectedStorageHeaders();
-
-  const probeUrl = async (u: string | null | undefined): Promise<boolean> => {
-    if (!u) return false;
-    try {
-      const probe = await fetch(u, { method: 'HEAD', headers });
-      return probe.ok;
-    } catch {
-      return false;
-    }
-  };
-
-  if (normalizedRawUrl && (await probeUrl(normalizedRawUrl))) return normalizedRawUrl;
-
-  // Extract identifiers from normalizedRawUrl or storagePath to probe fallback routes
-  const source = normalizedRawUrl || storagePath || '';
-  const decoded = decodeURIComponent(source);
-  const seg = decoded.split('/').pop()?.split('?')[0] || '';
-  const baseId = seg.replace(/^sop-/, '').replace(/_(?:file|signedScan|oldFile)(?:\.[a-zA-Z0-9]+)?$/, '').replace(/\.[a-zA-Z0-9]+$/, '');
-  const fullFilename = seg.includes('.') ? seg : `${seg}.pdf`;
-
-  const candidates: string[] = [];
+  // storagePath is copied from storage_files.objectPath by the upload API. It
+  // identifies the binary itself, while a file URL only identifies a metadata
+  // document and older URLs may contain guessed/stale IDs. Never probe guessed
+  // names when this authoritative path is available.
   if (storagePath) {
-    // The durable path is the strongest identity. Never replace it with a
-    // different document slot when the caller explicitly requested strictType.
-    candidates.push(buildStoragePathUrl(storagePath));
-  }
-  if (seg) {
-    candidates.push(`/api/storage/files/${seg}`);
-    candidates.push(`/api/storage/path/sidokter/spo/${fullFilename}`);
-    const cleanSeg = seg.replace(/^sop-sop-/, 'sop-');
-    if (cleanSeg !== seg) {
-      candidates.push(`/api/storage/files/${cleanSeg}`);
-      candidates.push(`/api/storage/path/sidokter/spo/${cleanSeg.includes('.') ? cleanSeg : `${cleanSeg}.pdf`}`);
-    }
-    if (!seg.startsWith('sop-')) {
-      candidates.push(`/api/storage/files/sop-${seg}`);
-      candidates.push(`/api/storage/path/sidokter/spo/sop-${fullFilename}`);
-    }
-    if (!strictType) {
-      candidates.push(`/api/storage/files/${baseId}`);
-      candidates.push(`/api/storage/path/sidokter/spo/${baseId}.pdf`);
-      if (!baseId.startsWith('sop-')) {
-        candidates.push(`/api/storage/files/sop-${baseId}`);
-        candidates.push(`/api/storage/path/sidokter/spo/sop-${baseId}.pdf`);
-      }
-    }
+    const normalizedPath = normalizeStorageUrl(storagePath);
+    return isProtectedUrl(normalizedPath)
+      ? normalizedPath
+      : buildStoragePathUrl(normalizedPath);
   }
 
-  for (const cand of candidates) {
-    if (cand && cand !== normalizedRawUrl && (await probeUrl(cand))) {
-      return cand;
-    }
-  }
-
-  if (storagePath) return buildStoragePathUrl(storagePath);
-  if (isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
+  // /files/:id is resolved by storageApi through storage_files.objectPath. Do
+  // not issue a preliminary HEAD: the authenticated GET/HEAD consumer uses the
+  // same SIDOKTER headers and the server owns any legacy resolution.
+  if (normalizedRawUrl && !isProtectedUrl(normalizedRawUrl)) return normalizedRawUrl;
   return normalizedRawUrl || null;
 }
 
@@ -198,6 +155,7 @@ export function triggerFileDownload(
   if (
     normalizedUrl?.startsWith('/api/storage/files/') ||
     normalizedUrl?.startsWith('/api/storage/path') ||
+    normalizedUrl?.startsWith('/api/storage/sop/') ||
     (!normalizedUrl && fallbackStoragePath)
   ) {
     void getProtectedStorageHeaders().then(async (headers) => {
@@ -238,7 +196,10 @@ export function triggerFileDownload(
         if (fallbackStoragePath) {
           fallbackUrls.push(buildStoragePathUrl(fallbackStoragePath));
         }
-        if (seg) {
+        // Guessing is legacy-only. An objectPath or the metadata-first SPO
+        // resolver has already made an authoritative decision.
+        const canGuessLegacyName = !fallbackStoragePath && !normalizedUrl?.startsWith('/api/storage/sop/');
+        if (seg && canGuessLegacyName) {
           fallbackUrls.push(`/api/storage/files/${seg}`);
           fallbackUrls.push(`/api/storage/path/sidokter/spo/${fullFilename}`);
           const cleanSeg = seg.replace(/^sop-sop-/, 'sop-');
@@ -251,7 +212,7 @@ export function triggerFileDownload(
             fallbackUrls.push(`/api/storage/path/sidokter/spo/sop-${fullFilename}`);
           }
         }
-        if (!strictType && baseId) {
+        if (!strictType && baseId && canGuessLegacyName) {
           fallbackUrls.push(`/api/storage/files/${baseId}`);
           fallbackUrls.push(`/api/storage/path/sidokter/spo/${baseId}.pdf`);
           if (!baseId.startsWith('sop-')) {
