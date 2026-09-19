@@ -53,6 +53,9 @@ export type WordWrapMode =
   | 'behind'
   | 'in-front';
 
+/** Canonical font sizes supported by LiveSPOEditor document content. */
+export type LiveSopFontSize = '8pt' | '10pt' | '12pt';
+
 // Microsoft Word Layout Options Button Icon (Exact match to MS Word UI)
 const WordLayoutOptionsIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-5' }) => (
   <svg viewBox="0 0 20 22" fill="none" className={className}>
@@ -92,7 +95,7 @@ export interface RichTextFormattingState {
   align: 'left' | 'center' | 'right' | 'justify';
   orderedList: boolean;
   unorderedList: boolean;
-  fontSize: '10pt' | '12pt' | null;
+  fontSize: LiveSopFontSize | null;
   inTable: boolean;
   context: 'text' | 'table' | 'image';
   tableAutoFit: boolean;
@@ -110,7 +113,7 @@ export interface RichTextFormattingState {
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
   insertCustomList: (listType: '1' | 'a' | 'i') => void;
-  applyFontSize: (fontSize: '10pt' | '12pt') => void;
+  applyFontSize: (fontSize: LiveSopFontSize) => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
   executeTableCommand: (command: TableCommand) => void;
@@ -240,9 +243,9 @@ const normalizePastedRichText = (source: string): string => {
 
     const color = el.style.color;
     // Font size is document content, not editor chrome.  In particular Word
-    // commonly uses 10pt inside dense tables while the SPO body defaults to
-    // 12pt, so do not discard it while removing Word-only CSS.
-    const fontSize = /^(?:10|12)pt$/i.test(el.style.fontSize.trim())
+    // commonly uses 8pt or 10pt inside dense tables while the SPO body defaults
+    // to 12pt, so do not discard it while removing Word-only CSS.
+    const fontSize = /^(?:8|10|12)pt$/i.test(el.style.fontSize.trim())
       ? el.style.fontSize.toLowerCase()
       : '';
     const isBold = el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight || '0', 10) >= 600;
@@ -312,12 +315,9 @@ export const PRESET_COLORS = [
 ];
 
 export const FONT_SIZES = [
-  { label: '10pt (Kecil)', value: '10pt' },
   { label: '12pt (Standar SPO)', value: '12pt' },
-  { label: '13pt (Sedang)', value: '13pt' },
-  { label: '14pt (Normal)', value: '14pt' },
-  { label: '16pt (Sub Judul)', value: '16pt' },
-  { label: '18pt (Besar)', value: '18pt' },
+  { label: '10pt (Kecil)', value: '10pt' },
+  { label: '8pt (Sangat Kecil)', value: '8pt' },
 ];
 
 export const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024; // Aligned with server storage hard ceiling: 15 MB
@@ -676,7 +676,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       else if (document.queryCommandState('justifyLeft')) align = 'left';
 
       const selection = window.getSelection();
-      let fontSize: '10pt' | '12pt' | null = null;
+      let fontSize: LiveSopFontSize | null = null;
       if (selection?.rangeCount && editorRef.current.contains(selection.anchorNode)) {
         const range = selection.getRangeAt(0);
         const sizes = new Set<string>();
@@ -696,8 +696,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           if (element) sizes.add(getComputedStyle(element).fontSize);
         }
         const points = [...sizes].map((size) => Math.round(parseFloat(size) * 72 / 96));
-        if (points.length && points.every((point) => point === points[0]) && (points[0] === 10 || points[0] === 12)) {
-          fontSize = `${points[0]}pt` as '10pt' | '12pt';
+        if (points.length && points.every((point) => point === points[0]) && (points[0] === 8 || points[0] === 10 || points[0] === 12)) {
+          fontSize = `${points[0]}pt` as LiveSopFontSize;
         }
       }
 
@@ -1369,7 +1369,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   };
 
-  const applyFontSize = (fontSize: '10pt' | '12pt') => {
+  const applyFontSize = (fontSize: LiveSopFontSize) => {
     if (!editorRef.current) return;
     restoreSavedSelection();
     try {
@@ -2520,11 +2520,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                     savedRangeRef.current = selection.getRangeAt(0).cloneRange();
                   }
                 }}
-                onChange={(e) => applyFontSize(e.target.value as '10pt' | '12pt')}
+                onChange={(e) => applyFontSize(e.target.value as LiveSopFontSize)}
                 className="h-5.5 max-w-16 rounded border border-slate-300 bg-white px-1 text-[10px] text-slate-700"
               >
-                <option value="10pt">10 pt</option>
                 <option value="12pt">12 pt</option>
+                <option value="10pt">10 pt</option>
+                <option value="8pt">8 pt</option>
               </select>
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
