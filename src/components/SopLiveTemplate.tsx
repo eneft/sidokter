@@ -22,7 +22,23 @@ import {
   IndentDecrease,
   IndentIncrease,
   List,
-  ImagePlus
+  ListOrdered,
+  ImagePlus,
+  ImageIcon,
+  Type,
+  Table2,
+  Rows3,
+  Columns3,
+  Merge,
+  Split,
+  MoveHorizontal,
+  Trash2,
+  Maximize,
+  Maximize2,
+  Minimize,
+  Minimize2,
+  WrapText,
+  RotateCcw,
 } from 'lucide-react';
 import type { TableCommand } from '../utils/editorTableCommands';
 import { RichTextEditor, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
@@ -96,6 +112,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeTableSection, setActiveTableSection] = useState<'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait'>('pengertian');
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
+  const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
   const pengertianEditorRef = useRef<RichTextEditorHandle>(null);
   const tujuanEditorRef = useRef<RichTextEditorHandle>(null);
@@ -106,7 +123,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false, italic: false, underline: false, align: 'left',
     orderedList: false, unorderedList: false, fontSize: null, inTable: false,
-    context: 'text', tableWrap: true, canMerge: false, canSplit: false,
+    context: 'text', tableAutoFit: false, canMerge: false, canSplit: false,
+    tableAlign: 'left',
   });
 
   const handleTableCommand = (command: TableCommand) => getActiveEditor()?.executeTableCommand(command);
@@ -462,39 +480,56 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 <option value="pengertian">PENGERTIAN</option><option value="tujuan">TUJUAN</option><option value="kebijakan">KEBIJAKAN</option><option value="prosedur">PROSEDUR</option><option value="alur">ALUR</option><option value="unitTerkait">UNIT TERKAIT</option>
               </select>
             </div>
-            {activeFormatting.context !== 'image' && <>
-              {activeFormatting.context === 'text' && <div className="flex shrink-0">
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleExecCommand('undo')} title="Undo" className="toolbar-icon"><Undo2 /></button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleExecCommand('redo')} title="Redo" className="toolbar-icon"><Redo2 /></button>
-              </div>}
-              {activeFormatting.context === 'table' && <strong className="px-1 text-indigo-700">Tabel</strong>}
-              <select aria-label="Ukuran huruf" value={activeFormatting.fontSize || '12pt'} onChange={e => getActiveEditor()?.applyFontSize(e.target.value as '10pt' | '12pt')} className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"><option value="12pt">12 pt</option><option value="10pt">10 pt</option></select>
-              <div className="flex shrink-0">
-                {[[Bold,'bold','Tebal'],[Italic,'italic','Miring'],[Underline,'underline','Garis Bawah']].map(([Icon, command, title]) => <button key={String(command)} type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleExecCommand(String(command))} title={String(title)} className="toolbar-icon"><Icon className="w-3.5 h-3.5" /></button>)}
+            <div className="toolbar-mode-switch" aria-label="Mode toolbar">
+              <button type="button" aria-pressed={activeToolMode === 'text'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('text')} title="Mode Teks" aria-label="Mode Teks"><Type /></button>
+              <button type="button" aria-pressed={activeToolMode === 'table'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('table')} title="Mode Tabel" aria-label="Mode Tabel"><Table2 /></button>
+              <button type="button" aria-pressed={activeToolMode === 'image'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('image')} title="Mode Gambar" aria-label="Mode Gambar"><ImageIcon /></button>
+            </div>
+
+            {activeToolMode === 'text' && <>
+              <div className="toolbar-command-group">
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('undo')} title="Batalkan" aria-label="Batalkan" className="toolbar-icon"><Undo2 /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('redo')} title="Ulangi" aria-label="Ulangi" className="toolbar-icon"><Redo2 /></button>
+              </div>
+              <select aria-label="Ukuran huruf" value={activeFormatting.fontSize || '12pt'} onChange={e=>getActiveEditor()?.applyFontSize(e.target.value as '8pt'|'10pt'|'12pt')} className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"><option value="12pt">12 pt</option><option value="10pt">10 pt</option><option value="8pt">8 pt</option></select>
+              <div className="toolbar-command-group">
+                {[[Bold,'bold','Tebal',activeFormatting.bold],[Italic,'italic','Miring',activeFormatting.italic],[Underline,'underline','Garis bawah',activeFormatting.underline]].map(([Icon,command,title,active])=><button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} title={String(title)} aria-label={String(title)} aria-pressed={Boolean(active)} className={`toolbar-icon ${active?'is-active':''}`}><Icon /></button>)}
+              </div>
+              <div className="toolbar-command-group">
+                {[[AlignLeft,'justifyLeft','left','Rata kiri'],[AlignCenter,'justifyCenter','center','Rata tengah'],[AlignRight,'justifyRight','right','Rata kanan'],[AlignJustify,'justifyFull','justify','Rata penuh']].map(([Icon,command,alignment,title])=>{const active=activeFormatting.align===alignment;return <button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} title={String(title)} aria-label={String(title)} aria-pressed={active} className={`toolbar-icon ${active?'is-active':''}`}><Icon /></button>})}
+              </div>
+              <div className="toolbar-command-group">
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleInsertList('1')} title="Penomoran" aria-label="Penomoran" aria-pressed={activeFormatting.orderedList} className={`toolbar-icon ${activeFormatting.orderedList?'is-active':''}`}><ListOrdered /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('insertUnorderedList')} title="Bullet" aria-label="Bullet" aria-pressed={activeFormatting.unorderedList} className={`toolbar-icon ${activeFormatting.unorderedList?'is-active':''}`}><List /></button>
+              </div>
+              <div className="toolbar-command-group">
+                <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{if(tableFileInputRef.current){tableFileInputRef.current.value='';tableFileInputRef.current.click();}}} className="toolbar-icon" title="Sisipkan Gambar" aria-label="Sisipkan Gambar"><ImagePlus /></button>
+                <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowInsertMenu(v=>!v)} className="toolbar-icon" title="Sisipkan Tabel" aria-label="Sisipkan Tabel" aria-expanded={showInsertMenu}><Table2 /></button>{showInsertMenu&&<div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border bg-white p-2 shadow-xl"><p className="mb-1 text-[10px] font-bold">Sisipkan Tabel</p><div className="grid grid-cols-3 gap-1">{[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([r,c])=><button key={`${r}-${c}`} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{getActiveEditor()?.insertTable(r,c);setShowInsertMenu(false)}} className="rounded border p-1 text-[10px] hover:bg-indigo-50">{r}×{c}</button>)}</div></div>}</div>
               </div>
             </>}
-            {activeFormatting.context === 'text' && <>
-              <div className="flex shrink-0">{[[AlignLeft,'justifyLeft'],[AlignCenter,'justifyCenter'],[AlignRight,'justifyRight'],[AlignJustify,'justifyFull']].map(([Icon, command]) => <button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} className="toolbar-icon"><Icon className="w-3.5 h-3.5" /></button>)}</div>
-              <div className="hidden lg:flex shrink-0"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('outdent')} className="toolbar-icon" title="Kurangi Indentasi"><IndentDecrease /></button><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('indent')} className="toolbar-icon" title="Tambah Indentasi"><IndentIncrease /></button></div>
-              <div className="flex shrink-0"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleInsertList('1')} className="toolbar-text" title="Penomoran">1.</button><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('insertUnorderedList')} className="toolbar-icon" title="Bullet"><List /></button></div>
-              <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{ if(tableFileInputRef.current){tableFileInputRef.current.value='';tableFileInputRef.current.click();}}} className="toolbar-icon" title="Sisipkan Gambar"><ImagePlus /></button>
-              <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowInsertMenu(v=>!v)} className="toolbar-text" title="Sisipkan Tabel">▦</button>{showInsertMenu && <div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border bg-white p-2 shadow-xl"><p className="mb-1 text-[10px] font-bold">Sisipkan Tabel</p><div className="grid grid-cols-3 gap-1">{[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([r,c])=><button key={`${r}-${c}`} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{getActiveEditor()?.insertTable(r,c);setShowInsertMenu(false)}} className="rounded border p-1 text-[10px] hover:bg-indigo-50">{r}×{c}</button>)}</div></div>}</div>
-            </>}
-            {activeFormatting.context === 'table' && <>
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.toggleTableWrap()} aria-pressed={activeFormatting.tableWrap} className={`toolbar-text ${activeFormatting.tableWrap?'bg-indigo-100 text-indigo-700':''}`}>Wrap</button>
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-row')} className="toolbar-text">+ Baris</button><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-column')} className="toolbar-text">+ Kolom</button>
-              <button type="button" disabled={!activeFormatting.canMerge} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('merge-right')} className="toolbar-text disabled:opacity-40">Gabung</button>
-              <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowTableMenu(v=>!v)} className="toolbar-text">Posisi ▾</button>{showTableMenu && <div className="table-tools-menu right-0">{(['left','center','right'] as const).map(a=><button key={a} onMouseDown={e=>e.preventDefault()} onClick={()=>{handleTableAlignment(a);setShowTableMenu(false)}}>{a==='left'?'Kiri':a==='center'?'Tengah':'Kanan'}</button>)}</div>}</div>
-              <details className="relative"><summary className="toolbar-text list-none cursor-pointer">⋯</summary><div className="table-tools-menu right-0">{activeFormatting.canSplit&&<button onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('split-cell')}>Pisahkan Sel</button>}{([['delete-row','Hapus Baris'],['delete-column','Hapus Kolom'],['delete-table','Hapus Tabel']] as const).map(([c,l])=><button key={c} className="table-tools-danger" onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand(c)}>{l}</button>)}</div></details>
-            </>}
-            {activeFormatting.context === 'image' && <>
-              <strong className="px-1 text-indigo-700">Gambar</strong>
-              {[25,50,75,100].map(p=><button key={p} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWidth(p)} className={`toolbar-text ${activeFormatting.imageWidth===p?'bg-indigo-100':''}`}>{p}%</button>)}
-              {(['left','center','right'] as const).map(a=><button key={a} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageAlignment(a)} className="toolbar-text">{a==='left'?'Kiri':a==='center'?'Tengah':'Kanan'}</button>)}
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWrap(activeFormatting.imageWrap==='top-bottom'?'square':'top-bottom')} className="toolbar-text">Wrap</button>
-              <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.resetImage()} className="toolbar-text">Reset</button><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.deleteImage()} className="toolbar-text text-rose-600">Hapus</button>
-            </>}
+
+            {activeToolMode === 'table' && <div className="toolbar-command-group table-command-group">
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.toggleTableAutoFit()} aria-pressed={activeFormatting.tableAutoFit} className={`toolbar-icon ${activeFormatting.tableAutoFit?'is-active':''}`} title="Sesuaikan Lebar Tabel" aria-label="Sesuaikan Lebar Tabel"><Maximize2 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-row')} className="toolbar-icon" title="Tambah Baris" aria-label="Tambah Baris"><Rows3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-column')} className="toolbar-icon" title="Tambah Kolom" aria-label="Tambah Kolom"><Columns3 /></button>
+              <button type="button" disabled={!activeFormatting.canMerge} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('merge-right')} className="toolbar-icon" title="Gabung Sel" aria-label="Gabung Sel"><Merge /></button>
+              <button type="button" disabled={!activeFormatting.canSplit} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('split-cell')} className="toolbar-icon" title="Pisahkan Sel" aria-label="Pisahkan Sel"><Split /></button>
+              <div className="relative"><button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>setShowTableMenu(v=>!v)} aria-expanded={showTableMenu} className="toolbar-icon" title="Posisi Tabel" aria-label="Posisi Tabel"><MoveHorizontal /></button>{showTableMenu&&<div className="table-tools-menu table-position-menu right-0">{([[AlignLeft,'left','Posisi kiri'],[AlignCenter,'center','Posisi tengah'],[AlignRight,'right','Posisi kanan']] as const).map(([Icon,alignment,title])=><button type="button" key={alignment} aria-pressed={activeFormatting.tableAlign===alignment} className={activeFormatting.tableAlign===alignment?'is-active':''} title={title} aria-label={title} onMouseDown={e=>e.preventDefault()} onClick={()=>{handleTableAlignment(alignment);setActiveFormatting(current=>({...current,tableAlign:alignment}));setShowTableMenu(false)}}><Icon /></button>)}</div>}</div>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-row')} className="toolbar-icon toolbar-danger" title="Hapus Baris" aria-label="Hapus Baris"><Rows3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-column')} className="toolbar-icon toolbar-danger" title="Hapus Kolom" aria-label="Hapus Kolom"><Columns3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-table')} className="toolbar-icon toolbar-danger" title="Hapus Tabel" aria-label="Hapus Tabel"><Trash2 /></button>
+            </div>}
+
+            {activeToolMode === 'image' && <div className="toolbar-command-group image-command-group">
+              {([[Minimize2,25,'Lebar gambar 25%'],[Minimize,50,'Lebar gambar 50%'],[Maximize,75,'Lebar gambar 75%'],[Maximize2,100,'Lebar gambar 100%']] as const).map(([Icon,percent,title])=><button key={percent} type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWidth(percent)} title={title} aria-label={title} aria-pressed={activeFormatting.imageWidth===percent} className={`toolbar-icon ${activeFormatting.imageWidth===percent?'is-active':''}`}><Icon /></button>)}
+              {([[AlignLeft,'left','Posisi gambar kiri'],[AlignCenter,'center','Posisi gambar tengah'],[AlignRight,'right','Posisi gambar kanan']] as const).map(([Icon,alignment,title])=><button key={alignment} type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageAlignment(alignment)} title={title} aria-label={title} aria-pressed={activeFormatting.imageAlign===alignment} className={`toolbar-icon ${activeFormatting.imageAlign===alignment?'is-active':''}`}><Icon /></button>)}
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWrap(activeFormatting.imageWrap==='top-bottom'?'square':'top-bottom')} title="Bungkus Teks pada Gambar" aria-label="Bungkus Teks pada Gambar" aria-pressed={activeFormatting.imageWrap!=='top-bottom'} className={`toolbar-icon ${activeFormatting.imageWrap!=='top-bottom'?'is-active':''}`}><WrapText /></button>
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.resetImage()} className="toolbar-icon" title="Atur Ulang Gambar" aria-label="Atur Ulang Gambar"><RotateCcw /></button>
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.deleteImage()} className="toolbar-icon toolbar-danger" title="Hapus Gambar" aria-label="Hapus Gambar"><Trash2 /></button>
+            </div>}
           </div>
 
           <div className="sop-live-a4-page-stack">

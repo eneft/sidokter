@@ -123,7 +123,24 @@ test('toolbar mempertahankan selection dan menyediakan formatting context-aware'
   assert.match(editorSource, /processAndInsertImageFiles\(files\)/);
 });
 
-test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
+test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image context', () => {
+  const selectionStart = editorSource.indexOf('const selectFigureElement');
+  const ownerActivation = editorSource.indexOf('onFocus?.();', selectionStart);
+  const contextPublication = editorSource.indexOf('setSelectedFigure(figure)', selectionStart);
+  assert.ok(selectionStart >= 0);
+  assert.ok(ownerActivation > selectionStart);
+  assert.ok(contextPublication > ownerActivation);
+});
+
+test('klik langsung pada sel menerbitkan table context tanpa bergantung pada selection browser', () => {
+  assert.match(editorSource, /onPointerDown=\{handleEditorPointerDown\}/);
+  assert.match(editorSource, /target\?\.closest\('td,th'\)/);
+  assert.match(editorSource, /context: 'table',[\s\S]{0,80}inTable: true/);
+  assert.match(editorSource, /setSelectedTable\(activeTable\)/);
+  assert.match(editorSource, /className="table-selection-overlay/);
+});
+
+test('toolbar production Live A4 desktop merender selector 8/10/12 pt', () => {
   const noop = () => undefined;
   const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
     title: 'SPO Uji', onTitleChange: noop, sopNumber: '001', version: '00',
@@ -136,6 +153,7 @@ test('toolbar production Live A4 desktop merender selector 10/12 pt', () => {
   }));
   assert.match(html, /aria-label="Ukuran huruf"/);
   assert.match(html, /<option value="10pt">10 pt<\/option>/);
+  assert.match(html, /<option value="8pt">8 pt<\/option>/);
   assert.match(html, /<option value="12pt"(?: selected="")?>12 pt<\/option>/);
   assert.doesNotMatch(html, /Campur/);
   assert.doesNotMatch(html, /Warna Teks|Insert ▾/);
@@ -159,6 +177,12 @@ test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
   assert.match(geometrySource, /wrapTextInterval/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \*,\s*#printable[\s\S]{0,180}font-size: 12pt !important/);
   assert.match(rendererSource, /'style', 'class', 'colspan', 'rowspan'/);
+});
+
+test('editor mempertahankan dan menerapkan ukuran font 8 pt', () => {
+  assert.match(editorSource, /\^\(\?:8\|10\|12\)pt\$/);
+  assert.match(editorSource, /fontSize: '8pt' \| '10pt' \| '12pt' \| null/);
+  assert.match(editorSource, /applyFontSize: \(fontSize: '8pt' \| '10pt' \| '12pt'\)/);
 });
 
 test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => {
@@ -189,12 +213,44 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
 
 test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => {
   const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
-  for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi ▾', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
-  assert.match(liveTemplateSource, /handleTableAlignment\(a\)/);
-  assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
+  for (const tooltip of ['Sesuaikan Lebar Tabel', 'Tambah Baris', 'Tambah Kolom', 'Gabung Sel', 'Pisahkan Sel', 'Posisi Tabel', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(`title="${tooltip}"`));
+  assert.match(liveTemplateSource, /handleTableAlignment\(alignment\)/);
+  assert.match(liveTemplateSource, /onMouseDown=\{e\s*=>\s*e\.preventDefault\(\)\}/);
   assert.match(cssSource, /\.live-spo-context-toolbar/);
-  assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
-  assert.match(liveTemplateSource, /toggleTableWrap/);
+  assert.match(liveTemplateSource, /activeFormatting\.context\s*!==\s*'image'/);
+  assert.match(liveTemplateSource, /aria-label="Mode toolbar"/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('text'\)/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('table'\)/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('image'\)/);
+  assert.match(liveTemplateSource, /activeToolMode === 'text'/);
+  assert.match(liveTemplateSource, /activeToolMode === 'table'/);
+  assert.match(liveTemplateSource, /activeToolMode === 'image'/);
+  assert.match(liveTemplateSource, /toggleTableAutoFit/);
+  assert.doesNotMatch(liveTemplateSource, /AutoFit Tabel|Sel B\{|<summary[^>]*>⋯<\/summary>/);
+  assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
+  assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
+  assert.match(cssSource, /\.toolbar-icon\.is-active/);
+  const tableTools = liveTemplateSource.slice(liveTemplateSource.indexOf("activeToolMode === 'table'"), liveTemplateSource.indexOf("activeToolMode === 'image'"));
+  assert.doesNotMatch(tableTools, /Ukuran huruf|Tebal|Miring|Garis bawah|Penomoran|Bullet/);
+  assert.doesNotMatch(tableTools, /toolbar-text/);
+});
+
+test('mode toolbar hanya berubah lewat klik selector mode manual', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  assert.equal((liveTemplateSource.match(/setActiveToolMode\(/g) || []).length, 3);
+  assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/);
+  assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/);
+  assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/);
+});
+
+test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
+  assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/);
+  assert.match(editorSource, /savedRangeRef\.current = cellRange/);
+  assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col[\s\S]{0,300}width: auto !important/);
+  assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/);
+  assert.match(cssSource, /\.table-selection-overlay[\s\S]{0,500}\.table-move-handle[\s\S]{0,500}\.table-resize-handle/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
@@ -209,7 +265,7 @@ test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () 
 test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
   assert.match(a4Source, /values\[index\][\s\S]{0,80}\/ total/);
   assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
-  assert.match(a4Source, /table\.style\.tableLayout = 'fixed'/);
+  assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
   assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
   assert.match(rendererSource, /normalizeStructuredHtml/);

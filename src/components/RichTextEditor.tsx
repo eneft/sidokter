@@ -92,10 +92,14 @@ export interface RichTextFormattingState {
   align: 'left' | 'center' | 'right' | 'justify';
   orderedList: boolean;
   unorderedList: boolean;
-  fontSize: '10pt' | '12pt' | null;
+  fontSize: '8pt' | '10pt' | '12pt' | null;
   inTable: boolean;
   context: 'text' | 'table' | 'image';
-  tableWrap: boolean;
+  tableAutoFit: boolean;
+  tableAlign: TableAlignment;
+  tableRow?: number;
+  tableColumn?: number;
+  tableColumnCount?: number;
   canMerge: boolean;
   canSplit: boolean;
   imageWidth?: number;
@@ -106,12 +110,12 @@ export interface RichTextFormattingState {
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
   insertCustomList: (listType: '1' | 'a' | 'i') => void;
-  applyFontSize: (fontSize: '10pt' | '12pt') => void;
+  applyFontSize: (fontSize: '8pt' | '10pt' | '12pt') => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
   executeTableCommand: (command: TableCommand) => void;
   alignTable: (alignment: TableAlignment) => void;
-  toggleTableWrap: () => void;
+  toggleTableAutoFit: () => void;
   applyImageWidth: (percent: number) => void;
   applyImageAlignment: (alignment: 'left' | 'center' | 'right') => void;
   applyImageWrap: (mode: WordWrapMode) => void;
@@ -119,6 +123,18 @@ export interface RichTextEditorHandle {
   deleteImage: () => void;
   focus: () => void;
 }
+
+const getTableCellPosition = (cell: HTMLTableCellElement, table: HTMLTableElement | null) => {
+  const row = cell.parentElement instanceof HTMLTableRowElement ? cell.parentElement : null;
+  const precedingCells = row ? Array.from(row.cells).slice(0, cell.cellIndex) : [];
+  return {
+    row: row ? row.rowIndex + 1 : undefined,
+    column: precedingCells.reduce((total, item) => total + item.colSpan, 0) + 1,
+    columnCount: table?.rows[0]
+      ? Array.from(table.rows[0].cells).reduce((total, item) => total + item.colSpan, 0)
+      : undefined,
+  };
+};
 
 
 /**
@@ -226,7 +242,7 @@ const normalizePastedRichText = (source: string): string => {
     // Font size is document content, not editor chrome.  In particular Word
     // commonly uses 10pt inside dense tables while the SPO body defaults to
     // 12pt, so do not discard it while removing Word-only CSS.
-    const fontSize = /^(?:10|12)pt$/i.test(el.style.fontSize.trim())
+    const fontSize = /^(?:8|10|12)pt$/i.test(el.style.fontSize.trim())
       ? el.style.fontSize.toLowerCase()
       : '';
     const isBold = el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight || '0', 10) >= 600;
@@ -261,7 +277,7 @@ const normalizePastedRichText = (source: string): string => {
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -274,7 +290,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -591,6 +607,36 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   // selection that was made in the editor, not to the caret created by the button.
   const savedRangeRef = useRef<Range | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<HTMLTableElement | null>(null);
+  const [tableRect, setTableRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const tableResizeRef = useRef<{ startX: number; startWidth: number; editorWidth: number } | null>(null);
+  const tableMoveRef = useRef<{ startX: number } | null>(null);
+
+  const updateTableRect = useCallback((table: HTMLTableElement | null = selectedTable) => {
+    if (!table || !containerRef.current || !editorRef.current?.contains(table)) {
+      setTableRect(null);
+      return;
+    }
+    const bounds = table.getBoundingClientRect();
+    const containerBounds = containerRef.current.getBoundingClientRect();
+    setTableRect({
+      top: bounds.top - containerBounds.top + containerRef.current.scrollTop,
+      left: bounds.left - containerBounds.left + containerRef.current.scrollLeft,
+      width: bounds.width,
+      height: bounds.height,
+    });
+  }, [selectedTable]);
+
+  useEffect(() => {
+    updateTableRect();
+    const refresh = () => updateTableRect();
+    window.addEventListener('resize', refresh);
+    containerRef.current?.addEventListener('scroll', refresh, { passive: true });
+    return () => {
+      window.removeEventListener('resize', refresh);
+      containerRef.current?.removeEventListener('scroll', refresh);
+    };
+  }, [updateTableRect]);
 
   // Active text formatting state (for toolbar button active states)
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
@@ -603,7 +649,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     fontSize: null,
     inTable: false,
     context: 'text',
-    tableWrap: true,
+    tableAutoFit: false,
+    tableAlign: 'left',
     canMerge: false,
     canSplit: false,
   });
@@ -629,7 +676,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       else if (document.queryCommandState('justifyLeft')) align = 'left';
 
       const selection = window.getSelection();
-      let fontSize: '10pt' | '12pt' | null = null;
+      let fontSize: '8pt' | '10pt' | '12pt' | null = null;
       if (selection?.rangeCount && editorRef.current.contains(selection.anchorNode)) {
         const range = selection.getRangeAt(0);
         const sizes = new Set<string>();
@@ -649,12 +696,15 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           if (element) sizes.add(getComputedStyle(element).fontSize);
         }
         const points = [...sizes].map((size) => Math.round(parseFloat(size) * 72 / 96));
-        if (points.length && points.every((point) => point === points[0]) && (points[0] === 10 || points[0] === 12)) {
-          fontSize = `${points[0]}pt` as '10pt' | '12pt';
+        if (points.length && points.every((point) => point === points[0]) && (points[0] === 8 || points[0] === 10 || points[0] === 12)) {
+          fontSize = `${points[0]}pt` as '8pt' | '10pt' | '12pt';
         }
       }
 
       const activeCell = (selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement)?.closest('td,th') as HTMLTableCellElement | null;
+      const activeTable = activeCell?.closest('table') as HTMLTableElement | null;
+      const tableAlign = activeTable?.dataset.align;
+      const cellPosition = activeCell ? getTableCellPosition(activeCell, activeTable) : null;
       setActiveFormatting({
         bold: isBold,
         italic: isItalic,
@@ -665,7 +715,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         fontSize,
         inTable: Boolean(activeCell),
         context: activeCell ? 'table' : 'text',
-        tableWrap: activeCell ? activeCell.style.whiteSpace !== 'nowrap' : true,
+        tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
+        tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
+        tableRow: cellPosition?.row,
+        tableColumn: cellPosition?.column,
+        tableColumnCount: cellPosition?.columnCount,
         canMerge: Boolean(activeCell?.nextElementSibling),
         canSplit: Boolean(activeCell && (activeCell.rowSpan > 1 || activeCell.colSpan > 1)),
       });
@@ -673,6 +727,64 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       // Browser safety fallback
     }
   }, []);
+
+  const handleEditorPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
+    if (!activeCell || !editorRef.current?.contains(activeCell)) {
+      setSelectedTable(null);
+      setTableRect(null);
+      return;
+    }
+
+    const activeTable = activeCell.closest('table') as HTMLTableElement | null;
+    setSelectedTable(activeTable);
+    updateTableRect(activeTable);
+    const tableAlign = activeTable?.dataset.align;
+    const cellPosition = getTableCellPosition(activeCell, activeTable);
+    const cellRange = document.createRange();
+    cellRange.selectNodeContents(activeCell);
+    cellRange.collapse(true);
+    // Keep table commands pinned to the cell that was actually clicked. This
+    // covers empty cells and padding clicks where the browser leaves its native
+    // selection in the previously active cell.
+    savedRangeRef.current = cellRange;
+    // A click on cell padding or an empty cell may not move the browser
+    // selection. Publish table context directly from the pointer target so the
+    // shared toolbar switches modes immediately and consistently.
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'table',
+      inTable: true,
+      tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
+      tableAlign: tableAlign === 'center' || tableAlign === 'right' ? tableAlign : 'left',
+      tableRow: cellPosition.row,
+      tableColumn: cellPosition.column,
+      tableColumnCount: cellPosition.columnCount,
+      canMerge: Boolean(activeCell.nextElementSibling),
+      canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
+    }));
+  }, [updateTableRect]);
+
+  const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
+    if (activeCell && editorRef.current?.contains(activeCell)) {
+      const selection = window.getSelection();
+      const anchorElement = selection?.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection?.anchorNode?.parentElement;
+      if (anchorElement?.closest('td,th') !== activeCell) {
+        const range = document.createRange();
+        range.selectNodeContents(activeCell);
+        range.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        savedRangeRef.current = range.cloneRange();
+      }
+    }
+    updateActiveFormatting();
+  }, [updateActiveFormatting]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -859,6 +971,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const selectFigureElement = useCallback((figure: HTMLElement) => {
     if (!containerRef.current || !editorRef.current) return;
 
+    // Image pointer handling prevents the browser's default focus change. Tell
+    // the parent which editor owns the figure before publishing image context,
+    // so toolbar commands cannot be routed to a previously active section.
+    onFocus?.();
     setSelectedFigure(figure);
     const figBound = figure.getBoundingClientRect();
     const containerBound = containerRef.current.getBoundingClientRect();
@@ -892,7 +1008,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
       imageWrap: wrapMode,
     }));
-  }, []);
+  }, [onFocus]);
 
   const clearFigureSelection = useCallback(() => {
     setSelectedFigure(null);
@@ -1253,7 +1369,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   };
 
-  const applyFontSize = (fontSize: '10pt' | '12pt') => {
+  const applyFontSize = (fontSize: '8pt' | '10pt' | '12pt') => {
     if (!editorRef.current) return;
     restoreSavedSelection();
     try {
@@ -2147,20 +2263,82 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   }, [handleInput, placeCaretInCell, restoreSavedSelection]);
 
-  const toggleTableWrap = useCallback(() => {
+  const toggleTableAutoFit = useCallback(() => {
     restoreSavedSelection();
     const selection = window.getSelection();
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
     const cell = element?.closest('td,th') as HTMLTableCellElement | null;
     if (!cell || !editorRef.current?.contains(cell)) return;
-    const wrap = cell.style.whiteSpace === 'nowrap';
-    cell.style.whiteSpace = wrap ? 'normal' : 'nowrap';
-    cell.style.overflowWrap = wrap ? 'break-word' : 'normal';
-    cell.setAttribute('data-wrap', wrap ? 'on' : 'off');
+    const table = cell.closest('table') as HTMLTableElement | null;
+    if (!table) return;
+    const autoFit = table.dataset.tableAutofit !== 'true';
+    if (autoFit) {
+      table.dataset.tableAutofit = 'true';
+      delete table.dataset.tableWidth;
+      table.style.removeProperty('--table-width');
+    }
+    else delete table.dataset.tableAutofit;
     handleInput();
-    setActiveFormatting(current => ({ ...current, tableWrap: wrap, context: 'table' }));
+    setActiveFormatting(current => ({ ...current, tableAutoFit: autoFit, context: 'table' }));
   }, [handleInput, restoreSavedSelection]);
+
+  const handleTableResizeStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !editorRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tableResizeRef.current = {
+      startX: event.clientX,
+      startWidth: selectedTable.getBoundingClientRect().width,
+      editorWidth: editorRef.current.getBoundingClientRect().width,
+    };
+  }, [selectedTable]);
+
+  const handleTableResizeMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !tableResizeRef.current) return;
+    const { startX, startWidth, editorWidth } = tableResizeRef.current;
+    const width = Math.min(editorWidth, Math.max(80, startWidth + event.clientX - startX));
+    const percent = Math.round((width / editorWidth) * 1000) / 10;
+    delete selectedTable.dataset.tableAutofit;
+    selectedTable.dataset.tableWidth = String(percent);
+    selectedTable.style.setProperty('--table-width', `${percent}%`);
+    setActiveFormatting(current => ({ ...current, tableAutoFit: false, context: 'table' }));
+    updateTableRect(selectedTable);
+  }, [selectedTable, updateTableRect]);
+
+  const handleTableResizeEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!tableResizeRef.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    tableResizeRef.current = null;
+    handleInput();
+    updateTableRect(selectedTable);
+  }, [handleInput, selectedTable, updateTableRect]);
+
+  const handleTableMoveStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tableMoveRef.current = { startX: event.clientX };
+  }, []);
+
+  const handleTableMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!selectedTable || !tableMoveRef.current || !editorRef.current) return;
+    const delta = event.clientX - tableMoveRef.current.startX;
+    const threshold = Math.max(24, editorRef.current.clientWidth * 0.08);
+    const alignment: TableAlignment = delta < -threshold ? 'left' : delta > threshold ? 'right' : 'center';
+    applyTableAlignment(selectedTable, alignment);
+    setActiveFormatting(current => ({ ...current, tableAlign: alignment, context: 'table' }));
+    updateTableRect(selectedTable);
+  }, [selectedTable, updateTableRect]);
+
+  const handleTableMoveEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!tableMoveRef.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    tableMoveRef.current = null;
+    handleInput();
+    updateTableRect(selectedTable);
+  }, [handleInput, selectedTable, updateTableRect]);
 
   // The desktop Live A4 uses one shared toolbar outside the six seamless
   // editors. Expose the exact same selection-safe command pipeline instead of
@@ -2173,7 +2351,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     insertTable,
     executeTableCommand,
     alignTable,
-    toggleTableWrap,
+    toggleTableAutoFit,
     applyImageWidth: applyFigurePercentWidth,
     applyImageAlignment: (alignment) => {
       if (!selectedFigure) return;
@@ -2342,11 +2520,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                     savedRangeRef.current = selection.getRangeAt(0).cloneRange();
                   }
                 }}
-                onChange={(e) => applyFontSize(e.target.value as '10pt' | '12pt')}
+                onChange={(e) => applyFontSize(e.target.value as '8pt' | '10pt' | '12pt')}
                 className="h-5.5 max-w-16 rounded border border-slate-300 bg-white px-1 text-[10px] text-slate-700"
               >
-                <option value="10pt">10 pt</option>
                 <option value="12pt">12 pt</option>
+                <option value="10pt">10 pt</option>
+                <option value="8pt">8 pt</option>
               </select>
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
@@ -2591,11 +2770,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           ref={editorRef}
           contentEditable
           onFocus={onFocus}
+          onPointerDown={handleEditorPointerDown}
+          onPointerUp={handleEditorPointerUp}
           onInput={handleInput}
           onBlur={handleInput}
           onKeyDown={handleEditorKeyDown}
-          onKeyUp={updateActiveFormatting}
-          onMouseUp={updateActiveFormatting}
+          onKeyUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}
           onDragOver={handleEditorDragOver}
           onDragLeave={handleEditorDragLeave}
@@ -2604,6 +2784,37 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           data-placeholder={placeholder}
           className={`rich-text-editor-content p-2 sm:p-2.5 text-xs sm:text-[13px] text-slate-900 focus:outline-none font-bookman leading-normal empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none [word-break:normal] [overflow-wrap:break-word] [word-wrap:break-word] [hyphens:none] ${isFullscreen ? "flex-1 min-h-0" : ""}`}
         />
+
+        {/* Persistent table selection chrome keeps table context visually clear
+            while text and structure tools share the external toolbar. */}
+        {selectedTable && tableRect && (
+          <div
+            className="table-selection-overlay pointer-events-none absolute z-30"
+            style={{ top: tableRect.top, left: tableRect.left, width: tableRect.width, height: tableRect.height }}
+            aria-hidden="true"
+          >
+            <button
+              type="button"
+              tabIndex={-1}
+              className="table-move-handle pointer-events-auto"
+              title="Geser posisi tabel"
+              onPointerDown={handleTableMoveStart}
+              onPointerMove={handleTableMove}
+              onPointerUp={handleTableMoveEnd}
+              onPointerCancel={handleTableMoveEnd}
+            ><Move /></button>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="table-resize-handle pointer-events-auto"
+              title="Ubah lebar tabel"
+              onPointerDown={handleTableResizeStart}
+              onPointerMove={handleTableResizeMove}
+              onPointerUp={handleTableResizeEnd}
+              onPointerCancel={handleTableResizeEnd}
+            />
+          </div>
+        )}
 
         {/* DRAG-AND-DROP FILE OVERLAY */}
         {isDraggingFileOver && (
