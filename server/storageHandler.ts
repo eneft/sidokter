@@ -128,6 +128,15 @@ export async function handleStorageDownload(req: Request, res: Response): Promis
   await forwardToFirebaseStorage(req, res, `/files/${encodeURIComponent(id)}`);
 }
 
+export async function handleStorageDownloadBySop(req: Request, res: Response): Promise<void> {
+  const sopId = String(req.params.sopId || '').trim();
+  if (!/^sop-[a-zA-Z0-9_-]+$/.test(sopId)) {
+    res.status(400).json({ success: false, message: 'ID SPO tidak valid.' });
+    return;
+  }
+  await forwardToFirebaseStorage(req, res, `/sop/${encodeURIComponent(sopId)}`);
+}
+
 export async function handleStorageDelete(req: Request, res: Response): Promise<void> {
   const id = String(req.params.id || '').trim();
   if (!id) {

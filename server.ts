@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { generatePdf } from './server/pdfRenderer';
 import { handleAuthApi, verifyServerSession } from './server/authHandler';
-import { handleStorageUpload, handleStorageDownload, handleStorageDownloadByPath, handleStorageDelete } from './server/storageHandler';
+import { handleStorageUpload, handleStorageDownload, handleStorageDownloadByPath, handleStorageDownloadBySop, handleStorageDelete } from './server/storageHandler';
 import { handleHierarchyGet, handleHierarchySave } from './server/hierarchyHandler';
 
 const app = express();
@@ -36,6 +36,7 @@ app.all(['/api/auth', '/api/authApi', '/api/auth/:action', '/api/authApi/:action
 app.post('/api/storage/upload', handleStorageUpload);
 app.get('/api/storage/path/:storagePath(*)', handleStorageDownloadByPath);
 app.get(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDownload);
+app.get('/api/storage/sop/:sopId', handleStorageDownloadBySop);
 app.delete(['/api/storage/files/:id', '/api/storage/:id'], handleStorageDelete);
 
 // System hierarchy endpoints for multi-device synchronization
@@ -142,4 +143,3 @@ startServer().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-
