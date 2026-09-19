@@ -206,25 +206,34 @@ test('operasi table span-aware mencakup row, column, merge horizontal/vertical, 
 
 test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => {
   const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
-  for (const label of ['+ Baris', '+ Kolom', 'Gabung', 'Posisi:', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(label));
-  assert.match(liveTemplateSource, /handleTableAlignment\(a\)/);
-  assert.match(liveTemplateSource, /onMouseDown=\{e => e\.preventDefault\(\)\}/);
+  for (const tooltip of ['Sesuaikan Lebar Tabel', 'Tambah Baris', 'Tambah Kolom', 'Gabung Sel', 'Pisahkan Sel', 'Posisi Tabel', 'Hapus Baris', 'Hapus Kolom', 'Hapus Tabel']) assert.ok(liveTemplateSource.includes(`title="${tooltip}"`));
+  assert.match(liveTemplateSource, /handleTableAlignment\(alignment\)/);
+  assert.match(liveTemplateSource, /onMouseDown=\{e\s*=>\s*e\.preventDefault\(\)\}/);
   assert.match(cssSource, /\.live-spo-context-toolbar/);
-  assert.match(liveTemplateSource, /activeFormatting\.context === 'image'/);
+  assert.match(liveTemplateSource, /activeFormatting\.context\s*!==\s*'image'/);
   assert.match(liveTemplateSource, /aria-label="Mode toolbar"/);
-  assert.match(liveTemplateSource, /setToolbarMode\('text'\)/);
-  assert.match(liveTemplateSource, /setToolbarMode\('table'\)/);
-  assert.match(liveTemplateSource, /setToolbarMode\('image'\)/);
-  assert.match(liveTemplateSource, /toolbarMode === 'text'/);
-  assert.match(liveTemplateSource, /toolbarMode === 'table'/);
-  assert.match(liveTemplateSource, /toolbarMode === 'image'/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('text'\)/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('table'\)/);
+  assert.match(liveTemplateSource, /setActiveToolMode\('image'\)/);
+  assert.match(liveTemplateSource, /activeToolMode === 'text'/);
+  assert.match(liveTemplateSource, /activeToolMode === 'table'/);
+  assert.match(liveTemplateSource, /activeToolMode === 'image'/);
   assert.match(liveTemplateSource, /toggleTableAutoFit/);
-  assert.match(liveTemplateSource, />AutoFit Tabel<\/button>/);
-  assert.match(liveTemplateSource, /Sel B\{activeFormatting\.tableRow/);
+  assert.doesNotMatch(liveTemplateSource, /AutoFit Tabel|Sel B\{|<summary[^>]*>⋯<\/summary>/);
   assert.match(liveTemplateSource, /aria-pressed=\{activeFormatting\.orderedList\}/);
   assert.match(liveTemplateSource, /activeFormatting\.tableAlign/);
   assert.match(cssSource, /\.toolbar-icon\.is-active/);
-  assert.match(liveTemplateSource, /map\(\(\[c,l\]\)=><button type="button" key=\{c\} className="table-tools-danger"/);
+  const tableTools = liveTemplateSource.slice(liveTemplateSource.indexOf("activeToolMode === 'table'"), liveTemplateSource.indexOf("activeToolMode === 'image'"));
+  assert.doesNotMatch(tableTools, /Ukuran huruf|Tebal|Miring|Garis bawah|Penomoran|Bullet/);
+  assert.doesNotMatch(tableTools, /toolbar-text/);
+});
+
+test('mode toolbar hanya berubah lewat klik selector mode manual', () => {
+  const liveTemplateSource = readFileSync(new URL('../src/components/SopLiveTemplate.tsx', import.meta.url), 'utf8');
+  assert.equal((liveTemplateSource.match(/setActiveToolMode\(/g) || []).length, 3);
+  assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/);
+  assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/);
+  assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/);
 });
 
 test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {

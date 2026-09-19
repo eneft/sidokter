@@ -2872,14 +2872,9 @@ main .rich-text-toolbar,
   font-size: 9px;
   font-weight: 700;
 }
-.live-spo-context-toolbar .toolbar-mode-switch > button[aria-pressed="true"] {
-  background: #4f46e5;
-  color: #fff;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 18%);
-}
-.live-spo-context-toolbar .toolbar-mode-switch > button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.live-spo-context-toolbar .toolbar-mode-switch > button svg {
+  width: 13px;
+  height: 13px;
 }
 .live-spo-context-toolbar .toolbar-icon.is-active,
 .live-spo-context-toolbar .toolbar-text.is-active,
@@ -2888,23 +2883,52 @@ main .rich-text-toolbar,
   color: #3730a3;
   box-shadow: inset 0 0 0 1px #a5b4fc;
 }
+.live-spo-context-toolbar .toolbar-mode-switch > button[aria-pressed="true"] {
+  background: #4f46e5;
+  color: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 18%);
+}
+.live-spo-context-toolbar .toolbar-command-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+  padding-left: 3px;
+  margin-left: 1px;
+  border-left: 1px solid #e2e8f0;
+}
+.live-spo-context-toolbar .toolbar-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: transparent;
+  box-shadow: none;
+}
+.live-spo-context-toolbar .toolbar-icon.toolbar-danger { color: #e11d48; }
+.live-spo-context-toolbar .toolbar-icon.toolbar-danger:hover:not(:disabled) {
+  background: #fff1f2;
+  color: #be123c;
+}
+.live-spo-context-toolbar .table-position-menu {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  padding: 3px;
+  gap: 2px;
+}
+.live-spo-context-toolbar .table-position-menu > button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.live-spo-context-toolbar .table-position-menu > button svg { width: 14px; height: 14px; }
 .live-spo-context-toolbar .table-tools-menu > button.is-active {
   background: #e0e7ff;
   color: #3730a3;
   font-weight: 700;
 }
-.live-spo-context-toolbar .toolbar-cell-indicator {
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: #f1f5f9;
-  color: #334155;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 /* Content-sized tables opt out of the canonical fixed grid only when the
    author explicitly enables AutoFit. The containing SPO cell remains the hard
    maximum, so long content cannot overflow the A4 document geometry. */
