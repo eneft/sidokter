@@ -3,6 +3,10 @@ import DOMPurify from 'dompurify';
 import { createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
 import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
+  applyLogicalColumnWidths, ensureLogicalColumns, logicalColumnWidths,
+  MIN_TABLE_COLUMN_PX, resizeLogicalBoundary, setRowMinimumHeight,
+} from '../utils/tableGeometry';
+import {
   Bold,
   Italic,
   Underline,
@@ -280,7 +284,7 @@ const normalizePastedRichText = (source: string): string => {
   doc.querySelectorAll<HTMLElement>('*').forEach((el) => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
-      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'].includes(name)) {
+      if (!['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width', 'data-row-min-height'].includes(name)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -293,7 +297,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width', 'data-row-min-height'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -610,6 +614,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const [selectedTable, setSelectedTable] = useState<HTMLTableElement | null>(null);
   const [tableRect, setTableRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const tableResizeRef = useRef<{ startX: number; startWidth: number; editorWidth: number } | null>(null);
+  const gridResizeRef = useRef<{
+    kind: 'column' | 'row'; startX: number; startY: number; tableWidth: number;
+    boundary?: number; row?: HTMLTableRowElement; widths?: number[]; startHeight?: number;
+    snapshot: string;
+  } | null>(null);
   const tableMoveRef = useRef<{ startX: number } | null>(null);
 
   const updateTableRect = useCallback((table: HTMLTableElement | null = selectedTable) => {
@@ -738,6 +747,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
 
     const activeTable = activeCell.closest('table') as HTMLTableElement | null;
+    if (activeTable) ensureLogicalColumns(activeTable);
     setSelectedTable(activeTable);
     updateTableRect(activeTable);
     const tableAlign = activeTable?.dataset.align;
@@ -2315,6 +2325,68 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     updateTableRect(selectedTable);
   }, [handleInput, selectedTable, updateTableRect]);
 
+  const finishGridResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!gridResizeRef.current || !selectedTable || !editorRef.current) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const staging = document.createElement('div');
+    staging.innerHTML = gridResizeRef.current.snapshot;
+    const original = staging.firstElementChild as HTMLTableElement | null;
+    gridResizeRef.current = null;
+    if (!original || selectedTable.outerHTML === original.outerHTML) return;
+    const marker = `table-geometry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    selectedTable.dataset.geometryMarker = marker;
+    const finalHtml = selectedTable.outerHTML;
+    delete selectedTable.dataset.geometryMarker;
+
+    // Recreate the completed drag as exactly one native editing transaction.
+    // Pointer moves are live DOM previews only and therefore never flood Undo.
+    selectedTable.replaceWith(original);
+    const range = document.createRange();
+    range.selectNode(original);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.execCommand('insertHTML', false, finalHtml);
+    const next = editorRef.current.querySelector<HTMLTableElement>(`table[data-geometry-marker="${marker}"]`);
+    delete next?.dataset.geometryMarker;
+    setSelectedTable(next);
+    handleInput();
+    updateTableRect(next);
+  }, [handleInput, selectedTable, updateTableRect]);
+
+  const startColumnResize = useCallback((event: React.PointerEvent<HTMLButtonElement>, boundary: number) => {
+    if (!selectedTable) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const widths = logicalColumnWidths(selectedTable);
+    gridResizeRef.current = { kind: 'column', boundary, widths, startX: event.clientX, startY: event.clientY,
+      tableWidth: selectedTable.getBoundingClientRect().width, snapshot: selectedTable.outerHTML };
+  }, [selectedTable]);
+
+  const moveGridResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = gridResizeRef.current;
+    if (!drag || !selectedTable) return;
+    event.preventDefault();
+    if (drag.kind === 'column' && drag.widths && drag.boundary !== undefined) {
+      const delta = (event.clientX - drag.startX) / drag.tableWidth * 100;
+      const minimum = MIN_TABLE_COLUMN_PX / drag.tableWidth * 100;
+      applyLogicalColumnWidths(selectedTable, resizeLogicalBoundary(drag.widths, drag.boundary, delta, minimum));
+      setActiveFormatting(current => ({ ...current, tableAutoFit: false }));
+    } else if (drag.row && drag.startHeight !== undefined) {
+      setRowMinimumHeight(drag.row, drag.startHeight + event.clientY - drag.startY);
+    }
+    updateTableRect(selectedTable);
+  }, [selectedTable, updateTableRect]);
+
+  const startRowResize = useCallback((event: React.PointerEvent<HTMLButtonElement>, row: HTMLTableRowElement) => {
+    if (!selectedTable) return;
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gridResizeRef.current = { kind: 'row', row, startX: event.clientX, startY: event.clientY,
+      startHeight: row.getBoundingClientRect().height, tableWidth: selectedTable.getBoundingClientRect().width,
+      snapshot: selectedTable.outerHTML };
+  }, [selectedTable]);
+
   const handleTableMoveStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2813,6 +2885,24 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
               onPointerUp={handleTableResizeEnd}
               onPointerCancel={handleTableResizeEnd}
             />
+            {logicalColumnWidths(selectedTable).slice(0, -1).map((_, boundary, widths) => {
+              const left = widths.slice(0, boundary + 1).reduce((sum, width) => sum + width, 0);
+              return <button key={`column-${boundary}`} type="button" tabIndex={-1}
+                className="table-column-boundary pointer-events-auto" style={{ left: `${left}%` }}
+                title={`Ubah batas kolom ${boundary + 1}/${boundary + 2}`}
+                onPointerDown={(event) => startColumnResize(event, boundary)}
+                onPointerMove={moveGridResize} onPointerUp={finishGridResize} onPointerCancel={finishGridResize} />;
+            })}
+            {Array.from(selectedTable.rows as HTMLCollectionOf<HTMLTableRowElement>).map((row, index) => {
+              const tableBounds = selectedTable.getBoundingClientRect();
+              const rowBounds = row.getBoundingClientRect();
+              const top = rowBounds.bottom - tableBounds.top;
+              return <button key={`row-${index}`} type="button" tabIndex={-1}
+                className="table-row-boundary pointer-events-auto" style={{ top }}
+                title={`Ubah tinggi minimum baris ${index + 1}`}
+                onPointerDown={(event) => startRowResize(event, row)}
+                onPointerMove={moveGridResize} onPointerUp={finishGridResize} onPointerCancel={finishGridResize} />;
+            })}
           </div>
         )}
 
