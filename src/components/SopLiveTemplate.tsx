@@ -491,7 +491,20 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('undo')} title="Batalkan" aria-label="Batalkan" className="toolbar-icon"><Undo2 /></button>
                 <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('redo')} title="Ulangi" aria-label="Ulangi" className="toolbar-icon"><Redo2 /></button>
               </div>
-              <select aria-label="Ukuran huruf" value={activeFormatting.fontSize || '12pt'} onChange={e=>getActiveEditor()?.applyFontSize(e.target.value as '8pt'|'10pt'|'12pt')} className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"><option value="12pt">12 pt</option><option value="10pt">10 pt</option><option value="8pt">8 pt</option></select>
+<select
+  aria-label="Ukuran huruf"
+  value={activeFormatting.fontSize || '12pt'}
+  onChange={(e) =>
+    getActiveEditor()?.applyFontSize(
+      e.target.value as '8pt' | '10pt' | '12pt'
+    )
+  }
+  className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"
+>
+  <option value="12pt">12 pt</option>
+  <option value="10pt">10 pt</option>
+  <option value="8pt">8 pt</option>
+</select>
               <div className="toolbar-command-group">
                 {[[Bold,'bold','Tebal',activeFormatting.bold],[Italic,'italic','Miring',activeFormatting.italic],[Underline,'underline','Garis bawah',activeFormatting.underline]].map(([Icon,command,title,active])=><button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} title={String(title)} aria-label={String(title)} aria-pressed={Boolean(active)} className={`toolbar-icon ${active?'is-active':''}`}><Icon /></button>)}
               </div>

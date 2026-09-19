@@ -151,6 +151,26 @@ test('toolbar production Live A4 desktop merender selector 8/10/12 pt', () => {
     prosedur: '<table><tbody><tr><td><span style="font-size:10pt">Isi</span></td></tr></tbody></table>', onProsedurChange: noop,
     alur: '', onAlurChange: noop, unitTerkait: '<p>Unit</p>', onUnitTerkaitChange: noop,
   }));
+
+  assert.match(html, /aria-label="Ukuran huruf"/);
+  assert.match(html, /<option value="10pt">10 pt<\/option>/);
+  assert.match(html, /<option value="8pt">8 pt<\/option>/);
+  assert.match(html, /<option value="12pt"(?: selected="")?>12 pt<\/option>/);
+  assert.doesNotMatch(html, /Campur/);
+  assert.doesNotMatch(html, /Warna Teks|Insert ▾/);
+  assert.match(html, /title="Sisipkan Gambar"/);
+  assert.match(html, /title="Sisipkan Tabel"/);
+});
+  const noop = () => undefined;
+  const html = renderToStaticMarkup(React.createElement(SopLiveTemplate, {
+    title: 'SPO Uji', onTitleChange: noop, sopNumber: '001', version: '00',
+    effectiveDate: '2026-01-01', onEffectiveDateChange: noop, approverName: 'Direktur',
+    pengertian: '<p>Pengertian</p>', onPengertianChange: noop,
+    tujuan: '<p>Tujuan</p>', onTujuanChange: noop,
+    kebijakan: '<p>Kebijakan</p>', onKebijakanChange: noop,
+    prosedur: '<table><tbody><tr><td><span style="font-size:10pt">Isi</span></td></tr></tbody></table>', onProsedurChange: noop,
+    alur: '', onAlurChange: noop, unitTerkait: '<p>Unit</p>', onUnitTerkaitChange: noop,
+  }));
   assert.match(html, /aria-label="Ukuran huruf"/);
   assert.match(html, /<option value="10pt">10 pt<\/option>/);
   assert.match(html, /<option value="8pt">8 pt<\/option>/);
