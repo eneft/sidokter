@@ -22,14 +22,26 @@ import {
   IndentDecrease,
   IndentIncrease,
   List,
+  ListOrdered,
   ImagePlus,
-  Palette,
-  RotateCcw,
+  ImageIcon,
+  Type,
+  Table2,
+  Rows3,
+  Columns3,
+  Merge,
+  Split,
+  MoveHorizontal,
+  Trash2,
+  Maximize,
   Maximize2,
-  Type
+  Minimize,
+  Minimize2,
+  WrapText,
+  RotateCcw,
 } from 'lucide-react';
 import type { TableCommand } from '../utils/editorTableCommands';
-import { RichTextEditor, PRESET_COLORS, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
+import { RichTextEditor, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
@@ -98,10 +110,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
   const [activeSectionId, setActiveSectionId] = useState<string>('sec-pengertian');
   const [activeTableSection, setActiveTableSection] = useState<'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait'>('pengertian');
-  const [showColorPicker, setShowColorPicker] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
-  const [activeColor, setActiveColor] = useState('#0f172a');
+  const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
   const pengertianEditorRef = useRef<RichTextEditorHandle>(null);
   const tujuanEditorRef = useRef<RichTextEditorHandle>(null);
@@ -112,6 +123,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false, italic: false, underline: false, align: 'left',
     orderedList: false, unorderedList: false, fontSize: null, inTable: false,
+    context: 'text', tableAutoFit: false, canMerge: false, canSplit: false,
+    tableAlign: 'left',
   });
 
   const handleTableCommand = (command: TableCommand) => getActiveEditor()?.executeTableCommand(command);
@@ -132,12 +145,6 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
   const handleExecCommand = (cmd: string, val: string = '') => {
     getActiveEditor()?.executeCommand(cmd, val || undefined);
-  };
-
-  const handleApplyColor = (color: string) => {
-    setActiveColor(color);
-    getActiveEditor()?.executeCommand('foreColor', color);
-    setShowColorPicker(false);
   };
 
   const handleInsertList = (type: '1' | 'a') => {
@@ -465,291 +472,64 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             </div>
           )}
 
-          {/* DEDICATED TOP TEXT TOOLBAR - POSITIONED DIRECTLY ABOVE THE COLUMNS */}
-          <div className="sticky top-2 z-30 w-full max-w-[900px] mx-auto bg-white text-slate-700 rounded-xl shadow-sm border border-slate-200 px-2 py-1 flex items-center justify-between gap-1 text-xs select-none backdrop-blur-md">
-            {/* Active Column / Section Indicator & Switcher */}
+          {/* One context-aware toolbar. Editor chrome stays outside document HTML. */}
+          <div className="live-spo-context-toolbar sticky top-2 z-30 w-full max-w-[900px] mx-auto bg-white text-slate-700 rounded-xl shadow-sm border border-slate-200 px-2 py-1 flex items-center gap-1 text-xs select-none overflow-visible">
             <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:inline">
-                Bagian:
-              </span>
-              <select
-                value={activeTableSection}
-                onChange={(e) => setActiveTableSection(e.target.value as any)}
-                title="Pilih Kolom Batang Tubuh yang Sedang Diedit"
-                className="h-6 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-0 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
-              >
-                <option value="pengertian">1. PENGERTIAN</option>
-                <option value="tujuan">2. TUJUAN</option>
-                <option value="kebijakan">3. KEBIJAKAN</option>
-                <option value="prosedur">4. PROSEDUR</option>
-                <option value="alur">5. ALUR / BAGAN</option>
-                <option value="unitTerkait">6. UNIT TERKAIT</option>
+              <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Bagian:</span>
+              <select value={activeTableSection} onChange={(e) => setActiveTableSection(e.target.value as typeof activeTableSection)} className="h-6 max-w-32 text-[10px] font-bold bg-white border border-slate-200 rounded px-1">
+                <option value="pengertian">PENGERTIAN</option><option value="tujuan">TUJUAN</option><option value="kebijakan">KEBIJAKAN</option><option value="prosedur">PROSEDUR</option><option value="alur">ALUR</option><option value="unitTerkait">UNIT TERKAIT</option>
               </select>
             </div>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-
-            {/* Undo & Redo */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('undo')}
-                title="Undo (Ctrl+Z)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('redo')}
-                title="Redo (Ctrl+Y)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-              </button>
+            <div className="toolbar-mode-switch" aria-label="Mode toolbar">
+              <button type="button" aria-pressed={activeToolMode === 'text'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('text')} title="Mode Teks" aria-label="Mode Teks"><Type /></button>
+              <button type="button" aria-pressed={activeToolMode === 'table'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('table')} title="Mode Tabel" aria-label="Mode Tabel"><Table2 /></button>
+              <button type="button" aria-pressed={activeToolMode === 'image'} onMouseDown={e=>e.preventDefault()} onClick={()=>setActiveToolMode('image')} title="Mode Gambar" aria-label="Mode Gambar"><ImageIcon /></button>
             </div>
 
-            <select
-              aria-label="Ukuran huruf Batang Tubuh"
-              title="Ukuran Huruf"
-              value={activeFormatting.fontSize || '12pt'}
-              onChange={(event) => getActiveEditor()?.applyFontSize(event.target.value as '10pt' | '12pt')}
-              className="h-6 w-[58px] shrink-0 rounded-lg border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            >
-              <option value="10pt">10 pt</option>
-              <option value="12pt">12 pt</option>
-            </select>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-
-            {/* Font Styling (B, I, U, S) */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('bold')}
-                title="Tebal / Bold (Ctrl+B)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <Bold className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('italic')}
-                title="Miring / Italic (Ctrl+I)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <Italic className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('underline')}
-                title="Garis Bawah / Underline (Ctrl+U)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <Underline className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Font Color Picker */}
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowColorPicker(!showColorPicker)}
-                title="Warna Teks"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center gap-0.5"
-              >
-                <Palette className="w-3.5 h-3.5" />
-                <span
-                  className="w-2 h-2 rounded-full border border-slate-500 inline-block shrink-0"
-                  style={{ backgroundColor: activeColor }}
-                />
-              </button>
-
-              {showColorPicker && (
-                <div className="absolute top-full left-0 mt-1 z-50 bg-white text-slate-900 border border-slate-200 rounded-lg shadow-xl p-2 w-44 space-y-1.5 animate-fadeIn">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Pilih Warna Teks:
-                  </span>
-                  <div className="grid grid-cols-4 gap-1">
-                    {PRESET_COLORS.map((c) => (
-                      <button
-                        key={c.color}
-                        type="button"
-                        onClick={() => handleApplyColor(c.color)}
-                        title={c.name}
-                        className="w-7 h-7 rounded border border-slate-300 hover:scale-105 transition-transform cursor-pointer flex items-center justify-center"
-                        style={{ backgroundColor: c.color }}
-                      />
-                    ))}
-                  </div>
-                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-600">Kustom:</span>
-                    <input
-                      type="color"
-                      value={activeColor}
-                      onChange={(e) => handleApplyColor(e.target.value)}
-                      className="w-5 h-5 rounded cursor-pointer border-0 p-0"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-
-            {/* Alignments */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('justifyLeft')}
-                title="Rata Kiri (Ctrl+L)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('justifyCenter')}
-                title="Rata Tengah (Ctrl+E)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <AlignCenter className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('justifyRight')}
-                title="Rata Kanan (Ctrl+R)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <AlignRight className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('justifyFull')}
-                title="Rata Kiri Kanan / Justify (Ctrl+J)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <AlignJustify className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0 hidden md:block" />
-
-            {/* Indentations */}
-            <div className="hidden md:flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('outdent')}
-                title="Kurangi Indentasi (Shift+Tab)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <IndentDecrease className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('indent')}
-                title="Tambah Indentasi (Tab)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <IndentIncrease className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-
-            {/* Presets SPO Numbering */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleInsertList('1')}
-                title="Nomor Utama (1., 2., 3...)"
-                className="h-6 px-1.5 text-[10px] font-bold rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
-              >
-                1.
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleInsertList('a')}
-                title="Sub-Poin Huruf (a., b., c...)"
-                className="h-6 px-1.5 text-[10px] font-bold rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
-              >
-                a.
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('insertUnorderedList')}
-                title="Poin / Bullet List (•)"
-                className="w-6 h-6 p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-indigo-600 cursor-pointer flex items-center justify-center transition-colors"
-              >
-                <List className="w-3.5 h-3.5 text-indigo-400" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => handleExecCommand('removeFormat')}
-                title="Reset Format"
-                className="w-6 h-6 p-1 rounded hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 cursor-pointer flex items-center justify-center transition-colors"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-
-            {/* Compact Insert menu; image keeps the existing upload/storage path. */}
-            <div className="flex items-center shrink-0 relative">
-              <input
-                ref={tableFileInputRef}
-                type="file"
-                accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml"
-                multiple
-                onChange={handleInsertImageToActiveSection}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setShowInsertMenu(value => !value)}
-                title="Sisipkan tabel atau gambar"
-                className="h-6 px-2 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded text-[10px] font-bold transition-all cursor-pointer shadow-xs"
-              >
-                <span>Insert ▾</span>
-              </button>
-              {showInsertMenu && <div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border border-slate-200 bg-white p-2 text-slate-700 shadow-xl">
-                <p className="mb-1 text-[10px] font-bold">Tabel</p>
-                <div className="grid grid-cols-4 gap-1">
-                  {[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([rows, columns]) => <button key={`${rows}-${columns}`} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { getActiveEditor()?.insertTable(rows, columns); setShowInsertMenu(false); }} className="rounded border border-slate-200 px-1 py-1 text-[10px] hover:bg-indigo-50">{rows}×{columns}</button>)}
-                </div>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setShowInsertMenu(false); if (tableFileInputRef.current) { tableFileInputRef.current.value = ''; tableFileInputRef.current.click(); } }} className="mt-2 flex w-full items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-slate-100"><ImagePlus className="h-3 w-3" /> Gambar</button>
-              </div>}
-            </div>
-
-            {activeFormatting.inTable && <>
-              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-              <div className="table-floating-tools relative shrink-0" aria-label="Table Tools">
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-row')} className="table-tool-button">+ Baris</button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('add-column')} className="table-tool-button">+ Kolom</button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand('merge-right')} className="table-tool-button">Gabung</button>
-                <div className="relative"><button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setShowTableMenu(value => !value)} className="table-tool-button">Posisi ▾</button>
-                  {showTableMenu && <div role="menu" className="table-tools-menu right-0">{(['left', 'center', 'right'] as const).map((alignment) => <button key={alignment} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { handleTableAlignment(alignment); setShowTableMenu(false); }}>{alignment === 'left' ? 'Kiri' : alignment === 'center' ? 'Tengah' : 'Kanan'}</button>)}</div>}
-                </div>
-                <div className="relative"><button type="button" onMouseDown={e => e.preventDefault()} className="table-tool-button">⋯</button><div className="table-tools-menu table-tools-more right-0">{([['delete-row', 'Hapus Baris'], ['delete-column', 'Hapus Kolom'], ['delete-table', 'Hapus Tabel']] as const).map(([command, label]) => <button key={command} type="button" className="table-tools-danger" onMouseDown={e => e.preventDefault()} onClick={() => handleTableCommand(command)}>{label}</button>)}</div></div>
+            {activeToolMode === 'text' && <>
+              <div className="toolbar-command-group">
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('undo')} title="Batalkan" aria-label="Batalkan" className="toolbar-icon"><Undo2 /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('redo')} title="Ulangi" aria-label="Ulangi" className="toolbar-icon"><Redo2 /></button>
+              </div>
+              <select aria-label="Ukuran huruf" value={activeFormatting.fontSize || '12pt'} onChange={e=>getActiveEditor()?.applyFontSize(e.target.value as '10pt'|'12pt')} className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"><option value="12pt">12 pt</option><option value="10pt">10 pt</option></select>
+              <div className="toolbar-command-group">
+                {[[Bold,'bold','Tebal',activeFormatting.bold],[Italic,'italic','Miring',activeFormatting.italic],[Underline,'underline','Garis bawah',activeFormatting.underline]].map(([Icon,command,title,active])=><button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} title={String(title)} aria-label={String(title)} aria-pressed={Boolean(active)} className={`toolbar-icon ${active?'is-active':''}`}><Icon /></button>)}
+              </div>
+              <div className="toolbar-command-group">
+                {[[AlignLeft,'justifyLeft','left','Rata kiri'],[AlignCenter,'justifyCenter','center','Rata tengah'],[AlignRight,'justifyRight','right','Rata kanan'],[AlignJustify,'justifyFull','justify','Rata penuh']].map(([Icon,command,alignment,title])=>{const active=activeFormatting.align===alignment;return <button key={String(command)} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand(String(command))} title={String(title)} aria-label={String(title)} aria-pressed={active} className={`toolbar-icon ${active?'is-active':''}`}><Icon /></button>})}
+              </div>
+              <div className="toolbar-command-group">
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleInsertList('1')} title="Penomoran" aria-label="Penomoran" aria-pressed={activeFormatting.orderedList} className={`toolbar-icon ${activeFormatting.orderedList?'is-active':''}`}><ListOrdered /></button>
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>handleExecCommand('insertUnorderedList')} title="Bullet" aria-label="Bullet" aria-pressed={activeFormatting.unorderedList} className={`toolbar-icon ${activeFormatting.unorderedList?'is-active':''}`}><List /></button>
+              </div>
+              <div className="toolbar-command-group">
+                <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />
+                <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{if(tableFileInputRef.current){tableFileInputRef.current.value='';tableFileInputRef.current.click();}}} className="toolbar-icon" title="Sisipkan Gambar" aria-label="Sisipkan Gambar"><ImagePlus /></button>
+                <div className="relative"><button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowInsertMenu(v=>!v)} className="toolbar-icon" title="Sisipkan Tabel" aria-label="Sisipkan Tabel" aria-expanded={showInsertMenu}><Table2 /></button>{showInsertMenu&&<div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border bg-white p-2 shadow-xl"><p className="mb-1 text-[10px] font-bold">Sisipkan Tabel</p><div className="grid grid-cols-3 gap-1">{[[2,2],[2,3],[3,3],[4,4],[5,5]].map(([r,c])=><button key={`${r}-${c}`} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>{getActiveEditor()?.insertTable(r,c);setShowInsertMenu(false)}} className="rounded border p-1 text-[10px] hover:bg-indigo-50">{r}×{c}</button>)}</div></div>}</div>
               </div>
             </>}
+
+            {activeToolMode === 'table' && <div className="toolbar-command-group table-command-group">
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.toggleTableAutoFit()} aria-pressed={activeFormatting.tableAutoFit} className={`toolbar-icon ${activeFormatting.tableAutoFit?'is-active':''}`} title="Sesuaikan Lebar Tabel" aria-label="Sesuaikan Lebar Tabel"><Maximize2 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-row')} className="toolbar-icon" title="Tambah Baris" aria-label="Tambah Baris"><Rows3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('add-column')} className="toolbar-icon" title="Tambah Kolom" aria-label="Tambah Kolom"><Columns3 /></button>
+              <button type="button" disabled={!activeFormatting.canMerge} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('merge-right')} className="toolbar-icon" title="Gabung Sel" aria-label="Gabung Sel"><Merge /></button>
+              <button type="button" disabled={!activeFormatting.canSplit} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('split-cell')} className="toolbar-icon" title="Pisahkan Sel" aria-label="Pisahkan Sel"><Split /></button>
+              <div className="relative"><button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>setShowTableMenu(v=>!v)} aria-expanded={showTableMenu} className="toolbar-icon" title="Posisi Tabel" aria-label="Posisi Tabel"><MoveHorizontal /></button>{showTableMenu&&<div className="table-tools-menu table-position-menu right-0">{([[AlignLeft,'left','Posisi kiri'],[AlignCenter,'center','Posisi tengah'],[AlignRight,'right','Posisi kanan']] as const).map(([Icon,alignment,title])=><button type="button" key={alignment} aria-pressed={activeFormatting.tableAlign===alignment} className={activeFormatting.tableAlign===alignment?'is-active':''} title={title} aria-label={title} onMouseDown={e=>e.preventDefault()} onClick={()=>{handleTableAlignment(alignment);setActiveFormatting(current=>({...current,tableAlign:alignment}));setShowTableMenu(false)}}><Icon /></button>)}</div>}</div>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-row')} className="toolbar-icon toolbar-danger" title="Hapus Baris" aria-label="Hapus Baris"><Rows3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-column')} className="toolbar-icon toolbar-danger" title="Hapus Kolom" aria-label="Hapus Kolom"><Columns3 /></button>
+              <button type="button" disabled={!activeFormatting.inTable} onMouseDown={e=>e.preventDefault()} onClick={()=>handleTableCommand('delete-table')} className="toolbar-icon toolbar-danger" title="Hapus Tabel" aria-label="Hapus Tabel"><Trash2 /></button>
+            </div>}
+
+            {activeToolMode === 'image' && <div className="toolbar-command-group image-command-group">
+              {([[Minimize2,25,'Lebar gambar 25%'],[Minimize,50,'Lebar gambar 50%'],[Maximize,75,'Lebar gambar 75%'],[Maximize2,100,'Lebar gambar 100%']] as const).map(([Icon,percent,title])=><button key={percent} type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWidth(percent)} title={title} aria-label={title} aria-pressed={activeFormatting.imageWidth===percent} className={`toolbar-icon ${activeFormatting.imageWidth===percent?'is-active':''}`}><Icon /></button>)}
+              {([[AlignLeft,'left','Posisi gambar kiri'],[AlignCenter,'center','Posisi gambar tengah'],[AlignRight,'right','Posisi gambar kanan']] as const).map(([Icon,alignment,title])=><button key={alignment} type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageAlignment(alignment)} title={title} aria-label={title} aria-pressed={activeFormatting.imageAlign===alignment} className={`toolbar-icon ${activeFormatting.imageAlign===alignment?'is-active':''}`}><Icon /></button>)}
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.applyImageWrap(activeFormatting.imageWrap==='top-bottom'?'square':'top-bottom')} title="Bungkus Teks pada Gambar" aria-label="Bungkus Teks pada Gambar" aria-pressed={activeFormatting.imageWrap!=='top-bottom'} className={`toolbar-icon ${activeFormatting.imageWrap!=='top-bottom'?'is-active':''}`}><WrapText /></button>
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.resetImage()} className="toolbar-icon" title="Atur Ulang Gambar" aria-label="Atur Ulang Gambar"><RotateCcw /></button>
+              <button type="button" disabled={activeFormatting.context!=='image'} onMouseDown={e=>e.preventDefault()} onClick={()=>getActiveEditor()?.deleteImage()} className="toolbar-icon toolbar-danger" title="Hapus Gambar" aria-label="Hapus Gambar"><Trash2 /></button>
+            </div>}
           </div>
 
           <div className="sop-live-a4-page-stack">

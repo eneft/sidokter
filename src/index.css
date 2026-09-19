@@ -1855,12 +1855,6 @@ button, a, input, select, textarea {
 .sop-live-a4-document .sop-batang-tubuh-content {
   padding: 0.625rem !important;
 }
-.table-floating-tools { display: flex; align-items: center; gap: 0.15rem; }
-.table-tool-button { height: 1.5rem; border-radius: 0.25rem; padding-inline: 0.4rem; font-size: 10px; font-weight: 700; color: #4338ca; background: #eef2ff; }
-.table-tools-more { display: none; }
-.table-floating-tools > .relative:last-child:focus-within .table-tools-more,
-.table-floating-tools > .relative:last-child:hover .table-tools-more { display: block; }
-
 @media (max-width: 900px) {
   .sop-live-a4-page-stack { transform-origin: top left; }
 }
@@ -2859,4 +2853,137 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-document-content thead,
 .sop-batang-tubuh-content .rich-text-output thead {
   display: table-header-group;
+}
+
+/* LiveSPOEditor's single context-aware chrome; never contributes to A4 geometry. */
+.live-spo-context-toolbar { min-height: 36px; white-space: nowrap; }
+.live-spo-context-toolbar .toolbar-icon { width: 24px; height: 24px; padding: 5px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: #475569; }
+.live-spo-context-toolbar .toolbar-icon:hover { background: #f1f5f9; color: #4f46e5; }
+.live-spo-context-toolbar .toolbar-icon svg { width: 14px; height: 14px; }
+.live-spo-context-toolbar .toolbar-text { height: 24px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.live-spo-context-toolbar .toolbar-text:hover { background: #f1f5f9; color: #4f46e5; }
+.live-spo-context-toolbar .toolbar-mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.live-spo-context-toolbar .toolbar-mode-switch > button {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+}
+.live-spo-context-toolbar .toolbar-mode-switch > button svg {
+  width: 13px;
+  height: 13px;
+}
+.live-spo-context-toolbar .toolbar-icon.is-active,
+.live-spo-context-toolbar .toolbar-text.is-active,
+.live-spo-context-toolbar [aria-pressed="true"] {
+  background: #e0e7ff;
+  color: #3730a3;
+  box-shadow: inset 0 0 0 1px #a5b4fc;
+}
+.live-spo-context-toolbar .toolbar-mode-switch > button[aria-pressed="true"] {
+  background: #4f46e5;
+  color: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 18%);
+}
+.live-spo-context-toolbar .toolbar-command-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+  padding-left: 3px;
+  margin-left: 1px;
+  border-left: 1px solid #e2e8f0;
+}
+.live-spo-context-toolbar .toolbar-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: transparent;
+  box-shadow: none;
+}
+.live-spo-context-toolbar .toolbar-icon.toolbar-danger { color: #e11d48; }
+.live-spo-context-toolbar .toolbar-icon.toolbar-danger:hover:not(:disabled) {
+  background: #fff1f2;
+  color: #be123c;
+}
+.live-spo-context-toolbar .table-position-menu {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  padding: 3px;
+  gap: 2px;
+}
+.live-spo-context-toolbar .table-position-menu > button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.live-spo-context-toolbar .table-position-menu > button svg { width: 14px; height: 14px; }
+.live-spo-context-toolbar .table-tools-menu > button.is-active {
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 700;
+}
+/* Content-sized tables opt out of the canonical fixed grid only when the
+   author explicitly enables AutoFit. The containing SPO cell remains the hard
+   maximum, so long content cannot overflow the A4 document geometry. */
+.rich-text-editor-content table[data-table-autofit="true"],
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"],
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] {
+  width: fit-content !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+}
+.rich-text-editor-content table[data-table-autofit="true"] > colgroup > col,
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"] > colgroup > col,
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] > colgroup > col {
+  width: auto !important;
+}
+.rich-text-editor-content table[data-table-width],
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-width],
+.sop-batang-tubuh-content .rich-text-output table[data-table-width] {
+  width: var(--table-width) !important;
+  max-width: 100% !important;
+}
+.table-selection-overlay {
+  border: 2px solid #4f46e5;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 80%);
+}
+.table-selection-overlay .table-move-handle,
+.table-selection-overlay .table-resize-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #6366f1;
+  background: #fff;
+  color: #4338ca;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
+  touch-action: none;
+}
+.table-selection-overlay .table-move-handle {
+  left: -10px;
+  top: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+}
+.table-selection-overlay .table-move-handle svg { width: 12px; height: 12px; }
+.table-selection-overlay .table-resize-handle {
+  right: -9px;
+  bottom: -9px;
+  cursor: nwse-resize;
 }
