@@ -3,6 +3,7 @@ import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache, buildStorage
 import { safeSetLocalStorage } from '../utils/storageQuota';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
+import { upsertLibraryDocumentById } from './libraryDocumentCreatePolicy';
 
 import { getPersistedClientSession, getCurrentAuthToken } from './authService';
 const LIBRARY_KEY = 'soegiri_offline_library_v1';
@@ -109,7 +110,10 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
   } catch (metadataError) {
     throw metadataError instanceof Error ? metadataError : new Error('Gagal menyimpan metadata dokumen ke Firestore.');
   }
-  saveDocuments([...getDocuments(), document]);
+  // setDoc can publish its onSnapshot before this continuation runs. Reconcile
+  // the optimistic cache by the canonical Firestore document ID rather than
+  // appending a second copy of the same logical document.
+  saveDocuments(upsertLibraryDocumentById(getDocuments(), document));
   return document;
 }
 

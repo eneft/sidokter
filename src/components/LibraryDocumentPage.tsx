@@ -34,6 +34,7 @@ import { formatBytes } from '../utils/numbering';
 import { triggerFileDownload } from '../utils/fileStorage';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
+import { createSingleFlightGuard } from '../lib/libraryDocumentCreatePolicy';
 
 interface Props {
   type: LibraryDocumentType;
@@ -90,6 +91,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
   const [deleteConfirmDoc, setDeleteConfirmDoc] = useState<LibraryDocument | null>(null);
   const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadSubmissionGuard = useRef(createSingleFlightGuard());
 
   // Available SK list for referencing in SK Perubahan
   const availableBaseSkDocs = useMemo(() => {
@@ -315,6 +317,10 @@ export const LibraryDocumentPage: React.FC<Props> = ({
       return;
     }
 
+    // React state updates are asynchronous and cannot by themselves reject two
+    // submit events delivered in the same tick (for example a rapid double-click).
+    if (!uploadSubmissionGuard.current.tryStart()) return;
+
     try {
       setSaving(true);
       const metadata = {
@@ -353,6 +359,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
     } catch (e: any) {
       onShowToast?.('error', 'Upload Gagal', e?.message || 'Dokumen tidak dapat disimpan ke server.');
     } finally {
+      uploadSubmissionGuard.current.finish();
       setSaving(false);
     }
   };
