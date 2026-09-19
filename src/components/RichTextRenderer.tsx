@@ -134,7 +134,7 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
       ALLOWED_ATTR: [
         'style', 'class', 'colspan', 'rowspan', 'align', 'start', 'type', 'value',
         'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align',
-        'data-rotation', 'data-table-autofit', 'data-table-width', 'data-row-min-height', 'data-storage-image', 'data-sop-image', 'data-sop-list-group',
+        'data-rotation', 'data-table-autofit', 'data-table-width', 'data-table-align', 'data-row-min-height', 'data-storage-image', 'data-sop-image', 'data-sop-list-group',
         'data-sop-list-continuation', 'data-sop-continuation-li', 'data-sop-continuation-number'
       ],
       ALLOW_DATA_ATTR: true,

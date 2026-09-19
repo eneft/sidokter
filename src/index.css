@@ -2837,13 +2837,69 @@ main .rich-text-toolbar,
 .sop-batang-tubuh-content .rich-text-output table[data-editor-table="true"] {
   width: 100% !important;
 }
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"],
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"],
+.rich-text-editor-content table[data-table-autofit="true"] {
+  width: fit-content !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+}
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-autofit="true"] > colgroup > col,
+.sop-batang-tubuh-content .rich-text-output table[data-table-autofit="true"] > colgroup > col,
+.rich-text-editor-content table[data-table-autofit="true"] > colgroup > col {
+  width: auto !important;
+}
+.sop-batang-tubuh-content .rich-text-document-content table[data-table-width],
+.sop-batang-tubuh-content .rich-text-output table[data-table-width],
+.rich-text-editor-content table[data-table-width] {
+  width: var(--table-width) !important;
+  max-width: 100% !important;
+}
 .sop-batang-tubuh-content .rich-text-document-content th,
 .sop-batang-tubuh-content .rich-text-document-content td,
 .sop-batang-tubuh-content .rich-text-output th,
-.sop-batang-tubuh-content .rich-text-output td {
+.sop-batang-tubuh-content .rich-text-output td,
+.sop-batang-tubuh-content table th,
+.sop-batang-tubuh-content table td,
+.rich-text-editor-content table th,
+.rich-text-editor-content table td,
+.rich-text-document-content table th,
+.rich-text-document-content table td,
+.rich-text-output table th,
+.rich-text-output table td,
+#printable-sop-official-document .sop-batang-tubuh-content table th,
+#printable-sop-official-document .sop-batang-tubuh-content table td {
   border: 1px solid #000;
-  padding: 2mm;
+  padding: 0.5px 2mm !important;
+  padding-top: 0.5px !important;
+  padding-bottom: 0.5px !important;
+  padding-left: 2mm !important;
+  padding-right: 2mm !important;
   vertical-align: top;
+}
+
+.sop-batang-tubuh-content table td ul,
+.sop-batang-tubuh-content table th ul,
+.sop-batang-tubuh-content table td ol,
+.sop-batang-tubuh-content table th ol,
+.rich-text-editor-content table td ul,
+.rich-text-editor-content table th ul,
+.rich-text-editor-content table td ol,
+.rich-text-editor-content table th ol,
+.rich-text-document-content table td ul,
+.rich-text-document-content table th ul,
+.rich-text-document-content table td ol,
+.rich-text-document-content table th ol,
+.rich-text-output table td ul,
+.rich-text-output table th ul,
+.rich-text-output table td ol,
+.rich-text-output table th ol,
+#printable-sop-official-document .sop-batang-tubuh-content table td ul,
+#printable-sop-official-document .sop-batang-tubuh-content table th ul,
+#printable-sop-official-document .sop-batang-tubuh-content table td ol,
+#printable-sop-official-document .sop-batang-tubuh-content table th ol {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 .sop-batang-tubuh-content .rich-text-document-content tr,
 .sop-batang-tubuh-content .rich-text-output tr {
@@ -2868,6 +2924,7 @@ main .rich-text-toolbar,
   line-height: 1 !important;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
+  letter-spacing: normal !important;
 }
 
 /* Imported DOCX content can carry line-height on spans/divs, not only on its
@@ -2887,19 +2944,40 @@ main .rich-text-toolbar,
 .rich-text-document-content table td p,
 .rich-text-document-content table th p,
 .rich-text-output table td p,
-.rich-text-output table th p {
+.rich-text-output table th p,
+.rich-text-editor-content table td div,
+.rich-text-editor-content table th div,
+.rich-text-document-content table td div,
+.rich-text-document-content table th div,
+.rich-text-output table td div,
+.rich-text-output table th div {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
+  line-height: 1 !important;
 }
 
 /* Keep the paragraph/list contract explicit even though the descendant reset
    above also protects imported wrappers. */
+.rich-text-editor-content table td ul,
+.rich-text-editor-content table th ul,
+.rich-text-document-content table td ul,
+.rich-text-document-content table th ul,
+.rich-text-output table td ul,
+.rich-text-output table th ul,
+.rich-text-editor-content table td ol,
+.rich-text-editor-content table th ol,
+.rich-text-document-content table td ol,
+.rich-text-document-content table th ol,
+.rich-text-output table td ol,
+.rich-text-output table th ol,
 .rich-text-editor-content table td li,
 .rich-text-editor-content table th li,
 .rich-text-document-content table td li,
 .rich-text-document-content table th li,
 .rich-text-output table td li,
 .rich-text-output table th li {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
   line-height: 1 !important;
 }
 
@@ -3058,4 +3136,66 @@ main .rich-text-toolbar,
   right: -9px;
   bottom: -9px;
   cursor: nwse-resize;
+}
+
+/* SIDOKTER Preview/PDF nested-table compaction.
+   Preview fragments can retain imported/manual row height floors and the
+   generic SPO list rhythm (1.5 line-height + paragraph/list margins). Those
+   values make an 8pt table look unchanged even when td padding is reduced.
+   Keep this strictly inside authored tables in the official document so the
+   surrounding SPO prose remains at the canonical 1.5 spacing. */
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) tr,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) tr {
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) td,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) th,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) td,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) th {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1 !important;
+}
+
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) td *,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) th *,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) td *,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) th * {
+  line-height: 1 !important;
+}
+
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) p,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) div,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) ul,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) ol,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) li,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) p,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) div,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) ul,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) ol,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) li {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) ul,
+#printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) ol,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) ul,
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) ol {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 1.25em !important;
+}
+
+/* Keep native bullets and ordered-list numbers at the same visual size as
+   their list item. Font size is written onto <li> by LiveSPOEditor whenever
+   8/10/12pt is applied, so Preview/PDF inherit the exact same marker scale. */
+.rich-text-editor-content li::marker,
+.rich-text-document-content li::marker,
+.rich-text-output li::marker,
+.sop-batang-tubuh-content li::marker,
+#printable-sop-official-document li::marker {
+  font-size: 1em !important;
 }

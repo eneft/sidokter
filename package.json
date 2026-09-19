@@ -19,7 +19,7 @@
     "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts && node --test functions/sopNumberUpdate.test.js",
     "test:sop-review": "node --test functions/sopReviewPolicy.test.js functions/sopReviewOwnership.test.js && tsx --test tests/sop-review-source.test.ts",
     "test:mail": "node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs && tsx --test tests/mailbox-filter.test.ts",
-    "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts",
+    "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts tests/table-pagination-v2.test.ts",
     "test:pdf-binary": "tsx --test tests/pdf-binary-download.test.ts"
   },
   "dependencies": {
@@ -46,10 +46,11 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.1.2",
     "esbuild": "^0.25.0",
+    "linkedom": "^0.18.13",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "concurrently": "^9.1.2"
+    "typescript": "~5.8.2"
   }
 }

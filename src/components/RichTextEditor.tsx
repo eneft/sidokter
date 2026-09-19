@@ -297,7 +297,7 @@ const normalizePastedRichText = (source: string): string => {
       'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote',
       'img', 'figure', 'figcaption'
     ],
-    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width', 'data-row-min-height'],
+    ALLOWED_ATTR: ['style', 'start', 'type', 'value', 'colspan', 'rowspan', 'align', 'src', 'alt', 'width', 'height', 'data-wrap', 'data-width', 'data-align', 'data-docx-table', 'data-docx-width', 'data-docx-align', 'data-docx-indent', 'data-docx-grid-twips', 'data-docx-cell-width', 'data-table-autofit', 'data-table-width', 'data-table-align', 'data-row-min-height'],
     ALLOW_DATA_ATTR: true,
   });
 
@@ -1394,6 +1394,23 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         while (font.firstChild) span.appendChild(font.firstChild);
         font.replaceWith(span);
       });
+
+      // Native list markers (bullet/number) take their size from the <li>, not
+      // from an inline <span> inside it. Keep the marker synchronized with the
+      // selected text size by applying the canonical size to every list item
+      // touched by the active selection. This makes 8/10/12pt behave like Word:
+      // marker and list text scale together in Live Edit, Preview and PDF.
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        editorRef.current.querySelectorAll<HTMLLIElement>('li').forEach((item) => {
+          try {
+            if (range.intersectsNode(item)) item.style.fontSize = fontSize;
+          } catch {
+            // Ignore detached/transient nodes while contentEditable normalizes.
+          }
+        });
+      }
     } catch {
       // Unsupported browser: leave the current content and selection intact.
     }

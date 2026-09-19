@@ -341,7 +341,7 @@ test('table-cell typography single-spaced sama di Live, Preview, dan PDF', () =>
     assert.ok(typographyCss.includes(`${surface} table td li`));
     assert.ok(typographyCss.includes(`${surface} table th li`));
   }
-  assert.match(typographyCss, /line-height: 1 !important;/);
+  assert.match(typographyCss, /line-height: 1\.05 !important;/);
   assert.match(typographyCss, /margin-top: 0 !important;/);
   assert.match(typographyCss, /margin-bottom: 0 !important;/);
   assert.doesNotMatch(typographyCss, /\.sop-official-table/);
