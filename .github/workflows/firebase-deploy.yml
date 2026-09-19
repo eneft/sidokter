@@ -1,0 +1,55 @@
+name: Deploy to Firebase (Hosting, Functions, Rules)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy to Firebase
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci || npm install
+
+      - name: Install Functions Dependencies
+        run: |
+          cd functions
+          npm ci || npm install
+          cd ..
+
+      - name: Verify Functions Syntax
+        run: npm run verify:functions
+
+      - name: Build Web Client (Vite)
+        run: npm run build:client
+
+      - name: Deploy to Firebase
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SIDOKTER_SOEGIRI }}
+        run: |
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "Menggunakan Google Service Account credentials..."
+            echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa_key.json
+            export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa_key.json
+            npx firebase-tools deploy --only functions,hosting,firestore,storage --project sidokter-soegiri --non-interactive
+          elif [ -n "$FIREBASE_TOKEN" ]; then
+            echo "Menggunakan Firebase CLI Token..."
+            npx firebase-tools deploy --only functions,hosting,firestore,storage --project sidokter-soegiri --token "$FIREBASE_TOKEN" --non-interactive
+          else
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT_SIDOKTER_SOEGIRI atau FIREBASE_TOKEN belum dikonfigurasi di GitHub Secrets."
+            exit 1
+          fi
