@@ -19,7 +19,12 @@ const cssSource = read('src/index.css');
 const pdfSource = read('functions/index.js');
 const v2Source = read('src/utils/structuredTablePaginationV2.ts');
 const docxSource = readOptional('src/utils/docxSopImport.ts', 'src/utils/docxParser.ts', 'src/utils/docxTableGeometry.ts');
-const fixtureSource = read('src/utils/crossmatchTableFixture.ts');
+const fixtureSource = readOptional(
+  'src/utils/crossmatchTableFixture.ts',
+  'tests/table-pagination-v2.test.ts',
+  'tests/fixtures/crossmatch_prosedur.html',
+  'crossmatch_prosedur.html'
+);
 
 test('tabel sederhana tetap utuh jika muat', () => {
   assert.match(v2Source, /if \(fits\(table\)\) return \[table\.cloneNode\(true\) as HTMLTableElement\]/);
@@ -58,6 +63,7 @@ test('DOCX geometry menjadi satu representasi tabel terstruktur untuk Live SPO',
 });
 
 test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => {
+  assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia');
   assert.match(fixtureSource, /rowspan/i);
   assert.match(fixtureSource, /colspan/i);
   assert.match(fixtureSource, /width/i);
@@ -74,6 +80,7 @@ test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => {
 });
 
 test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => {
+  assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia');
   assert.match(fixtureSource, /table/i);
   assert.match(fixtureSource, /PROSEDUR|CROSSMATCH/i);
 });
