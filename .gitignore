@@ -1,6 +1,28 @@
+# Secrets / credentials
 serviceAccountKey.json
 *-firebase-adminsdk-*.json
+functions/initial_credentials.json
+
+# Dependencies
 node_modules/
+
+# Environment
 .env
 .env.*
 !.env.example
+
+# Build output
+dist/
+
+# Firebase CLI local cache
+.firebase/
+
+# Local/runtime storage artifacts
+data/storage/
+
+# Temporary audit output
+audit_*.txt
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
