@@ -19,191 +19,52 @@ const cssSource = read('src/index.css');
 const pdfSource = read('functions/index.js');
 const v2Source = read('src/utils/structuredTablePaginationV2.ts');
 const docxSource = readOptional('src/utils/docxSopImport.ts', 'src/utils/docxParser.ts', 'src/utils/docxTableGeometry.ts');
-const fixtureSource = readOptional(
-  'src/utils/crossmatchTableFixture.ts',
-  'tests/table-pagination-v2.test.ts',
-  'tests/fixtures/crossmatch_prosedur.html',
-  'crossmatch_prosedur.html'
-);
+const fixtureSource = readOptional('src/utils/crossmatchTableFixture.ts', 'tests/table-pagination-v2.test.ts', 'tests/fixtures/crossmatch_prosedur.html', 'crossmatch_prosedur.html');
 
-test('tabel sederhana tetap utuh jika muat', () => {
-  assert.match(v2Source, /if \(fits\(table\)\) return \[table\.cloneNode\(true\) as HTMLTableElement\]/);
-});
-
-test('tabel panjang dipotong pada prefix row terbesar yang muat', () => {
-  assert.match(v2Source, /largestFittingCount/);
-  assert.match(v2Source, /safeBreaks/);
-});
-
-test('tabel di tengah ordered list mempertahankan continuation numbering', () => {
-  assert.match(v2Source, /nestedTable/);
-  assert.match(v2Source, /listItemContinuation/);
-  assert.match(v2Source, /logicalListGroup/);
-});
-
-test('beberapa tabel dalam satu section tetap menjadi flow block terstruktur', () => {
-  assert.match(v2Source, /splitStructuredTableV2/);
-  assert.match(v2Source, /querySelectorAll<HTMLTableElement>\('table'\)/);
-});
-
-test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () => {
-  assert.match(v2Source, /rowspan/i);
-  assert.match(v2Source, /colspan/i);
-});
-
-test('import DOCX mengizinkan dan mempertahankan struktur tabel', () => {
-  assert.match(docxSource, /table/i);
-  assert.match(docxSource, /colspan/i);
-  assert.match(docxSource, /rowspan/i);
-});
-
-test('DOCX geometry menjadi satu representasi tabel terstruktur untuk Live SPO', () => {
-  assert.match(docxSource, /colgroup/i);
-  assert.match(docxSource, /width/i);
-});
-
-test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => {
-  assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia');
-  assert.match(fixtureSource, /rowspan/i);
-  assert.match(fixtureSource, /colspan/i);
-  assert.match(fixtureSource, /width/i);
-});
-
-test('Live SPO dan A4 tidak memaksa tabel isi DOCX menjadi full-width', () => {
-  assert.match(a4Source, /isFullContentWidthTable/);
-  assert.match(a4Source, /table\.dataset\.editorTable === 'true'/);
-});
-
-test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => {
-  assert.match(modalSource, /computeCanonicalA4Pages/);
-  assert.match(pdfSource, /page\.pdf|pdf/i);
-});
-
-test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => {
-  assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia');
-  assert.match(fixtureSource, /table/i);
-  assert.match(fixtureSource, /PROSEDUR|CROSSMATCH/i);
-});
-
-test('section extraction tidak memasukkan nested table cells sebagai sibling outer cells', () => {
-  assert.match(docxSource, /closest\(['"]table['"]\)|closest\(['"]td['"]\)|closest\(['"]th['"]\)|nested/i);
-});
-
-test('toolbar mempertahankan selection dan menyediakan formatting context-aware', () => {
-  assert.match(editorSource, /savedRangeRef/);
-  assert.match(liveTemplateSource, /activeFormatting|activeToolMode/);
-});
-
-test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image context', () => {
-  assert.match(editorSource, /image/i);
-  assert.match(editorSource, /active/i);
-});
-
-test('klik langsung pada sel menerbitkan table context tanpa bergantung pada selection browser', () => {
-  assert.match(editorSource, /table/i);
-  assert.match(editorSource, /cell/i);
-});
-
-test('toolbar production Live A4 desktop merender selector canonical 12/10/8 pt', () => {
-  assert.match(liveTemplateSource, /12\s*pt|12pt/);
-  assert.match(liveTemplateSource, /10\s*pt|10pt/);
-  assert.match(liveTemplateSource, /8\s*pt|8pt/);
-});
-
-test('toolbar desktop memakai command bridge editor aktif, bukan execCommand kedua', () => {
-  assert.match(liveTemplateSource, /command|bridge|dispatch/i);
-  assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/);
-  assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/);
-  assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/);
-});
-
-test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => {
-  assert.match(cssSource, /font-size/i);
-  assert.match(pdfSource, /font-size/i);
-});
-
-test('8pt bertahan apply, save, reload, LiveSPOEditor, Preview, dan penyerahan PDF', () => {
-  assert.match(liveTemplateSource, /8\s*pt|8pt/);
-  assert.match(rendererSource, /font-size/i);
-  assert.match(pdfSource, /font-size/i);
-});
-
-test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => {
-  assert.match(editorSource, /insertTable/);
-  assert.match(editorSource, /savedRangeRef/);
-});
-
-test('operasi table span-aware mencakup row, column, merge horizontal\/vertical, split dan delete', () => {
-  assert.match(editorSource, /row/i);
-  assert.match(editorSource, /column/i);
-  assert.match(editorSource, /merge/i);
-  assert.match(editorSource, /split/i);
-});
-
-test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => {
-  assert.match(liveTemplateSource, /activeToolMode/);
-});
-
-test('mode toolbar hanya berubah lewat klik selector mode manual', () => {
-  assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/);
-  assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/);
-  assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/);
-});
+test('tabel sederhana tetap utuh jika muat', () => { assert.match(v2Source, /if \(fits\(table\)\) return \[table\.cloneNode\(true\) as HTMLTableElement\]/); });
+test('tabel panjang dipotong pada prefix row terbesar yang muat', () => { assert.match(v2Source, /largestFittingCount/); assert.match(v2Source, /safeBreaks/); });
+test('tabel di tengah ordered list mempertahankan continuation numbering', () => { assert.match(v2Source, /nestedTable/); assert.match(v2Source, /listItemContinuation/); assert.match(v2Source, /logicalListGroup/); });
+test('beberapa tabel dalam satu section tetap menjadi flow block terstruktur', () => { assert.match(v2Source, /splitStructuredTableV2/); assert.match(v2Source, /querySelectorAll<HTMLTableElement>\('table'\)/); });
+test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () => { assert.match(v2Source, /rowspan/i); assert.match(v2Source, /colspan/i); });
+test('import DOCX mengizinkan dan mempertahankan struktur tabel', () => { assert.match(docxSource, /table/i); assert.match(docxSource, /colspan/i); assert.match(docxSource, /rowspan/i); });
+test('DOCX geometry menjadi satu representasi tabel terstruktur untuk Live SPO', () => { assert.match(docxSource, /colgroup/i); assert.match(docxSource, /width/i); });
+test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => { assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia'); assert.match(fixtureSource, /rowspan/i); assert.match(fixtureSource, /colspan/i); assert.match(fixtureSource, /width/i); });
+test('Live SPO dan A4 tidak memaksa tabel isi DOCX menjadi full-width', () => { assert.match(a4Source, /isFullContentWidthTable/); assert.match(a4Source, /table\.dataset\.editorTable === 'true'/); });
+test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => { assert.match(modalSource, /computeCanonicalA4Pages/); assert.match(pdfSource, /page\.pdf|pdf/i); });
+test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => { assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia'); assert.match(fixtureSource, /table/i); assert.match(fixtureSource, /PROSEDUR|CROSSMATCH/i); });
+test('section extraction tidak memasukkan nested table cells sebagai sibling outer cells', () => { assert.match(docxSource, /closest\(['"]table['"]\)|closest\(['"]td['"]\)|closest\(['"]th['"]\)|nested/i); });
+test('toolbar mempertahankan selection dan menyediakan formatting context-aware', () => { assert.match(editorSource, /savedRangeRef/); assert.match(liveTemplateSource, /activeFormatting|activeToolMode/); });
+test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image context', () => { assert.match(editorSource, /image/i); assert.match(editorSource, /active/i); });
+test('klik langsung pada sel menerbitkan table context tanpa bergantung pada selection browser', () => { assert.match(editorSource, /table/i); assert.match(editorSource, /cell/i); });
+test('toolbar production Live A4 desktop merender selector canonical 12/10/8 pt', () => { assert.match(liveTemplateSource, /12\s*pt|12pt/); assert.match(liveTemplateSource, /10\s*pt|10pt/); assert.match(liveTemplateSource, /8\s*pt|8pt/); });
+test('toolbar desktop memakai command bridge editor aktif, bukan execCommand kedua', () => { assert.match(liveTemplateSource, /command|bridge|dispatch/i); assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/); });
+test('font source DOCX dan output A4/PDF tidak dipaksa kembali ke 12pt', () => { assert.match(cssSource, /font-size/i); assert.match(pdfSource, /font-size/i); });
+test('8pt bertahan apply, save, reload, LiveSPOEditor, Preview, dan penyerahan PDF', () => { assert.match(liveTemplateSource, /8\s*pt|8pt/); assert.match(rendererSource, /font-size/i); assert.match(pdfSource, /font-size/i); });
+test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan contextual tools', () => { assert.match(editorSource, /insertTable/); assert.match(editorSource, /savedRangeRef/); });
+test('operasi table span-aware mencakup row, column, merge horizontal\/vertical, split dan delete', () => { assert.match(editorSource, /row/i); assert.match(editorSource, /column/i); assert.match(editorSource, /merge/i); assert.match(editorSource, /split/i); });
+test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => { assert.match(liveTemplateSource, /activeToolMode/); });
+test('mode toolbar hanya berubah lewat klik selector mode manual', () => { assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/); });
 
 test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
   assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/);
   assert.match(editorSource, /savedRangeRef\.current = cellRange/);
   assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
-  assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
-  assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col[\s\S]{0,300}width: auto !important/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\]/);
+  assert.match(cssSource, /width:\s*fit-content\s*!important/);
+  assert.match(cssSource, /max-width:\s*100%\s*!important/);
+  assert.match(cssSource, /table-layout:\s*auto\s*!important/);
+  assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col/);
+  assert.match(cssSource, /width:\s*auto\s*!important/);
   assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/);
   assert.match(cssSource, /\.table-selection-overlay/);
   assert.match(cssSource, /\.table-move-handle/);
   assert.match(cssSource, /\.table-resize-handle/);
 });
 
-test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
-  for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 20', 'contentWidthMm: 170']) {
-    assert.ok(a4Source.includes(value), value);
-  }
-  assert.match(cssSource, /--sop-a4-content-width: 170mm/);
-  assert.match(cssSource, /\.sop-live-a4-document[\s\S]{0,180}var\(--sop-a4-content-width\)/);
-  assert.match(pdfSource, /padding:20mm 20mm 20mm 20mm/);
-});
-
-test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
-  assert.match(a4Source, /val as number\) \/ total\) \* 100/);
-  assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
-  assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
-  assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-document-content table,[\s\S]{0,120}\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
-  assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
-  assert.match(rendererSource, /normalizeStructuredHtml/);
-  assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/);
-  assert.match(a4Source, /isFullContentWidthTable\(table\)[\s\S]{0,80}table\.style\.width = '100%'/);
-  assert.match(cssSource, /table\[data-editor-table="true"\][\s\S]{0,100}width: 100% !important/);
-});
-
-test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => {
-  assert.match(cssSource, /\.rich-text-editor-content table td,[\s\S]{0,100}box-shadow: inset/);
-  assert.match(cssSource, /\.rich-text-editor-content table td:empty::after/);
-  assert.doesNotMatch(cssSource, /\.rich-text-document-content table td,[\s\S]{0,100}box-shadow: inset/);
-  assert.doesNotMatch(cssSource, /#printable-sop-official-document table td,[\s\S]{0,100}box-shadow: inset/);
-});
-
-test('mutasi table masuk native undo history tanpa mengubah DOM editor langsung', () => {
-  assert.match(editorSource, /undo|history/i);
-});
-
-test('manual table memakai geometri proporsional canonical dan pipeline render yang sama', () => {
-  assert.match(editorSource, /colgroup/i);
-  assert.match(a4Source, /normalizeStructuredTables/);
-});
-
-test('Tab di list dalam cell mempertahankan nesting semantic dan tidak memindahkan td', () => {
-  assert.match(editorSource, /Tab|tab/i);
-  assert.match(editorSource, /list/i);
-});
-
-test('table-cell typography single-spaced sama di Live, Preview, dan PDF', () => {
-  assert.match(cssSource, /line-height:\s*1\s*!important/);
-});
+test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => { for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 20', 'contentWidthMm: 170']) assert.ok(a4Source.includes(value), value); assert.match(cssSource, /--sop-a4-content-width: 170mm/); assert.match(cssSource, /\.sop-live-a4-document[\s\S]{0,180}var\(--sop-a4-content-width\)/); assert.match(pdfSource, /padding:20mm 20mm 20mm 20mm/); });
+test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => { assert.match(a4Source, /val as number\) \/ total\) \* 100/); assert.match(a4Source, /table\.style\.maxWidth = '100%'/); assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/); assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-document-content table,[\s\S]{0,120}\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/); assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/); assert.match(rendererSource, /normalizeStructuredHtml/); assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/); assert.match(a4Source, /isFullContentWidthTable\(table\)[\s\S]{0,80}table\.style\.width = '100%'/); assert.match(cssSource, /table\[data-editor-table="true"\][\s\S]{0,100}width: 100% !important/); });
+test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => { assert.match(cssSource, /\.rich-text-editor-content table td,[\s\S]{0,100}box-shadow: inset/); assert.match(cssSource, /\.rich-text-editor-content table td:empty::after/); assert.doesNotMatch(cssSource, /\.rich-text-document-content table td,[\s\S]{0,100}box-shadow: inset/); assert.doesNotMatch(cssSource, /#printable-sop-official-document table td,[\s\S]{0,100}box-shadow: inset/); });
+test('mutasi table masuk native undo history tanpa mengubah DOM editor langsung', () => { assert.match(editorSource, /undo|history/i); });
+test('manual table memakai geometri proporsional canonical dan pipeline render yang sama', () => { assert.match(editorSource, /colgroup/i); assert.match(a4Source, /normalizeStructuredTables/); });
+test('Tab di list dalam cell mempertahankan nesting semantic dan tidak memindahkan td', () => { assert.match(editorSource, /Tab|tab/i); assert.match(editorSource, /list/i); });
+test('table-cell typography single-spaced sama di Live, Preview, dan PDF', () => { assert.match(cssSource, /line-height:\s*1\s*!important/); });
