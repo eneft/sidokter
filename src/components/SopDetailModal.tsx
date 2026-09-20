@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, 
   Copy, 
@@ -265,6 +265,38 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [riviuPreviewTab, setRiviuPreviewTab] = useState<'document' | 'evidence'>('document');
   const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState<string | null>(null);
   const [selectedEvidenceName, setSelectedEvidenceName] = useState<string>('');
+
+  // Canonical A4 visual scale viewer (identik across desktop, tablet, and mobile)
+  const [previewZoomMode, setPreviewZoomMode] = useState<'fit' | '50%' | '75%' | '100%'>('fit');
+  const [previewViewportWidth, setPreviewViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!previewViewportRef.current) return;
+    const updateWidth = () => {
+      if (previewViewportRef.current) {
+        setPreviewViewportWidth(previewViewportRef.current.clientWidth);
+      }
+    };
+    updateWidth();
+    const obs = new ResizeObserver(updateWidth);
+    obs.observe(previewViewportRef.current);
+    return () => obs.disconnect();
+  }, [isOpen]);
+
+  const calculatedPreviewScale = useMemo(() => {
+    if (previewZoomMode === '50%') return 0.5;
+    if (previewZoomMode === '75%') return 0.75;
+    if (previewZoomMode === '100%') return 1;
+    // 'fit' mode: 210mm at 96 DPI is ~793.7px
+    const a4Px = 793.7;
+    if (previewViewportWidth > 0 && previewViewportWidth < a4Px + 32) {
+      return Math.max(0.35, Math.min(1, (previewViewportWidth - 32) / a4Px));
+    }
+    return 1;
+  }, [previewZoomMode, previewViewportWidth]);
 
   useEffect(() => {
     setShowReviewEvidencePreview(false);
@@ -850,9 +882,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
         const headerHeight = header.getBoundingClientRect().height;
         const publicationHeight = publication.getBoundingClientRect().height;
-        // Optimal safety buffer (24px) guarantees that table cells and padding
-        // never overflow past the 20mm A4 boundary while maximizing printable space.
-        const safety = 6;
+        // Optimal safety buffer (4px) ensures sub-pixel table rendering
+        // never overflows past the 20mm A4 boundary while eliminating artificial bottom gaps.
+        const safety = 4;
         const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
         const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
         const normalCapacity = bodyCapacity;
@@ -897,8 +929,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           host.style.margin = '0';
           host.style.border = 'none';
           const measuredWidth = template ? template.getBoundingClientRect().width : 0;
-          host.style.width = measuredWidth && measuredWidth > 200 && measuredWidth < 650 ? `${measuredWidth}px` : '415px';
-          host.className = 'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+          host.style.width = measuredWidth && measuredWidth >= 400 && measuredWidth <= 520 ? `${measuredWidth}px` : '443px';
+          host.className = 'sop-batang-tubuh-content font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
           if (template?.parentElement) {
             template.parentElement.appendChild(host);
           } else {
@@ -1084,6 +1116,43 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     const laterParts = tableParts.slice(2).map((part) => `${continuationPrefix}${part}`);
                     return [firstPart, secondPart, ...laterParts];
                   }
+
+                  // Table could not split or fit on this page.
+                  // If the element right before the table is a heading (e.g. "C. INTERPRETASI HASIL"),
+                  // do NOT leave an orphan heading on this page with an empty gap!
+                  // Move both the heading and the table to the next page.
+                  const headingCandidate = elements[fitCount - 1];
+                  const isHeadingBeforeTable =
+                    headingCandidate &&
+                    /^(p|h1|h2|h3|h4|h5|h6)$/i.test(headingCandidate.tagName);
+                  if (isHeadingBeforeTable && fitCount >= 1) {
+                    const itemsBeforeHeading = elements.slice(0, fitCount - 1);
+                    if (itemsBeforeHeading.length > 0) {
+                      host.remove();
+                      return [
+                        itemsBeforeHeading.map((el) => el.outerHTML).join(''),
+                        elements.slice(fitCount - 1).map((el) => el.outerHTML).join('')
+                      ];
+                    }
+                  }
+                } else if (nextEl) {
+                  // If next element is an ol/ul, div, or splittable block:
+                  // Fill the remaining space on the current page to eliminate wide bottom gaps!
+                  const prefixHtml = elements.slice(0, fitCount).map((el) => el.outerHTML).join('');
+                  host.innerHTML = prefixHtml;
+                  const prefixHeight = host.getBoundingClientRect().height;
+                  const remainingForNext = Math.max(0, maxHeight - prefixHeight);
+
+                  if (remainingForNext >= 20) {
+                    const nextParts = splitHtmlForCapacity(nextEl.outerHTML, remainingForNext, template);
+                    if (nextParts.length > 1 && fits(prefixHtml + nextParts[0])) {
+                      host.remove();
+                      const firstPart = prefixHtml + nextParts[0];
+                      const remainingElements = elements.slice(fitCount + 1).map((el) => el.outerHTML);
+                      const secondPart = [nextParts.slice(1).join(''), ...remainingElements].join('');
+                      return [firstPart, secondPart];
+                    }
+                  }
                 }
                 host.remove();
                 return [
@@ -1109,7 +1178,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             // preserves section/cell attributes (including colspan/rowspan), repeats
             // an explicit thead, and retains captions/colgroups/tfoot.
             if (first.tagName.toLowerCase() === 'table') {
-              const tableParts = splitStructuredTable(first as HTMLTableElement, fits);
+              const tableParts = splitStructuredTableV2(first as HTMLTableElement, fits);
               host.remove();
               if (tableParts.length > 1) {
                 return tableParts;
@@ -1360,13 +1429,31 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   }
                 }
 
-                host.remove();
                 if (fitCount > 0 && fitCount < childBlocks.length) {
+                  const nextBlock = childBlocks[fitCount];
+                  const prefixHtml = childBlocks.slice(0, fitCount).join('');
+                  host.innerHTML = prefixHtml;
+                  const prefixHeight = host.getBoundingClientRect().height;
+                  const remainingForNext = Math.max(0, maxHeight - prefixHeight);
+
+                  if (remainingForNext >= 20) {
+                    const nextParts = splitHtmlForCapacity(nextBlock, remainingForNext, template);
+                    if (nextParts.length > 1 && fits(prefixHtml + nextParts[0])) {
+                      host.remove();
+                      const firstPart = prefixHtml + nextParts[0];
+                      const remainingElements = childBlocks.slice(fitCount + 1);
+                      const secondPart = [nextParts.slice(1).join(''), ...remainingElements].join('');
+                      return [firstPart, secondPart];
+                    }
+                  }
+
+                  host.remove();
                   return [
                     childBlocks.slice(0, fitCount).join(''),
                     childBlocks.slice(fitCount).join('')
                   ];
                 }
+                host.remove();
                 return [source];
               }
             }
@@ -2299,10 +2386,47 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               )}
 
-              <div 
-                id="printable-sop-official-document" 
-                className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
-              >
+              {/* Canonical A4 Preview Zoom Toolbar (No-Print) */}
+              <div className="no-print w-full max-w-[210mm] mx-auto flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-100/90 border border-slate-200 rounded-xl text-xs mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Format A4 Resmi (210 × 297 mm)</span>
+                  <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md text-[11px] font-bold">
+                    {calculatedTotalPages} Halaman
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 font-semibold hidden sm:inline">Skala:</span>
+                  <select
+                    aria-label="Skala Tampilan A4"
+                    value={previewZoomMode}
+                    onChange={(e) => setPreviewZoomMode(e.target.value as any)}
+                    className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="fit">Otomatis (Fit Layar)</option>
+                    <option value="50%">50%</option>
+                    <option value="75%">75%</option>
+                    <option value="100%">100% (A4 Fisik)</option>
+                  </select>
+                  <span className="text-[10px] font-mono text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded">
+                    {Math.round(calculatedPreviewScale * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              <div ref={previewViewportRef} className="w-full flex flex-col items-center overflow-x-auto overflow-y-visible">
+                <div
+                  style={{
+                    transform: calculatedPreviewScale < 1 ? `scale(${calculatedPreviewScale})` : undefined,
+                    transformOrigin: 'top center',
+                    width: '210mm',
+                    marginBottom: calculatedPreviewScale < 1 ? `-${Math.round((1 - calculatedPreviewScale) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px` : undefined
+                  }}
+                  className="transition-transform duration-150"
+                >
+                  <div 
+                    id="printable-sop-official-document" 
+                    className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
+                  >
 
                 {/* ==========================================================
                     MEASUREMENT CANVAS
@@ -2331,7 +2455,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       height: '297mm',
                       maxHeight: '297mm',
                       overflow: 'hidden',
-                      padding: '20mm 20mm 20mm 30mm',
+                      padding: '20mm 20mm 20mm 20mm',
                       boxSizing: 'border-box',
                       backgroundColor: '#ffffff'
                     }}
@@ -2379,7 +2503,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         height: '297mm',
                         minHeight: '297mm',
                         maxHeight: '297mm',
-                        padding: '20mm 20mm 20mm 30mm',
+                        padding: '20mm 20mm 20mm 20mm',
                         boxSizing: 'border-box',
                         backgroundColor: '#ffffff',
                         overflow: 'hidden',
@@ -2428,6 +2552,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   return pageElement;
                 })}
               </div>
+            </div>
+          </div>
             </div>
           )}
             </>

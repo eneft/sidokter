@@ -6,8 +6,8 @@
   --sop-a4-margin-top: 20mm;
   --sop-a4-margin-right: 20mm;
   --sop-a4-margin-bottom: 20mm;
-  --sop-a4-margin-left: 30mm;
-  --sop-a4-content-width: 160mm;
+  --sop-a4-margin-left: 20mm;
+  --sop-a4-content-width: 170mm;
   --sop-a4-content-height: 257mm;
 }
 
@@ -1640,7 +1640,7 @@ button, a, input, select, textarea {
     min-height: 297mm !important;
     max-height: 297mm !important;
     margin: 0 !important;
-    padding: 20mm 20mm 20mm 30mm !important; /* SPO A4: L 30mm, T/R/B 20mm */
+    padding: 20mm 20mm 20mm 20mm !important; /* SPO A4: T/R/B/L 20mm standard */
     box-sizing: border-box !important;
     overflow: hidden !important;
     display: block !important;
@@ -2921,7 +2921,7 @@ main .rich-text-toolbar,
 .rich-text-document-content table th,
 .rich-text-output table td,
 .rich-text-output table th {
-  line-height: 1 !important;
+  line-height: 1.05 !important;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   letter-spacing: normal !important;
@@ -2936,7 +2936,7 @@ main .rich-text-toolbar,
 .rich-text-document-content table th *,
 .rich-text-output table td *,
 .rich-text-output table th * {
-  line-height: 1 !important;
+  line-height: 1.05 !important;
 }
 
 .rich-text-editor-content table td p,
@@ -2950,10 +2950,10 @@ main .rich-text-toolbar,
 .rich-text-document-content table td div,
 .rich-text-document-content table th div,
 .rich-text-output table td div,
-.rich-text-output table th div {
+.rich-text-output table td div {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
-  line-height: 1 !important;
+  line-height: 1.05 !important;
 }
 
 /* Keep the paragraph/list contract explicit even though the descendant reset
@@ -2978,7 +2978,7 @@ main .rich-text-toolbar,
 .rich-text-output table th li {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
-  line-height: 1 !important;
+  line-height: 1.05 !important;
 }
 
 /* LiveSPOEditor's single context-aware chrome; never contributes to A4 geometry. */
@@ -3145,27 +3145,83 @@ main .rich-text-toolbar,
    Keep this strictly inside authored tables in the official document so the
    surrounding SPO prose remains at the canonical 1.5 spacing. */
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) tr,
-#printable-sop-official-document .rich-text-output table:not(.sop-official-table) tr {
+#printable-sop-official-document .rich-text-output table:not(.sop-official-table) tr,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) tr,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) tr {
   height: auto !important;
   min-height: 0 !important;
 }
 
+.sop-batang-tubuh-content table:not(.sop-official-table) td,
+.sop-batang-tubuh-content table:not(.sop-official-table) th,
+.rich-text-output table:not(.sop-official-table) td,
+.rich-text-output table:not(.sop-official-table) th,
+.rich-text-editor-content table:not(.sop-official-table) td,
+.rich-text-editor-content table:not(.sop-official-table) th,
+.rich-text-document-content table:not(.sop-official-table) td,
+.rich-text-document-content table:not(.sop-official-table) th,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) td,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) th,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) td,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) th,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) td,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) th,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) td,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) th {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-  line-height: 1 !important;
+  line-height: 1.05 !important;
 }
 
+.sop-batang-tubuh-content table:not(.sop-official-table) td *,
+.sop-batang-tubuh-content table:not(.sop-official-table) th *,
+.rich-text-output table:not(.sop-official-table) td *,
+.rich-text-output table:not(.sop-official-table) th *,
+.rich-text-editor-content table:not(.sop-official-table) td *,
+.rich-text-editor-content table:not(.sop-official-table) th *,
+.rich-text-document-content table:not(.sop-official-table) td *,
+.rich-text-document-content table:not(.sop-official-table) th *,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) td *,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) th *,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) td *,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) th *,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) td *,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) th *,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) td *,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) th * {
-  line-height: 1 !important;
+  line-height: 1.05 !important;
 }
 
+.sop-batang-tubuh-content table:not(.sop-official-table) p,
+.sop-batang-tubuh-content table:not(.sop-official-table) div,
+.sop-batang-tubuh-content table:not(.sop-official-table) ul,
+.sop-batang-tubuh-content table:not(.sop-official-table) ol,
+.sop-batang-tubuh-content table:not(.sop-official-table) li,
+.rich-text-output table:not(.sop-official-table) p,
+.rich-text-output table:not(.sop-official-table) div,
+.rich-text-output table:not(.sop-official-table) ul,
+.rich-text-output table:not(.sop-official-table) ol,
+.rich-text-output table:not(.sop-official-table) li,
+.rich-text-editor-content table:not(.sop-official-table) p,
+.rich-text-editor-content table:not(.sop-official-table) div,
+.rich-text-editor-content table:not(.sop-official-table) ul,
+.rich-text-editor-content table:not(.sop-official-table) ol,
+.rich-text-editor-content table:not(.sop-official-table) li,
+.rich-text-document-content table:not(.sop-official-table) p,
+.rich-text-document-content table:not(.sop-official-table) div,
+.rich-text-document-content table:not(.sop-official-table) ul,
+.rich-text-document-content table:not(.sop-official-table) ol,
+.rich-text-document-content table:not(.sop-official-table) li,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) p,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) div,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) ul,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) ol,
+.sop-live-a4-page .sop-batang-tubuh-content table:not(.sop-official-table) li,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) p,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) div,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) ul,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) ol,
+.sop-measure-root .sop-batang-tubuh-content table:not(.sop-official-table) li,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) p,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) div,
 #printable-sop-official-document .sop-batang-tubuh-content table:not(.sop-official-table) ul,
@@ -3176,6 +3232,7 @@ main .rich-text-toolbar,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) ul,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) ol,
 #printable-sop-official-document .rich-text-output table:not(.sop-official-table) li {
+  line-height: 1.05 !important;
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }

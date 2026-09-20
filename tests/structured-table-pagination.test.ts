@@ -34,7 +34,7 @@ test('tabel di tengah ordered list mempertahankan continuation numbering', () =>
 
 test('beberapa tabel dalam satu section tetap menjadi flow block terstruktur', () => {
   assert.match(detailSource, /blocks\.push\(el\.outerHTML\)/);
-  assert.match(detailSource, /splitStructuredTable\(first as HTMLTableElement, fits\)/);
+  assert.match(detailSource, /splitStructuredTable(?:V2)?\(first as HTMLTableElement, fits\)/);
 });
 
 test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () => {
@@ -272,12 +272,12 @@ test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen'
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
-  for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 30', 'contentWidthMm: 160']) {
+  for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 20', 'contentWidthMm: 170']) {
     assert.ok(a4Source.includes(value), value);
   }
-  assert.match(cssSource, /--sop-a4-content-width: 160mm/);
+  assert.match(cssSource, /--sop-a4-content-width: 170mm/);
   assert.match(cssSource, /\.sop-live-a4-document[\s\S]{0,180}var\(--sop-a4-content-width\)/);
-  assert.match(pdfSource, /padding:20mm 20mm 20mm 30mm/);
+  assert.match(pdfSource, /padding:20mm 20mm 20mm 20mm/);
 });
 
 test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
@@ -341,7 +341,7 @@ test('table-cell typography single-spaced sama di Live, Preview, dan PDF', () =>
     assert.ok(typographyCss.includes(`${surface} table td li`));
     assert.ok(typographyCss.includes(`${surface} table th li`));
   }
-  assert.match(typographyCss, /line-height: 1 !important;/);
+  assert.match(typographyCss, /line-height: 1\.05 !important;/);
   assert.match(typographyCss, /margin-top: 0 !important;/);
   assert.match(typographyCss, /margin-bottom: 0 !important;/);
   assert.doesNotMatch(typographyCss, /\.sop-official-table/);

@@ -12,8 +12,8 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-20T03:07:00.629Z",
-      "updatedAt": "2026-09-20T03:07:00.307Z",
+      "createdAt": "2026-09-20T12:35:17.556Z",
+      "updatedAt": "2026-09-20T12:35:17.699Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -1516,23 +1516,23 @@
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
     },
-    "554e3f57-4c65-4f49-883a-2a2ccd8a2f2b": {
-      "sessionId": "554e3f57-4c65-4f49-883a-2a2ccd8a2f2b",
+    "bca49d46-44a9-440d-86d8-29e628224572": {
+      "sessionId": "bca49d46-44a9-440d-86d8-29e628224572",
       "authUid": "admin-root",
       "username": "admin",
-      "createdAt": 1789872861256,
-      "lastActiveAt": 1789872861256,
+      "createdAt": 1789906753732,
+      "lastActiveAt": 1789906753732,
       "revoked": false,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0"
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
     },
-    "f30752ba-4365-4159-a9a7-3703320c44e1": {
-      "sessionId": "f30752ba-4365-4159-a9a7-3703320c44e1",
+    "a83a7a26-d42b-41e2-b555-4f0b664e915b": {
+      "sessionId": "a83a7a26-d42b-41e2-b555-4f0b664e915b",
       "authUid": "admin-root",
       "username": "admin",
-      "createdAt": 1789873620629,
-      "lastActiveAt": 1789873620629,
+      "createdAt": 1789907717556,
+      "lastActiveAt": 1789907717556,
       "revoked": false,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0"
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
     }
   },
   "auditLogs": []
