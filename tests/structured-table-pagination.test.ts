@@ -16,6 +16,7 @@ const editorSource = readFileSync(new URL('../src/components/RichTextEditor.tsx'
 const editorCommandsSource = readFileSync(new URL('../src/utils/editorTableCommands.ts', import.meta.url), 'utf8');
 const cssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 const a4Source = readFileSync(new URL('../src/utils/a4Layout.ts', import.meta.url), 'utf8');
+const canonicalPaginationSource = readFileSync(new URL('../src/utils/canonicalA4Pagination.ts', import.meta.url), 'utf8');
 
 test('tabel sederhana tetap utuh jika muat', () => {
   assert.equal(largestFittingTablePrefix([[1], [1]], () => false), 0);
@@ -27,14 +28,14 @@ test('tabel panjang dipotong pada prefix row terbesar yang muat', () => {
 });
 
 test('tabel di tengah ordered list mempertahankan continuation numbering', () => {
-  assert.match(detailSource, /nestedTable = item\.querySelector\('table'\)/);
-  assert.match(detailSource, /wrapTable\(part, true\)/);
-  assert.match(detailSource, /explicitStart \+ 1/);
+  assert.match(canonicalPaginationSource, /nestedTable = item\.querySelector\('table'\)/);
+  assert.match(canonicalPaginationSource, /wrapTable\(part, true\)/);
+  assert.match(canonicalPaginationSource, /explicitStart \+ 1/);
 });
 
 test('beberapa tabel dalam satu section tetap menjadi flow block terstruktur', () => {
   assert.match(detailSource, /blocks\.push\(el\.outerHTML\)/);
-  assert.match(detailSource, /splitStructuredTable(?:V2)?\(first as HTMLTableElement, fits\)/);
+  assert.match(canonicalPaginationSource, /splitStructuredTableV2\(/);
 });
 
 test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () => {
@@ -284,7 +285,7 @@ test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke conte
   assert.match(a4Source, /values\[index\][\s\S]{0,80}\/ total/);
   assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
   assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
-  assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
+  assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-document-content table,[\s\S]{0,120}\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/);
   assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/);
   assert.match(rendererSource, /normalizeStructuredHtml/);
   assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/);
