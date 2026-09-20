@@ -181,9 +181,9 @@ export function extractCanonicalTableGeometry(table: HTMLTableElement): Canonica
       const allSameUnit = parsedCols.every((p) => p.unit === firstUnit);
       const allEqualValues = parsedCols.length > 1 && parsedCols.every((p) => Math.abs(p.value - parsedCols[0].value) < 0.01);
 
-      // If existing cols are all equal (e.g. 20% placeholder) AND table is autofit or has explicit unequal cell widths,
-      // allow step 2 (cell widths) to provide the true authored column widths.
-      if (!allEqualValues || table.dataset.tableAutofit !== 'true') {
+      // If existing cols are all equal (e.g. 20% placeholder), allow step 2 (cell widths)
+      // to provide the true authored column widths if available.
+      if (!allEqualValues) {
         if (allSameUnit) {
           rawWidths = parsedCols.map((p) => p.value);
         } else {
@@ -434,11 +434,8 @@ export function splitStructuredTableV2(
 
     clone.setAttribute('data-paginated-fragment', 'true');
 
-    // 6, 7. Clone the SAME canonical colgroup. Continuation fragments never recompute width.
-    const sourceColgroup = table.querySelector(':scope > colgroup');
-    if (sourceColgroup) {
-      clone.appendChild(sourceColgroup.cloneNode(true));
-    } else if (doc && canonicalGeometry.columnWidths.length > 0) {
+    // 6, 7. Canonical colgroup on continuation fragments.
+    if (doc && canonicalGeometry.columnWidths.length > 0) {
       const colgroup = doc.createElement('colgroup');
       canonicalGeometry.columnWidths.forEach((width) => {
         const col = doc.createElement('col');
@@ -446,6 +443,11 @@ export function splitStructuredTableV2(
         colgroup.appendChild(col);
       });
       clone.appendChild(colgroup);
+    } else {
+      const sourceColgroup = table.querySelector(':scope > colgroup');
+      if (sourceColgroup) {
+        clone.appendChild(sourceColgroup.cloneNode(true));
+      }
     }
 
     // Preserve non-table structural children (caption) on initial fragment
@@ -624,10 +626,7 @@ export function paginateStructuredTableV2(
 
     clone.setAttribute('data-paginated-fragment', 'true');
 
-    const sourceColgroup = table.querySelector(':scope > colgroup');
-    if (sourceColgroup) {
-      clone.appendChild(sourceColgroup.cloneNode(true));
-    } else if (doc && canonicalGeometry.columnWidths.length > 0) {
+    if (doc && canonicalGeometry.columnWidths.length > 0) {
       const colgroup = doc.createElement('colgroup');
       canonicalGeometry.columnWidths.forEach((width) => {
         const col = doc.createElement('col');
@@ -635,6 +634,11 @@ export function paginateStructuredTableV2(
         colgroup.appendChild(col);
       });
       clone.appendChild(colgroup);
+    } else {
+      const sourceColgroup = table.querySelector(':scope > colgroup');
+      if (sourceColgroup) {
+        clone.appendChild(sourceColgroup.cloneNode(true));
+      }
     }
 
     if (start === 0) {

@@ -39,7 +39,8 @@ import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 import { 
   buildOfficialBlocks, 
-  computeCanonicalA4Pages, 
+  computeCanonicalA4Pages,
+  LIVE_SOP_SECTION_MIN_HEIGHT_PX,
   type OfficialBlock, 
   type OfficialSectionKey 
 } from '../utils/canonicalA4Pagination';
@@ -224,9 +225,48 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     return () => clearTimeout(timer);
   }, [officialBlocks]);
 
+  // Scoped physical-page measurements for THIS LiveSPO instance.  Pagination
+  // must not borrow a header from Preview/another modal through document.querySelector.
+  const liveMeasureRootRef = useRef<HTMLDivElement>(null);
+  const [livePageMetrics, setLivePageMetrics] = useState<{ headerHeightPx: number; publicationHeightPx: number } | null>(null);
+
+  useEffect(() => {
+    const root = liveMeasureRootRef.current;
+    if (!root) return;
+
+    let frame = 0;
+    const measure = () => {
+      frame = requestAnimationFrame(() => {
+        const header = root.querySelector<HTMLElement>('[data-live-measure-header]');
+        const publication = root.querySelector<HTMLElement>('[data-live-measure-publication]');
+        if (!header || !publication) return;
+        const headerHeightPx = header.getBoundingClientRect().height;
+        const publicationHeightPx = publication.getBoundingClientRect().height;
+        if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
+        setLivePageMetrics((prev) =>
+          prev && Math.abs(prev.headerHeightPx - headerHeightPx) < 0.5 && Math.abs(prev.publicationHeightPx - publicationHeightPx) < 0.5
+            ? prev
+            : { headerHeightPx, publicationHeightPx }
+        );
+      });
+    };
+
+    measure();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    observer?.observe(root);
+    document.fonts?.ready.then(measure).catch(() => undefined);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [title, sopNumber, version, effectiveDate, approverName]);
+
   const calculatedPages = useMemo(() => {
-    return computeCanonicalA4Pages(debouncedBlocks);
-  }, [debouncedBlocks]);
+    // Never paginate from guessed KOP geometry. Until the scoped physical A4
+    // shell has been measured, keep the source flow intact for this first frame.
+    if (!livePageMetrics) return [];
+    return computeCanonicalA4Pages(debouncedBlocks, livePageMetrics);
+  }, [debouncedBlocks, livePageMetrics]);
 
   const totalPages = Math.max(1, calculatedPages.length);
 
@@ -283,11 +323,11 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
             {titleEditable && pageNumber === 1 ? (
               <textarea
-                rows={2}
+                rows={1}
                 value={title}
                 onChange={(e) => onTitleChange(e.target.value)}
                 placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
-                className="w-full text-center font-extrabold uppercase text-xs sm:text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
+                className="w-full min-h-[20px] text-center font-extrabold uppercase text-xs sm:text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
                   target.style.height = 'auto';
@@ -390,7 +430,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: pengertian,
           onChange: onPengertianChange,
           placeholder: 'Isi pengertian...',
-          minHeight: '80px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: isPengertianMissing
         };
       case 'TUJUAN':
@@ -399,7 +439,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: tujuan,
           onChange: onTujuanChange,
           placeholder: 'Isi tujuan...',
-          minHeight: '80px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: isTujuanMissing
         };
       case 'KEBIJAKAN':
@@ -408,7 +448,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: kebijakan,
           onChange: onKebijakanChange,
           placeholder: 'Isi rujukan Keputusan Direktur / Kebijakan RSUD Dr. Soegiri...',
-          minHeight: '80px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: isKebijakanMissing
         };
       case 'PROSEDUR':
@@ -417,7 +457,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: prosedur,
           onChange: onProsedurChange,
           placeholder: '1. Langkah persiapan...\n2. Langkah pelaksanaan...\n3. Langkah penutupan...',
-          minHeight: '120px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: isProsedurMissing
         };
       case 'ALUR / BAGAN ALIR':
@@ -426,7 +466,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: alur,
           onChange: onAlurChange,
           placeholder: 'Opsional — sisipkan bagan alur atau deskripsi alur kerja...',
-          minHeight: '80px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: false
         };
       case 'UNIT TERKAIT':
@@ -435,7 +475,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           val: unitTerkait,
           onChange: onUnitTerkaitChange,
           placeholder: 'Sebutkan instalasi, ruangan, atau tim kerja terkait...',
-          minHeight: '80px',
+          minHeight: `${LIVE_SOP_SECTION_MIN_HEIGHT_PX}px`,
           isMissing: isUnitTerkaitMissing
         };
     }
@@ -625,6 +665,39 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
         )}
       </div>
 
+      {/* Scoped canonical A4 measurement shell. It uses the exact same 170mm
+          table geometry, header and publication row as the visible LiveSPO page. */}
+      <div
+        ref={liveMeasureRootRef}
+        aria-hidden="true"
+        className="fixed pointer-events-none invisible"
+        style={{ left: '-10000px', top: 0, width: '210mm' }}
+      >
+        <div
+          className="bg-white printable-paper font-bookman"
+          style={{
+            width: '210mm', height: '297mm', padding: '20mm',
+            boxSizing: 'border-box', overflow: 'visible'
+          }}
+        >
+          <table
+            className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
+            style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
+          >
+            <colgroup>
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '24%' }} />
+            </colgroup>
+            {React.cloneElement(renderOfficialHeader(2, 2), { 'data-live-measure-header': true })}
+            <tbody>
+              {React.cloneElement(renderPublicationRow(), { 'data-live-measure-publication': true })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* =======================================================================
           CANONICAL A4 WYSIWYG MULTI-PAGE VIEWPORT
           - Physical page: 210mm x 297mm
@@ -642,6 +715,12 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           }}
           className="flex flex-col items-center transition-transform duration-150"
         >
+          {!livePageMetrics && (
+            <div className="w-[210mm] h-[297mm] bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xs text-slate-500 font-sans">
+              Menyiapkan layout A4…
+            </div>
+          )}
+
           {calculatedPages.map((pageBlocks, pageIndex) => {
             const isFirstPage = pageIndex === 0;
 
@@ -656,27 +735,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               }
             });
 
-            // If it's a single page document and some sections are empty,
-            // ensure all 6 sections appear on Page 1 so user can fill them!
-            if (isFirstPage && calculatedPages.length === 1) {
-              const standardSections: OfficialSectionKey[] = [
-                'PENGERTIAN',
-                'TUJUAN',
-                'KEBIJAKAN',
-                'PROSEDUR',
-                'ALUR / BAGAN ALIR',
-                'UNIT TERKAIT'
-              ];
-              standardSections.forEach((secName) => {
-                if (!pageSectionGroups.some((g) => g.section === secName)) {
-                  pageSectionGroups.push({ section: secName, blocks: [] });
-                }
-              });
-              // Sort according to standard order
-              pageSectionGroups.sort(
-                (a, b) => standardSections.indexOf(a.section) - standardSections.indexOf(b.section)
-              );
-            }
+            // All six official sections are already structural canonical blocks.
+            // Do not inject page-local fallback rows here; pagination alone owns page flow.
 
             return (
               <React.Fragment key={`live-a4-page-${pageIndex}`}>

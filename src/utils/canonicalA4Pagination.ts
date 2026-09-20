@@ -34,6 +34,93 @@ export interface CanonicalPaginationOptions {
   safetyBufferPx?: number;
 }
 
+/**
+ * Empty/short LiveSPO sections keep one compact editable line. The same value
+ * is used by the paginator and SopLiveTemplate so no section gets a special
+ * fixed height (PROSEDUR included). Content taller than this remains fully
+ * content-driven.
+ */
+export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 40;
+
+
+/**
+ * Keep a complete flow unit together when it can fit on a fresh canonical page.
+ * This prevents the current page's overflow:hidden safety guard from ever
+ * becoming the thing that visually "paginates" short text, tables, or media.
+ */
+export function shouldDeferWholeBlockToNextPage(
+  blockHeightPx: number,
+  remainingHeightPx: number,
+  freshPageCapacityPx: number
+): boolean {
+  return (
+    blockHeightPx > remainingHeightPx &&
+    blockHeightPx <= freshPageCapacityPx
+  );
+}
+
+/**
+ * Text/rich-text flow is allowed to consume the remaining space on the current
+ * page before continuing on the next page. Tables and media keep their own
+ * atomic/safe-row rules and are deliberately excluded here.
+ */
+export function isSplittableTextFlowHtml(html: string): boolean {
+  if (!html || typeof DOMParser === 'undefined') return false;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    if (doc.body.querySelector('table, img, figure')) return false;
+    const first = doc.body.firstElementChild;
+    if (!first) return Boolean((doc.body.textContent || '').trim());
+    return /^(p|div|blockquote|h[1-6]|ol|ul)$/i.test(first.tagName);
+  } catch {
+    return false;
+  }
+}
+
+/** True when the authored block is a single atomic media object. */
+export function isAtomicMediaHtml(html: string): boolean {
+  if (!html || typeof DOMParser === 'undefined') return false;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const meaningful = Array.from(doc.body.childNodes).filter((node) => {
+      if (node.nodeType === Node.TEXT_NODE) return Boolean((node.textContent || '').trim());
+      return node.nodeType === Node.ELEMENT_NODE;
+    });
+    if (meaningful.length !== 1 || meaningful[0].nodeType !== Node.ELEMENT_NODE) return false;
+    const el = meaningful[0] as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+    return tag === 'img' || tag === 'figure' || (tag === 'p' && el.children.length === 1 && el.firstElementChild?.tagName.toLowerCase() === 'img');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Oversized images are atomic: never crop/split them. On a fresh page only,
+ * scale them down proportionally to the canonical content box.
+ */
+export function constrainAtomicMediaHtml(
+  html: string,
+  maxHeightPx: number
+): string {
+  if (!html || maxHeightPx <= 0 || typeof DOMParser === 'undefined') return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const images = Array.from(doc.body.querySelectorAll('img')) as HTMLImageElement[];
+    if (images.length !== 1) return html;
+    const img = images[0];
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = `${Math.max(1, Math.floor(maxHeightPx))}px`;
+    img.style.width = 'auto';
+    img.style.height = 'auto';
+    img.style.objectFit = 'contain';
+    img.setAttribute('data-sop-page-fit-image', 'true');
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
+}
+
 /** Check if an HTML string contains HTML tags */
 export function hasHtmlTags(str: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(str);
@@ -308,14 +395,29 @@ export function splitElementPreservingMarkup(
     }
   });
 
-  if (words.length < 4) return [element.outerHTML];
+  // Normal prose splits at word boundaries. Pathological/unbroken authored
+  // tokens (common in stress tests and pasted identifiers) still need a safe
+  // continuation instead of forcing the whole section onto the next page.
+  // For those only, fall back to character ranges.
+  let ranges: WordRange[] = words;
+  if (ranges.length < 4) {
+    const chars: WordRange[] = [];
+    textNodes.forEach((node) => {
+      const value = node.textContent || '';
+      for (let i = 0; i < value.length; i += 1) {
+        if (!/\s/.test(value[i])) chars.push({ node, start: i, end: i + 1 });
+      }
+    });
+    if (chars.length < 20) return [element.outerHTML];
+    ranges = chars;
+  }
 
   const host = createMeasureHost(template);
   const safetyLimit = Math.max(1, maxHeight - 1);
   const buildCandidate = (startWord: number, endWord: number): string => {
     const range = ownerDocument.createRange();
-    range.setStart(words[startWord].node, words[startWord].start);
-    range.setEnd(words[endWord - 1].node, words[endWord - 1].end);
+    range.setStart(ranges[startWord].node, ranges[startWord].start);
+    range.setEnd(ranges[endWord - 1].node, ranges[endWord - 1].end);
     const fragment = range.cloneContents();
     return buildWrapper(fragment, startWord === 0);
   };
@@ -325,7 +427,7 @@ export function splitElementPreservingMarkup(
   };
 
   let low = 1;
-  let high = words.length - 1;
+  let high = ranges.length - 1;
   let best = 0;
 
   while (low <= high) {
@@ -341,12 +443,12 @@ export function splitElementPreservingMarkup(
 
   host.remove();
 
-  if (best < 2 || best >= words.length) {
+  if (best < 2 || best >= ranges.length) {
     return [element.outerHTML];
   }
 
   const chunk0 = buildCandidate(0, best);
-  const chunk1 = buildCandidate(best, words.length);
+  const chunk1 = buildCandidate(best, ranges.length);
   return [chunk0, chunk1];
 }
 
@@ -786,10 +888,11 @@ export function buildOfficialBlocks(
     { id: 'unit-terkait', section: 'UNIT TERKAIT', html: unitHtml }
   ];
 
-  return sectionsData
-    .filter((sec) => sec.html.trim().length > 0)
-    .flatMap((sec) => {
-      const units = extractProcedureBlocks(sec.html);
+  return sectionsData.flatMap((sec) => {
+      // Empty sections are structural parts of the official SPO body and must
+      // remain editable after an earlier section spans multiple pages.
+      const extracted = extractProcedureBlocks(sec.html);
+      const units = extracted.length > 0 ? extracted : [''];
       return units.map((unitHtml, unitIdx) => {
         let logicalListGroup: string | undefined;
         try {
@@ -839,33 +942,18 @@ export function computeCanonicalA4Pages(
   const marginVerticalPx = 151.2;
   const availableHeight = pageHeightPx - marginVerticalPx; // 971.3px
 
-  let measuredHeaderHeight = options?.headerHeightPx;
-  if (!measuredHeaderHeight && typeof document !== 'undefined') {
-    const existingHeader = document.querySelector<HTMLElement>(
-      '.sop-official-table thead, .sop-print-header, [data-measure-header]'
-    );
-    if (existingHeader) {
-      const rectH = existingHeader.getBoundingClientRect().height;
-      if (rectH >= 80 && rectH <= 250) {
-        measuredHeaderHeight = rectH;
-      }
-    }
+  // Header/publication measurements MUST be supplied by the renderer that owns
+  // the current SPO. Never query the global document here: another Preview,
+  // hidden measurement tree, or modal can otherwise donate the wrong header
+  // height and shift every continuation-page boundary.
+  // Pagination is intentionally disabled until the owning renderer supplies
+  // its scoped physical header/publication metrics. Guessing these values makes
+  // page boundaries differ between LiveSPO and Preview.
+  if (!options || !Number.isFinite(options.headerHeightPx) || !Number.isFinite(options.publicationHeightPx)) {
+    return [blocks];
   }
-  const headerHeight = measuredHeaderHeight || 148;
-
-  let measuredPubHeight = options?.publicationHeightPx;
-  if (!measuredPubHeight && typeof document !== 'undefined') {
-    const existingPub = document.querySelector<HTMLElement>(
-      '.sop-first-page-only, [data-measure-publication]'
-    );
-    if (existingPub) {
-      const rectH = existingPub.getBoundingClientRect().height;
-      if (rectH >= 50 && rectH <= 250) {
-        measuredPubHeight = rectH;
-      }
-    }
-  }
-  const publicationHeight = measuredPubHeight || 80;
+  const headerHeight = Math.max(0, options.headerHeightPx!);
+  const publicationHeight = Math.max(0, options.publicationHeightPx!);
   const safety = options?.safetyBufferPx ?? 4;
 
   const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
@@ -876,7 +964,10 @@ export function computeCanonicalA4Pages(
   const host = createMeasureHost();
   const measuredHeights = blocks.map((block) => {
     host.innerHTML = block.html;
-    return Math.max(0, host.getBoundingClientRect().height);
+    return Math.max(
+      LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+      host.getBoundingClientRect().height
+    );
   });
   host.remove();
 
@@ -889,17 +980,7 @@ export function computeCanonicalA4Pages(
     mHost.innerHTML = html;
     const h = mHost.getBoundingClientRect().height;
     mHost.remove();
-    return Math.max(0, h);
-  };
-
-  const hasVisibleContent = (pageBlocks: OfficialBlock[]) => {
-    return pageBlocks.some((b) => {
-      const raw = (b.html || '').trim();
-      if (!raw) return false;
-      if (/<(img|svg|table|figure|canvas|iframe)\b/i.test(raw)) return true;
-      const text = raw.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '').trim();
-      return text.length > 0;
-    });
+    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, h);
   };
 
   const pages: OfficialBlock[][] = [];
@@ -912,7 +993,8 @@ export function computeCanonicalA4Pages(
   const flowHeights: number[] = [...measuredHeights];
 
   const commitCurrentPageAndStartNext = () => {
-    if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
+    if (currentPageBlocks.length) {
+      // Structural empty sections are real editable rows, not blank pages.
       pages.push(currentPageBlocks);
     }
     currentPageBlocks = [];
@@ -932,7 +1014,89 @@ export function computeCanonicalA4Pages(
     const needed = flowHeights[index] + chrome;
 
     if (used + needed > capacity) {
-      const remaining = capacity - used - chrome;
+      const remaining = Math.max(0, capacity - used - chrome);
+
+      // Rich text is a continuous document flow. If a section is longer than
+      // the remaining space, first try to consume that space and continue the
+      // same section on the next page. This prevents large blank bottoms such
+      // as moving an entire PROSEDUR paragraph to the next page.
+      //
+      // Tables/media are intentionally excluded: tables use safe row boundaries
+      // and images are atomic. Short text that cannot be split safely still
+      // falls through to the whole-block defer rule below.
+      if (
+        currentPageBlocks.length > 0 &&
+        remaining >= 40 &&
+        isSplittableTextFlowHtml(block.html)
+      ) {
+        const textParts = splitHtmlForCapacity(block.html, remaining, null);
+        if (textParts.length > 1) {
+          const firstPart = textParts[0];
+          const restParts = textParts.slice(1);
+          const firstHeight = measureFlowPart(firstPart);
+          const firstNeeded = firstHeight + chrome;
+          if (firstHeight > 0 && used + firstNeeded <= capacity) {
+            const fittedFirstBlock: OfficialBlock = {
+              ...block,
+              id: `${block.id}-text-fit-1`,
+              html: forceLogicalListMetadata(firstPart, block)
+            };
+            const continuationBlocks: OfficialBlock[] = restParts.map(
+              (html, partIndex) => ({
+                ...block,
+                id: `${block.id}-text-fit-${partIndex + 2}`,
+                html: forceLogicalListMetadata(html, block)
+              })
+            );
+            const continuationHeights = continuationBlocks.map((part) =>
+              measureFlowPart(part.html)
+            );
+
+            flowBlocks[index] = fittedFirstBlock;
+            flowHeights[index] = firstHeight;
+            flowBlocks.splice(index + 1, 0, ...continuationBlocks);
+            flowHeights.splice(index + 1, 0, ...continuationHeights);
+
+            currentPageBlocks.push(fittedFirstBlock);
+            used += firstNeeded;
+            currentSection = block.section;
+            index += 1;
+            continue;
+          }
+        }
+      }
+
+      // A complete unit that fits on a fresh page moves there intact only after
+      // rich text has had a chance to use the current page. This remains the
+      // correct behavior for tables/media and short unsplittable text.
+      if (
+        currentPageBlocks.length > 0 &&
+        shouldDeferWholeBlockToNextPage(
+          flowHeights[index],
+          remaining,
+          Math.max(1, normalCapacity - baseRowPadding)
+        )
+      ) {
+        commitCurrentPageAndStartNext();
+        continue;
+      }
+
+      // Images/figures are atomic. Never split/crop them at the bottom edge.
+      // If one is too tall even for a fresh page, scale the image itself down
+      // proportionally to the canonical content box, then re-measure.
+      if (currentPageBlocks.length === 0 && isAtomicMediaHtml(block.html)) {
+        const pageRemaining = Math.max(1, capacity - chrome);
+        const constrainedHtml = constrainAtomicMediaHtml(block.html, pageRemaining);
+        if (constrainedHtml !== block.html) {
+          const constrainedHeight = measureFlowPart(constrainedHtml);
+          flowBlocks[index] = {
+            ...block,
+            html: constrainedHtml
+          };
+          flowHeights[index] = Math.min(constrainedHeight, pageRemaining);
+          continue;
+        }
+      }
 
       if (remaining >= 24) {
         const parts = splitHtmlForCapacity(block.html, remaining, null);
@@ -978,9 +1142,11 @@ export function computeCanonicalA4Pages(
         continue;
       }
 
-      // Fresh page but block exceeds full page: split to fill the page
+      // Fresh page but block exceeds full page: split only at safe content
+      // boundaries. Tables use safe <tr>/rowspan boundaries; lists use whole
+      // <li> items; long text uses markup-preserving text ranges.
       if (currentPageBlocks.length === 0 && capacity >= 40) {
-        const pageRemaining = capacity - chrome;
+        const pageRemaining = Math.max(1, capacity - chrome);
         const parts = splitHtmlForCapacity(block.html, pageRemaining, null);
         if (parts.length > 1) {
           const firstPart = parts[0];
@@ -1015,6 +1181,25 @@ export function computeCanonicalA4Pages(
           index += 1;
           continue;
         }
+
+        // An unsplittable block must NEVER fall through and be clipped by the
+        // physical A4 page. This should only be reachable for pathological
+        // authored content (for example one table row taller than a full page).
+        // Keep it visible instead of silently cropping it; the normal table and
+        // media paths above prevent this for valid content.
+        const unsplittable: OfficialBlock = {
+          ...block,
+          html: block.html.replace(
+            /^(<(?:table|ol|ul|p|div|blockquote)\b)/i,
+            '$1 data-sop-unsplittable-overflow="true"'
+          )
+        };
+        currentPageBlocks.push(unsplittable);
+        used = capacity;
+        currentSection = block.section;
+        index += 1;
+        commitCurrentPageAndStartNext();
+        continue;
       }
     }
 
@@ -1025,7 +1210,7 @@ export function computeCanonicalA4Pages(
     index += 1;
   }
 
-  if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
+  if (currentPageBlocks.length) {
     pages.push(currentPageBlocks);
   }
 

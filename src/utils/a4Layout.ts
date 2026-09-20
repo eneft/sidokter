@@ -42,14 +42,47 @@ export function normalizeStructuredTables(root: ParentNode): void {
     // to size the grid from cell content instead of forcing the fixed A4 grid.
     table.style.tableLayout = table.dataset.tableAutofit === 'true' ? 'auto' : 'fixed';
     const cols = Array.from(table.querySelectorAll<HTMLTableColElement>(':scope > colgroup > col'));
-    const values = cols.map((col) => numericWidth(col.style.width || col.getAttribute('width')));
+    let values = cols.map((col) => numericWidth(col.style.width || col.getAttribute('width')));
+    const allEqual = values.length > 1 && values.every((v) => v !== null && Math.abs((v as number) - (values[0] as number)) < 0.01);
+
+    // If colgroup is absent or contains equal placeholder widths (e.g. 20% each),
+    // inspect the first row cells for explicit authored widths.
+    const firstRow = table.querySelector('tr');
+    const firstRowCells = Array.from(firstRow ? firstRow.querySelectorAll<HTMLTableCellElement>('th, td') : []);
+    const cellValues = firstRowCells.map((cell) => numericWidth(cell.style.width || cell.getAttribute('width')));
+    const hasValidCellWidths = cellValues.length > 0 && cellValues.every((v) => v !== null && v > 0);
+    const cellsUnequal = hasValidCellWidths && cellValues.length > 1 && !cellValues.every((v) => Math.abs((v as number) - (cellValues[0] as number)) < 0.01);
+
+    if (hasValidCellWidths && (allEqual || values.length === 0 || cellsUnequal)) {
+      values = cellValues;
+    }
+
     const total = values.reduce<number>((sum, value) => sum + (value || 0), 0);
     if (total > 0 && values.every((value) => value !== null)) {
-      cols.forEach((col, index) => {
-        col.style.width = `${((values[index] as number) / total) * 100}%`;
-        col.removeAttribute('width');
+      let colgroup = table.querySelector<HTMLElement>(':scope > colgroup');
+      if (!colgroup) {
+        colgroup = table.ownerDocument.createElement('colgroup');
+        table.insertBefore(colgroup, table.firstChild);
+      }
+      colgroup.innerHTML = '';
+      values.forEach((val) => {
+        const col = table.ownerDocument.createElement('col');
+        col.style.width = `${(((val as number) / total) * 100).toFixed(2)}%`;
+        colgroup!.appendChild(col);
       });
     }
+
+    // Ensure list items inside table cells inherit font-size from styled child spans
+    // so bullet markers and compact rhythm remain proportional.
+    table.querySelectorAll('li').forEach((li) => {
+      const styledChild = li.querySelector<HTMLElement>('[style*="font-size"]');
+      if (styledChild) {
+        const match = styledChild.getAttribute('style')?.match(/font-size\s*:\s*([0-9.]+(?:pt|px))/i);
+        if (match) {
+          li.style.fontSize = match[1];
+        }
+      }
+    });
     table.querySelectorAll<HTMLTableRowElement>('tr[data-row-min-height]').forEach((row) => {
       const minimum = Number(row.dataset.rowMinHeight);
       if (Number.isFinite(minimum) && minimum > 0) {
@@ -73,5 +106,14 @@ export function normalizeStructuredHtml(html: string): string {
   if (!html || typeof DOMParser === 'undefined') return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   normalizeStructuredTables(doc.body);
+  doc.body.querySelectorAll('*').forEach((el) => {
+    const htmlEl = el as HTMLElement;
+    if (htmlEl.style) {
+      if (htmlEl.style.overflow) htmlEl.style.overflow = '';
+      if (htmlEl.style.overflowY) htmlEl.style.overflowY = '';
+      if (htmlEl.style.overflowX) htmlEl.style.overflowX = '';
+      if (htmlEl.style.maxHeight) htmlEl.style.maxHeight = '';
+    }
+  });
   return doc.body.innerHTML;
 }

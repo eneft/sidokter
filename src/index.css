@@ -1568,6 +1568,19 @@ button, a, input, select, textarea {
   box-sizing: border-box !important;
 }
 
+/* Eradicate any accidental nested scrollbars, clipping, or height caps inside official SOP documents */
+.sop-batang-tubuh-content,
+.sop-batang-tubuh-content *,
+.rich-text-output,
+.rich-text-output *,
+.rich-text-document-content,
+.rich-text-document-content *,
+#printable-sop-official-document,
+#printable-sop-official-document * {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
 .sop-batang-tubuh-title {
   padding: 3mm !important;
   box-sizing: border-box !important;
@@ -1838,10 +1851,24 @@ button, a, input, select, textarea {
 .rich-text-editor-content table {
   border-collapse: collapse;
 }
+/* Canonical authored-table row floor. Empty/manual rows must consume the same
+   physical height in LiveSPO, off-screen pagination measurement, Preview and PDF.
+   Previously this existed only on .rich-text-editor-content, so the paginator
+   (which measures with .rich-text-output) underestimated tables containing empty
+   rows and LiveSPO clipped them at the A4 edge instead of creating a new page. */
 .rich-text-editor-content table td,
-.rich-text-editor-content table th {
+.rich-text-editor-content table th,
+.rich-text-document-content table td,
+.rich-text-document-content table th,
+.rich-text-output table td,
+.rich-text-output table th {
   height: 1.75em;
   min-height: 1.75em;
+}
+
+/* Editing-only affordances must not affect canonical geometry. */
+.rich-text-editor-content table td,
+.rich-text-editor-content table th {
   box-shadow: inset 0 0 0 1px rgb(99 102 241 / 0.28);
   cursor: text;
 }

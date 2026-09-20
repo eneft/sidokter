@@ -12,8 +12,8 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-20T12:35:17.556Z",
-      "updatedAt": "2026-09-20T12:35:17.699Z",
+      "createdAt": "2026-09-20T14:35:21.113Z",
+      "updatedAt": "2026-09-20T14:35:21.218Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -1529,8 +1529,26 @@
       "sessionId": "a83a7a26-d42b-41e2-b555-4f0b664e915b",
       "authUid": "admin-root",
       "username": "admin",
-      "createdAt": 1789907717556,
-      "lastActiveAt": 1789907717556,
+      "createdAt": 1789908320558,
+      "lastActiveAt": 1789908320558,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+    },
+    "885cf4bf-3a24-498c-81f7-89797055a7a3": {
+      "sessionId": "885cf4bf-3a24-498c-81f7-89797055a7a3",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789912263177,
+      "lastActiveAt": 1789912263177,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7.5 Mobile/15E148 Safari/604.1"
+    },
+    "b659128f-a75e-4649-bde6-287487404db9": {
+      "sessionId": "b659128f-a75e-4649-bde6-287487404db9",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789914921113,
+      "lastActiveAt": 1789914921113,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
     }
