@@ -150,3 +150,11 @@ test('table and image content are excluded from generic rich-text pre-splitting'
   const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
   assert.match(source, /querySelector\('table, img, figure'\)/);
 });
+
+test('text page split preserves the exact inter-chunk boundary instead of dropping whitespace', () => {
+  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  assert.match(source, /const previous = ranges\[startWord - 1\];[\s\S]*range\.setStart\(previous\.node, previous\.end\)/);
+  assert.match(source, /range\.setStart\(element, 0\)/);
+  assert.match(source, /range\.setEnd\(element, element\.childNodes\.length\)/);
+  assert.doesNotMatch(source, /range\.setStart\(ranges\[startWord\]\.node, ranges\[startWord\]\.start\)/);
+});

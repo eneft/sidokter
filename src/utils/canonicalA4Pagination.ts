@@ -416,8 +416,26 @@ export function splitElementPreservingMarkup(
   const safetyLimit = Math.max(1, maxHeight - 1);
   const buildCandidate = (startWord: number, endWord: number): string => {
     const range = ownerDocument.createRange();
-    range.setStart(ranges[startWord].node, ranges[startWord].start);
-    range.setEnd(ranges[endWord - 1].node, ranges[endWord - 1].end);
+
+    // Preserve the exact authored stream around a page boundary. Starting the
+    // continuation at the next word/character used to drop the whitespace (or
+    // inline markup) between both chunks, so concatenating paginated text was
+    // not guaranteed to equal the source. Use the previous fitted token end as
+    // the continuation boundary and the element edges for the outer chunks.
+    if (startWord <= 0) {
+      range.setStart(element, 0);
+    } else {
+      const previous = ranges[startWord - 1];
+      range.setStart(previous.node, previous.end);
+    }
+
+    if (endWord >= ranges.length) {
+      range.setEnd(element, element.childNodes.length);
+    } else {
+      const lastIncluded = ranges[endWord - 1];
+      range.setEnd(lastIncluded.node, lastIncluded.end);
+    }
+
     const fragment = range.cloneContents();
     return buildWrapper(fragment, startWord === 0);
   };
