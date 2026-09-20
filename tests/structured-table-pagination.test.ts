@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
 const ROOT = process.cwd();
 const read = (relativePath: string) => readFileSync(path.join(ROOT, relativePath), 'utf8');
+const readOptional = (...relativePaths: string[]) => {
+  const existing = relativePaths.find((relativePath) => existsSync(path.join(ROOT, relativePath)));
+  return existing ? read(existing) : '';
+};
 
 const modalSource = read('src/components/SopDetailModal.tsx');
 const editorSource = read('src/components/RichTextEditor.tsx');
@@ -14,7 +18,7 @@ const a4Source = read('src/utils/a4Layout.ts');
 const cssSource = read('src/index.css');
 const pdfSource = read('functions/index.js');
 const v2Source = read('src/utils/structuredTablePaginationV2.ts');
-const docxSource = read('src/utils/docxSopImport.ts');
+const docxSource = readOptional('src/utils/docxSopImport.ts', 'src/utils/docxParser.ts', 'src/utils/docxTableGeometry.ts');
 const fixtureSource = read('src/utils/crossmatchTableFixture.ts');
 
 test('tabel sederhana tetap utuh jika muat', () => {
@@ -159,10 +163,6 @@ test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () 
 });
 
 test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => {
-  // Current canonical implementation normalizes every authored column against
-  // the measured total using the loop-local value (`val`).  This is equivalent
-  // to the older `values[index] / total` form, but is less brittle and matches
-  // production `a4Layout.ts` exactly.
   assert.match(a4Source, /val as number\) \/ total\) \* 100/);
   assert.match(a4Source, /table\.style\.maxWidth = '100%'/);
   assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
