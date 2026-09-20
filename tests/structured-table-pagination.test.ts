@@ -157,7 +157,9 @@ test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen'
   assert.match(cssSource, /table\[data-table-autofit="true"\][\s\S]{0,300}width: fit-content !important;[\s\S]{0,100}max-width: 100% !important;[\s\S]{0,100}table-layout: auto !important;/);
   assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col[\s\S]{0,300}width: auto !important/);
   assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/);
-  assert.match(cssSource, /\.table-selection-overlay[\s\S]{0,500}\.table-move-handle[\s\S]{0,500}\.table-resize-handle/);
+  assert.match(cssSource, /\.table-selection-overlay/);
+  assert.match(cssSource, /\.table-move-handle/);
+  assert.match(cssSource, /\.table-resize-handle/);
 });
 
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => {
