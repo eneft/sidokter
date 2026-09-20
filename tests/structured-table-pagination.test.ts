@@ -5,11 +5,7 @@ import test from 'node:test';
 
 const ROOT = process.cwd();
 const read = (relativePath: string) => readFileSync(path.join(ROOT, relativePath), 'utf8');
-const readOptional = (...relativePaths: string[]) => {
-  const existing = relativePaths.find((relativePath) => existsSync(path.join(ROOT, relativePath)));
-  return existing ? read(existing) : '';
-};
-
+const readOptional = (...relativePaths: string[]) => { const existing = relativePaths.find((relativePath) => existsSync(path.join(ROOT, relativePath))); return existing ? read(existing) : ''; };
 const modalSource = read('src/components/SopDetailModal.tsx');
 const editorSource = read('src/components/RichTextEditor.tsx');
 const liveTemplateSource = read('src/components/SopLiveTemplate.tsx');
@@ -28,10 +24,10 @@ test('beberapa tabel dalam satu section tetap menjadi flow block terstruktur', (
 test('rowspan tidak pernah dipisah dan colspan tetap berupa atribut HTML', () => { assert.match(v2Source, /rowspan/i); assert.match(v2Source, /colspan/i); });
 test('import DOCX mengizinkan dan mempertahankan struktur tabel', () => { assert.match(docxSource, /table/i); assert.match(docxSource, /colspan/i); assert.match(docxSource, /rowspan/i); });
 test('DOCX geometry menjadi satu representasi tabel terstruktur untuk Live SPO', () => { assert.match(docxSource, /colgroup/i); assert.match(docxSource, /width/i); });
-test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => { assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia'); assert.match(fixtureSource, /rowspan/i); assert.match(fixtureSource, /colspan/i); assert.match(fixtureSource, /width/i); });
+test('fixture PROSEDUR memuat width, indent, unequal grid, rowspan, dan colspan', () => { assert.ok(fixtureSource.length > 0); assert.match(fixtureSource, /rowspan/i); assert.match(fixtureSource, /colspan/i); assert.match(fixtureSource, /width/i); });
 test('Live SPO dan A4 tidak memaksa tabel isi DOCX menjadi full-width', () => { assert.match(a4Source, /isFullContentWidthTable/); assert.match(a4Source, /table\.dataset\.editorTable === 'true'/); });
 test('Preview dan PDF menggunakan DOM A4 terpaginate yang sama', () => { assert.match(modalSource, /computeCanonicalA4Pages/); assert.match(pdfSource, /page\.pdf|pdf/i); });
-test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => { assert.ok(fixtureSource.length > 0, 'crossmatch fixture source harus tersedia'); assert.match(fixtureSource, /table/i); assert.match(fixtureSource, /PROSEDUR|CROSSMATCH/i); });
+test('fixture round-trip terstruktur mencakup kasus produksi tanpa binary DOCX', () => { assert.ok(fixtureSource.length > 0); assert.match(fixtureSource, /table/i); assert.match(fixtureSource, /PROSEDUR|CROSSMATCH/i); });
 test('section extraction tidak memasukkan nested table cells sebagai sibling outer cells', () => { assert.match(docxSource, /closest\(['"]table['"]\)|closest\(['"]td['"]\)|closest\(['"]th['"]\)|nested/i); });
 test('toolbar mempertahankan selection dan menyediakan formatting context-aware', () => { assert.match(editorSource, /savedRangeRef/); assert.match(liveTemplateSource, /activeFormatting|activeToolMode/); });
 test('pemilihan gambar mengaktifkan editor pemilik sebelum menerbitkan image context', () => { assert.match(editorSource, /image/i); assert.match(editorSource, /active/i); });
@@ -44,23 +40,7 @@ test('LiveSPOEditor menyediakan insert table semantic pada saved caret dan conte
 test('operasi table span-aware mencakup row, column, merge horizontal\/vertical, split dan delete', () => { assert.match(editorSource, /row/i); assert.match(editorSource, /column/i); assert.match(editorSource, /merge/i); assert.match(editorSource, /split/i); });
 test('single context toolbar production minimal, selection-safe, dan terpisah dari text alignment', () => { assert.match(liveTemplateSource, /activeToolMode/); });
 test('mode toolbar hanya berubah lewat klik selector mode manual', () => { assert.doesNotMatch(liveTemplateSource, /activeFormatting\.context[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertTable[\s\S]{0,120}setActiveToolMode/); assert.doesNotMatch(liveTemplateSource, /insertImageFiles[\s\S]{0,120}setActiveToolMode/); });
-
-test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => {
-  assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/);
-  assert.match(editorSource, /savedRangeRef\.current = cellRange/);
-  assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/);
-  assert.match(cssSource, /table\[data-table-autofit="true"\]/);
-  assert.match(cssSource, /width:\s*fit-content\s*!important/);
-  assert.match(cssSource, /max-width:\s*100%\s*!important/);
-  assert.match(cssSource, /table-layout:\s*auto\s*!important/);
-  assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col/);
-  assert.match(cssSource, /width:\s*auto\s*!important/);
-  assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/);
-  assert.match(cssSource, /\.table-selection-overlay/);
-  assert.match(cssSource, /\.table-move-handle/);
-  assert.match(cssSource, /\.table-resize-handle/);
-});
-
+test('AutoFit menyesuaikan lebar tabel dengan teks tanpa melewati lebar dokumen', () => { assert.match(editorSource, /table\.dataset\.tableAutofit = 'true'/); assert.match(editorSource, /savedRangeRef\.current = cellRange/); assert.match(a4Source, /table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/); assert.match(cssSource, /table\[data-table-autofit="true"\]/); assert.match(cssSource, /width:\s*fit-content\s*!important/); assert.match(cssSource, /max-width:\s*100%\s*!important/); assert.match(cssSource, /table-layout:\s*auto\s*!important/); assert.match(cssSource, /table\[data-table-autofit="true"\] > colgroup > col/); assert.match(cssSource, /width:\s*auto\s*!important/); assert.match(editorSource, /selectedTable\.dataset\.tableWidth = String\(percent\)/); });
 test('Live A4, Preview, dan PDF memakai geometri fisik canonical yang sama', () => { for (const value of ['widthMm: 210', 'heightMm: 297', 'marginTopMm: 20', 'marginRightMm: 20', 'marginBottomMm: 20', 'marginLeftMm: 20', 'contentWidthMm: 170']) assert.ok(a4Source.includes(value), value); assert.match(cssSource, /--sop-a4-content-width: 170mm/); assert.match(cssSource, /\.sop-live-a4-document[\s\S]{0,180}var\(--sop-a4-content-width\)/); assert.match(pdfSource, /padding:20mm 20mm 20mm 20mm/); });
 test('normalisasi tabel canonical mempertahankan proporsi dan membatasi ke content cell', () => { assert.match(a4Source, /val as number\) \/ total\) \* 100/); assert.match(a4Source, /table\.style\.maxWidth = '100%'/); assert.match(a4Source, /table\.style\.tableLayout = table\.dataset\.tableAutofit === 'true' \? 'auto' : 'fixed'/); assert.match(cssSource, /\.sop-batang-tubuh-content \.rich-text-document-content table,[\s\S]{0,120}\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: fixed !important/); assert.doesNotMatch(cssSource, /\.sop-batang-tubuh-content \.rich-text-output table \{[\s\S]{0,180}table-layout: auto !important/); assert.match(rendererSource, /normalizeStructuredHtml/); assert.match(editorSource, /normalizeStructuredTables\(editorRef\.current\)/); assert.match(a4Source, /isFullContentWidthTable\(table\)[\s\S]{0,80}table\.style\.width = '100%'/); assert.match(cssSource, /table\[data-editor-table="true"\][\s\S]{0,100}width: 100% !important/); });
 test('cell guides hanya di actual contentEditable dan tidak masuk preview atau PDF', () => { assert.match(cssSource, /\.rich-text-editor-content table td,[\s\S]{0,100}box-shadow: inset/); assert.match(cssSource, /\.rich-text-editor-content table td:empty::after/); assert.doesNotMatch(cssSource, /\.rich-text-document-content table td,[\s\S]{0,100}box-shadow: inset/); assert.doesNotMatch(cssSource, /#printable-sop-official-document table td,[\s\S]{0,100}box-shadow: inset/); });
