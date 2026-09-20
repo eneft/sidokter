@@ -464,8 +464,15 @@ export async function deleteSopFromLocal(id: string): Promise<void> {
   // Cloud/Firestore deletion is authoritative. Do not remove the local cache
   // first and then fire-and-forget the cloud delete; that can make one browser
   // appear deleted while another browser still sees the document.
-  await deleteSopFromFirestore(id);
-  await idbDeleteSop(id);
+  const action = await deleteSopFromFirestore(id);
+  if (action === 'DELETED') {
+    await idbDeleteSop(id);
+  } else {
+    const all = await getSops();
+    await idbPutSops(all.map((item) => item.id === id
+      ? { ...item, status: 'DIARSIPKAN' as const, everActivated: true, archivedAt: new Date().toISOString() }
+      : item));
+  }
   notifySopSubscribers();
 }
 

@@ -1,5 +1,5 @@
     match /sops/{sopId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && (isAdmin() || resource.data.status != 'DIARSIPKAN');
       allow create: if signedIn();
 
       // A stale editor is rejected using the currently stored status.
@@ -8,6 +8,10 @@
       // mutate protected document identity, lifecycle, or access-control fields.
       allow update: if (
         isAdmin() &&
+        // Once a number has been official it can never return to a recyclable state.
+        !(resource.data.get('everActivated', false) == true && request.resource.data.get('everActivated', false) != true) &&
+        !((resource.data.status == 'AKTIF' || resource.data.status == 'DIARSIPKAN') && request.resource.data.get('everActivated', false) != true) &&
+        !((request.resource.data.status == 'AKTIF' || request.resource.data.status == 'DIARSIPKAN') && request.resource.data.get('everActivated', false) != true) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'reviewState', 'reviewHistory', 'currentReviewRequesterUid', 'reviewUpdatedAt'
         ]) &&
@@ -40,5 +44,5 @@
         ])
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() && resource.data.status == 'DRAFT' && resource.data.get('everActivated', false) == false;
     }

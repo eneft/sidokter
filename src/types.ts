@@ -126,6 +126,10 @@ export interface SopDocument {
   categoryName: string;
   version: string; // e.g. "00" or "1.0"
   status: SopStatus;
+  /** Once true, this official number is permanently non-reusable. */
+  everActivated?: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
   effectiveDate: string; // YYYY-MM-DD
   reviewPeriodMonths: number; // e.g. 12 (1 year)
   nextReviewDate: string; // YYYY-MM-DD

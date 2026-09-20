@@ -1695,16 +1695,20 @@ export default function App() {
   const confirmDeleteSop = async () => {
     if (!sopToDelete) return;
     const { id, title } = sopToDelete;
+    const target = sops.find((s) => s.id === id);
 
     try {
-      // Persist the delete first. This prevents a delete racing with a
+      // Persist the delete/archive first. This prevents a delete racing with a
       // subsequent restore and ensures the UI only reflects confirmed state.
       await deleteSopFromLocal(id);
       deleteFileFromLocalCache(id);
-      const nextSops = sops.filter((s) => s.id !== id);
+      const wasDraft = target?.status === 'DRAFT' && target?.everActivated !== true;
+      const nextSops = wasDraft
+        ? sops.filter((s) => s.id !== id)
+        : sops.map((s) => s.id === id ? { ...s, status: 'DIARSIPKAN' as SopStatus, everActivated: true, archivedAt: new Date().toISOString() } : s);
       setSops(nextSops);
 
-    if (nextSops.length === 0) {
+    if (wasDraft && nextSops.length === 0) {
       const resetConfig: NumberingConfig = {
         ...numberingConfig,
         currentCounter: 0,
@@ -1713,8 +1717,10 @@ export default function App() {
       setNumberingConfig(resetConfig);
       saveConfigToLocal(resetConfig).catch((err) => console.error('Error resetting config in local database:', err));
       addToast('info', 'Penomoran Direset', `SPO "${title}" telah dihapus. Daftar SPO kini kosong dan penomoran otomatis di-reset dari awal (#001).`);
+    } else if (wasDraft) {
+      addToast('info', 'Draft Dihapus', `SPO "${title}" telah dihapus. Nomor draft kembali tersedia.`);
     } else {
-      addToast('info', 'Dokumen Dihapus', `SPO "${title}" telah dihapus dari daftar.`);
+      addToast('info', 'SPO Diarsipkan', `SPO "${title}" dipindahkan ke Arsip SPO. Nomor tetap terkunci permanen.`);
     }
 
     if (selectedSopForDetail?.id === id) {
@@ -1755,7 +1761,7 @@ export default function App() {
       setSelectedSopForActivation(target);
       return;
     }
-    const updated = { ...target, status: newStatus, updatedAt: new Date().toISOString() };
+    const updated = { ...target, status: newStatus, ...(newStatus === 'DIARSIPKAN' || target.status === 'AKTIF' || target.everActivated ? { everActivated: true } : {}), updatedAt: new Date().toISOString() };
     setSops((prev) => prev.map((s) => s.id === id ? updated : s));
     if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
     saveSopToLocal(updated).catch((err) => console.error('Error updating status in local database:', err));

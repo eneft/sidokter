@@ -178,6 +178,9 @@ export async function saveSopToFirestore(
     }
     const cleanSop = sanitizeForFirestore({
       ...authoritativeSop,
+      ...((authoritativeSop.status === 'AKTIF' || authoritativeSop.status === 'DIARSIPKAN' || authoritativeSop.everActivated)
+        ? { everActivated: true }
+        : {}),
       fileDataUrl: deleteField(),
       signedScanDataUrl: deleteField(),
       oldFileDataUrl: deleteField(),
@@ -234,7 +237,17 @@ export async function saveSopToFirestore(
         }
 
         const storedCounter = Number(sequenceSnapshot.data()?.lastSequence || 0);
-        const sequenceNumber = getNextTransactionalSequence(storedCounter, highestExisting);
+        const occupied = new Set(existingSops
+          .filter((existing) => existing.id !== sop.id)
+          .map((existing) => Number(existing.sequenceNumber || 0))
+          .filter((value) => value > 0));
+        const reusable = Array.from(new Set((sequenceSnapshot.data()?.reusableSequences || [])
+          .map((value: unknown) => Number(value))
+          .filter((value: number) => value > 0 && !occupied.has(value))))
+          .sort((a: number, b: number) => a - b);
+        const sequenceNumber = reusable.length
+          ? reusable[0]
+          : getNextTransactionalSequence(storedCounter, highestExisting);
         const generated = generateSopNumber({
           config: options.allocateOfficialNumber!,
           divisionCode,
@@ -255,7 +268,10 @@ export async function saveSopToFirestore(
           divisionCode,
           subHierarchyCode,
           year,
-          lastSequence: sequenceNumber,
+          // lastSequence is a high-water mark. Reusing a deleted DRAFT never
+          // moves it backwards; only the reusable queue is consumed.
+          lastSequence: Math.max(storedCounter, sequenceNumber),
+          reusableSequences: reusable.filter((value: number) => value !== sequenceNumber),
           updatedAt: serverTimestamp(),
         }, { merge: true });
         transaction.set(docRef, cleanSop, { merge: false });
@@ -380,10 +396,11 @@ export async function activateRiviuInFirestore(
       throw new Error('Riviu wajib memiliki nomor SPO baru yang valid.');
     }
 
-    const archived = sanitizeForFirestore({ ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt });
+    const archived = sanitizeForFirestore({ ...predecessor, status: 'DIARSIPKAN', everActivated: true, archivedAt: successor.updatedAt, updatedAt: successor.updatedAt });
     const activated = sanitizeForFirestore({
       ...storedSuccessor,
       status: 'AKTIF',
+      everActivated: true,
       updatedAt: successor.updatedAt,
       activatedAt: successor.activatedAt,
       activatedBy: successor.activatedBy,
@@ -400,20 +417,61 @@ export async function activateRiviuInFirestore(
   });
 }
 
-export async function deleteSopFromFirestore(id: string): Promise<void> {
+export async function deleteSopFromFirestore(id: string): Promise<'DELETED' | 'ARCHIVED'> {
+  if (!id) return 'DELETED';
+  updateStatus({ isSyncing: true });
   try {
-    if (!id) return;
-    updateStatus({ isSyncing: true });
     const docRef = doc(db, 'sops', id);
-    await deleteDoc(docRef);
-    updateStatus({
-      isConnected: true,
-      isSyncing: false,
-      lastSync: new Date().toISOString()
+    const result = await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(docRef);
+      if (!snapshot.exists()) return 'DELETED' as const;
+      const current = { ...snapshot.data(), id: snapshot.id } as SopDocument;
+
+      // Official documents are historical records. They are never hard-deleted.
+      if (current.status !== 'DRAFT' || current.everActivated === true) {
+        transaction.set(docRef, sanitizeForFirestore({
+          status: 'DIARSIPKAN',
+          everActivated: true,
+          archivedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }), { merge: true });
+        return 'ARCHIVED' as const;
+      }
+
+      // A DRAFT number may be recycled. Return only this exact slot to the
+      // authoritative unit/year queue, then delete the draft atomically.
+      const sequenceNumber = Number(current.sequenceNumber || 0);
+      const divisionCode = String(current.divisionCode || '').trim().toUpperCase();
+      const subHierarchyCode = String(current.subHierarchyCode || '').trim();
+      const year = String(current.sopNumber || '').match(/\/(\d{4})\s*$/)?.[1]
+        || String(current.effectiveDate || '').slice(0, 4);
+      if (sequenceNumber > 0 && divisionCode && /^\d{4}$/.test(year)) {
+        const sequenceKey = encodeURIComponent(getNumberingSequenceScope(year, divisionCode, subHierarchyCode));
+        const sequenceRef = doc(db, 'system_config', `spo_sequence_${sequenceKey}`);
+        const sequenceSnapshot = await transaction.get(sequenceRef);
+        const reusable = Array.from(new Set([
+          ...((sequenceSnapshot.data()?.reusableSequences || []).map((value: unknown) => Number(value))),
+          sequenceNumber,
+        ].filter((value) => Number(value) > 0))).sort((a, b) => Number(a) - Number(b));
+        transaction.set(sequenceRef, {
+          id: sequenceRef.id,
+          divisionCode,
+          subHierarchyCode,
+          year,
+          lastSequence: Math.max(Number(sequenceSnapshot.data()?.lastSequence || 0), sequenceNumber),
+          reusableSequences: reusable,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      transaction.delete(docRef);
+      return 'DELETED' as const;
     });
+    updateStatus({ isConnected: true, isSyncing: false, lastSync: new Date().toISOString(), error: null });
+    return result;
   } catch (err: any) {
-    console.warn('Firebase delete warning (SOP):', err?.message || err);
-    updateStatus({ isSyncing: false });
+    console.warn('Firebase delete/archive warning (SOP):', err?.message || err);
+    updateStatus({ isSyncing: false, error: err?.message || 'Gagal menghapus/mengarsipkan SPO' });
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -426,8 +484,10 @@ export async function fetchSopsFromFirestore(accessKeys?: string[], globalAccess
   }
 
   const colRef = collection(db, 'sops');
+  const currentSession = (() => { try { return JSON.parse(sessionStorage.getItem('soegiri_sop_client_session_v3') || 'null'); } catch { return null; } })();
+  const readRef = currentSession?.role === 'admin' ? colRef : query(colRef, where('status', 'in', ['DRAFT', 'AKTIF']));
   try {
-    const snapshot = await getDocs(colRef);
+    const snapshot = await getDocs(readRef);
     const byId = new Map<string, SopDocument>();
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
@@ -456,11 +516,13 @@ export function subscribeToFirestoreSops(
   globalAccess = false
 ): () => void {
   const colRef = collection(db, 'sops');
+  const currentSession = (() => { try { return JSON.parse(sessionStorage.getItem('soegiri_sop_client_session_v3') || 'null'); } catch { return null; } })();
+  const readRef = currentSession?.role === 'admin' ? colRef : query(colRef, where('status', 'in', ['DRAFT', 'AKTIF']));
   let closed = false;
 
   try {
     const unsubscribe = onSnapshot(
-      colRef,
+      readRef,
       (snapshot) => {
         if (closed) return;
         const items: SopDocument[] = [];
