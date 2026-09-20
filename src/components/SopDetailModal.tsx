@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, 
   Copy, 
@@ -27,6 +27,7 @@ import {
   Lock,
   Loader2,
   Maximize2,
+  Minimize2,
   BookOpen,
   Table as TableIcon,
   ChevronLeft,
@@ -49,8 +50,8 @@ import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
 import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
-import { splitStructuredTable, splitStructuredTableV2 } from '../utils/structuredTablePagination';
 import { responseToPdfBlob } from '../utils/pdfBinary';
+import { buildOfficialBlocks, computeCanonicalA4Pages } from '../utils/canonicalA4Pagination';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -265,6 +266,46 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [riviuPreviewTab, setRiviuPreviewTab] = useState<'document' | 'evidence'>('document');
   const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState<string | null>(null);
   const [selectedEvidenceName, setSelectedEvidenceName] = useState<string>('');
+
+  // Canonical A4 visual scale viewer (identik across desktop, tablet, and mobile)
+  const [isMaximized, setIsMaximized] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 640) {
+      return localStorage.getItem('sop_modal_maximized') !== 'false';
+    }
+    return true;
+  });
+  const [previewZoomMode, setPreviewZoomMode] = useState<'fit' | '50%' | '75%' | '100%' | '125%' | '150%'>('fit');
+  const [previewViewportWidth, setPreviewViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!previewViewportRef.current) return;
+    const updateWidth = () => {
+      if (previewViewportRef.current) {
+        setPreviewViewportWidth(previewViewportRef.current.clientWidth);
+      }
+    };
+    updateWidth();
+    const obs = new ResizeObserver(updateWidth);
+    obs.observe(previewViewportRef.current);
+    return () => obs.disconnect();
+  }, [isOpen, isMaximized]);
+
+  const calculatedPreviewScale = useMemo(() => {
+    if (previewZoomMode === '50%') return 0.5;
+    if (previewZoomMode === '75%') return 0.75;
+    if (previewZoomMode === '100%') return 1;
+    if (previewZoomMode === '125%') return 1.25;
+    if (previewZoomMode === '150%') return 1.5;
+    // 'fit' mode: 210mm at 96 DPI is ~793.7px
+    const a4Px = 793.7;
+    if (previewViewportWidth > 0 && previewViewportWidth < a4Px + 32) {
+      return Math.max(0.35, Math.min(1, (previewViewportWidth - 32) / a4Px));
+    }
+    return 1;
+  }, [previewZoomMode, previewViewportWidth]);
 
   useEffect(() => {
     setShowReviewEvidencePreview(false);
@@ -684,50 +725,20 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       return [source];
     }
   };
-  const officialPengertianHtml = (sop?.pengertian || sop?.summary || '').trim();
-  const officialTujuanHtml = (sop?.tujuan || '').trim();
-  const officialKebijakanHtml = (sop?.kebijakan || 'SK Direktur RSUD Dr. Soegiri Lamongan Nomor 188/SPO/DIR/2026').trim();
-  const officialProcedureHtml = (sop?.prosedur || '').trim();
-  const officialAlurHtml = (sop?.alur || '').trim();
-  const officialUnitHtml = (sop?.unitTerkait || (sop?.divisionName ? `${sop.divisionName}${sop.categoryName ? `, ${sop.categoryName}` : ''}` : '')).trim();
-
-  const sectionsData = [
-    { id: 'pengertian', section: 'PENGERTIAN' as const, html: officialPengertianHtml },
-    { id: 'tujuan', section: 'TUJUAN' as const, html: officialTujuanHtml },
-    { id: 'kebijakan', section: 'KEBIJAKAN' as const, html: officialKebijakanHtml },
-    { id: 'prosedur', section: 'PROSEDUR' as const, html: officialProcedureHtml },
-    { id: 'alur', section: 'ALUR / BAGAN ALIR' as const, html: officialAlurHtml },
-    { id: 'unit-terkait', section: 'UNIT TERKAIT' as const, html: officialUnitHtml }
-  ];
-
-  // Decompose each section into granular flow units (paragraphs, list items, tables)
-  // so pagination can pack and fill all remaining A4 space before creating a new page.
-  const officialBlocks: OfficialBlock[] = sectionsData
-    .filter((sec) => sec.html.trim().length > 0)
-    .flatMap((sec) => {
-      const units = extractProcedureBlocks(sec.html);
-      return units.map((unitHtml, unitIdx) => {
-        let logicalListGroup: string | undefined;
-        try {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(unitHtml, 'text/html');
-          const first = doc.body.firstElementChild;
-          if (first && /^(ol|ul)$/i.test(first.tagName)) {
-            // unitIdx is stable for the source document. Pagination may clone this
-            // block many times, but the logical list identity must remain identical.
-            logicalListGroup = `${sec.id}-logical-list-${unitIdx}`;
-          }
-        } catch {
-          // Keep non-list blocks unchanged.
-        }
-        return {
-          id: units.length <= 1 ? sec.id : `${sec.id}-${unitIdx}`,
-          section: sec.section,
-          html: unitHtml,
-          logicalListGroup
-        };
-      });
-    });
+  // Preview and LiveSPO must start from the exact same canonical ordered flow.
+  // Do not maintain a second section decomposition here: that previously made
+  // empty sections and table/list units diverge between editor and preview.
+  const officialBlocks: OfficialBlock[] = buildOfficialBlocks({
+    pengertian: sop?.pengertian,
+    summary: sop?.summary,
+    tujuan: sop?.tujuan,
+    kebijakan: sop?.kebijakan,
+    prosedur: sop?.prosedur,
+    alur: sop?.alur,
+    unitTerkait: sop?.unitTerkait,
+    divisionName: sop?.divisionName,
+    categoryName: sop?.categoryName
+  }) as OfficialBlock[];
 
   // Reset the flow model whenever the source SPO changes.  The pagination
   // engine works only from these blocks, so no content is ever discarded.
@@ -753,44 +764,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     sop?.categoryName
   ]);
 
-  // Give every top-level ordered/unordered list a stable logical identity.
-  // A page break must never create a new logical list. These attributes travel
-  // with every fragment produced by splitHtmlForCapacity(), allowing numbering
-  // state to continue across A4 pages.
-  const annotateLogicalLists = (html: string, blockId: string): string => {
-    if (!html || typeof DOMParser === 'undefined') return html;
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const topLevelLists = Array.from(doc.body.querySelectorAll('ol, ul')).filter((list) => {
-        let parent = list.parentElement;
-        while (parent && parent !== doc.body) {
-          const tag = parent.tagName.toLowerCase();
-          if (tag === 'ol' || tag === 'ul') return false;
-          parent = parent.parentElement;
-        }
-        return true;
-      });
-
-      topLevelLists.forEach((list, index) => {
-        if (!list.hasAttribute('data-sop-list-group')) {
-          list.setAttribute('data-sop-list-group', `${blockId}-list-${index}`);
-        }
-      });
-
-      return doc.body.innerHTML;
-    } catch {
-      return html;
-    }
-  };
-
-  // Unlimited A4 pagination.  We paginate the exact rows rendered in the
-  // hidden measurement table, with a small safety allowance so the visible
-  // preview never clips the bottom border of a page.
+  // Canonical A4 pagination shared with SopLiveTemplate. Preview owns only the
+  // scoped physical measurement shell; all split/page-boundary decisions live
+  // in computeCanonicalA4Pages so Preview and LiveSPO cannot drift apart.
   useEffect(() => {
-    // An uploaded Existing PDF has no hidden A4 measurement tree. Starting
-    // pagination for it leaves isPaginatingOfficial=true when `root` is null,
-    // which in turn permanently disables the universal "Simpan PDF" button.
     if (isExistingPdf) {
       setIsPaginatingOfficial(false);
       return;
@@ -798,7 +775,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     if (!isOpen || !sop || activeTab !== 'official_format' || layoutBlocks.length === 0) return;
 
     let cancelled = false;
-
     const run = async () => {
       setIsPaginatingOfficial(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -807,787 +783,43 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
         const root = measureRootRef.current;
-        if (root) {
-          const images = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
-          await Promise.all(images.map((img: HTMLImageElement) => img.complete
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                const done = () => { img.removeEventListener('load', done); img.removeEventListener('error', done); resolve(); };
-                img.addEventListener('load', done, { once: true });
-                img.addEventListener('error', done, { once: true });
-              })
-          ));
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        }
-
         if (!root) return;
+        const images = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+        await Promise.all(images.map((img) => img.complete ? Promise.resolve() : new Promise<void>((resolve) => {
+          const done = () => {
+            img.removeEventListener('load', done);
+            img.removeEventListener('error', done);
+            resolve();
+          };
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+        })));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-        // Preserve the original logical-list identity throughout the entire
-        // pagination pass. The measured DOM does not need these attributes;
-        // they are only used by the flow/pagination model.
-        const flowLayoutBlocks: OfficialBlock[] = layoutBlocks.map((block) => ({
-          ...block,
-          html: annotateLogicalLists(
-            block.html,
-            block.logicalListGroup || block.id
-          )
-        }));
-
-        const page = root.querySelector<HTMLElement>('[data-measure-page]');
         const header = root.querySelector<HTMLElement>('[data-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-measure-publication]');
-        const table = root.querySelector<HTMLTableElement>('[data-measure-table]');
-        const measured = Array.from(root.querySelectorAll('[data-measure-block-row]')) as HTMLElement[];
+        if (!header || !publication) return;
+        const headerHeightPx = header.getBoundingClientRect().height;
+        const publicationHeightPx = publication.getBoundingClientRect().height;
+        if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
 
-        if (!page || !header || !publication || !table || measured.length !== layoutBlocks.length) return;
-
-        const pageHeight = page.getBoundingClientRect().height;
-        const pageStyle = getComputedStyle(page);
-        const availableHeight =
-          pageHeight -
-          parseFloat(pageStyle.paddingTop || '0') -
-          parseFloat(pageStyle.paddingBottom || '0');
-
-        const headerHeight = header.getBoundingClientRect().height;
-        const publicationHeight = publication.getBoundingClientRect().height;
-        // Optimal safety buffer (24px) guarantees that table cells and padding
-        // never overflow past the 20mm A4 boundary while maximizing printable space.
-        const safety = 6;
-        const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
-        const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
-        const normalCapacity = bodyCapacity;
-
-        const measuredContent = measured.map((row) =>
-          row.querySelector<HTMLElement>('[data-measure-content]')
-        );
-        const contentHeights = measured.map((row, index) => {
-          const content = measuredContent[index];
-          return Math.max(0, (content || row).getBoundingClientRect().height);
+        const pages = computeCanonicalA4Pages(layoutBlocks, {
+          headerHeightPx,
+          publicationHeightPx,
+          safetyBufferPx: 4
         });
-
-        // Chrome = border + cell padding + the left section-label cell's minimum height.
-        const rowChrome = measured.map((row, index) => {
-          const content = contentHeights[index];
-          const full = row.getBoundingClientRect().height;
-          return Math.max(0, full - content);
-        });
-
-        const sectionChrome = (section: OfficialBlock['section'], index: number) => {
-          const base = rowChrome[index] || 0;
-          let maxChrome = base;
-          flowLayoutBlocks.forEach((block, i) => {
-            if (block.section === section) maxChrome = Math.max(maxChrome, rowChrome[i] || 0);
-          });
-          return maxChrome || 24;
-        };
-
-        const createMeasureHost = (template: HTMLElement | null): HTMLElement => {
-          const host = document.createElement('div');
-          host.style.position = 'absolute';
-          host.style.visibility = 'hidden';
-          host.style.pointerEvents = 'none';
-          host.style.height = 'auto';
-          host.style.maxHeight = 'none';
-          host.style.overflow = 'visible';
-          host.style.boxSizing = 'border-box';
-          host.style.fontFamily = 'Bookman Old Style, Bookman, Georgia, serif';
-          host.style.fontSize = '12pt';
-          host.style.lineHeight = '1.5';
-          host.style.padding = '0';
-          host.style.margin = '0';
-          host.style.border = 'none';
-          const measuredWidth = template ? template.getBoundingClientRect().width : 0;
-          host.style.width = measuredWidth && measuredWidth > 200 && measuredWidth < 650 ? `${measuredWidth}px` : '415px';
-          host.className = 'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
-          if (template?.parentElement) {
-            template.parentElement.appendChild(host);
-          } else {
-            document.body.appendChild(host);
-          }
-          return host;
-        };
-
-        // Preserve the identity of the logical list across every pagination fragment.
-        // A visual page fragment is never allowed to become a new numbering sequence.
-        const forceLogicalListMetadata = (html: string, block: OfficialBlock): string => {
-          if (!html || typeof DOMParser === 'undefined') return html;
-          const group = block.logicalListGroup || `${block.section}-logical-list-${block.id}`;
-          try {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const lists = Array.from(doc.body.querySelectorAll('ol, ul')).filter((list) => {
-              let parent = list.parentElement;
-              while (parent && parent !== doc.body) {
-                const tag = parent.tagName.toLowerCase();
-                if (tag === 'ol' || tag === 'ul') return false;
-                parent = parent.parentElement;
-              }
-              return true;
-            });
-            lists.forEach((list, index) => {
-              if (!list.getAttribute('data-sop-list-group')) {
-                list.setAttribute('data-sop-list-group', `${group}-${index}`);
-              }
-            });
-            return doc.body.innerHTML;
-          } catch {
-            return html;
-          }
-        };
-
-        // Split a rich-text block to fit a specific amount of remaining A4 space.
-        /**
-         * Split an oversized rich-text element by word boundaries WITHOUT using
-         * textContent() as the source of the rendered fragment. Range.cloneContents()
-         * keeps the original inline/block markup, attributes and nested formatting.
-         */
-        const splitElementPreservingMarkup = (
-          element: HTMLElement,
-          maxHeight: number,
-          buildWrapper: (fragment: DocumentFragment, isFirstChunk: boolean) => string,
-          template: HTMLElement | null
-        ): string[] => {
-          const textNodes: Text[] = [];
-          const ownerDocument = element.ownerDocument || document;
-          const walker = ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-          let currentNode: Node | null = walker.nextNode();
-          while (currentNode) {
-            const textNode = currentNode as Text;
-            if ((textNode.textContent || '').trim()) textNodes.push(textNode);
-            currentNode = walker.nextNode();
-          }
-
-          type WordRange = { node: Text; start: number; end: number };
-          const words: WordRange[] = [];
-          textNodes.forEach((node) => {
-            const value = node.textContent || '';
-            const re = /\S+/g;
-            let match: RegExpExecArray | null;
-            while ((match = re.exec(value)) !== null) {
-              words.push({ node, start: match.index, end: match.index + match[0].length });
-            }
-          });
-
-          // If too few words, keep intact
-          if (words.length < 4) return [element.outerHTML];
-
-          const host = createMeasureHost(template);
-          const safetyLimit = Math.max(1, maxHeight - 1);
-          const buildCandidate = (startWord: number, endWord: number): string => {
-            const range = ownerDocument.createRange();
-            range.setStart(words[startWord].node, words[startWord].start);
-            range.setEnd(words[endWord - 1].node, words[endWord - 1].end);
-            const fragment = range.cloneContents();
-            return buildWrapper(fragment, startWord === 0);
-          };
-          const fits = (candidate: string) => {
-            host.innerHTML = candidate;
-            return host.getBoundingClientRect().height <= safetyLimit;
-          };
-
-          // Binary search for how many words [0 .. best] fit into maxHeight
-          let low = 1;
-          let high = words.length - 1;
-          let best = 0;
-
-          while (low <= high) {
-            const mid = Math.floor((low + high) / 2);
-            const candidate = buildCandidate(0, mid);
-            if (fits(candidate)) {
-              best = mid;
-              low = mid + 1;
-            } else {
-              high = mid - 1;
-            }
-          }
-
-          host.remove();
-
-          if (best < 2 || best >= words.length) {
-            return [element.outerHTML];
-          }
-
-          const chunk0 = buildCandidate(0, best);
-          const chunk1 = buildCandidate(best, words.length);
-          return [chunk0, chunk1];
-        };
-
-        // Split a rich-text block to fit a specific amount of remaining A4 space.
-        // Page numbers are deliberately NOT referenced here. The same splitter is
-        // used for every page boundary detected by the flow paginator.
-        const splitHtmlForCapacity = (
-          html: string,
-          maxHeight: number,
-          template: HTMLElement | null
-        ): string[] => {
-          const source = (html || '').trim();
-          if (!source || maxHeight <= 0 || typeof DOMParser === 'undefined') return [source];
-
-          try {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(source, 'text/html');
-            const topLevelNodes = Array.from(doc.body.childNodes);
-            const hasTopLevelText = topLevelNodes.some((node) =>
-              node.nodeType === Node.TEXT_NODE && Boolean((node.textContent || '').trim())
-            );
-            const elements = Array.from(doc.body.children) as HTMLElement[];
-            const first = elements[0];
-            if (!first) return [source];
-
-            const safetyLimit = Math.max(1, maxHeight - 1);
-            const host = createMeasureHost(template);
-            const fits = (candidate: string) => {
-              host.innerHTML = candidate;
-              return host.getBoundingClientRect().height <= safetyLimit;
-            };
-
-            // Multiple independent top-level blocks: fit as many whole blocks as possible
-            if (elements.length > 1 && !hasTopLevelText) {
-              if (fits(source)) {
-                host.remove();
-                return [source];
-              }
-
-              let fitCount = 0;
-              for (let i = 0; i < elements.length; i++) {
-                const candidate = elements.slice(0, i + 1).map((el) => el.outerHTML).join('');
-                if (fits(candidate)) {
-                  fitCount = i + 1;
-                } else {
-                  break;
-                }
-              }
-
-              if (fitCount > 0 && fitCount < elements.length) {
-                const nextEl = elements[fitCount];
-                if (nextEl && nextEl.tagName.toLowerCase() === 'table') {
-                  const prefixHtml = elements.slice(0, fitCount).map((el) => el.outerHTML).join('');
-                  const tableParts = splitStructuredTableV2(
-                    nextEl as HTMLTableElement,
-                    (tableCandidate) => fits(prefixHtml + tableCandidate)
-                  );
-                  if (tableParts.length > 1) {
-                    host.remove();
-                    // A short label/heading immediately above a table is part of the
-                    // table's visual identity (for example "C. INTERPRETASI HASIL").
-                    // Repeat it on continuation pages so the table never appears
-                    // detached from its title after an A4 page break.
-                    const headingCandidate = elements[fitCount - 1];
-                    const repeatHeading = headingCandidate && /^(p|h1|h2|h3|h4|h5|h6)$/i.test(headingCandidate.tagName)
-                      ? headingCandidate.outerHTML
-                      : '';
-                    const firstPart = prefixHtml + tableParts[0];
-                    const continuationPrefix = repeatHeading
-                      ? repeatHeading.replace(/^<([a-z0-9]+)\b/i, '<$1 data-sop-table-continuation-heading="true"')
-                      : '';
-                    const secondPart = [continuationPrefix, tableParts[1], ...elements.slice(fitCount + 1).map((el) => el.outerHTML)].join('');
-                    const laterParts = tableParts.slice(2).map((part) => `${continuationPrefix}${part}`);
-                    return [firstPart, secondPart, ...laterParts];
-                  }
-                }
-                host.remove();
-                return [
-                  elements.slice(0, fitCount).map((el) => el.outerHTML).join(''),
-                  elements.slice(fitCount).map((el) => el.outerHTML).join('')
-                ];
-              }
-              // If the first element itself is taller than the remaining space,
-              // try the same content-driven splitter on that element
-              if (fitCount === 0 && elements.length > 0 && maxHeight >= 20) {
-                host.remove();
-                const firstParts = splitHtmlForCapacity(elements[0].outerHTML, maxHeight, template);
-                if (firstParts.length > 1) {
-                  return [firstParts[0], [firstParts[1], ...elements.slice(1).map((el) => el.outerHTML)].join('')];
-                }
-                return [source];
-              }
-              host.remove();
-              return [source];
-            }
-
-            // Structured tables are split only at safe row boundaries. The helper
-            // preserves section/cell attributes (including colspan/rowspan), repeats
-            // an explicit thead, and retains captions/colgroups/tfoot.
-            if (first.tagName.toLowerCase() === 'table') {
-              const tableParts = splitStructuredTable(first as HTMLTableElement, fits);
-              host.remove();
-              if (tableParts.length > 1) {
-                return tableParts;
-              }
-              return [source];
-            }
-
-            // Ordered/unordered lists: keep list structure and ONLY split at WHOLE <li> item boundaries.
-            if (/^(ol|ul)$/i.test(first.tagName)) {
-              const isOl = first.tagName.toLowerCase() === 'ol';
-              const explicitStart = isOl
-                ? (parseInt(first.getAttribute('start') || '1', 10) || 1)
-                : 1;
-              const items = Array.from(first.children).filter((el) =>
-                el.tagName.toLowerCase() === 'li'
-              ) as HTMLElement[];
-
-              const listTag = first.tagName.toLowerCase();
-              const listAttrs = Array.from(first.attributes)
-                .filter((attr) => {
-                  const n = attr.name.toLowerCase();
-                  return !(isOl && n === 'start') && n !== 'style' && n !== 'data-sop-list-continuation' && n !== 'data-sop-continuation-number';
-                })
-                .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-                .join('');
-
-              const makeList = (itemHtmls: string[], startIndex: number, continuation = false, continuationNumber?: number) => {
-                const number = continuationNumber ?? (explicitStart + startIndex);
-                const itemsWithContinuationMarker = continuation
-                  ? itemHtmls.map((itemHtml) => itemHtml.replace(/^<li\b/i, '<li data-sop-continuation-li="true"'))
-                  : itemHtmls;
-                const counterStyle = isOl ? ` style="counter-reset: sop-list ${number - 1};--sop-start-offset: ${number - 1};"` : '';
-                return `<${listTag}${listAttrs}${isOl && !continuation ? ` start="${number}"` : ''}${counterStyle}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${number}"` : ''}>${itemsWithContinuationMarker.join('')}</${listTag}>`;
-              };
-
-              if (items.length > 0) {
-                const fullList = first.outerHTML;
-                if (fits(fullList)) {
-                  host.remove();
-                  return [source];
-                }
-
-                // Greedily find how many whole items fit into maxHeight
-                let fitCount = 0;
-                for (let i = 0; i < items.length; i++) {
-                  const candidate = makeList(items.slice(0, i + 1).map((el) => el.outerHTML), 0);
-                  if (fits(candidate)) {
-                    fitCount = i + 1;
-                  } else {
-                    break;
-                  }
-                }
-
-                // Case 1: At least 1 whole item fits, and some items remain for next page
-                if (fitCount > 0 && fitCount < items.length) {
-                  host.remove();
-                  const firstPart = makeList(items.slice(0, fitCount).map((el) => el.outerHTML), 0);
-                  const remainingPart = makeList(items.slice(fitCount).map((el) => el.outerHTML), fitCount, false, explicitStart + fitCount);
-                  return [firstPart, remainingPart];
-                }
-
-                // Case 2: Not even the first item fits in maxHeight. A table
-                // inside a list item remains structured: split its rows and keep the
-                // logical list number on the first fragment only.
-                if (fitCount === 0) {
-                  const item = items[0];
-                  const nestedTable = item.querySelector('table');
-                  if (nestedTable) {
-                    const wrapTable = (tableHtml: string, continuation: boolean) => {
-                      const clonedItem = item.cloneNode(true) as HTMLElement;
-                      const clonedTable = clonedItem.querySelector('table');
-                      if (clonedTable) clonedTable.outerHTML = tableHtml;
-                      return makeList([clonedItem.outerHTML], 0, continuation, explicitStart);
-                    };
-                    const tableParts = splitStructuredTable(
-                      nestedTable as HTMLTableElement,
-                      (tableHtml) => fits(wrapTable(tableHtml, false))
-                    );
-                    if (tableParts.length > 1) {
-                      const firstPart = wrapTable(tableParts[0], false);
-                      const continuationParts = tableParts.slice(1).map((part) => wrapTable(part, true));
-                      const remainingItems = items.slice(1).map((el) => el.outerHTML);
-                      const remainingList = remainingItems.length
-                        ? makeList(remainingItems, 1, false, explicitStart + 1)
-                        : '';
-                      host.remove();
-                      return [firstPart, [...continuationParts, remainingList].filter(Boolean).join('')];
-                    }
-                  }
-                  const itemParts = splitElementPreservingMarkup(
-                    item,
-                    maxHeight,
-                    (fragment, isFirstChunk) => {
-                      const li = item.cloneNode(false) as HTMLElement;
-                      li.removeAttribute('id');
-                      li.innerHTML = '';
-                      li.appendChild(fragment);
-                      return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
-                    },
-                    template
-                  );
-                  if (itemParts.length > 1) {
-                    const firstPart = itemParts[0];
-                    const restItemParts = itemParts.slice(1);
-                    const remainingItems = items.slice(1).map((el) => el.outerHTML);
-                    const continuation = [
-                      ...restItemParts,
-                      ...(remainingItems.length ? [makeList(remainingItems, 1, false, explicitStart + 1)] : [])
-                    ].join('');
-                    host.remove();
-                    return [firstPart, continuation];
-                  }
-                  host.remove();
-                  return [source];
-                }
-
-                host.remove();
-                return [source];
-              }
-            }
-
-            // Descendant lists (nested inside divs/sections)
-            const descendantLists = Array.from(doc.body.querySelectorAll('ol, ul')).filter((list) => {
-              let parent = list.parentElement;
-              while (parent && parent !== doc.body) {
-                if (/^(ol|ul|table|tbody|thead|tfoot|tr|td|th)$/i.test(parent.tagName)) return false;
-                parent = parent.parentElement;
-              }
-              return true;
-            }) as HTMLElement[];
-
-            if (descendantLists.length > 0 && !/^(ol|ul)$/i.test(first.tagName)) {
-              const targetList = descendantLists[0];
-
-              let surroundingHeight = 0;
-              try {
-                const surrounding = doc.body.cloneNode(true) as HTMLElement;
-                const surroundingLists = Array.from(surrounding.querySelectorAll('ol, ul')).filter((list) => {
-                  let parent = list.parentElement;
-                  while (parent && parent !== surrounding) {
-                    if (/^(ol|ul|table|tbody|thead|tfoot|tr|td|th)$/i.test(parent.tagName)) return false;
-                    parent = parent.parentElement;
-                  }
-                  return true;
-                }) as HTMLElement[];
-                const surroundingTarget = surroundingLists[0];
-                if (surroundingTarget) {
-                  surroundingTarget.innerHTML = '';
-                  const surroundingHost = createMeasureHost(template);
-                  surroundingHost.innerHTML = surrounding.innerHTML;
-                  surroundingHeight = surroundingHost.getBoundingClientRect().height;
-                  surroundingHost.remove();
-                }
-              } catch {
-                surroundingHeight = 0;
-              }
-
-              const listCapacity = Math.max(1, maxHeight - surroundingHeight);
-              const listParts = splitHtmlForCapacity(targetList.outerHTML, listCapacity, template);
-
-              if (listParts.length > 1) {
-                const makeFragmentWithList = (replacement: string) => {
-                  const cloned = doc.body.cloneNode(true) as HTMLElement;
-                  const lists = Array.from(cloned.querySelectorAll('ol, ul')).filter((list) => {
-                    let parent = list.parentElement;
-                    while (parent && parent !== cloned) {
-                      if (/^(ol|ul)$/i.test(parent.tagName)) return false;
-                      parent = parent.parentElement;
-                    }
-                    return true;
-                  }) as HTMLElement[];
-                  const target = lists[0];
-                  if (!target) return cloned.innerHTML;
-                  const replacementDoc = parser.parseFromString(replacement, 'text/html');
-                  const replacementNodes = Array.from(replacementDoc.body.childNodes).map((node) =>
-                    cloned.ownerDocument.importNode(node, true)
-                  );
-                  const parent = target.parentNode;
-                  if (!parent) return cloned.innerHTML;
-                  const marker = cloned.ownerDocument.createDocumentFragment();
-                  replacementNodes.forEach((node) => marker.appendChild(node));
-                  parent.replaceChild(marker, target);
-                  return cloned.innerHTML;
-                };
-
-                let chosenFirst = '';
-                let chosenSecond = '';
-                for (let i = listParts.length - 1; i >= 1; i--) {
-                  const firstCandidate = makeFragmentWithList(listParts.slice(0, i).join(''));
-                  if (fits(firstCandidate)) {
-                    chosenFirst = firstCandidate;
-                    const secondReplacement = listParts.slice(i).join('');
-                    chosenSecond = makeFragmentWithList(secondReplacement);
-                    break;
-                  }
-                }
-
-                if (chosenFirst && chosenSecond) {
-                  host.remove();
-                  return [chosenFirst, chosenSecond];
-                }
-              }
-            }
-
-            // A wrapper containing multiple real block elements: fit as many whole blocks as possible
-            const nestedBlockElements = Array.from(first.children).filter((child) =>
-              /^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(child.tagName)
-            ) as HTMLElement[];
-
-            if (nestedBlockElements.length > 0) {
-              const childBlocks: string[] = [];
-              let inlineBuffer = '';
-
-              const flushInlineBuffer = () => {
-                if (inlineBuffer.trim()) childBlocks.push(`<p>${inlineBuffer}</p>`);
-                inlineBuffer = '';
-              };
-
-              Array.from(first.childNodes).forEach((child) => {
-                if (child.nodeType === Node.TEXT_NODE) {
-                  inlineBuffer += child.textContent || '';
-                  return;
-                }
-                if (child.nodeType !== Node.ELEMENT_NODE) return;
-                const childEl = child as HTMLElement;
-                if (/^(p|ol|ul|table|blockquote|pre|h1|h2|h3|h4|h5|h6|section|article|div|figure)$/i.test(childEl.tagName)) {
-                  flushInlineBuffer();
-                  childBlocks.push(childEl.outerHTML);
-                } else {
-                  inlineBuffer += childEl.outerHTML;
-                }
-              });
-              flushInlineBuffer();
-
-              if (childBlocks.length > 1) {
-                if (fits(childBlocks.join(''))) {
-                  host.remove();
-                  return [source];
-                }
-
-                let fitCount = 0;
-                for (let i = 0; i < childBlocks.length; i++) {
-                  const candidate = childBlocks.slice(0, i + 1).join('');
-                  if (fits(candidate)) {
-                    fitCount = i + 1;
-                  } else {
-                    break;
-                  }
-                }
-
-                host.remove();
-                if (fitCount > 0 && fitCount < childBlocks.length) {
-                  return [
-                    childBlocks.slice(0, fitCount).join(''),
-                    childBlocks.slice(fitCount).join('')
-                  ];
-                }
-                return [source];
-              }
-            }
-
-            // Single paragraph or element: split by word boundary preserving markup
-            if (!fits(source)) {
-              if (maxHeight < 24 || first.tagName.toLowerCase() === 'table' || Boolean(first.querySelector('table'))) {
-                host.remove();
-                return [source];
-              }
-
-              const wrapperTag = first.tagName.toLowerCase();
-              const attrs = Array.from(first.attributes)
-                .map((attr) => ` ${attr.name}="${attr.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`)
-                .join('');
-              const parts = splitElementPreservingMarkup(
-                first,
-                maxHeight,
-                (fragment) => `<${wrapperTag}${attrs}>${Array.from(fragment.childNodes).map((node) => (node as HTMLElement).outerHTML || node.textContent || '').join('')}</${wrapperTag}>`,
-                template
-              );
-              host.remove();
-              return parts;
-            }
-
-            host.remove();
-            return [source];
-          } catch (error) {
-            console.warn('Gagal memecah blok SPO berdasarkan ruang A4:', error);
-            return [source];
-          }
-        };
-
-        // FLOW PAGINATION:
-        // Purely content-driven, natural page breaks. No forced section breaks.
-        // A section continues seamlessly across pages when space permits.
-        const pages: OfficialBlock[][] = [];
-        const flowBlocks: OfficialBlock[] = [...flowLayoutBlocks];
-        const flowHeights: number[] = [...contentHeights];
-        const chromeBySection = (section: OfficialBlock['section']) => {
-          let maxChrome = 0;
-          flowLayoutBlocks.forEach((candidate, candidateIndex) => {
-            if (candidate.section === section) {
-              maxChrome = Math.max(maxChrome, rowChrome[candidateIndex] || 0);
-            }
-          });
-          return maxChrome || 24;
-        };
-
-        let currentPageBlocks: OfficialBlock[] = [];
-        let used = 0;
-        let capacity = firstCapacity;
-        let currentSection: OfficialBlock['section'] | null = null;
-        let detectedPageBreaks = 0;
-
-        const hasVisibleContent = (blocks: OfficialBlock[]) => {
-          return blocks.some((b) => {
-            const raw = (b.html || '').trim();
-            if (!raw) return false;
-            if (/<(img|table|svg|figure|iframe)\b/i.test(raw)) return true;
-            const text = raw.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '').trim();
-            return text.length > 0;
-          });
-        };
-
-        const commitCurrentPageAndStartNext = () => {
-          if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
-            pages.push(currentPageBlocks);
-            detectedPageBreaks += 1;
-          }
-          currentPageBlocks = [];
-          used = 0;
-          capacity = normalCapacity;
-          currentSection = null;
-        };
-
-        const measureFlowPart = (html: string, template: HTMLElement | null): number => {
-          if (!html) return 0;
-          const host = createMeasureHost(template);
-          host.innerHTML = html;
-          const height = host.getBoundingClientRect().height;
-          host.remove();
-          return Math.max(0, height);
-        };
-
-        let index = 0;
-        let guard = 0;
-        while (index < flowBlocks.length && guard < 10000) {
-          guard += 1;
-          const block = flowBlocks[index];
-          const startsNewSectionRow = currentPageBlocks.length === 0 || block.section !== currentSection;
-          const chrome = startsNewSectionRow ? chromeBySection(block.section) : 0;
-          const needed = flowHeights[index] + chrome;
-
-          // Check if this block exceeds remaining capacity on the current page
-          if (used + needed > capacity) {
-            const remaining = capacity - used - chrome;
-            const template = measuredContent[Math.min(index, measuredContent.length - 1)] || null;
-
-            // Content-driven: if space remains on the current page (>= 20px), fill it as much as possible!
-            if (remaining >= 20 && template) {
-              const parts = splitHtmlForCapacity(block.html, remaining, template);
-              if (parts.length > 1) {
-                const firstPart = parts[0];
-                const restParts = parts.slice(1);
-                const firstHeight = measureFlowPart(firstPart, template);
-                const firstNeeded = firstHeight + chrome;
-
-                if (firstHeight > 0 && used + firstNeeded <= capacity) {
-                  const fittedFirstBlock = {
-                    ...block,
-                    id: `${block.id}-fit-1`,
-                    html: forceLogicalListMetadata(firstPart, block)
-                  };
-                  flowBlocks[index] = fittedFirstBlock;
-                  flowHeights[index] = firstHeight;
-
-                  const continuationBlocks = restParts.map((html, partIndex) => ({
-                    ...block,
-                    id: `${block.id}-fit-${partIndex + 2}`,
-                    html: forceLogicalListMetadata(html, block)
-                  }));
-                  const continuationHeights = continuationBlocks.map((part) =>
-                    measureFlowPart(part.html, template)
-                  );
-                  flowBlocks.splice(index + 1, 0, ...continuationBlocks);
-                  flowHeights.splice(index + 1, 0, ...continuationHeights);
-
-                  currentPageBlocks.push(fittedFirstBlock);
-                  used += firstNeeded;
-                  currentSection = block.section;
-                  index += 1;
-                  continue;
-                }
-              }
-            }
-
-            // Current page already has content and cannot fit more of this block:
-            // Naturally commit current page and continue on next page!
-            if (currentPageBlocks.length > 0) {
-              commitCurrentPageAndStartNext();
-              continue;
-            }
-
-            // If currentPageBlocks is empty (fresh page) and block is taller than the whole page:
-            if (currentPageBlocks.length === 0 && capacity >= 40 && template) {
-              const pageRemaining = capacity - chrome;
-              const parts = splitHtmlForCapacity(block.html, pageRemaining, template);
-              if (parts.length > 1) {
-                const firstPart = parts[0];
-                const restParts = parts.slice(1);
-                const firstHeight = measureFlowPart(firstPart, template);
-                const firstNeeded = firstHeight + chrome;
-
-                const fittedFirstBlock = {
-                  ...block,
-                  id: `${block.id}-fit-1`,
-                  html: forceLogicalListMetadata(firstPart, block)
-                };
-                flowBlocks[index] = fittedFirstBlock;
-                flowHeights[index] = firstHeight;
-
-                const continuationBlocks = restParts.map((html, partIndex) => ({
-                  ...block,
-                  id: `${block.id}-fit-${partIndex + 2}`,
-                  html: forceLogicalListMetadata(html, block)
-                }));
-                const continuationHeights = continuationBlocks.map((part) =>
-                  measureFlowPart(part.html, template)
-                );
-                flowBlocks.splice(index + 1, 0, ...continuationBlocks);
-                flowHeights.splice(index + 1, 0, ...continuationHeights);
-
-                currentPageBlocks.push(fittedFirstBlock);
-                used += firstNeeded;
-                currentSection = block.section;
-                index += 1;
-                commitCurrentPageAndStartNext();
-                continue;
-              }
-            }
-
-            // Indivisible block fallback
-            currentPageBlocks.push(block);
-            used += needed;
-            currentSection = block.section;
-            index += 1;
-            commitCurrentPageAndStartNext();
-            continue;
-          }
-
-          // Content fits comfortably on current page
-          currentPageBlocks.push(block);
-          used += needed;
-          currentSection = block.section;
-          index += 1;
-        }
-
-        if (guard >= 10000) {
-          throw new Error('Pagination SPO berhenti karena batas pengaman tercapai.');
-        }
-
-        if (currentPageBlocks.length && hasVisibleContent(currentPageBlocks)) {
-          pages.push(currentPageBlocks);
-        }
-        const validPages = pages.filter((page) => page.length > 0 && hasVisibleContent(page));
-        const finalPages = validPages.length > 0 ? validPages : [flowBlocks];
-
         if (!cancelled) {
-          setOfficialPages(normalizeOfficialPages(finalPages));
+          setOfficialPages(pages as OfficialBlock[][]);
           setIsPaginatingOfficial(false);
         }
       } catch (error) {
-        console.error('Gagal menghitung pagination SPO:', error);
+        console.error('Gagal menghitung pagination SPO canonical:', error);
         if (!cancelled) {
           setOfficialPages([layoutBlocks]);
           setIsPaginatingOfficial(false);
         }
       }
     };
-
     run();
     return () => { cancelled = true; };
   }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf]);
@@ -1817,10 +1049,11 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             overflowWrap: 'break-word',
             fontSize: '12pt',
             lineHeight: '1.5',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            overflow: 'visible'
           }}
         >
-          <div data-measure-content={measure ? representative.id : undefined}>
+          <div data-measure-content={measure ? representative.id : undefined} style={{ overflow: 'visible', maxHeight: 'none' }}>
             <RichTextRenderer content={html} fallback="-" />
           </div>
         </td>
@@ -1828,81 +1061,60 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     );
   };
 
+  // Canonical readonly page chrome. Keep these metrics identical to the
+  // readonly geometry used by SopLiveTemplate; only data sources differ.
   const renderOfficialHeader = (pageNumber: number, pageTotal: number) => (
     <thead className="sop-print-header">
       <tr>
-        <td
-          rowSpan={2}
-          className="p-2 text-center align-middle bg-white"
-          style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
-        >
-          <div className="flex flex-col items-center justify-center">
-            <HospitalLogo imgClassName="w-[56px] h-[56px]" className="mb-1" />
-            <div className="font-extrabold text-[13px] leading-tight tracking-tight uppercase font-bookman text-black">
-              <div>RSUD Dr. SOEGIRI</div>
-              <div>LAMONGAN</div>
-            </div>
+        <th rowSpan={2} className="border border-black p-3 text-center align-middle bg-white w-[28%] font-normal">
+          <HospitalLogo imgClassName="w-[54px] h-[54px] mx-auto" className="mb-1" />
+          <div className="font-extrabold text-[11px] leading-tight uppercase text-black">RSUD Dr. SOEGIRI</div>
+          <div className="font-extrabold text-[11px] leading-tight uppercase text-black">LAMONGAN</div>
+        </th>
+        <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
+          <div className="text-center font-extrabold uppercase text-xs sm:text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
+            {sop.title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
           </div>
-        </td>
-        <td
-          colSpan={3}
-          className="p-2 text-center align-middle bg-white"
-          style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
-        >
-          <div className="font-extrabold text-[14px] uppercase tracking-tight font-bookman text-black leading-tight break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]">
-            {(sop.title || 'JUDUL STANDAR PROSEDUR OPERASIONAL').toUpperCase()}
-          </div>
-        </td>
+        </th>
       </tr>
-      <tr className="text-center">
-        <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
-          <div className="font-bold text-[11px] uppercase font-bookman text-black">NO. DOKUMEN</div>
-          <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words [overflow-wrap:break-word] [word-break:normal]">
-            {sop.sopNumber || '/……./….. /2026'}
-          </div>
-        </td>
-        <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
-          <div className="font-bold text-[11px] uppercase font-bookman text-black">NO. REVISI</div>
-          <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words">
-            {sop.revisionNumber || sop.version || (getStandardJenisSpo(sop) === 'RIVIU' ? '01' : '00')}
-          </div>
-        </td>
-        <td className="p-1.5 align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
-          <div className="font-bold text-[11px] uppercase font-bookman text-black">HALAMAN</div>
-          <div className="font-bold text-[12px] font-bookman text-black mt-1">{pageNumber} / {pageTotal}</div>
-        </td>
+      <tr>
+        <th className="border border-black p-2 text-center align-top bg-white w-[24%] font-normal">
+          <div className="font-bold text-[10px] uppercase font-bookman text-black">NO. DOKUMEN</div>
+          <div className="text-xs font-bold mt-1 whitespace-normal [word-break:normal] [overflow-wrap:break-word] text-black">{sop.sopNumber || '……/……/……/2026'}</div>
+        </th>
+        <th className="border border-black p-2 text-center align-top bg-white w-[24%] font-normal">
+          <div className="font-bold text-[10px] uppercase font-bookman text-black">NO. REVISI</div>
+          <div className="text-xs font-bold mt-1 whitespace-normal [word-break:normal] [overflow-wrap:break-word] text-black">{sop.revisionNumber || sop.version || (getStandardJenisSpo(sop) === 'RIVIU' ? '01' : '00')}</div>
+        </th>
+        <th className="border border-black p-2 text-center align-top bg-white w-[24%] font-normal">
+          <div className="font-bold text-[10px] uppercase font-bookman text-black">HALAMAN</div>
+          <div className="text-xs font-bold mt-1 whitespace-normal [word-break:normal] [overflow-wrap:break-word] text-black">{pageNumber} / {pageTotal}</div>
+        </th>
       </tr>
     </thead>
   );
 
   const renderPublicationRow = () => (
     <tr className="sop-first-page-only">
-      <td
-        className="p-1.5 text-center align-middle font-extrabold uppercase font-bookman text-black bg-white sop-document-type-label"
-        style={{ border: '1px solid #000000', verticalAlign: 'middle' }}
-      >
-        <div>STANDAR</div><div>PROSEDUR</div><div>OPERASIONAL</div>
+      <td className="border border-black p-0 text-center font-extrabold uppercase align-middle bg-white whitespace-normal [word-break:normal] [overflow-wrap:break-word] sop-document-type-label w-[28%]">
+        <div className="sop-document-type-label-inner text-black font-extrabold"><div>STANDAR</div><div>PROSEDUR</div><div>OPERASIONAL</div></div>
       </td>
-      <td className="p-1.5 text-center align-top bg-white" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
-        <div className="text-[11px] font-bookman text-black">Tanggal terbit</div>
-        <div className="font-bold text-[12px] font-bookman text-black mt-1 break-words">{sop.effectiveDate || '…………….2026'}</div>
+      <td className="border border-black p-2 text-center align-top bg-white w-[24%]">
+        <div className="text-[10px] font-bookman text-black">Tanggal terbit</div>
+        <div className="mt-1 text-xs font-bold text-black">{sop.effectiveDate || '……………'}</div>
       </td>
-      <td colSpan={2} className="p-1.5 text-center align-top bg-white relative overflow-visible" style={{ border: '1px solid #000000', verticalAlign: 'top' }}>
+      <td colSpan={2} className="border border-black p-2 text-center align-top bg-white relative overflow-visible w-[48%]">
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-        <div className="font-bold text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0">Direktur RSUD Dr. Soegiri Lamongan</div>
+        <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
         {showSignatureAndStamp ? (
-          <div className="relative -my-5 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-            <DirectorSignature className="h-[100px] w-auto max-w-[260px]" />
-          </div>
+          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none"><DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" /></div>
         ) : (
-          <div className="h-[38px] my-1 flex items-center justify-center text-slate-400 italic text-[10px] font-bookman">(Dokumen Diarsipkan)</div>
+          <div className="h-[36px] my-1" aria-hidden="true" />
         )}
         <div className="relative z-0 space-y-0.5">
-          <div className="font-bold text-[13px] underline font-bookman text-black leading-tight whitespace-normal break-words">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
-          <div className="text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">
-            {(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}
-          </div>
-          <div className="font-bold text-[11px] font-bookman text-black leading-tight whitespace-normal break-words">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
+          <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
+          <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}</div>
+          <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
         </div>
       </td>
     </tr>
@@ -2083,11 +1295,11 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-5 printable-modal-active">
-      <div className="bg-white w-full sm:max-w-[96vw] h-full sm:h-[94vh] rounded-none sm:rounded-xl shadow-2xl border-0 sm:border border-slate-200 overflow-hidden flex flex-col printable-modal-overlay">
+    <div className={`fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center ${isMaximized ? 'p-0' : 'p-0 sm:p-3 sm:py-2'} printable-modal-active`}>
+      <div className={`bg-white w-full ${isMaximized ? 'h-full max-w-full rounded-none border-0 shadow-none' : 'sm:max-w-[96vw] h-full sm:h-[95vh] rounded-none sm:rounded-xl shadow-2xl border-0 sm:border border-slate-200'} overflow-hidden flex flex-col printable-modal-overlay`}>
         
         {/* Top Bar (Hidden in Print) */}
-        <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-slate-100 bg-slate-50/90 no-print flex-wrap gap-2 shrink-0">
+        <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-100 bg-slate-50/90 no-print flex-wrap gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-mono font-bold bg-blue-50 text-blue-900 border border-blue-200 shrink-0">
               {sop.divisionCode} {sop.subHierarchyCode ? `/ ${sop.subHierarchyCode}` : ''}
@@ -2155,6 +1367,27 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Cetak</span>
+              </button>
+            </AdminTooltip>
+
+            <AdminTooltip
+              title={isMaximized ? "Perkecil Tampilan" : "Maksimalkan Tampilan"}
+              content={isMaximized ? "Kembalikan ke mode jendela berbingkai." : "Maksimalkan tampilan modal memenuhi seluruh layar desktop."}
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMaximized((prev) => {
+                    const next = !prev;
+                    try { localStorage.setItem('sop_modal_maximized', String(next)); } catch {}
+                    return next;
+                  });
+                }}
+                className="hidden sm:inline-flex items-center justify-center p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 active:bg-slate-300 rounded-xl transition-colors cursor-pointer min-h-[36px] min-w-[36px]"
+                aria-label={isMaximized ? "Perkecil Tampilan" : "Maksimalkan Tampilan"}
+              >
+                {isMaximized ? <Minimize2 className="w-4 h-4 text-slate-700" /> : <Maximize2 className="w-4 h-4 text-slate-700" />}
               </button>
             </AdminTooltip>
 
@@ -2299,10 +1532,53 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               )}
 
-              <div 
-                id="printable-sop-official-document" 
-                className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
-              >
+              {/* Canonical A4 Preview Zoom Toolbar (No-Print) */}
+              <div className="no-print w-full max-w-[210mm] mx-auto flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-100/90 border border-slate-200 rounded-xl text-xs mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Format A4 Resmi (210 × 297 mm)</span>
+                  <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md text-[11px] font-bold">
+                    {calculatedTotalPages} Halaman
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 font-semibold hidden sm:inline">Skala:</span>
+                  <select
+                    aria-label="Skala Tampilan A4"
+                    value={previewZoomMode}
+                    onChange={(e) => setPreviewZoomMode(e.target.value as any)}
+                    className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="fit">Otomatis (Fit Layar)</option>
+                    <option value="50%">50%</option>
+                    <option value="75%">75%</option>
+                    <option value="100%">100% (A4 Fisik)</option>
+                    <option value="125%">125% (Besar)</option>
+                    <option value="150%">150% (Sangat Besar)</option>
+                  </select>
+                  <span className="text-[10px] font-mono text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded">
+                    {Math.round(calculatedPreviewScale * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              <div ref={previewViewportRef} className="w-full flex flex-col items-center overflow-x-auto overflow-y-visible">
+                <div
+                  style={{
+                    transform: calculatedPreviewScale !== 1 ? `scale(${calculatedPreviewScale})` : undefined,
+                    transformOrigin: 'top center',
+                    width: '210mm',
+                    marginBottom: calculatedPreviewScale < 1
+                      ? `-${Math.round((1 - calculatedPreviewScale) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
+                      : calculatedPreviewScale > 1
+                      ? `${Math.round((calculatedPreviewScale - 1) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
+                      : undefined
+                  }}
+                  className="transition-transform duration-150"
+                >
+                  <div 
+                    id="printable-sop-official-document" 
+                    className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
+                  >
 
                 {/* ==========================================================
                     MEASUREMENT CANVAS
@@ -2331,7 +1607,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       height: '297mm',
                       maxHeight: '297mm',
                       overflow: 'hidden',
-                      padding: '20mm 20mm 20mm 30mm',
+                      padding: '20mm 20mm 20mm 20mm',
                       boxSizing: 'border-box',
                       backgroundColor: '#ffffff'
                     }}
@@ -2379,7 +1655,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         height: '297mm',
                         minHeight: '297mm',
                         maxHeight: '297mm',
-                        padding: '20mm 20mm 20mm 30mm',
+                        padding: '20mm 20mm 20mm 20mm',
                         boxSizing: 'border-box',
                         backgroundColor: '#ffffff',
                         overflow: 'hidden',
@@ -2428,6 +1704,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   return pageElement;
                 })}
               </div>
+            </div>
+          </div>
             </div>
           )}
             </>

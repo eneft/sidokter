@@ -936,6 +936,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   useEffect(() => {
     if (!editorRef.current) return;
     if (value !== lastEmittedValueRef.current) {
+      if (editorRef.current.innerHTML === (value || '')) {
+        lastEmittedValueRef.current = value || '';
+        return;
+      }
       lastEmittedValueRef.current = value || '';
       isUpdatingFromPropRef.current = true;
       editorRef.current.innerHTML = value || '';

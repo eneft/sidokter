@@ -44,7 +44,7 @@ export const cleanSopRichContent = (htmlOrText: string): string => {
         const currentStyle = htmlEl.getAttribute('style');
         if (currentStyle) {
           const cleanedStyle = currentStyle
-            .replace(/\b(?:border|border-top|border-bottom|border-left|border-right|border-width|border-style|border-color|border-image|outline|outline-width|outline-style|outline-color|box-shadow|mso-[^;:]+)\s*:[^;]+;?/gi, '')
+            .replace(/\b(?:border|border-top|border-bottom|border-left|border-right|border-width|border-style|border-color|border-image|outline|outline-width|outline-style|outline-color|box-shadow|overflow|overflow-x|overflow-y|max-height|mso-[^;:]+)\s*:[^;]+;?/gi, '')
             .trim();
           if (cleanedStyle) {
             htmlEl.setAttribute('style', cleanedStyle);
@@ -167,6 +167,11 @@ export const RichTextRenderer: React.FC<RichTextRendererProps> = ({
         return `<ol ${attrs} style="${style.replace(/^;|;$/g, '')}">`;
       }
       return match;
+    }).replace(/\bstyle=(["'])([^"']*)\1/gi, (match, quote, styleStr) => {
+      const clean = styleStr
+        .replace(/\b(?:overflow|overflow-x|overflow-y|max-height)\s*:[^;]+;?/gi, '')
+        .trim();
+      return `style=${quote}${clean}${quote}`;
     });
 
     return (

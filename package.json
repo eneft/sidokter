@@ -21,7 +21,8 @@
     "test:mail": "node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs && tsx --test tests/mailbox-filter.test.ts",
     "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts tests/table-pagination-v2.test.ts",
     "test:pdf-binary": "tsx --test tests/pdf-binary-download.test.ts",
-    "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts"
+    "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts",
+    "test:live-pagination": "tsx --test tests/live-sop-content-integrity.test.ts"
   },
   "dependencies": {
     "@sparticuz/chromium": "149.0.0",

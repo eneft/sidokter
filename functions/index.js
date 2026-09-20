@@ -56,6 +56,51 @@ function normalizePdfFontStyles(html) {
   });
 }
 
+function inlineLocalPdfImages(documentHtml) {
+  const assetDirs = [
+    path.join(__dirname, 'assets'),
+    path.join(__dirname, '..', 'public'),
+    path.join(process.cwd(), 'public')
+  ];
+  const allowedAssets = new Set([
+    '/logo_soegiri_transparent.png',
+    '/logo_soegiri_stamp.png',
+    '/ttd_direktur.png',
+  ]);
+
+  return String(documentHtml || '').replace(/(<img\b[^>]*\bsrc\s*=\s*["'])([^"']+)(["'][^>]*>)/gi, (_m, prefix, src, suffix) => {
+    const rawSrc = String(src || '').trim();
+    if (!rawSrc || rawSrc.startsWith('data:') || rawSrc.startsWith('blob:')) {
+      return `${prefix}${rawSrc}${suffix}`;
+    }
+
+    let pathname = rawSrc;
+    try {
+      pathname = new URL(rawSrc, 'http://pdf.local').pathname;
+    } catch {
+      // Keep original source
+    }
+
+    if (!allowedAssets.has(pathname)) return `${prefix}${rawSrc}${suffix}`;
+
+    const filename = pathname.slice(1);
+    for (const dir of assetDirs) {
+      const assetPath = path.join(dir, filename);
+      if (fs.existsSync(assetPath)) {
+        try {
+          const ext = path.extname(assetPath).toLowerCase();
+          const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png';
+          const dataUri = `data:${mime};base64,${fs.readFileSync(assetPath).toString('base64')}`;
+          return `${prefix}${dataUri}${suffix}`;
+        } catch (err) {
+          console.warn('[PDF Cloud] Failed to read asset:', assetPath, err);
+        }
+      }
+    }
+    return `${prefix}${rawSrc}${suffix}`;
+  });
+}
+
 async function getServerlessChromium() {
   if (!chromiumModulePromise) {
     chromiumModulePromise = (async () => {
@@ -2127,7 +2172,7 @@ exports.pdfApi = onRequest({
     }
 
     const body = req.body || {};
-    const documentHtml = normalizePdfFontStyles(String(body.html || ''));
+    const documentHtml = inlineLocalPdfImages(normalizePdfFontStyles(String(body.html || '')));
     const css = String(body.css || '');
     const filename = safePdfFilename(body.filename || body.sopNumber);
 
@@ -2179,7 +2224,7 @@ html, body {
   min-height: 297mm !important;
   max-height: 297mm !important;
   margin: 0 !important;
-  padding: 20mm 20mm 20mm 30mm !important;
+  padding: 20mm 20mm 20mm 20mm !important;
   box-sizing: border-box !important;
   overflow: hidden !important;
   break-inside: avoid !important;
@@ -2222,6 +2267,30 @@ html, body {
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
 }
+#printable-sop-official-document .pdf-export-document .sop-official-table td.sop-document-type-label,
+#printable-sop-official-document .sop-official-table td.sop-document-type-label,
+table.sop-official-table td.sop-document-type-label {
+  vertical-align: middle !important;
+}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table,#printable-sop-official-document.pdf-export-document .rich-text-output table,#printable-sop-official-document.pdf-export-document .rich-text-document-content table{width:auto;border-collapse:collapse!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table:not([data-table-autofit="true"]),#printable-sop-official-document.pdf-export-document .rich-text-output table:not([data-table-autofit="true"]),#printable-sop-official-document.pdf-export-document .rich-text-document-content table:not([data-table-autofit="true"]){table-layout:fixed}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-autofit="true"],#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-autofit="true"],#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-autofit="true"]{width:fit-content!important;max-width:100%!important;table-layout:auto!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-autofit="true"]>colgroup>col,#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-autofit="true"]>colgroup>col,#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-autofit="true"]>colgroup>col{width:auto!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-width],#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-width],#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-width]{width:var(--table-width)!important;max-width:100%!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table thead,#printable-sop-official-document.pdf-export-document .rich-text-output table thead,#printable-sop-official-document.pdf-export-document .rich-text-document-content table thead{display:table-header-group!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td,#printable-sop-official-document.pdf-export-document .rich-text-output table th,#printable-sop-official-document.pdf-export-document .rich-text-output table td,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td,#printable-sop-official-document .sop-batang-tubuh-content table th,#printable-sop-official-document .sop-batang-tubuh-content table td,#printable-sop-official-document .rich-text-output table th,#printable-sop-official-document .rich-text-output table td,#printable-sop-official-document .rich-text-document-content table th,#printable-sop-official-document .rich-text-document-content table td{border:1px solid #000!important;padding:.5px 2mm!important;padding-top:.5px!important;padding-bottom:.5px!important;padding-left:2mm!important;padding-right:2mm!important;vertical-align:top!important;line-height:1.05!important;letter-spacing:normal!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td *,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th *,#printable-sop-official-document.pdf-export-document .rich-text-output table td *,#printable-sop-official-document.pdf-export-document .rich-text-output table th *,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td *,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th *,#printable-sop-official-document .sop-batang-tubuh-content table td *,#printable-sop-official-document .sop-batang-tubuh-content table th *,#printable-sop-official-document .rich-text-output table td *,#printable-sop-official-document .rich-text-output table th *,#printable-sop-official-document .rich-text-document-content table td *,#printable-sop-official-document .rich-text-document-content table th *{line-height:1.05!important}
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td p,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th p,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td div,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th div,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td ul,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th ul,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td ol,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th ol,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td li,#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th li,#printable-sop-official-document.pdf-export-document .rich-text-output table td p,#printable-sop-official-document.pdf-export-document .rich-text-output table th p,#printable-sop-official-document.pdf-export-document .rich-text-output table td div,#printable-sop-official-document.pdf-export-document .rich-text-output table th div,#printable-sop-official-document.pdf-export-document .rich-text-output table td ul,#printable-sop-official-document.pdf-export-document .rich-text-output table th ul,#printable-sop-official-document.pdf-export-document .rich-text-output table td ol,#printable-sop-official-document.pdf-export-document .rich-text-output table th ol,#printable-sop-official-document.pdf-export-document .rich-text-output table td li,#printable-sop-official-document.pdf-export-document .rich-text-output table th li,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td p,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th p,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td div,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th div,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td ul,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th ul,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td ol,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th ol,#printable-sop-official-document.pdf-export-document .rich-text-document-content table td li,#printable-sop-official-document.pdf-export-document .rich-text-document-content table th li,#printable-sop-official-document .sop-batang-tubuh-content table td p,#printable-sop-official-document .sop-batang-tubuh-content table th p,#printable-sop-official-document .sop-batang-tubuh-content table td div,#printable-sop-official-document .sop-batang-tubuh-content table th div,#printable-sop-official-document .sop-batang-tubuh-content table td ul,#printable-sop-official-document .sop-batang-tubuh-content table th ul,#printable-sop-official-document .sop-batang-tubuh-content table td ol,#printable-sop-official-document .sop-batang-tubuh-content table th ol,#printable-sop-official-document .sop-batang-tubuh-content table td li,#printable-sop-official-document .sop-batang-tubuh-content table th li,#printable-sop-official-document .rich-text-output table td p,#printable-sop-official-document .rich-text-output table th p,#printable-sop-official-document .rich-text-output table td div,#printable-sop-official-document .rich-text-output table th div,#printable-sop-official-document .rich-text-output table td ul,#printable-sop-official-document .rich-text-output table th ul,#printable-sop-official-document .rich-text-output table td ol,#printable-sop-official-document .rich-text-output table th ol,#printable-sop-official-document .rich-text-output table td li,#printable-sop-official-document .rich-text-output table td li,#printable-sop-official-document .rich-text-document-content table td p,#printable-sop-official-document .rich-text-document-content table th p,#printable-sop-official-document .rich-text-document-content table td div,#printable-sop-official-document .rich-text-document-content table th div,#printable-sop-official-document .rich-text-document-content table td ul,#printable-sop-official-document .rich-text-document-content table th ul,#printable-sop-official-document .rich-text-document-content table td ol,#printable-sop-official-document .rich-text-document-content table th ol,#printable-sop-official-document .rich-text-document-content table td li,#printable-sop-official-document .rich-text-document-content table td li{margin-top:0!important;margin-bottom:0!important;padding-top:0!important;padding-bottom:0!important;line-height:1.05!important}
+.figure-wrapper{position:relative!important;box-sizing:border-box!important;max-width:100%!important}
+.figure-wrapper img{width:100%!important;height:auto!important;display:block!important;border-radius:2px!important}
+.figure-wrapper[data-wrap="top-bottom"]{display:block!important;clear:both!important;float:none!important;margin-top:10px!important;margin-bottom:10px!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="left"]{margin-left:0!important;margin-right:auto!important;text-align:left!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="center"]{margin-left:auto!important;margin-right:auto!important;text-align:center!important}
+.figure-wrapper[data-wrap="top-bottom"][data-align="right"]{margin-left:auto!important;margin-right:0!important;text-align:right!important}
+.figure-wrapper[data-wrap="square"][data-align="left"],.figure-wrapper[data-wrap="square"]:not([data-align="right"]):not([data-align="center"]){float:left!important;margin:4px 18px 10px 0!important;clear:none!important}
+.figure-wrapper[data-wrap="square"][data-align="right"]{float:right!important;margin:4px 0 10px 18px!important;clear:none!important}
+.figure-wrapper[data-wrap="inline"]{display:inline-block!important;vertical-align:middle!important;float:none!important;clear:none!important;margin:2px 6px!important}
+.rich-text-document-content::after,.rich-text-output::after{content:"";display:table;clear:both}
 .no-print { display: none !important; }
 </style>
 </head>
