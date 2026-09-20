@@ -3,6 +3,24 @@ export type SopStatus = 'DRAFT' | 'AKTIF' | 'DIARSIPKAN';
 export type UserRole = 'admin' | 'user';
 export type UserBadge = 'STRUKTURAL' | 'VERIFIKATOR';
 
+
+export interface SopNumberReservation {
+  id: string;
+  divisionCode: string;
+  subHierarchyCode: string;
+  sequenceNumber: number;
+  sopNumber: string;
+  year: string;
+  title?: string;
+  effectiveDate?: string;
+  reservedBy: string;
+  reservedAt: string;
+  status: 'RESERVED' | 'USED';
+  purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
+  usedAt?: string;
+  usedDocumentId?: string;
+}
+
 export interface UserAssignment {
   id: string;
   label?: string;
@@ -126,10 +144,6 @@ export interface SopDocument {
   categoryName: string;
   version: string; // e.g. "00" or "1.0"
   status: SopStatus;
-  /** Once true, this official number is permanently non-reusable. */
-  everActivated?: boolean;
-  archivedAt?: string;
-  archivedBy?: string;
   effectiveDate: string; // YYYY-MM-DD
   reviewPeriodMonths: number; // e.g. 12 (1 year)
   nextReviewDate: string; // YYYY-MM-DD
@@ -219,6 +233,10 @@ export interface SopDocument {
   // Pengesahan Tanda Tangan Direktur & Aktivasi oleh Admin Tata Naskah
   activatedAt?: string; // Tanggal verifikasi & aktivasi (YYYY-MM-DD)
   activatedBy?: string; // Nama Admin Tata Naskah yang mengaktifkan
+  /** Once true, the official number is permanently retired from reuse. */
+  everActivated?: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
   activationNotes?: string; // Catatan pengesahan / nomor fisik
   activationRequestedAt?: string; // ISO timestamp kapan user mengusulkan aktivasi
   activationRequestedBy?: string; // Nama/username user pengusul aktivasi

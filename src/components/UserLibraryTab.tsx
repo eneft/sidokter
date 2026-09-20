@@ -79,7 +79,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
 
 
   // 1. First enforce STRICT RBAC: User can ONLY access SOPs within their locked account scope
-  const accessibleSops = sops.filter((sop) => sop.status !== 'DIARSIPKAN' && isSopAccessibleByUser(sop, userSession));
+  const accessibleSops = sops.filter((sop) => (userSession.role === 'admin' || sop.status !== 'DIARSIPKAN') && isSopAccessibleByUser(sop, userSession));
 
   // 2. Secondary UI filters (Search, Status, and Category if admin/ALL)
   const filteredSops = accessibleSops.filter((s) => {
@@ -149,7 +149,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
           {/* Status Filter */}
           <AdminTooltip
             title="Filter Status Dokumen"
-            content="Filter berdasarkan status: Draft (belum aktif) atau Aktif (telah diverifikasi dan berlaku)."
+            content="Filter berdasarkan status: Draft (belum aktif), Aktif (telah diverifikasi dan berlaku), atau Diarsipkan."
             side="bottom"
           >
             <select
@@ -160,6 +160,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
               <option value="ALL">Semua Status</option>
               <option value="DRAFT">Draft</option>
               <option value="AKTIF">Aktif</option>
+              {userSession.role === 'admin' && <option value="DIARSIPKAN">Diarsipkan</option>}
             </select>
           </AdminTooltip>
 

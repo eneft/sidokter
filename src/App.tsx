@@ -47,7 +47,6 @@ import {
   registerSopAndNumberingToLocal,
   reserveNextSopNumber,
   findNumberReservationBySopNumber,
-  consumeNumberReservation,
   getAllNumberReservations
 } from './lib/sopService';
 import { activateRiviuInFirestore } from './lib/firestoreService';
@@ -964,7 +963,6 @@ export default function App() {
     const rawTargetNumber = (newSopData.sopNumber || newSopData.legacySopNumber || '').trim();
     const targetNumber = isLegacyInput ? normalizeSopNumberInput(rawTargetNumber) : rawTargetNumber;
     let authoritativeSopData = newSopData;
-    let systemReservationId: string | undefined;
     // Reservation adalah register nomor terpisah, bukan dokumen SPO. Untuk alur
     // Existing, nomor reserved boleh dipakai untuk registrasi PDF fisik dan
     // reservation dikonsumsi setelah dokumen berhasil tersimpan.
@@ -1160,7 +1158,11 @@ export default function App() {
           // Existing replacement must keep the uploaded PDF as the authoritative
           // document preview even though its final document type remains BARU.
           isExistingReplacement: true,
-          status: 'AKTIF',
+          status: 'DRAFT',
+          activationRequestedAt: now,
+          activationRequestedBy: userSession?.name || newSopData.creatorName || 'Pengguna',
+          activationRequestedByUsername: userSession?.username || (newSopData as any).activationRequestedByUsername,
+          activationRequestedUid: userSession?.authUid || userSession?.id || (newSopData as any).activationRequestedUid,
           createdAt: existing.createdAt || now,
           updatedAt: now,
           revisionHistory: [
@@ -1170,7 +1172,7 @@ export default function App() {
               version: newSopData.revisionNumber || newSopData.version || existing.version || '00',
               date: newSopData.effectiveDate || existing.effectiveDate || now.split('T')[0],
               author: newSopData.creatorName || userSession?.name || 'User',
-              notes: `Dokumen dilengkapi/diaktifkan melalui unggah berkas fisik (sebelumnya berstatus ${statusPreviousName}).`
+              notes: `Dokumen dilengkapi melalui unggah berkas fisik dan menunggu aktivasi Admin (sebelumnya berstatus ${statusPreviousName}).`
             }
           ]
         };
@@ -1180,8 +1182,8 @@ export default function App() {
 
         addToast(
           'success',
-          'SPO Berhasil Dilengkapi & Diaktifkan!',
-          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} berhasil diaktifkan di sistem.`
+          'SPO Berhasil Dilengkapi!',
+          `Dokumen "${finalSop.title}" dengan nomor ${finalSop.sopNumber} diperbarui dan tetap Draft sampai diverifikasi serta diaktifkan Admin.`
         );
 
         return finalSop;
@@ -1221,7 +1223,11 @@ export default function App() {
           // original uploaded PDF as the preview source after consuming the reservation.
           isExistingReplacement: true,
           isNumberReservation: false,
-          status: 'AKTIF',
+          status: 'DRAFT',
+          activationRequestedAt: now,
+          activationRequestedBy: userSession?.name || newSopData.creatorName || 'Pengguna',
+          activationRequestedByUsername: userSession?.username || (newSopData as any).activationRequestedByUsername,
+          activationRequestedUid: userSession?.authUid || userSession?.id || (newSopData as any).activationRequestedUid,
           createdAt: now,
           updatedAt: now,
           revisionHistory: [
@@ -1234,10 +1240,9 @@ export default function App() {
             }
           ]
         };
-        await saveSopToLocal(reservedFinal);
-        await consumeNumberReservation(reservedTarget.id, reservedFinal.id);
+        await saveSopToLocal(reservedFinal, { reservationId: reservedTarget.id });
         setSops((prev) => [reservedFinal, ...prev.filter((s) => s.id !== reservedFinal.id)]);
-        addToast('success', 'SPO Eksisting Berhasil Diregistrasi!', `Nomor reserved ${reservedFinal.sopNumber} digunakan dan sekarang menjadi SPO Aktif.`);
+        addToast('success', 'SPO Eksisting Berhasil Diregistrasi!', `Nomor reserved ${reservedFinal.sopNumber} digunakan. Dokumen tetap Draft sampai diverifikasi dan diaktifkan Admin.`);
         return reservedFinal;
       }
 
@@ -1283,7 +1288,6 @@ export default function App() {
       };
 
       await saveSopToLocal(finalSop);
-      if (systemReservationId) await consumeNumberReservation(systemReservationId, finalSop.id);
       setSops((prev) => [finalSop, ...prev.filter((s) => s.id !== finalSop.id)]);
 
       if (userSession?.role !== 'admin') {
@@ -1695,33 +1699,22 @@ export default function App() {
   const confirmDeleteSop = async () => {
     if (!sopToDelete) return;
     const { id, title } = sopToDelete;
-    const target = sops.find((s) => s.id === id);
 
     try {
-      // Persist the delete/archive first. This prevents a delete racing with a
+      // Persist the delete first. This prevents a delete racing with a
       // subsequent restore and ensures the UI only reflects confirmed state.
-      await deleteSopFromLocal(id);
-      deleteFileFromLocalCache(id);
-      const wasDraft = target?.status === 'DRAFT' && target?.everActivated !== true;
-      const nextSops = wasDraft
-        ? sops.filter((s) => s.id !== id)
-        : sops.map((s) => s.id === id ? { ...s, status: 'DIARSIPKAN' as SopStatus, everActivated: true, archivedAt: new Date().toISOString() } : s);
+      const deleteResult = await deleteSopFromLocal(id);
+      if (deleteResult === 'DELETED') deleteFileFromLocalCache(id);
+      const nextSops = sops.filter((s) => s.id !== id);
       setSops(nextSops);
 
-    if (wasDraft && nextSops.length === 0) {
-      const resetConfig: NumberingConfig = {
-        ...numberingConfig,
-        currentCounter: 0,
-        divisionCounters: {}
-      };
-      setNumberingConfig(resetConfig);
-      saveConfigToLocal(resetConfig).catch((err) => console.error('Error resetting config in local database:', err));
-      addToast('info', 'Penomoran Direset', `SPO "${title}" telah dihapus. Daftar SPO kini kosong dan penomoran otomatis di-reset dari awal (#001).`);
-    } else if (wasDraft) {
-      addToast('info', 'Draft Dihapus', `SPO "${title}" telah dihapus. Nomor draft kembali tersedia.`);
-    } else {
-      addToast('info', 'SPO Diarsipkan', `SPO "${title}" dipindahkan ke Arsip SPO. Nomor tetap terkunci permanen.`);
-    }
+    addToast(
+      'info',
+      deleteResult === 'ARCHIVED' ? 'SPO Diarsipkan' : 'Draft Dihapus',
+      deleteResult === 'ARCHIVED'
+        ? `SPO "${title}" dipindahkan ke Arsip SPO. Nomornya tetap terkunci permanen.`
+        : `Draft "${title}" dihapus. Nomornya tersedia kembali pada hirarki dan tahun yang sama.`
+    );
 
     if (selectedSopForDetail?.id === id) {
       setSelectedSopForDetail(null);
@@ -1748,7 +1741,7 @@ export default function App() {
   };
 
   // Quick Status Update (Admin Only). AKTIF hanya melalui Pengesahan/Aktivasi.
-  const handleUpdateStatus = (id: string, newStatus: SopStatus) => {
+  const handleUpdateStatus = async (id: string, newStatus: SopStatus) => {
     if (userSession?.role !== 'admin') {
       addToast('error', 'Akses Ditolak', 'Hanya Administrator yang memiliki wewenang untuk mengubah status dokumen.');
       return;
@@ -1761,11 +1754,29 @@ export default function App() {
       setSelectedSopForActivation(target);
       return;
     }
-    const updated = { ...target, status: newStatus, ...(newStatus === 'DIARSIPKAN' || target.status === 'AKTIF' || target.everActivated ? { everActivated: true } : {}), updatedAt: new Date().toISOString() };
-    setSops((prev) => prev.map((s) => s.id === id ? updated : s));
-    if (selectedSopForDetail?.id === id) setSelectedSopForDetail(updated);
-    saveSopToLocal(updated).catch((err) => console.error('Error updating status in local database:', err));
-    addToast('success', 'Status Diperbarui', `Status SPO diubah menjadi ${newStatus === 'DIARSIPKAN' ? 'Diarsipkan' : 'Draft'}.`);
+    if (newStatus === 'DIARSIPKAN') {
+      if (target.status !== 'AKTIF' && target.status !== 'DIARSIPKAN' && target.everActivated !== true) {
+        addToast('error', 'Arsip Ditolak', 'DRAFT yang belum pernah aktif harus dibatalkan/dihapus, bukan diarsipkan.');
+        return;
+      }
+      try {
+        const result = await deleteSopFromLocal(id);
+        if (result !== 'ARCHIVED') throw new Error('Dokumen tidak masuk arsip sebagaimana mestinya.');
+        const archived = { ...target, status: 'DIARSIPKAN' as const, everActivated: true, updatedAt: new Date().toISOString() };
+        setSops((prev) => prev.map((s) => s.id === id ? archived : s));
+        if (selectedSopForDetail?.id === id) setSelectedSopForDetail(archived);
+        addToast('success', 'SPO Diarsipkan', `SPO ${target.sopNumber || target.title} dipindahkan ke Arsip SPO.`);
+      } catch (error: any) {
+        addToast('error', 'Arsip Gagal', error?.message || 'SPO gagal diarsipkan.');
+      }
+      return;
+    }
+    // Official history is one-way. An ACTIVE/archived document can never be
+    // demoted to DRAFT, because that would make lifecycle and numbering lie.
+    if (newStatus === 'DRAFT' && (target.status !== 'DRAFT' || target.everActivated === true)) {
+      addToast('error', 'Perubahan Ditolak', 'SPO yang pernah Aktif tidak dapat dikembalikan menjadi Draft.');
+      return;
+    }
   };
 
   const handleConfirmActivation = async (sopId: string, activationData: {

@@ -2,9 +2,9 @@
  * SPO SERVICE
  * Service khusus dokumen SPO dan konfigurasi penomoran SPO.
  */
-import { SopDocument, NumberingConfig, SopStatus } from '../types';
+import { SopDocument, NumberingConfig, SopStatus, SopNumberReservation } from '../types';
 import { DEFAULT_NUMBERING_CONFIG, generateSopNumber } from '../utils/numbering';
-import { saveSopToFirestore, updateExistingSopInFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore } from './firestoreService';
+import { saveSopToFirestore, updateExistingSopInFirestore, deleteSopFromFirestore, saveSystemConfigToFirestore, subscribeToFirestoreSops, fetchSopsFromFirestore, reserveNextSopNumberInFirestore, fetchSopNumberReservationsFromFirestore, consumeSopNumberReservationInFirestore, restoreSopNumberReservationsToFirestore } from './firestoreService';
 import { getUserHierarchyAccessKeys, isSopAccessibleByUser } from '../utils/soegiriStructure';
 import { UserSession } from '../types';
 import { uploadFileToCloudStorage } from './cloudStorageService';
@@ -142,13 +142,9 @@ function initFirestoreSopSync(userSession?: UserSession | null, onInitialSyncSet
     return () => { active = false; };
   }
   const scopedKeys = getUserHierarchyAccessKeys(userSession);
-  const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
-    ? userSession!.assignments!.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
-    : Array.isArray(userSession?.divisionCodes)
-      ? userSession!.divisionCodes!.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
-      : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
-  const globalAccess = userSession?.role === 'admin'
-    || hasAllHierarchyAssignment;
+  // Only the actual Admin role may subscribe to archived records. An ALL
+  // hierarchy assignment broadens hierarchy scope, not lifecycle visibility.
+  const globalAccess = userSession?.role === 'admin';
 
   // Serialize cloud -> IndexedDB writes. Initial fetch and realtime snapshots can
   // arrive at nearly the same time; without a queue an older snapshot can finish
@@ -270,7 +266,7 @@ function isDocxBinaryData(dataUrl?: string, fileName?: string, fileType?: string
   return false;
 }
 
-export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig; editActor?: UserSession }): Promise<SopDocument> {
+export async function saveSopToLocal(sop: SopDocument, options?: { allocateOfficialNumber?: NumberingConfig; editActor?: UserSession; reservationId?: string }): Promise<SopDocument> {
   if ((sop as any).isNumberReservation) return;
   const all = await getSops();
   const next = normalizeSop(sop);
@@ -373,7 +369,7 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   try {
     const saved = options?.editActor
       ? await updateExistingSopInFirestore(next, options.editActor)
-      : await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber });
+      : await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber, reservationId: options?.reservationId });
     Object.assign(next, saved);
   } catch (err) {
     const rollback = all.filter((s) => s.id !== next.id);
@@ -460,20 +456,14 @@ export async function bulkUpdateSops(sops: SopDocument[], changedIds?: string[])
   // Never push an arbitrary local cache snapshot back to Firestore here.
 }
 
-export async function deleteSopFromLocal(id: string): Promise<void> {
+export async function deleteSopFromLocal(id: string): Promise<'DELETED' | 'ARCHIVED'> {
   // Cloud/Firestore deletion is authoritative. Do not remove the local cache
   // first and then fire-and-forget the cloud delete; that can make one browser
   // appear deleted while another browser still sees the document.
-  const action = await deleteSopFromFirestore(id);
-  if (action === 'DELETED') {
-    await idbDeleteSop(id);
-  } else {
-    const all = await getSops();
-    await idbPutSops(all.map((item) => item.id === id
-      ? { ...item, status: 'DIARSIPKAN' as const, everActivated: true, archivedAt: new Date().toISOString() }
-      : item));
-  }
+  const result = await deleteSopFromFirestore(id);
+  if (result === 'DELETED') await idbDeleteSop(id);
   notifySopSubscribers();
+  return result;
 }
 
 export async function deleteAllSops(): Promise<number> {
@@ -501,29 +491,10 @@ export async function saveConfigToLocal(config: NumberingConfig): Promise<void> 
   void saveSystemConfigToFirestore('numbering', config);
 }
 
-export interface SopNumberReservation {
-  id: string;
-  divisionCode: string;
-  subHierarchyCode: string;
-  sequenceNumber: number;
-  sopNumber: string;
-  year: string;
-  title?: string;
-  effectiveDate?: string;
-  reservedBy: string;
-  reservedAt: string;
-  status: 'RESERVED' | 'USED';
-  purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
-  usedAt?: string;
-  usedDocumentId?: string;
-}
+export type { SopNumberReservation } from '../types';
 
-/**
- * Atomically reserves the next official SPO number. The reservation store is
- * in the same IndexedDB database as SOPs, so two browser tabs cannot reserve
- * the same unit/year/sequence at the same time. Reservations are permanent
- * number consumption: an unused number is never silently reused.
- */
+/** Nomor Terbit is cloud-authoritative and shares the Firestore sequence ledger
+ * with SPO Baru/Riviu. IndexedDB is no longer an allocator. */
 export async function reserveNextSopNumber(params: {
   config: NumberingConfig;
   divisionCode: string;
@@ -533,105 +504,46 @@ export async function reserveNextSopNumber(params: {
   reservedBy: string;
   purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
 }): Promise<SopNumberReservation> {
-  const { config, divisionCode, subHierarchyCode = '', dateStr, reservedBy } = params;
-  const cleanDiv = (divisionCode || 'PEL').trim().toUpperCase();
-  const cleanSub = (subHierarchyCode || '').trim();
-  const year = dateStr ? new Date(dateStr).getFullYear().toString() : new Date().getFullYear().toString();
-
-  const db = await openSopDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([IDB_SOPS_STORE, IDB_NUMBER_RESERVATIONS_STORE], 'readwrite');
-    const sopStore = tx.objectStore(IDB_SOPS_STORE);
-    const reservationStore = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
-
-    let sops: SopDocument[] = [];
-    let reservations: SopNumberReservation[] = [];
-    let result: SopNumberReservation | null = null;
-
-    const sopRequest = sopStore.getAll();
-    sopRequest.onsuccess = () => {
-      sops = (sopRequest.result || []) as SopDocument[];
-      const reservationRequest = reservationStore.getAll();
-      reservationRequest.onsuccess = () => {
-        reservations = (reservationRequest.result || []) as SopNumberReservation[];
-
-        const used = new Set<number>();
-        for (const sop of sops) {
-          if (sop.isLegacySop || sop.documentType === 'LAMA') continue;
-          const sopYear = sop.sopNumber ? String(sop.sopNumber).match(/\/(\d{4})\s*$/)?.[1] : undefined;
-          const effectiveYear = sopYear || (sop.effectiveDate || '').slice(0, 4);
-          if (String(sop.divisionCode || '').trim().toUpperCase() !== cleanDiv || effectiveYear !== year) continue;
-          if (String(sop.subHierarchyCode || '').trim() !== cleanSub) continue;
-          if (typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0) used.add(sop.sequenceNumber);
-        }
-        for (const reservation of reservations) {
-          if (reservation.divisionCode === cleanDiv && reservation.subHierarchyCode === cleanSub && reservation.year === year) {
-            used.add(reservation.sequenceNumber);
-          }
-        }
-
-        let sequenceNumber = 1;
-        while (used.has(sequenceNumber)) sequenceNumber++;
-
-        const generated = generateSopNumber({
-          config,
-          divisionCode: cleanDiv,
-          subHierarchyCode: cleanSub || undefined,
-          dateStr: dateStr || `${year}-01-01`,
-          sequenceNum: sequenceNumber
-        });
-
-        result = {
-          id: `sop-number-${year}-${cleanDiv}-${cleanSub || 'ROOT'}-${sequenceNumber}`,
-          divisionCode: cleanDiv,
-          subHierarchyCode: cleanSub,
-          sequenceNumber,
-          sopNumber: generated.sopNumber,
-          year,
-          title: params.title?.trim() || undefined,
-          effectiveDate: dateStr || `${year}-01-01`,
-          reservedBy,
-          reservedAt: new Date().toISOString(),
-          status: 'RESERVED',
-          purpose: params.purpose || 'SYSTEM_DOCUMENT'
-        };
-        reservationStore.add(result);
-      };
-      reservationRequest.onerror = () => {
-        try { db.close(); } catch {}
-        reject(reservationRequest.error || new Error('Gagal membaca register nomor SPO.'));
-      };
-    };
-    sopRequest.onerror = () => {
-      try { db.close(); } catch {}
-      reject(sopRequest.error || new Error('Gagal membaca data SPO.'));
-    };
-
-    tx.oncomplete = () => {
-      try { db.close(); } catch {}
-      if (result) resolve(result);
-      else reject(new Error('Nomor SPO gagal dialokasikan.'));
-    };
-    tx.onerror = () => {
-      try { db.close(); } catch {}
-      reject(tx.error || new Error('Gagal menyimpan nomor SPO.'));
-    };
-    tx.onabort = () => {
-      try { db.close(); } catch {}
-      reject(tx.error || new Error('Penerbitan nomor SPO dibatalkan.'));
-    };
-  });
+  return reserveNextSopNumberInFirestore(params);
 }
 
-export async function getAllNumberReservations(): Promise<SopNumberReservation[]> {
+async function getLegacyLocalNumberReservations(): Promise<SopNumberReservation[]> {
   const db = await openSopDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readonly');
     const request = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE).getAll();
-    request.onsuccess = () => resolve((request.result || []).map((r: any) => ({ ...r, status: r.status === 'USED' ? 'USED' : 'RESERVED' })) as SopNumberReservation[]);
-    request.onerror = () => reject(request.error || new Error('Gagal membaca register reservation nomor SPO.'));
+    request.onsuccess = () => resolve((request.result || []) as SopNumberReservation[]);
+    request.onerror = () => reject(request.error || new Error('Gagal membaca register nomor lokal lama.'));
     tx.oncomplete = () => db.close();
   });
+}
+
+async function clearLegacyLocalNumberReservations(): Promise<void> {
+  const db = await openSopDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
+    tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal membersihkan register nomor lokal lama.')); };
+  });
+}
+
+export async function getAllNumberReservations(): Promise<SopNumberReservation[]> {
+  let cloud = await fetchSopNumberReservationsFromFirestore();
+  const legacy = await getLegacyLocalNumberReservations().catch(() => [] as SopNumberReservation[]);
+  if (legacy.length) {
+    // One-time migration from the old per-browser register. The cloud restore
+    // reconciles each slot against authoritative SOPs before accepting it.
+    // If this account cannot migrate, keep the local copy intact for an Admin.
+    try {
+      await restoreSopNumberReservationsToFirestore(legacy);
+      await clearLegacyLocalNumberReservations();
+      cloud = await fetchSopNumberReservationsFromFirestore();
+    } catch (error) {
+      console.warn('[SPO numbering] Legacy reservation migration deferred:', error);
+    }
+  }
+  return cloud;
 }
 
 export async function findNumberReservationBySopNumber(sopNumber: string): Promise<SopNumberReservation | undefined> {
@@ -642,37 +554,13 @@ export async function findNumberReservationBySopNumber(sopNumber: string): Promi
 }
 
 export async function consumeNumberReservation(id: string, usedDocumentId?: string): Promise<void> {
-  if (!id) return;
-  const db = await openSopDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
-    const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
-    const request = store.get(id);
-    request.onsuccess = () => {
-      const current = request.result as SopNumberReservation | undefined;
-      if (!current) return;
-      store.put({ ...current, status: 'USED', usedAt: new Date().toISOString(), usedDocumentId: usedDocumentId || current.usedDocumentId });
-    };
-    request.onerror = () => reject(request.error || new Error('Gagal membaca reservation nomor SPO.'));
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal mengubah reservation menjadi nomor terpakai.')); };
-    tx.onabort = () => { db.close(); reject(tx.error || new Error('Konsumsi reservation nomor dibatalkan.')); };
-  });
+  return consumeSopNumberReservationInFirestore(id, usedDocumentId);
 }
-
 
 export async function restoreNumberReservations(reservations: SopNumberReservation[]): Promise<void> {
-  const db = await openSopDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_NUMBER_RESERVATIONS_STORE, 'readwrite');
-    const store = tx.objectStore(IDB_NUMBER_RESERVATIONS_STORE);
-    store.clear();
-    for (const reservation of reservations || []) store.put(reservation);
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error || new Error('Gagal memulihkan register reservation nomor SPO.')); };
-    tx.onabort = () => { db.close(); reject(tx.error || new Error('Pemulihan reservation nomor dibatalkan.')); };
-  });
+  return restoreSopNumberReservationsToFirestore(reservations);
 }
+
 
 export async function registerSopAndNumberingToLocal(sop: SopDocument, config: NumberingConfig): Promise<SopDocument> {
   const saved = await saveSopToLocal(sop, { allocateOfficialNumber: config });

@@ -2470,7 +2470,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   >
                     <option value="DRAFT">Draft</option>
                     <option value="AKTIF">Aktif</option>
-                    <option value="DIARSIPKAN">Diarsipkan</option>
+                    {userSession?.role === 'admin' && <option value="DIARSIPKAN">Diarsipkan</option>}
                   </select>
                 )
               ) : (

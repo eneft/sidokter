@@ -383,6 +383,42 @@ export function getNextTransactionalSequence(storedCounter: number, highestExist
 }
 
 /**
+ * Allocate the smallest explicitly released DRAFT number first. Released numbers
+ * are scoped by the sequence document (year + division + hierarchy), so a gap in
+ * another hierarchy can never affect this allocator.
+ */
+export function getNextLifecycleSequence(
+  storedCounter: number,
+  highestExisting: number,
+  reusableSequences: unknown,
+  occupiedSequences: Iterable<number> = [],
+): { sequenceNumber: number; remainingReusable: number[] } {
+  const occupied = new Set(
+    Array.from(occupiedSequences || [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isSafeInteger(value) && value > 0)
+  );
+  const reusable = Array.from(new Set(
+    (Array.isArray(reusableSequences) ? reusableSequences : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isSafeInteger(value) && value > 0)
+  )).sort((a, b) => a - b);
+
+  const sequenceNumber = reusable.find((value) => !occupied.has(value));
+  if (sequenceNumber !== undefined) {
+    return {
+      sequenceNumber,
+      // Occupied/stale entries are dropped permanently; later free entries stay queued.
+      remainingReusable: reusable.filter((value) => value > sequenceNumber && !occupied.has(value)),
+    };
+  }
+
+  let next = getNextTransactionalSequence(storedCounter, highestExisting);
+  while (occupied.has(next)) next += 1;
+  return { sequenceNumber: next, remainingReusable: [] };
+}
+
+/**
  * Calculate the highest existing sequence number for a specific unit (divisionCode + subHierarchyCode)
  */
 export function getHighestSequenceForUnit(

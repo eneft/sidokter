@@ -32,7 +32,6 @@ import {
   SopDocument,
   SopCategory,
   Division,
-  SopStatus,
   RevisionLog,
   UserSession
 } from '../types';
@@ -244,7 +243,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
   // =========================================================
   const [title, setTitle] = useState(sop.title || '');
   const [version, setVersion] = useState(sop.revisionNumber || sop.version || '00');
-  const [status, setStatus] = useState<SopStatus>(sop.status || 'AKTIF');
   const [effectiveDate, setEffectiveDate] = useState(sop.effectiveDate || '');
   const [reviewPeriodMonths, setReviewPeriodMonths] = useState(sop.reviewPeriodMonths || 36);
   const [creatorName, setCreatorName] = useState(sop.creatorName || userSession?.name || '');
@@ -305,7 +303,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
     setSubHierarchyCode(sop.subHierarchyCode || '');
     setHierarchyPath(sop.subHierarchyPath || []);
     setVersion(sop.revisionNumber || sop.version || '00');
-    setStatus(sop.status || 'AKTIF');
     setEffectiveDate(sop.effectiveDate || '');
     setReviewPeriodMonths(sop.reviewPeriodMonths || 36);
     setCreatorName(sop.creatorName || userSession?.name || '');
@@ -515,13 +512,9 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       subHierarchyCode: subHierarchyCode.trim(),
       version: version.trim() || '00',
       revisionNumber: version.trim() || '00',
-      status: isExisting
-        ? status === 'DIARSIPKAN'
-          ? 'DIARSIPKAN'
-          : 'AKTIF'
-        : isAdmin
-        ? status
-        : sop.status || 'DRAFT',
+      // Editing content never changes lifecycle. Activation/archive use the
+      // dedicated authoritative workflows in App/Firestore.
+      status: sop.status || 'DRAFT',
       effectiveDate,
       reviewPeriodMonths: Number(reviewPeriodMonths) || 36,
       nextReviewDate: nextReview,
@@ -933,25 +926,9 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Status Dokumen
                     </label>
-                    {isExisting ? (
-                      <div className="w-full text-xs font-bold border border-emerald-200 rounded-xl px-3 py-2 bg-emerald-50 text-emerald-800">
-                        {status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'AKTIF — SPO EKSISTING'}
-                      </div>
-                    ) : isAdmin ? (
-                      <select
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value as SopStatus)}
-                        className="w-full text-xs font-bold border border-slate-300 rounded-xl px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-teal-500 outline-none"
-                      >
-                        <option value="DRAFT">DRAFT</option>
-                        <option value="AKTIF">AKTIF (Berlaku)</option>
-                        <option value="DIARSIPKAN">DIARSIPKAN</option>
-                      </select>
-                    ) : (
-                      <div className="w-full text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-slate-100 text-slate-700">
-                        {sop.status || 'DRAFT'}
-                      </div>
-                    )}
+                    <div className="w-full text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 bg-slate-100 text-slate-700">
+                      {sop.status === 'AKTIF' ? 'AKTIF' : sop.status === 'DIARSIPKAN' ? 'DIARSIPKAN' : 'DRAFT'}
+                    </div>
                   </div>
 
                   <div>

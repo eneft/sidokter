@@ -1,6 +1,6 @@
     match /sops/{sopId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.status != 'DIARSIPKAN');
-      allow create: if signedIn();
+      allow read: if isAdmin() || (signedIn() && resource.data.status != 'DIARSIPKAN');
+      allow create: if isAdmin() || (signedIn() && request.resource.data.status == 'DRAFT' && (!('everActivated' in request.resource.data) || request.resource.data.everActivated != true));
 
       // A stale editor is rejected using the currently stored status.
       // Only the actual Admin role may update approved/archived documents.
@@ -8,10 +8,6 @@
       // mutate protected document identity, lifecycle, or access-control fields.
       allow update: if (
         isAdmin() &&
-        // Once a number has been official it can never return to a recyclable state.
-        !(resource.data.get('everActivated', false) == true && request.resource.data.get('everActivated', false) != true) &&
-        !((resource.data.status == 'AKTIF' || resource.data.status == 'DIARSIPKAN') && request.resource.data.get('everActivated', false) != true) &&
-        !((request.resource.data.status == 'AKTIF' || request.resource.data.status == 'DIARSIPKAN') && request.resource.data.get('everActivated', false) != true) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'reviewState', 'reviewHistory', 'currentReviewRequesterUid', 'reviewUpdatedAt'
         ]) &&
@@ -40,9 +36,28 @@
           'currentReviewRequesterUid',
           'reviewUpdatedAt',
           'authorizedUids',
-          'accessKeys'
+          'accessKeys',
+          'everActivated',
+          'activatedAt',
+          'archivedAt'
         ])
       );
 
-      allow delete: if isAdmin() && resource.data.status == 'DRAFT' && resource.data.get('everActivated', false) == false;
+      allow delete: if isAdmin() && resource.data.status == 'DRAFT' && resource.data.everActivated != true;
+    }
+
+
+    match /sop_number_reservations/{reservationId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.status == 'RESERVED'
+        && request.resource.data.sequenceNumber is int
+        && request.resource.data.sequenceNumber > 0;
+      allow update: if signedIn()
+        && resource.data.status == 'RESERVED'
+        && request.resource.data.status == 'USED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'usedAt', 'usedDocumentId', 'updatedAt'
+        ]);
+      allow delete: if isAdmin();
     }
