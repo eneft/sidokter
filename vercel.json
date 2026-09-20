@@ -6,11 +6,16 @@
   "functions": {
     "api/pdf.ts": {
       "memory": 1024,
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**,public/**,functions/assets/**,functions/fonts/**"
     },
     "api/auth.ts": {
       "memory": 512,
       "maxDuration": 30
+    },
+    "api/health.ts": {
+      "memory": 256,
+      "maxDuration": 10
     }
   },
   "rewrites": [

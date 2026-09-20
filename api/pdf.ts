@@ -20,18 +20,19 @@ async function getChromium() {
 
       if (!fs.existsSync(nsprPath) && typeof mod.inflate === 'function') {
         try {
-          const binDir = path.join(
-            process.cwd(),
-            'node_modules',
-            '@sparticuz',
-            'chromium',
-            'bin'
-          );
+          const binDirCandidates = [
+            path.join(process.cwd(), 'node_modules', '@sparticuz', 'chromium', 'bin'),
+            path.join(__dirname, '..', 'node_modules', '@sparticuz', 'chromium', 'bin'),
+            path.join(__dirname, 'node_modules', '@sparticuz', 'chromium', 'bin'),
+            '/var/task/node_modules/@sparticuz/chromium/bin'
+          ];
 
-          const al2023Tar = path.join(binDir, 'al2023.tar.br');
-
-          if (fs.existsSync(al2023Tar)) {
-            await mod.inflate(al2023Tar);
+          for (const binDir of binDirCandidates) {
+            const al2023Tar = path.join(binDir, 'al2023.tar.br');
+            if (fs.existsSync(al2023Tar)) {
+              await mod.inflate(al2023Tar);
+              break;
+            }
           }
         } catch (err) {
           console.warn('[PDF] Failed to inflate AL2023:', err);
@@ -127,6 +128,32 @@ async function resolveExecutable(): Promise<string> {
 let cachedBookmanCss: string | null = null;
 
 
+function getAssetDirs(): string[] {
+  return [
+    path.resolve(process.cwd(), 'public'),
+    path.resolve(__dirname, '..', 'public'),
+    path.resolve(__dirname, 'public'),
+    path.resolve(process.cwd(), 'functions', 'assets'),
+    path.resolve(__dirname, '..', 'functions', 'assets'),
+    path.resolve(__dirname, 'assets'),
+    '/var/task/public',
+    '/var/task/functions/assets'
+  ];
+}
+
+function getFontDirs(): string[] {
+  return [
+    path.resolve(process.cwd(), 'public', 'fonts'),
+    path.resolve(__dirname, '..', 'public', 'fonts'),
+    path.resolve(__dirname, 'public', 'fonts'),
+    path.resolve(process.cwd(), 'functions', 'fonts'),
+    path.resolve(__dirname, '..', 'functions', 'fonts'),
+    path.resolve(__dirname, 'fonts'),
+    '/var/task/public/fonts',
+    '/var/task/functions/fonts'
+  ];
+}
+
 function inlineLocalPdfImages(documentHtml: string): string {
   // Chromium used by the PDF endpoint runs outside the browser session.
   // Public image URLs can therefore fail (auth/proxy/base-url issues), even
@@ -134,7 +161,7 @@ function inlineLocalPdfImages(documentHtml: string): string {
   // official document assets from the deployed filesystem and inline ONLY
   // those small, known local assets server-side. This keeps the POST payload
   // small and avoids the previous 413 problem caused by client-side base64.
-  const publicDir = path.resolve(process.cwd(), 'public');
+  const assetDirs = getAssetDirs();
   const allowedAssets = new Set([
     '/logo_soegiri_transparent.png',
     '/logo_soegiri_stamp.png',
@@ -156,37 +183,40 @@ function inlineLocalPdfImages(documentHtml: string): string {
 
     if (!allowedAssets.has(pathname)) return `${prefix}${rawSrc}${suffix}`;
 
-    const assetPath = path.join(publicDir, pathname.slice(1));
-    try {
-      if (!fs.existsSync(assetPath)) {
-        console.warn('[PDF] Local image asset not found:', assetPath);
-        return `${prefix}${rawSrc}${suffix}`;
+    const filename = pathname.slice(1);
+    for (const dir of assetDirs) {
+      const assetPath = path.join(dir, filename);
+      if (fs.existsSync(assetPath)) {
+        try {
+          const ext = path.extname(assetPath).toLowerCase();
+          const mime = ext === '.jpg' || ext === '.jpeg'
+            ? 'image/jpeg'
+            : ext === '.webp'
+              ? 'image/webp'
+              : 'image/png';
+          const dataUri = `data:${mime};base64,${fs.readFileSync(assetPath).toString('base64')}`;
+          return `${prefix}${dataUri}${suffix}`;
+        } catch (err) {
+          console.warn('[PDF] Failed to inline local image asset:', assetPath, err);
+        }
       }
-
-      const ext = path.extname(assetPath).toLowerCase();
-      const mime = ext === '.jpg' || ext === '.jpeg'
-        ? 'image/jpeg'
-        : ext === '.webp'
-          ? 'image/webp'
-          : 'image/png';
-      const dataUri = `data:${mime};base64,${fs.readFileSync(assetPath).toString('base64')}`;
-      return `${prefix}${dataUri}${suffix}`;
-    } catch (err) {
-      console.warn('[PDF] Failed to inline local image asset:', pathname, err);
-      return `${prefix}${rawSrc}${suffix}`;
     }
+
+    return `${prefix}${rawSrc}${suffix}`;
   });
 }
 
 function getBookmanFontFaceCss(): string {
   if (cachedBookmanCss) return cachedBookmanCss;
   try {
-    const fontsDir = path.resolve(process.cwd(), 'public', 'fonts');
+    const fontDirs = getFontDirs();
     const readBase64 = (filename: string) => {
-      const fullPath = path.join(fontsDir, filename);
-      if (fs.existsSync(fullPath)) {
-        const buf = fs.readFileSync(fullPath);
-        return `data:font/otf;base64,${buf.toString('base64')}`;
+      for (const dir of fontDirs) {
+        const fullPath = path.join(dir, filename);
+        if (fs.existsSync(fullPath)) {
+          const buf = fs.readFileSync(fullPath);
+          return `data:font/otf;base64,${buf.toString('base64')}`;
+        }
       }
       return `/fonts/${filename}`;
     };
@@ -342,95 +372,270 @@ html, body {
   height: 297mm !important;
   min-height: 297mm !important;
   max-height: 297mm !important;
-
   margin: 0 !important;
-
-  padding:
-    20mm
-    20mm
-    20mm
-    30mm !important;
-
+  padding: 20mm 20mm 20mm 20mm !important;
   box-sizing: border-box !important;
-
   overflow: hidden !important;
-
   break-inside: avoid !important;
   page-break-inside: avoid !important;
-
   break-after: page !important;
   page-break-after: always !important;
 }
 
-#printable-sop-official-document
-.sop-preview-page:last-child {
+#printable-sop-official-document .sop-preview-page:last-child {
   break-after: auto !important;
   page-break-after: auto !important;
 }
 
-#printable-sop-official-document
-.pdf-export-document
-table.sop-official-table {
+#printable-sop-official-document.pdf-export-document table.sop-official-table {
   display: table !important;
   width: 100% !important;
-
   table-layout: fixed !important;
-
   border-collapse: collapse !important;
   border-spacing: 0 !important;
-
   border: 1px solid #000 !important;
-
   background: #fff !important;
-
   margin: 0 !important;
 }
 
-#printable-sop-official-document
-.pdf-export-document
-.sop-official-table > thead {
+#printable-sop-official-document.pdf-export-document .sop-official-table > thead {
   display: table-header-group !important;
 }
 
-#printable-sop-official-document
-.pdf-export-document
-.sop-official-table > tbody {
+#printable-sop-official-document.pdf-export-document .sop-official-table > tbody {
   display: table-row-group !important;
 }
 
-/* FINAL: the STANDAR PROSEDUR OPERASIONAL cell must override the
-   generic table-cell top alignment and center against the full header row. */
 #printable-sop-official-document .pdf-export-document .sop-official-table td.sop-document-type-label,
 #printable-sop-official-document .sop-official-table td.sop-document-type-label,
 table.sop-official-table td.sop-document-type-label {
   vertical-align: middle !important;
 }
 
-#printable-sop-official-document
-.pdf-export-document
-.sop-official-table td,
-
-#printable-sop-official-document
-.pdf-export-document
-.sop-official-table th {
+#printable-sop-official-document.pdf-export-document .sop-official-table td,
+#printable-sop-official-document.pdf-export-document .sop-official-table th {
   display: table-cell !important;
-
   border: 1px solid #000 !important;
-
   box-sizing: border-box !important;
-
   vertical-align: top !important;
-
   word-break: normal !important;
-
   overflow-wrap: break-word !important;
-
   word-wrap: break-word !important;
-
   hyphens: none !important;
-
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table,
+#printable-sop-official-document.pdf-export-document .rich-text-output table,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table {
+  width: auto;
+  border-collapse: collapse !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table:not([data-table-autofit="true"]),
+#printable-sop-official-document.pdf-export-document .rich-text-output table:not([data-table-autofit="true"]),
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table:not([data-table-autofit="true"]) {
+  table-layout: fixed;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-autofit="true"],
+#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-autofit="true"],
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-autofit="true"] {
+  width: fit-content !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-autofit="true"] > colgroup > col,
+#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-autofit="true"] > colgroup > col,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-autofit="true"] > colgroup > col {
+  width: auto !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table[data-table-width],
+#printable-sop-official-document.pdf-export-document .rich-text-output table[data-table-width],
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table[data-table-width] {
+  width: var(--table-width) !important;
+  max-width: 100% !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table thead,
+#printable-sop-official-document.pdf-export-document .rich-text-output table thead,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table thead {
+  display: table-header-group !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td,
+#printable-sop-official-document .sop-batang-tubuh-content table th,
+#printable-sop-official-document .sop-batang-tubuh-content table td,
+#printable-sop-official-document .rich-text-output table th,
+#printable-sop-official-document .rich-text-output table td,
+#printable-sop-official-document .rich-text-document-content table th,
+#printable-sop-official-document .rich-text-document-content table td {
+  border: 1px solid #000 !important;
+  padding: .5px 2mm !important;
+  padding-top: .5px !important;
+  padding-bottom: .5px !important;
+  padding-left: 2mm !important;
+  padding-right: 2mm !important;
+  vertical-align: top !important;
+  line-height: 1.05 !important;
+  letter-spacing: normal !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td *,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th *,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td *,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th *,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td *,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th *,
+#printable-sop-official-document .sop-batang-tubuh-content table td *,
+#printable-sop-official-document .sop-batang-tubuh-content table th *,
+#printable-sop-official-document .rich-text-output table td *,
+#printable-sop-official-document .rich-text-output table th *,
+#printable-sop-official-document .rich-text-document-content table td *,
+#printable-sop-official-document .rich-text-document-content table th * {
+  line-height: 1.05 !important;
+}
+
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td p,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th p,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td div,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th div,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td ul,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th ul,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td ol,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th ol,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table td li,
+#printable-sop-official-document.pdf-export-document .sop-batang-tubuh-content table th li,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td p,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th p,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td div,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th div,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td ul,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th ul,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td ol,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th ol,
+#printable-sop-official-document.pdf-export-document .rich-text-output table td li,
+#printable-sop-official-document.pdf-export-document .rich-text-output table th li,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td p,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th p,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td div,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th div,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td ul,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th ul,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td ol,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th ol,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table td li,
+#printable-sop-official-document.pdf-export-document .rich-text-document-content table th li,
+#printable-sop-official-document .sop-batang-tubuh-content table td p,
+#printable-sop-official-document .sop-batang-tubuh-content table th p,
+#printable-sop-official-document .sop-batang-tubuh-content table td div,
+#printable-sop-official-document .sop-batang-tubuh-content table th div,
+#printable-sop-official-document .sop-batang-tubuh-content table td ul,
+#printable-sop-official-document .sop-batang-tubuh-content table th ul,
+#printable-sop-official-document .sop-batang-tubuh-content table td ol,
+#printable-sop-official-document .sop-batang-tubuh-content table th ol,
+#printable-sop-official-document .sop-batang-tubuh-content table td li,
+#printable-sop-official-document .sop-batang-tubuh-content table th li,
+#printable-sop-official-document .rich-text-output table td p,
+#printable-sop-official-document .rich-text-output table th p,
+#printable-sop-official-document .rich-text-output table td div,
+#printable-sop-official-document .rich-text-output table th div,
+#printable-sop-official-document .rich-text-output table td ul,
+#printable-sop-official-document .rich-text-output table th ul,
+#printable-sop-official-document .rich-text-output table td ol,
+#printable-sop-official-document .rich-text-output table td ol,
+#printable-sop-official-document .rich-text-output table td li,
+#printable-sop-official-document .rich-text-output table th li,
+#printable-sop-official-document .rich-text-document-content table td p,
+#printable-sop-official-document .rich-text-document-content table th p,
+#printable-sop-official-document .rich-text-document-content table td div,
+#printable-sop-official-document .rich-text-document-content table th div,
+#printable-sop-official-document .rich-text-document-content table td ul,
+#printable-sop-official-document .rich-text-document-content table th ul,
+#printable-sop-official-document .rich-text-document-content table td ol,
+#printable-sop-official-document .rich-text-document-content table th ol,
+#printable-sop-official-document .rich-text-document-content table td li,
+#printable-sop-official-document .rich-text-document-content table th li {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1.05 !important;
+}
+
+.figure-wrapper {
+  position: relative !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+}
+
+.figure-wrapper img {
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+  border-radius: 2px !important;
+}
+
+.figure-wrapper[data-wrap="top-bottom"] {
+  display: block !important;
+  clear: both !important;
+  float: none !important;
+  margin-top: 10px !important;
+  margin-bottom: 10px !important;
+}
+
+.figure-wrapper[data-wrap="top-bottom"][data-align="left"] {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  text-align: left !important;
+}
+
+.figure-wrapper[data-wrap="top-bottom"][data-align="center"] {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: center !important;
+}
+
+.figure-wrapper[data-wrap="top-bottom"][data-align="right"] {
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  text-align: right !important;
+}
+
+.figure-wrapper[data-wrap="square"][data-align="left"],
+.figure-wrapper[data-wrap="square"]:not([data-align="right"]):not([data-align="center"]) {
+  float: left !important;
+  margin: 4px 18px 10px 0 !important;
+  clear: none !important;
+}
+
+.figure-wrapper[data-wrap="square"][data-align="right"] {
+  float: right !important;
+  margin: 4px 0 10px 18px !important;
+  clear: none !important;
+}
+
+.figure-wrapper[data-wrap="inline"] {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  float: none !important;
+  clear: none !important;
+  margin: 2px 6px !important;
+}
+
+.rich-text-document-content::after,
+.rich-text-output::after {
+  content: "";
+  display: table;
+  clear: both;
 }
 
 .no-print {
@@ -477,7 +682,7 @@ ${pdfDocumentHtml}
             height: 900,
           },
         executablePath,
-        headless: 'shell'
+        headless: true
       });
 
     const page =
@@ -749,7 +954,28 @@ export default async function handler(req: any, res: any) {
 
   let lastError: any = null;
 
-  // 1. Try upstream dedicated PDF Cloud Services (Firebase Cloud Functions / Cloud Run)
+  // 1. Prefer local Chromium renderer for 100% parity with development preview
+  try {
+    const { pdf, filename } = await generatePdf(bodyPayload);
+    const pdfBuffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+    if (pdfBuffer.length >= 5 && pdfBuffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+      const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, '%27');
+      res.status(200);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="SPO_RSUD_Dr_Soegiri.pdf"; filename*=UTF-8''${encodedFilename}`
+      );
+      res.setHeader('X-Soegiri-PDF-Filename', encodeURIComponent(filename));
+      res.setHeader('Content-Length', String(pdfBuffer.length));
+      return res.send(pdfBuffer);
+    }
+  } catch (localErr: any) {
+    console.warn('[api/pdf] Local PDF generation failed, falling back to upstream cloud services:', localErr?.message);
+    lastError = localErr;
+  }
+
+  // 2. Fallback to upstream dedicated PDF Cloud Services (Firebase Cloud Functions / Cloud Run)
   for (const upstreamUrl of UPSTREAM_PDF_URLS) {
     try {
       const controller = new AbortController();
@@ -784,38 +1010,18 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      console.warn(`[api/pdf] Upstream ${upstreamUrl} returned HTTP ${upstreamRes.status}, continuing to local fallback...`);
+      console.warn(`[api/pdf] Upstream ${upstreamUrl} returned HTTP ${upstreamRes.status}`);
     } catch (err: any) {
       lastError = err;
       console.warn(`[api/pdf] Upstream ${upstreamUrl} failed:`, err?.message);
     }
   }
 
-  // 2. Fallback to local Chromium renderer
-  try {
-    const { pdf, filename } = await generatePdf(bodyPayload);
-    const pdfBuffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
-    if (pdfBuffer.length < 5 || pdfBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
-      throw new Error('PDF_RENDER_INVALID_OUTPUT');
-    }
-
-    const encodedFilename = encodeURIComponent(filename).replace(/['()]/g, '%27');
-    res.status(200);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="SPO_RSUD_Dr_Soegiri.pdf"; filename*=UTF-8''${encodedFilename}`
-    );
-    res.setHeader('X-Soegiri-PDF-Filename', encodeURIComponent(filename));
-    res.setHeader('Content-Length', String(pdfBuffer.length));
-    return res.send(pdfBuffer);
-  } catch (localErr: any) {
-    console.error('[api/pdf] Local PDF fallback failed:', localErr);
-    const errCode = String(localErr?.message || lastError?.message || 'PDF_GENERATION_FAILED');
-    return res.status(500).json({
-      success: false,
-      message: 'PDF gagal dibuat: ' + errCode,
-      detail: errCode
-    });
-  }
+  console.error('[api/pdf] All PDF generation methods failed:', lastError);
+  const errCode = String(lastError?.message || 'PDF_GENERATION_FAILED');
+  return res.status(500).json({
+    success: false,
+    message: 'PDF gagal dibuat: ' + errCode,
+    detail: errCode
+  });
 }

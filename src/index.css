@@ -1,5 +1,34 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Light.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-Demi.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-LightItalic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bookman Old Style";
+  src: url("/fonts/URWBookman-DemiItalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --sop-a4-width: 210mm;
   --sop-a4-height: 297mm;
