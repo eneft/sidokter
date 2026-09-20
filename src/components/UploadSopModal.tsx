@@ -1351,6 +1351,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                   </div>
                 )}
 
+		<div className="bg-white rounded-2xl border border-slate-200 p-2 sm:p-4 shadow-2xs">
                 <SopLiveTemplate
                   title={title}
                   onTitleChange={setTitle}
@@ -1373,6 +1374,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                   onUnitTerkaitChange={setUnitTerkait}
                   missingSections={missingSections}
                 />
+		</div>
               </div>
             )}
 

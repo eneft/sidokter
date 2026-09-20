@@ -2264,6 +2264,7 @@ export const UserView: React.FC<UserViewProps> = ({
                             dateEditable={true}
                             showPageHint={false}
                             missingSections={missingSections}
+                            toolbarStickyTopClassName="top-[4.5rem]"
                           />
                         </div>
                       </section>

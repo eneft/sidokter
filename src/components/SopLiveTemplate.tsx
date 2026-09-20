@@ -72,6 +72,8 @@ interface SopLiveTemplateProps {
   missingSections?: string[];
   /** Render official director TTD/stamp only for an active non-PDF document. */
   showSignatureAndStamp?: boolean;
+  /** Sticky offset for the desktop context toolbar. Defaults to modal-friendly top-2. */
+  toolbarStickyTopClassName?: string;
 }
 
 export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
@@ -98,6 +100,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   dateEditable = true,
   showPageHint = true,
   missingSections = [],
+  toolbarStickyTopClassName = 'top-2',
   showSignatureAndStamp = false,
 }) => {
   // Responsive mode is automatic: cards for mobile/tablet, official A4 table for large desktop.
@@ -473,7 +476,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           )}
 
           {/* One context-aware toolbar. Editor chrome stays outside document HTML. */}
-          <div className="live-spo-context-toolbar sticky top-2 z-30 w-full max-w-[900px] mx-auto bg-white text-slate-700 rounded-xl shadow-sm border border-slate-200 px-2 py-1 flex items-center gap-1 text-xs select-none overflow-visible">
+          <div className={`live-spo-context-toolbar sticky ${toolbarStickyTopClassName} z-30 w-full max-w-[900px] mx-auto bg-white text-slate-700 rounded-xl shadow-sm border border-slate-200 px-2 py-1 flex items-center gap-1 text-xs select-none overflow-visible`}>
             <div className="flex items-center gap-1 shrink-0">
               <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Bagian:</span>
               <select value={activeTableSection} onChange={(e) => setActiveTableSection(e.target.value as typeof activeTableSection)} className="h-6 max-w-32 text-[10px] font-bold bg-white border border-slate-200 rounded px-1">

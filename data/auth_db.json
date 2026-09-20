@@ -12,8 +12,8 @@
       "assignments": [],
       "badges": [],
       "unitName": "RSUD Dr. Soegiri Lamongan",
-      "createdAt": "2026-09-19T11:21:11.882Z",
-      "updatedAt": "2026-09-19T11:21:11.992Z",
+      "createdAt": "2026-09-20T03:07:00.629Z",
+      "updatedAt": "2026-09-20T03:07:00.307Z",
       "credentialStatus": "ACTIVE"
     },
     "usr-1788587912270-4c9l": {
@@ -1515,6 +1515,24 @@
       "lastActiveAt": 1789816871882,
       "revoked": false,
       "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+    },
+    "554e3f57-4c65-4f49-883a-2a2ccd8a2f2b": {
+      "sessionId": "554e3f57-4c65-4f49-883a-2a2ccd8a2f2b",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789872861256,
+      "lastActiveAt": 1789872861256,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0"
+    },
+    "f30752ba-4365-4159-a9a7-3703320c44e1": {
+      "sessionId": "f30752ba-4365-4159-a9a7-3703320c44e1",
+      "authUid": "admin-root",
+      "username": "admin",
+      "createdAt": 1789873620629,
+      "lastActiveAt": 1789873620629,
+      "revoked": false,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0"
     }
   },
   "auditLogs": []
