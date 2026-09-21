@@ -152,6 +152,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   // Maintain active editor references
   const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});
   const activeEditorRef = useRef<RichTextEditorHandle | null>(null);
+  const activeEditorKeyRef = useRef<string | null>(null);
 
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false,
@@ -171,6 +172,27 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
   const getActiveEditor = (): RichTextEditorHandle | null => {
     return activeEditorRef.current || editorRefs.current[activeTableSection] || null;
+  };
+
+  const syncToolbarContext = (
+    formatting: RichTextFormattingState,
+    editorKey: string,
+    sectionId: typeof activeTableSection,
+  ) => {
+    const currentEditor = editorRefs.current[editorKey];
+    if (currentEditor) {
+      activeEditorRef.current = currentEditor;
+      activeEditorKeyRef.current = editorKey;
+    }
+    setActiveTableSection(sectionId);
+    setActiveFormatting(formatting);
+    setActiveToolMode(
+      formatting.context === 'image'
+        ? 'image'
+        : (formatting.inTable || formatting.context === 'table')
+          ? 'table'
+          : 'text'
+    );
   };
 
   const handleTableCommand = (command: TableCommand) => getActiveEditor()?.executeTableCommand(command);
@@ -839,7 +861,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                     editorRefs.current[editorKey] = el;
                                     if (!editorRefs.current[cfg.id] || isSectionActive) {
                                       editorRefs.current[cfg.id] = el;
-                                      activeEditorRef.current = el;
+                                      if (!activeEditorRef.current) {
+                                        activeEditorRef.current = el;
+                                        activeEditorKeyRef.current = editorKey;
+                                      }
                                     }
                                   }
                                 }}
@@ -874,9 +899,18 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                   const currentEl = editorRefs.current[editorKey] || editorRefs.current[cfg.id];
                                   if (currentEl) {
                                     activeEditorRef.current = currentEl;
+                                    activeEditorKeyRef.current = editorKey;
                                   }
                                 }}
-                                onFormattingChange={setActiveFormatting}
+                                onFormattingChange={(formatting) => {
+                                  const currentEl = editorRefs.current[editorKey];
+                                  if (!currentEl) return;
+                                  if (activeEditorKeyRef.current && activeEditorKeyRef.current !== editorKey) {
+                                    const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+                                    if (!selection || selection.rangeCount === 0) return;
+                                  }
+                                  syncToolbarContext(formatting, editorKey, cfg.id);
+                                }}
                               />
                             </td>
                           </tr>
