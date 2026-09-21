@@ -1,0 +1,26 @@
+name: Temporary Toolbar Candidate V2
+on:
+  push:
+    branches: [fix/live-spo-toolbar-command-bridge-v3]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/tmp-apply-toolbar-candidate.py
+      - name: Verify scope
+        run: |
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts "
+      - name: Commit candidate
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts
+          git commit -m "fix: preserve active Live SPO editor DOM and history"
+          git push origin HEAD:fix/live-spo-toolbar-command-bridge-v3
