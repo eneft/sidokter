@@ -115,3 +115,8 @@ try {
   vite.kill('SIGTERM');
   try { fs.unlinkSync(fixturePath); } catch {}
 }
+
+// npm-spawned Vite/esbuild children can keep the Node event loop alive even
+// after the parent receives SIGTERM. Reaching this line means every assertion
+// passed; failures throw before this point and still return non-zero.
+process.exit(0);
