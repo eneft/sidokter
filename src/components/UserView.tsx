@@ -50,6 +50,7 @@ import {
   MainMenuTab
 } from '../types';
 import { generateSopNumber, getNextSequenceNumber, getNextRevisionNumber, formatBytes, standardizeSopDocument, checkDuplicateSopNumber, detectHierarchyFromSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
 import { saveFileToLocalCache } from '../utils/fileStorage';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { parseSopMetadataFromPdf } from '../utils/pdfParser';
@@ -858,14 +859,15 @@ export const UserView: React.FC<UserViewProps> = ({
 
       if (isReview) {
         const reviewNumber = normalizeSopNumberInput(oldSopNumber);
-        const referenced = selectedExistingSopIdForReview
-          ? sops.find((s) => s.id === selectedExistingSopIdForReview)
-          : undefined;
+        const referenced = findAuthoritativeRiviuPredecessor(sops, {
+          existingSopId: selectedExistingSopIdForReview || existingSopId,
+          oldSopNumber,
+        });
         if (!reviewNumber) {
           setSubmitError('Nomor / Judul Rujukan SPO Lama wajib diisi.');
           return;
         }
-        if (selectedExistingSopIdForReview && (!referenced || referenced.status !== 'AKTIF')) {
+        if ((selectedExistingSopIdForReview || existingSopId) && (!referenced || referenced.status !== 'AKTIF')) {
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
           return;
         }
@@ -879,16 +881,6 @@ export const UserView: React.FC<UserViewProps> = ({
         }
         if (supportingEvidence.some((item) => !item.file)) {
           setSubmitError('Hapus baris Bukti Dukung yang kosong atau pilih berkasnya.');
-          return;
-        }
-        try {
-          const nextRevision = getNextRevisionNumber(previousRevisionNumber);
-          if (revisionNumber !== nextRevision) {
-            setSubmitError(`Nomor revisi penerus harus ${nextRevision}.`);
-            return;
-          }
-        } catch (error) {
-          setSubmitError(error instanceof Error ? error.message : 'Nomor revisi saat ini tidak valid.');
           return;
         }
         const isNewFormat = isNewSopFormat(reviewNumber);
@@ -1010,6 +1002,16 @@ export const UserView: React.FC<UserViewProps> = ({
         : hierarchyInfo.conclusion;
       const finalTitle = title.trim() || matchedExistingDoc?.title || `SPO Eksisting ${cleanNum}`;
 
+      const referencedForSave = isReview
+        ? findAuthoritativeRiviuPredecessor(sops, {
+            existingSopId: selectedExistingSopIdForReview || existingSopId,
+            oldSopNumber,
+          })
+        : undefined;
+      const { previousRevisionNumber: authPrevRev, revisionNumber: authNextRev } = isReview
+        ? getAuthoritativeRiviuRevision(referencedForSave, previousRevisionNumber)
+        : { previousRevisionNumber: '', revisionNumber: '00' };
+
       const sopData: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> & { id?: string } = {
         sequenceNumber: isLegacy ? 0 : (finalIssuedSequence || 0),
         id: isLegacy ? (matchedExistingDoc?.id || undefined) : (finalIssuedId || undefined),
@@ -1019,7 +1021,8 @@ export const UserView: React.FC<UserViewProps> = ({
         divisionName: finalDivName,
         categoryId: finalDivCode,
         categoryName: finalDivName,
-        version: isReview ? (revisionNumber || '01') : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
+        version: isReview ? authNextRev : isLegacy ? (revisionNumber || matchedExistingDoc?.version || '00') : (revisionNumber || '00'),
+        revisionNumber: isReview ? authNextRev : isLegacy ? (revisionNumber || matchedExistingDoc?.revisionNumber || '00') : (revisionNumber || '00'),
         status: 'DRAFT',
         activationRequestedAt: new Date().toISOString(),
         activationRequestedBy: userSession.name,
@@ -1053,8 +1056,8 @@ export const UserView: React.FC<UserViewProps> = ({
         legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
         oldSopNumber: isReview ? oldSopNumber.trim() : undefined,
-        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || undefined) : undefined,
-        previousRevisionNumber: isReview ? previousRevisionNumber : undefined,
+        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || referencedForSave?.id || undefined) : undefined,
+        previousRevisionNumber: isReview ? authPrevRev : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
         // but preview must use the uploaded original PDF instead of generating the official template.
         isExistingReplacement: isLegacy && existingMode === 'pdf' && Boolean(matchedExistingDoc),
@@ -2081,13 +2084,9 @@ export const UserView: React.FC<UserViewProps> = ({
                                     setProsedur('');
                                     setAlur('');
                                     setUnitTerkait('');
-                                    const currentRevision = String(found.revisionNumber || found.version || '').trim();
+                                    const { previousRevisionNumber: currentRevision, revisionNumber: calculatedNext } = getAuthoritativeRiviuRevision(found);
                                     setPreviousRevisionNumber(currentRevision);
-                                    try {
-                                      setRevisionNumber(getNextRevisionNumber(currentRevision));
-                                    } catch {
-                                      setRevisionNumber('');
-                                    }
+                                    setRevisionNumber(calculatedNext);
                                     onShowToast?.('info', 'Dokumen Sumber Dipilih', `"${found.title}" digunakan sebagai referensi. Lembar Live A4 Riviu tetap kosong.`);
                                   } else {
                                     setOldSopNumber('');
@@ -2147,7 +2146,12 @@ export const UserView: React.FC<UserViewProps> = ({
                                   onChange={(e) => {
                                     const current = e.target.value;
                                     setPreviousRevisionNumber(current);
-                                    try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
+                                    try {
+                                      const { revisionNumber: nextRev } = getAuthoritativeRiviuRevision(null, current);
+                                      setRevisionNumber(nextRev);
+                                    } catch {
+                                      setRevisionNumber('');
+                                    }
                                   }}
                                   placeholder="00"
                                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-mono text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 read-only:bg-slate-50"

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
 import { generateSopNumber, getNextSequenceNumber, getNextRevisionNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -460,7 +461,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         return;
       }
       const reviewNumber = normalizeSopNumberInput(oldSopNumber);
-      const referenced = sops.find((s) => normalizeSopNumberInput(s.sopNumber) === reviewNumber || normalizeSopNumberInput(s.legacySopNumber) === reviewNumber);
+      const referenced = findAuthoritativeRiviuPredecessor(sops, { oldSopNumber });
       const hasExternalSignedPdf = Boolean(selectedOldFile && (selectedOldFile.type === 'application/pdf' || selectedOldFile.name.toLowerCase().endsWith('.pdf')) && externalReviewSignedConfirmed);
       if (!referenced) {
         alert(`SPO rujukan "${reviewNumber}" harus merupakan SPO terdaftar yang berstatus AKTIF.`);
@@ -482,12 +483,6 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
           alert(`Nomor SPO rujukan tidak sesuai dengan hirarki yang dipilih. Nomor: ${pattern.categoryCode}${pattern.subHierarchyCode ? ` / ${pattern.subHierarchyCode}` : ''}; pilihan: ${selectedDiv}${selectedSub ? ` / ${selectedSub}` : ''}.`);
           return;
         }
-      }
-      try {
-        if (revisionNumber !== getNextRevisionNumber(previousRevisionNumber)) throw new Error('Nomor revisi penerus tidak sesuai.');
-      } catch (error) {
-        alert(error instanceof Error ? error.message : 'Nomor revisi saat ini tidak valid.');
-        return;
       }
       if (!supportingEvidence[0]?.file || supportingEvidence.some((item) => !item.file)) {
         alert('Minimal satu Bukti Dukung Riviu wajib diunggah; hapus baris tambahan yang kosong.');
@@ -580,6 +575,13 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
     const resolvedFileDataUrl = isDocx ? undefined : fileDataUrl;
 
+    const referencedForSave = documentType === 'REVIEW'
+      ? findAuthoritativeRiviuPredecessor(sops, { oldSopNumber })
+      : undefined;
+    const { previousRevisionNumber: authPrev, revisionNumber: authNext } = documentType === 'REVIEW'
+      ? getAuthoritativeRiviuRevision(referencedForSave, previousRevisionNumber)
+      : { previousRevisionNumber: '', revisionNumber: '00' };
+
     const newSopDoc: Omit<SopDocument, 'id' | 'createdAt' | 'updatedAt' | 'revisionHistory'> = {
       sopNumber: finalSopNumber,
       sequenceNumber: finalSeqNum,
@@ -589,7 +591,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       divisionName: activeCategory?.name || selectedCatCode,
       categoryId: cat?.id || 'cat-pelayanan',
       categoryName: cat?.name || 'Pelayanan Medis & Asuhan Pasien',
-      version: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
+      version: documentType === 'REVIEW' ? authNext : '00',
       status: 'DRAFT',
       activationRequestedAt: userSession?.role !== 'admin' ? new Date().toISOString() : undefined,
       activationRequestedBy: userSession?.role !== 'admin'
@@ -628,8 +630,9 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
       alur: alur.trim() ? alur.trim() : undefined,
       prosedur: prosedur.trim(),
       unitTerkait: unitTerkait.trim(),
-      revisionNumber: documentType === 'REVIEW' ? (revisionNumber || '01') : '00',
-      previousRevisionNumber: documentType === 'REVIEW' ? previousRevisionNumber : undefined,
+      revisionNumber: documentType === 'REVIEW' ? authNext : '00',
+      previousRevisionNumber: documentType === 'REVIEW' ? authPrev : undefined,
+      existingSopId: documentType === 'REVIEW' ? referencedForSave?.id : undefined,
       halaman: '1 / 1',
       direkturNama: SOEGIRI_HOSPITAL_INFO.director.name,
       direkturNip: SOEGIRI_HOSPITAL_INFO.director.nip,
@@ -1159,7 +1162,12 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                           onChange={(e) => {
                             const current = e.target.value;
                             setPreviousRevisionNumber(current);
-                            try { setRevisionNumber(getNextRevisionNumber(current)); } catch { setRevisionNumber(''); }
+                            try {
+                              const { revisionNumber: nextRev } = getAuthoritativeRiviuRevision(null, current);
+                              setRevisionNumber(nextRev);
+                            } catch {
+                              setRevisionNumber('');
+                            }
                           }}
                           placeholder="Contoh: 00"
                           className="w-full text-xs sm:text-sm border border-amber-300 rounded-xl px-3.5 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-amber-500 font-mono font-bold"
