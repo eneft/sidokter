@@ -92,8 +92,14 @@ jobs:
           replace_count(
               """            currentPageBlocks.push(fittedFirstBlock);\n            used += firstNeeded;\n            currentSection = block.section;\n            index += 1;\n""",
               """            currentPageBlocks.push(fittedFirstBlock);\n            used += firstNeeded;\n            currentSectionRawHeight = startsNewSectionRow\n              ? firstHeight\n              : currentSectionRawHeight + firstHeight;\n            currentSection = block.section;\n            index += 1;\n""",
-              4,
-              'split fragment raw height update'
+              3,
+              'current-page split raw height update'
+          )
+
+          replace_once(
+              """          currentPageBlocks.push(fittedFirstBlock);\n          used += firstNeeded;\n          currentSection = block.section;\n          index += 1;\n""",
+              """          currentPageBlocks.push(fittedFirstBlock);\n          used += firstNeeded;\n          currentSectionRawHeight = startsNewSectionRow\n            ? firstHeight\n            : currentSectionRawHeight + firstHeight;\n          currentSection = block.section;\n          index += 1;\n""",
+              'fresh-page split raw height update'
           )
 
           replace_once(
@@ -109,15 +115,15 @@ jobs:
           src.write_text(text)
 
           tests = test.read_text()
-          tests = tests.replace(
-              "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  shouldDeferWholeBlockToNextPage,",
-              "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  sectionFlowContributionPx,\n  shouldDeferWholeBlockToNextPage,",
-              1
-          )
+          before_import = "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  shouldDeferWholeBlockToNextPage,"
+          after_import = "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  sectionFlowContributionPx,\n  shouldDeferWholeBlockToNextPage,"
+          if tests.count(before_import) != 1:
+              raise SystemExit('test import anchor mismatch')
+          tests = tests.replace(before_import, after_import, 1)
           marker = "pack-first section measurement is not inflated per extracted block"
           if marker in tests:
               raise SystemExit('pack-first regression tests already present unexpectedly')
-          tests += '''\n\ntest('pack-first section measurement is not inflated per extracted block', () => {\n  assert.equal(sectionFlowContributionPx(0, 18, true), 40);\n  assert.equal(sectionFlowContributionPx(18, 18, false), 0);\n  assert.equal(sectionFlowContributionPx(36, 18, false), 14);\n  assert.equal(\n    sectionFlowContributionPx(0, 18, true) +\n      sectionFlowContributionPx(18, 18, false) +\n      sectionFlowContributionPx(36, 18, false),\n    54\n  );\n});\n\ntest('canonical paginator measures raw flow blocks and applies the editor floor once per section fragment', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  assert.match(source, /let currentSectionRawHeight = 0/);\n  assert.match(source, /const contentContribution = sectionFlowContributionPx/);\n  assert.match(source, /currentSectionRawHeight = startsNewSectionRow/);\n  assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\\s\\S]{0,260}Math\.max\(\\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);\n});\n\ntest('ordered and bullet lists pack a partial next text item after whole items before deferring', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  const wholeItems = source.indexOf('if (fitCount > 0 && fitCount < items.length)');\n  const partial = source.indexOf('const partialNextItem = splitElementPreservingMarkup(', wholeItems);\n  const fallback = source.indexOf('const firstPart = makeList(prefixItemHtmls, 0);', partial);\n  assert.ok(wholeItems >= 0);\n  assert.ok(partial > wholeItems, 'next list item must get a partial split chance');\n  assert.ok(fallback > partial, 'whole-item fallback must happen only after partial packing fails');\n  assert.match(source, /Strict pack-first/);\n});\n'''
+          tests += r'''\n\ntest('pack-first section measurement is not inflated per extracted block', () => {\n  assert.equal(sectionFlowContributionPx(0, 18, true), 40);\n  assert.equal(sectionFlowContributionPx(18, 18, false), 0);\n  assert.equal(sectionFlowContributionPx(36, 18, false), 14);\n  assert.equal(\n    sectionFlowContributionPx(0, 18, true) +\n      sectionFlowContributionPx(18, 18, false) +\n      sectionFlowContributionPx(36, 18, false),\n    54\n  );\n});\n\ntest('canonical paginator measures raw flow blocks and applies the editor floor once per section fragment', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  assert.match(source, /let currentSectionRawHeight = 0/);\n  assert.match(source, /const contentContribution = sectionFlowContributionPx/);\n  assert.match(source, /currentSectionRawHeight = startsNewSectionRow/);\n  assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\s\S]{0,260}Math\.max\(\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);\n});\n\ntest('ordered and bullet lists pack a partial next text item after whole items before deferring', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  const wholeItems = source.indexOf('if (fitCount > 0 && fitCount < items.length)');\n  const partial = source.indexOf('const partialNextItem = splitElementPreservingMarkup(', wholeItems);\n  const fallback = source.indexOf('const firstPart = makeList(prefixItemHtmls, 0);', partial);\n  assert.ok(wholeItems >= 0);\n  assert.ok(partial > wholeItems, 'next list item must get a partial split chance');\n  assert.ok(fallback > partial, 'whole-item fallback must happen only after partial packing fails');\n  assert.match(source, /Strict pack-first/);\n});\n'''.replace('\\n', '\n')
           test.write_text(tests)
           print('Pack-first patch applied fail-closed.')
           PY
