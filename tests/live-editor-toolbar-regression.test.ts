@@ -70,3 +70,12 @@ test('clearing or deleting an image clears image formatting context', () => {
   assert.match(remove, /imageWidth:\s*undefined/);
   assert.match(remove, /imageWrap:\s*undefined/);
 });
+
+test('active Live SPO fragment ignores stale paginated prop echoes during local mutation', () => {
+  const sync = editor.slice(editor.indexOf('// Sync value from prop'), editor.indexOf('// Recalculate overlay'));
+  const input = editor.slice(editor.indexOf('const handleInput'), editor.indexOf('// Helper to reliably select'));
+  assert.match(sync, /Date\.now\(\) < localMutationUntilRef\.current/);
+  assert.match(sync, /ownsInteraction/);
+  assert.match(sync, /return;/);
+  assert.match(input, /localMutationUntilRef\.current = Date\.now\(\) \+ 1500/);
+});

@@ -606,6 +606,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const isUpdatingFromPropRef = useRef(false);
   const lastEmittedValueRef = useRef<string | null>(null);
+  // Parent pagination is intentionally debounced. After a local contentEditable
+  // mutation, the active fragment can briefly receive its previous paginated
+  // value back as a prop. Protect the live DOM/history during that echo window.
+  const localMutationUntilRef = useRef(0);
   // Keep the user's text selection alive when a toolbar button takes focus.
   // This is critical for long SPO documents: formatting must apply to the
   // selection that was made in the editor, not to the caret created by the button.
@@ -936,23 +940,43 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     return true;
   }, []);
 
-  // Sync value from prop to contentEditable ONLY when prop genuinely changes from outside
+  // Sync value from prop to contentEditable ONLY when prop genuinely changes from outside.
+  // SopLiveTemplate paginates on a 250ms debounce, so a local edit can be
+  // followed by one or more stale fragment props. Replacing innerHTML during
+  // that interval destroys the browser undo stack and detaches table/image
+  // selections. Keep the active local DOM authoritative for a short echo window.
   useEffect(() => {
-    if (!editorRef.current) return;
-    if (value !== lastEmittedValueRef.current) {
-      if (editorRef.current.innerHTML === (value || '')) {
-        lastEmittedValueRef.current = value || '';
-        return;
-      }
-      lastEmittedValueRef.current = value || '';
-      isUpdatingFromPropRef.current = true;
-      editorRef.current.innerHTML = value || '';
-      savedRangeRef.current = null;
-      isUpdatingFromPropRef.current = false;
-      if (selectedFigure && !editorRef.current.contains(selectedFigure)) {
-        setSelectedFigure(null);
-        setFigureRect(null);
-      }
+    const editor = editorRef.current;
+    if (!editor) return;
+    const incoming = value || '';
+    if (incoming === lastEmittedValueRef.current) return;
+    if (editor.innerHTML === incoming) {
+      lastEmittedValueRef.current = incoming;
+      return;
+    }
+
+    const selection = window.getSelection();
+    const selectionInside = Boolean(
+      selection?.rangeCount && selection.anchorNode && editor.contains(selection.anchorNode),
+    );
+    const ownsInteraction =
+      document.activeElement === editor ||
+      Boolean(document.activeElement && editor.contains(document.activeElement)) ||
+      selectionInside ||
+      Boolean(selectedFigure && editor.contains(selectedFigure));
+
+    if (Date.now() < localMutationUntilRef.current && ownsInteraction) {
+      return;
+    }
+
+    lastEmittedValueRef.current = incoming;
+    isUpdatingFromPropRef.current = true;
+    editor.innerHTML = incoming;
+    savedRangeRef.current = null;
+    isUpdatingFromPropRef.current = false;
+    if (selectedFigure && !editor.contains(selectedFigure)) {
+      setSelectedFigure(null);
+      setFigureRect(null);
     }
   }, [value, selectedFigure]);
 
@@ -980,6 +1004,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     normalizeStructuredTables(editorRef.current);
     const html = editorRef.current.innerHTML;
     const cleanHtml = html === '<br>' || html.trim() === '' ? '' : html;
+    // Keep the native contentEditable transaction alive while the parent
+    // catches up and recomputes physical page fragments. 1500ms comfortably
+    // covers the 250ms pagination debounce plus a heavy multi-page render.
+    localMutationUntilRef.current = Date.now() + 1500;
     lastEmittedValueRef.current = cleanHtml;
     onChange(cleanHtml);
     updateFigureRect();
