@@ -158,3 +158,40 @@ test('text page split preserves the exact inter-chunk boundary instead of droppi
   assert.match(source, /range\.setEnd\(element, element\.childNodes\.length\)/);
   assert.doesNotMatch(source, /range\.setStart\(ranges\[startWord\]\.node, ranges\[startWord\]\.start\)/);
 });
+
+
+test('LiveSPO multi-page toolbar ownership is fragment-scoped', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  assert.match(live, /activeEditorKeyRef/);
+  assert.match(live, /activeEditorKeyRef\.current = editorKey/);
+  assert.match(live, /activeEditorKeyRef\.current === editorKey/);
+  assert.match(live, /Only the focused owner may drive the shared toolbar/);
+  assert.doesNotMatch(live, /!editorRefs\.current\[cfg\.id\] \|\| isSectionActive/);
+  assert.match(live, /onChange=\{\(e\) => scrollToSection\(e\.target\.value as typeof activeTableSection\)\}/);
+});
+
+test('structured table gets safe-row split chance before whole-block defer', () => {
+  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  const tableGate = source.indexOf('hasStructuredTableFlowHtml(block.html)');
+  const tableSplit = source.indexOf('splitHtmlForCapacity(block.html, remaining, null)', tableGate);
+  const deferGate = source.indexOf('shouldDeferWholeBlockToNextPage(', tableGate);
+  assert.ok(tableGate >= 0, 'table flow classifier must be used in overflow path');
+  assert.ok(tableSplit > tableGate, 'table safe split must be attempted');
+  assert.ok(deferGate > tableSplit, 'whole-block defer must run only after table safe split');
+  assert.match(source, /table-fit-1/);
+  assert.match(source, /splitStructuredTableV2/);
+});
+
+test('non-final Live and Preview pages extend Batang Tubuh to canonical bottom only', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  for (const source of [live, preview]) {
+    assert.match(source, /data-sop-page-continuation-fill="true"/);
+    assert.match(source, /isContinuationPage/);
+    assert.match(source, /flex: '1 1 auto'/);
+    assert.match(source, /left: '28%'/);
+    assert.match(source, /borderBottom: '1px solid #000000'/);
+  }
+  assert.match(live, /pageIndex < totalPages - 1/);
+  assert.match(preview, /pageIndex < calculatedTotalPages - 1/);
+});

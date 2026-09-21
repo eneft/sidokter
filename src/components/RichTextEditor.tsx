@@ -778,6 +778,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
+    const activeFigure = target?.closest('.figure-wrapper, figure') as HTMLElement | null;
+    // Native image capture owns image selection. Do not immediately demote
+    // it back to text context from the editor-level pointer-up handler.
+    if (activeFigure && editorRef.current?.contains(activeFigure)) return;
     const activeCell = target?.closest('td,th') as HTMLTableCellElement | null;
     if (activeCell && editorRef.current?.contains(activeCell)) {
       const selection = window.getSelection();
@@ -985,6 +989,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const selectFigureElement = useCallback((figure: HTMLElement) => {
     if (!containerRef.current || !editorRef.current) return;
 
+    // Object selection must invalidate the previous text range. Otherwise the
+    // text toolbar can silently format text that is no longer visibly selected.
+    savedRangeRef.current = null;
+    window.getSelection()?.removeAllRanges();
+
     // Image pointer handling prevents the browser's default focus change. Tell
     // the parent which editor owns the figure before publishing image context,
     // so toolbar commands cannot be routed to a previously active section.
@@ -1031,7 +1040,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     if (editorRef.current) {
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
-    setActiveFormatting(current => ({ ...current, context: 'text' }));
+    setActiveFormatting(current => ({
+    ...current,
+    context: 'text',
+    inTable: false,
+    imageWidth: undefined,
+    imageAlign: undefined,
+    imageWrap: undefined,
+  }));
   }, []);
 
   // Direct native capture listener on editor to guarantee 100% click/pointer capture on images and context menu
@@ -1160,6 +1176,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           setFigureRect(null);
           setShowWrapTextMenu(false);
           setContextMenu(null);
+          setActiveFormatting(current => ({
+            ...current,
+            context: 'text',
+            inTable: false,
+            imageWidth: undefined,
+            imageAlign: undefined,
+            imageWrap: undefined,
+          }));
           handleInput();
         }
       }
@@ -1237,6 +1261,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     selectedFigure.setAttribute('data-width', `${currentWidth}%`);
 
     const align = customAlign || (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (mode === 'square' ? 'left' : 'center');
+    const appliedAlign = (mode === 'square' || mode === 'tight' || mode === 'through') && align === 'center'
+      ? 'left'
+      : align;
 
     // Reset base properties
     selectedFigure.style.maxWidth = `${currentWidth}%`;
@@ -1267,11 +1294,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       case 'square':
       case 'tight':
       case 'through':
-        applyFigureAlignment(selectedFigure, align === 'center' ? 'left' : align, mode);
+        applyFigureAlignment(selectedFigure, appliedAlign, mode);
         break;
 
       case 'top-bottom':
-        applyFigureAlignment(selectedFigure, align, 'top-bottom');
+        applyFigureAlignment(selectedFigure, appliedAlign, 'top-bottom');
         break;
 
       case 'behind':
@@ -1296,6 +1323,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         break;
     }
 
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'image',
+      inTable: false,
+      imageWidth: currentWidth,
+      imageAlign: appliedAlign,
+      imageWrap: mode,
+    }));
     setShowWrapTextMenu(false);
     handleInput();
     updateFigureRect();
@@ -1309,6 +1344,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     selectedFigure.style.width = `${clamped}%`;
     const align = (selectedFigure.getAttribute('data-align') as 'left' | 'center' | 'right') || (currentWrapMode === 'square' ? 'left' : 'center');
     applyFigureAlignment(selectedFigure, align, currentWrapMode);
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'image',
+      inTable: false,
+      imageWidth: clamped,
+      imageAlign: align,
+      imageWrap: currentWrapMode,
+    }));
     handleInput();
     updateFigureRect();
   };
@@ -1330,6 +1373,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     setFigureRect(null);
     setShowWrapTextMenu(false);
     setContextMenu(null);
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'text',
+      inTable: false,
+      imageWidth: undefined,
+      imageAlign: undefined,
+      imageWrap: undefined,
+    }));
     handleInput();
   };
 
@@ -1337,7 +1388,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   // collapse formatting onto the wrong caret position.
   const executeCommand = (command: string, arg: string | undefined = undefined) => {
     if (!editorRef.current) return;
-    restoreSavedSelection();
+    const isHistoryCommand = command === 'undo' || command === 'redo';
+    if (selectedFigure && !isHistoryCommand) return;
+    const restored = restoreSavedSelection();
+    if (!isHistoryCommand && !restored) return;
 
     try {
       document.execCommand(command, false, arg);
@@ -1355,8 +1409,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
   const insertCustomList = (listType: '1' | 'a' | 'i') => {
-    if (!editorRef.current) return;
-    restoreSavedSelection();
+    if (!editorRef.current || selectedFigure) return;
+    if (!restoreSavedSelection()) return;
     try {
       document.execCommand('insertOrderedList', false);
       const sel = window.getSelection();
@@ -1384,8 +1438,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   const applyFontSize = (fontSize: LiveSopFontSize) => {
-    if (!editorRef.current) return;
-    restoreSavedSelection();
+    if (!editorRef.current || selectedFigure) return;
+    if (!restoreSavedSelection()) return;
     try {
       // execCommand is retained here because it is the browser's native
       // history-aware mutation path for contentEditable.  Convert its legacy
@@ -2218,8 +2272,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   }, [updateActiveFormatting]);
 
   const insertTable = useCallback((rows: number, columns: number) => {
-    if (!editorRef.current) return;
-    restoreSavedSelection();
+    if (!editorRef.current || selectedFigure) return;
+    if (!restoreSavedSelection()) return;
     const table = createSemanticTable(rows, columns);
     const marker = `table-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     table.dataset.insertionMarker = marker;
@@ -2228,13 +2282,15 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     document.execCommand('insertHTML', false, `${table.outerHTML}<p><br></p>`);
     const inserted = editorRef.current.querySelector<HTMLTableElement>(`table[data-insertion-marker="${marker}"]`);
     inserted?.removeAttribute('data-insertion-marker');
+    setSelectedTable(inserted);
     placeCaretInCell(inserted?.rows[0]?.cells[0] || null);
     setShowInsertMenu(false);
     handleInput();
-  }, [handleInput, placeCaretInCell, restoreSavedSelection]);
+    updateTableRect(inserted);
+  }, [handleInput, placeCaretInCell, restoreSavedSelection, selectedFigure, updateTableRect]);
 
   const alignTable = useCallback((alignment: TableAlignment) => {
-    restoreSavedSelection();
+    if (!restoreSavedSelection()) return;
     const selection = window.getSelection();
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
@@ -2246,7 +2302,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   const executeTableCommand = useCallback((command: TableCommand) => {
     if (!editorRef.current) return;
-    restoreSavedSelection();
+    if (!restoreSavedSelection()) return;
     const selection = window.getSelection();
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
@@ -2285,17 +2341,31 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const insertedCell = editorRef.current.querySelector<HTMLTableCellElement>(
       `[data-table-caret-marker="${caretMarker}"]`,
     );
+    const insertedTable = insertedCell?.closest('table') as HTMLTableElement | null;
     insertedCell?.removeAttribute('data-table-caret-marker');
+    setSelectedTable(insertedTable);
     handleInput();
-    if (insertedCell) placeCaretInCell(insertedCell);
-    else {
-      setActiveFormatting(current => ({ ...current, inTable: false }));
+    if (insertedCell) {
+      placeCaretInCell(insertedCell);
+      updateTableRect(insertedTable);
+    } else {
+      setTableRect(null);
+      setActiveFormatting(current => ({
+        ...current,
+        context: 'text',
+        inTable: false,
+        tableRow: undefined,
+        tableColumn: undefined,
+        tableColumnCount: undefined,
+        canMerge: false,
+        canSplit: false,
+      }));
       editorRef.current.focus();
     }
-  }, [handleInput, placeCaretInCell, restoreSavedSelection]);
+  }, [handleInput, placeCaretInCell, restoreSavedSelection, updateTableRect]);
 
   const toggleTableAutoFit = useCallback(() => {
-    restoreSavedSelection();
+    if (!restoreSavedSelection()) return;
     const selection = window.getSelection();
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
@@ -2349,15 +2419,25 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const finishGridResize = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     if (!gridResizeRef.current || !selectedTable || !editorRef.current) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+
+    const savedNode = savedRangeRef.current?.startContainer || null;
+    const savedElement = savedNode instanceof Element ? savedNode : savedNode?.parentElement;
+    const activeCell = savedElement?.closest('td,th') as HTMLTableCellElement | null;
+    const caretMarker = activeCell && selectedTable.contains(activeCell)
+      ? `table-geometry-caret-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      : null;
+
     const staging = document.createElement('div');
     staging.innerHTML = gridResizeRef.current.snapshot;
     const original = staging.firstElementChild as HTMLTableElement | null;
     gridResizeRef.current = null;
     if (!original || selectedTable.outerHTML === original.outerHTML) return;
     const marker = `table-geometry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    if (caretMarker && activeCell) activeCell.setAttribute('data-table-geometry-caret', caretMarker);
     selectedTable.dataset.geometryMarker = marker;
     const finalHtml = selectedTable.outerHTML;
     delete selectedTable.dataset.geometryMarker;
+    if (caretMarker && activeCell) activeCell.removeAttribute('data-table-geometry-caret');
 
     // Recreate the completed drag as exactly one native editing transaction.
     // Pointer moves are live DOM previews only and therefore never flood Undo.
@@ -2370,10 +2450,15 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     document.execCommand('insertHTML', false, finalHtml);
     const next = editorRef.current.querySelector<HTMLTableElement>(`table[data-geometry-marker="${marker}"]`);
     delete next?.dataset.geometryMarker;
+    const nextCell = caretMarker && next
+      ? next.querySelector<HTMLTableCellElement>(`[data-table-geometry-caret="${caretMarker}"]`)
+      : null;
+    nextCell?.removeAttribute('data-table-geometry-caret');
     setSelectedTable(next);
     handleInput();
+    if (nextCell) placeCaretInCell(nextCell);
     updateTableRect(next);
-  }, [handleInput, selectedTable, updateTableRect]);
+  }, [handleInput, placeCaretInCell, selectedTable, updateTableRect]);
 
   const startColumnResize = useCallback((event: React.PointerEvent<HTMLButtonElement>, boundary: number) => {
     if (!selectedTable) return;

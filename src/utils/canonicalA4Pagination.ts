@@ -77,6 +77,17 @@ export function isSplittableTextFlowHtml(html: string): boolean {
   }
 }
 
+/** True when this flow unit contains a table that may split at safe row boundaries. */
+export function hasStructuredTableFlowHtml(html: string): boolean {
+  if (!html || typeof DOMParser === 'undefined') return false;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return Boolean(doc.body.querySelector('table'));
+  } catch {
+    return false;
+  }
+}
+
 /** True when the authored block is a single atomic media object. */
 export function isAtomicMediaHtml(html: string): boolean {
   if (!html || typeof DOMParser === 'undefined') return false;
@@ -1084,9 +1095,55 @@ export function computeCanonicalA4Pages(
         }
       }
 
+      // Structured tables are continuous row flow. Before considering a whole-
+      // block defer, let the V2 table paginator consume every safe row that fits
+      // in the remaining page space. If no body row can fit, the normal defer
+      // rule below still moves the table intact to the next page.
+      if (
+        currentPageBlocks.length > 0 &&
+        remaining >= 24 &&
+        hasStructuredTableFlowHtml(block.html)
+      ) {
+        const tableParts = splitHtmlForCapacity(block.html, remaining, null);
+        if (tableParts.length > 1) {
+          const firstPart = tableParts[0];
+          const restParts = tableParts.slice(1);
+          const firstHeight = measureFlowPart(firstPart);
+          const firstNeeded = firstHeight + chrome;
+          if (firstHeight > 0 && used + firstNeeded <= capacity) {
+            const fittedFirstBlock: OfficialBlock = {
+              ...block,
+              id: `${block.id}-table-fit-1`,
+              html: forceLogicalListMetadata(firstPart, block)
+            };
+            const continuationBlocks: OfficialBlock[] = restParts.map(
+              (html, partIndex) => ({
+                ...block,
+                id: `${block.id}-table-fit-${partIndex + 2}`,
+                html: forceLogicalListMetadata(html, block)
+              })
+            );
+            const continuationHeights = continuationBlocks.map((part) =>
+              measureFlowPart(part.html)
+            );
+
+            flowBlocks[index] = fittedFirstBlock;
+            flowHeights[index] = firstHeight;
+            flowBlocks.splice(index + 1, 0, ...continuationBlocks);
+            flowHeights.splice(index + 1, 0, ...continuationHeights);
+
+            currentPageBlocks.push(fittedFirstBlock);
+            used += firstNeeded;
+            currentSection = block.section;
+            index += 1;
+            continue;
+          }
+        }
+      }
+
       // A complete unit that fits on a fresh page moves there intact only after
-      // rich text has had a chance to use the current page. This remains the
-      // correct behavior for tables/media and short unsplittable text.
+      // rich text and structured tables have had a chance to consume the current
+      // page. Images/media and genuinely unsplittable units remain atomic.
       if (
         currentPageBlocks.length > 0 &&
         shouldDeferWholeBlockToNextPage(
