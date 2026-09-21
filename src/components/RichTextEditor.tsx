@@ -1055,13 +1055,23 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
     figure.classList.add('figure-selected');
-    setActiveFormatting(current => ({
-      ...current, context: 'image', inTable: false,
-      imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
-      imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
-      imageWrap: wrapMode,
-    }));
-  }, [onFocus]);
+    // Image selection originates from a native capture listener. Publish the
+    // object context synchronously after onFocus() claims toolbar ownership;
+    // relying only on the later effect can race a parent toolbar rerender and
+    // leave the shared Image Tool disabled even though the figure is selected.
+    setActiveFormatting(current => {
+      const next: RichTextFormattingState = {
+        ...current,
+        context: 'image',
+        inTable: false,
+        imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
+        imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
+        imageWrap: wrapMode,
+      };
+      onFormattingChange?.(next);
+      return next;
+    });
+  }, [onFocus, onFormattingChange]);
 
   const clearFigureSelection = useCallback(() => {
     setSelectedFigure(null);

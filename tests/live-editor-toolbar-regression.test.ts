@@ -93,3 +93,11 @@ test('shared native controls capture the active editor selection before focus le
   assert.match(template, /aria-label="Sisipkan Tabel"[\s\S]{0,220}captureSelection/);
   assert.match(template, /aria-label="Sisipkan Gambar"[\s\S]{0,220}captureSelection/);
 });
+
+
+test('image selection publishes shared toolbar context synchronously after claiming ownership', () => {
+  const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));
+  assert.match(selectFigure, /onFocus\?\.\(\)/);
+  assert.match(selectFigure, /onFormattingChange\?\.\(next\)/);
+  assert.match(selectFigure, /context:\s*'image'/);
+});
