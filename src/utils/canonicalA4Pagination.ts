@@ -42,6 +42,26 @@ export interface CanonicalPaginationOptions {
  */
 export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 40;
 
+/**
+ * Returns the incremental rendered content height contributed by one flow unit.
+ * The 40px editor minimum belongs to the whole section fragment on a page, not
+ * to every extracted paragraph/list/table block inside that section.
+ */
+export function sectionFlowContributionPx(
+  previousRawHeightPx: number,
+  nextRawHeightPx: number,
+  startsNewSectionFragment: boolean
+): number {
+  const previous = Number.isFinite(previousRawHeightPx) ? Math.max(0, previousRawHeightPx) : 0;
+  const next = Number.isFinite(nextRawHeightPx) ? Math.max(0, nextRawHeightPx) : 0;
+  if (startsNewSectionFragment) {
+    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, next);
+  }
+  const before = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous);
+  const after = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous + next);
+  return Math.max(0, after - before);
+}
+
 
 /**
  * Keep a complete flow unit together when it can fit on a fresh canonical page.
@@ -733,11 +753,63 @@ export function splitHtmlForCapacity(
         }
 
         if (fitCount > 0 && fitCount < items.length) {
+          const prefixItemHtmls = items
+            .slice(0, fitCount)
+            .map((el) => el.outerHTML);
+          const nextItem = items[fitCount];
+
+          // Strict pack-first: after whole list items have filled most of the
+          // page, use the remaining space for as much of the next text item as
+          // safely fits. Nested tables keep the dedicated V2 safe-row path.
+          if (nextItem && !nextItem.querySelector('table')) {
+            const partialNextItem = splitElementPreservingMarkup(
+              nextItem,
+              maxHeight,
+              (fragment, isFirstChunk) => {
+                const li = nextItem.cloneNode(false) as HTMLElement;
+                li.removeAttribute('id');
+                li.innerHTML = '';
+                li.appendChild(fragment);
+                if (isFirstChunk) {
+                  return makeList(
+                    [...prefixItemHtmls, li.outerHTML],
+                    0,
+                    false,
+                    explicitStart
+                  );
+                }
+                return makeList(
+                  [li.outerHTML],
+                  fitCount,
+                  true,
+                  explicitStart + fitCount
+                );
+              },
+              template
+            );
+
+            if (partialNextItem.length > 1) {
+              host.remove();
+              const laterItems = items
+                .slice(fitCount + 1)
+                .map((el) => el.outerHTML);
+              const laterList = laterItems.length
+                ? makeList(
+                    laterItems,
+                    fitCount + 1,
+                    false,
+                    explicitStart + fitCount + 1
+                  )
+                : '';
+              return [
+                partialNextItem[0],
+                [...partialNextItem.slice(1), laterList].filter(Boolean).join('')
+              ];
+            }
+          }
+
           host.remove();
-          const firstPart = makeList(
-            items.slice(0, fitCount).map((el) => el.outerHTML),
-            0
-          );
+          const firstPart = makeList(prefixItemHtmls, 0);
           const remainingPart = makeList(
             items.slice(fitCount).map((el) => el.outerHTML),
             fitCount,
@@ -993,10 +1065,9 @@ export function computeCanonicalA4Pages(
   const host = createMeasureHost();
   const measuredHeights = blocks.map((block) => {
     host.innerHTML = block.html;
-    return Math.max(
-      LIVE_SOP_SECTION_MIN_HEIGHT_PX,
-      host.getBoundingClientRect().height
-    );
+    // Raw content height only. The section minimum is accounted once per
+    // rendered section fragment by sectionFlowContributionPx below.
+    return Math.max(0, host.getBoundingClientRect().height);
   });
   host.remove();
 
@@ -1009,7 +1080,7 @@ export function computeCanonicalA4Pages(
     mHost.innerHTML = html;
     const h = mHost.getBoundingClientRect().height;
     mHost.remove();
-    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, h);
+    return Math.max(0, h);
   };
 
   const pages: OfficialBlock[][] = [];
@@ -1017,6 +1088,7 @@ export function computeCanonicalA4Pages(
   let used = 0;
   let capacity = firstCapacity;
   let currentSection: OfficialBlock['section'] | null = null;
+  let currentSectionRawHeight = 0;
 
   const flowBlocks: OfficialBlock[] = [...blocks];
   const flowHeights: number[] = [...measuredHeights];
@@ -1030,6 +1102,7 @@ export function computeCanonicalA4Pages(
     used = 0;
     capacity = normalCapacity;
     currentSection = null;
+    currentSectionRawHeight = 0;
   };
 
   let index = 0;
@@ -1040,7 +1113,12 @@ export function computeCanonicalA4Pages(
     const startsNewSectionRow =
       currentPageBlocks.length === 0 || block.section !== currentSection;
     const chrome = startsNewSectionRow ? baseRowPadding : 0;
-    const needed = flowHeights[index] + chrome;
+    const contentContribution = sectionFlowContributionPx(
+      currentSectionRawHeight,
+      flowHeights[index],
+      startsNewSectionRow
+    );
+    const needed = contentContribution + chrome;
 
     if (used + needed > capacity) {
       const remaining = Math.max(0, capacity - used - chrome);
@@ -1063,7 +1141,12 @@ export function computeCanonicalA4Pages(
           const firstPart = textParts[0];
           const restParts = textParts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded = firstHeight + chrome;
+          const firstNeeded =
+            sectionFlowContributionPx(
+              currentSectionRawHeight,
+              firstHeight,
+              startsNewSectionRow
+            ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1088,6 +1171,9 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
+            currentSectionRawHeight = startsNewSectionRow
+              ? firstHeight
+              : currentSectionRawHeight + firstHeight;
             currentSection = block.section;
             index += 1;
             continue;
@@ -1109,7 +1195,12 @@ export function computeCanonicalA4Pages(
           const firstPart = tableParts[0];
           const restParts = tableParts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded = firstHeight + chrome;
+          const firstNeeded =
+            sectionFlowContributionPx(
+              currentSectionRawHeight,
+              firstHeight,
+              startsNewSectionRow
+            ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1134,6 +1225,9 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
+            currentSectionRawHeight = startsNewSectionRow
+              ? firstHeight
+              : currentSectionRawHeight + firstHeight;
             currentSection = block.section;
             index += 1;
             continue;
@@ -1179,7 +1273,12 @@ export function computeCanonicalA4Pages(
           const firstPart = parts[0];
           const restParts = parts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded = firstHeight + chrome;
+          const firstNeeded =
+            sectionFlowContributionPx(
+              currentSectionRawHeight,
+              firstHeight,
+              startsNewSectionRow
+            ) + chrome;
 
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
@@ -1205,6 +1304,9 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
+            currentSectionRawHeight = startsNewSectionRow
+              ? firstHeight
+              : currentSectionRawHeight + firstHeight;
             currentSection = block.section;
             index += 1;
             continue;
@@ -1227,7 +1329,12 @@ export function computeCanonicalA4Pages(
           const firstPart = parts[0];
           const restParts = parts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded = firstHeight + chrome;
+          const firstNeeded =
+            sectionFlowContributionPx(
+              currentSectionRawHeight,
+              firstHeight,
+              startsNewSectionRow
+            ) + chrome;
 
           const fittedFirstBlock: OfficialBlock = {
             ...block,
@@ -1252,6 +1359,9 @@ export function computeCanonicalA4Pages(
 
           currentPageBlocks.push(fittedFirstBlock);
           used += firstNeeded;
+          currentSectionRawHeight = startsNewSectionRow
+            ? firstHeight
+            : currentSectionRawHeight + firstHeight;
           currentSection = block.section;
           index += 1;
           continue;
@@ -1281,6 +1391,9 @@ export function computeCanonicalA4Pages(
     // Block fits on current page
     currentPageBlocks.push(block);
     used += needed;
+    currentSectionRawHeight = startsNewSectionRow
+      ? flowHeights[index]
+      : currentSectionRawHeight + flowHeights[index];
     currentSection = block.section;
     index += 1;
   }

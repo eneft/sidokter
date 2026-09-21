@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   buildOfficialBlocks,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+  sectionFlowContributionPx,
   shouldDeferWholeBlockToNextPage,
 } from '../src/utils/canonicalA4Pagination';
 
@@ -194,4 +195,36 @@ test('non-final Live and Preview pages extend Batang Tubuh to canonical bottom o
   }
   assert.match(live, /pageIndex < totalPages - 1/);
   assert.match(preview, /pageIndex < calculatedTotalPages - 1/);
+});
+
+
+test('pack-first section measurement is not inflated per extracted block', () => {
+  assert.equal(sectionFlowContributionPx(0, 18, true), 40);
+  assert.equal(sectionFlowContributionPx(18, 18, false), 0);
+  assert.equal(sectionFlowContributionPx(36, 18, false), 14);
+  assert.equal(
+    sectionFlowContributionPx(0, 18, true) +
+      sectionFlowContributionPx(18, 18, false) +
+      sectionFlowContributionPx(36, 18, false),
+    54
+  );
+});
+
+test('canonical paginator measures raw flow blocks and applies the editor floor once per section fragment', () => {
+  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  assert.match(source, /let currentSectionRawHeight = 0/);
+  assert.match(source, /const contentContribution = sectionFlowContributionPx/);
+  assert.match(source, /currentSectionRawHeight = startsNewSectionRow/);
+  assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\s\S]{0,260}Math\.max\(\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);
+});
+
+test('ordered and bullet lists pack a partial next text item after whole items before deferring', () => {
+  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  const wholeItems = source.indexOf('if (fitCount > 0 && fitCount < items.length)');
+  const partial = source.indexOf('const partialNextItem = splitElementPreservingMarkup(', wholeItems);
+  const fallback = source.indexOf('const firstPart = makeList(prefixItemHtmls, 0);', partial);
+  assert.ok(wholeItems >= 0);
+  assert.ok(partial > wholeItems, 'next list item must get a partial split chance');
+  assert.ok(fallback > partial, 'whole-item fallback must happen only after partial packing fails');
+  assert.match(source, /Strict pack-first/);
 });
