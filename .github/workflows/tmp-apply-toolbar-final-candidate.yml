@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply proven candidate
-        run: python3 scripts/tmp-apply-toolbar-final-candidate.py
+        run: python3 scripts/tmp-apply-toolbar-final-candidate-v2.py
       - name: Verify exact source scope
         shell: bash
         run: |
