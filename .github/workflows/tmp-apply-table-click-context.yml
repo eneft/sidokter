@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ github.event.head_commit.message == 'chore: run table click context fix' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -21,21 +20,22 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - name: Apply exact audited fix
-        run: python3 scripts/tmp-fix-table-click-context.py
-      - name: Verify patch scope
+      - name: Guarded audited patch
         shell: bash
         run: |
+          set -euo pipefail
+          message="$(jq -r '.head_commit.message // ""' "$GITHUB_EVENT_PATH")"
+          if [[ "$message" != "chore: execute table click context fix" ]]; then
+            echo "Not the one-shot trigger commit; no source mutation."
+            exit 0
+          fi
+          npm ci
+          python3 scripts/tmp-fix-table-click-context.py
           git diff --check
           mapfile -t changed < <(git diff --name-only | sort)
           expected=(src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts)
           [[ "${changed[*]}" == "${expected[*]}" ]]
-      - name: Regression contract before commit
-        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
-      - name: Commit audited candidate
-        shell: bash
-        run: |
+          npx tsx --test tests/live-editor-toolbar-regression.test.ts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts
