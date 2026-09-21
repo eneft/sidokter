@@ -1,0 +1,315 @@
+name: Temporary SPO Continuation Bottom Border Verification
+
+on:
+  push:
+    branches:
+      - fix/sop-continuation-bottom-border
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply fail-closed continuation border patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          live_path = Path('src/components/SopLiveTemplate.tsx')
+          preview_path = Path('src/components/SopDetailModal.tsx')
+          css_path = Path('src/index.css')
+          test_path = Path('tests/live-sop-content-integrity.test.ts')
+
+          live = live_path.read_text()
+          preview = preview_path.read_text()
+          css = css_path.read_text()
+          tests = test_path.read_text()
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              return text.replace(old, new, 1)
+
+          live = replace_once(
+              live,
+              '''                  <table
+                    className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
+                    style={{
+                      border: '1px solid #000000',
+                      borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+''',
+              '''                  <table
+                    className={`sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed ${isContinuationPage ? 'sop-continuation-page-table' : ''}`}
+                    style={{
+                      border: '1px solid #000000',
+                      borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+''',
+              'Live continuation table marker'
+          )
+
+          live = replace_once(
+              live,
+              '''                        return (
+                          <tr key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}>
+                            <td
+''',
+              '''                        return (
+                          <tr
+                            key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}
+                            data-sop-suppress-bottom-border={extendToPageBottom ? 'true' : undefined}
+                          >
+                            <td
+''',
+              'Live continuation tail-row marker'
+          )
+
+          preview = replace_once(
+              preview,
+              '''      <tr
+        key={key}
+        className="sop-section-row"
+        data-sop-section={section}
+        data-measure-block-row={measure ? key : undefined}
+      >
+''',
+              '''      <tr
+        key={key}
+        className="sop-section-row"
+        data-sop-section={section}
+        data-measure-block-row={measure ? key : undefined}
+        data-sop-suppress-bottom-border={!lastInSection ? 'true' : undefined}
+      >
+''',
+              'Preview continuation tail-row marker'
+          )
+
+          preview = replace_once(
+              preview,
+              '''                      <table
+                        className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
+                        style={{
+                          border: '1px solid #000000',
+                          borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+''',
+              '''                      <table
+                        className={`sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed ${isContinuationPage ? 'sop-continuation-page-table' : ''}`}
+                        style={{
+                          border: '1px solid #000000',
+                          borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+''',
+              'Preview continuation table marker'
+          )
+
+          css_anchor = '''table.sop-official-table td,
+table.sop-official-table th,
+#printable-sop-official-document table.sop-official-table td,
+#printable-sop-official-document table.sop-official-table th {
+  border: 1px solid #000000 !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  hyphens: none !important;
+  -webkit-hyphens: none !important;
+  vertical-align: top;
+  box-sizing: border-box !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+'''
+          css_replacement = css_anchor + '''
+/* Continuation pages use one authoritative bottom rule: the page filler floor.
+   The global official-table border rules above are !important, so inline
+   borderBottom: 0 alone cannot suppress the residual line at the table/filler
+   junction. These specific markers remove only that duplicate boundary. */
+table.sop-official-table.sop-continuation-page-table,
+#printable-sop-official-document table.sop-official-table.sop-continuation-page-table {
+  border-bottom: 0 !important;
+}
+
+table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > td,
+#printable-sop-official-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > td {
+  border-bottom: 0 !important;
+}
+'''
+          css = replace_once(css, css_anchor, css_replacement, 'Continuation CSS override')
+
+          marker = "continuation pages suppress the duplicate table/tail-row bottom rule"
+          if marker in tests:
+              raise SystemExit('Continuation border regression test already present unexpectedly')
+          tests += '''
+
+test('continuation pages suppress the duplicate table/tail-row bottom rule', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  const css = readFileSync('src/index.css', 'utf8');
+
+  assert.match(live, /sop-continuation-page-table/);
+  assert.match(live, /data-sop-suppress-bottom-border=\{extendToPageBottom \? 'true' : undefined\}/);
+  assert.match(preview, /sop-continuation-page-table/);
+  assert.match(preview, /data-sop-suppress-bottom-border=\{!lastInSection \? 'true' : undefined\}/);
+  assert.match(css, /table\.sop-official-table\.sop-continuation-page-table[\s\S]{0,220}border-bottom:\s*0 !important/);
+  assert.match(css, /tr\[data-sop-suppress-bottom-border="true"\]\s*>\s*td[\s\S]{0,240}border-bottom:\s*0 !important/);
+});
+'''
+
+          live_path.write_text(live)
+          preview_path.write_text(preview)
+          css_path.write_text(css)
+          test_path.write_text(tests)
+          print('Continuation bottom-border patch applied fail-closed.')
+          PY
+
+      - name: Audit patch scope before tests
+        shell: bash
+        run: |
+          mapfile -t changed < <(git diff --name-only | sort)
+          printf 'Changed source files:\n%s\n' "${changed[*]}"
+          expected=(
+            "src/components/SopDetailModal.tsx"
+            "src/components/SopLiveTemplate.tsx"
+            "src/index.css"
+            "tests/live-sop-content-integrity.test.ts"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          if [[ "${changed[*]}" != "${expected_sorted[*]}" ]]; then
+            echo "Unexpected diff scope"
+            git diff --stat
+            exit 1
+          fi
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Chromium continuation-border regression
+        shell: bash
+        run: |
+          cat > continuation-border-audit.html <<'EOF'
+          <!doctype html>
+          <html>
+          <head>
+            <meta charset="UTF-8" />
+            <link rel="stylesheet" href="/src/index.css" />
+          </head>
+          <body>
+            <div id="frame" style="width:170mm;height:257mm;display:flex;flex-direction:column;background:#fff">
+              <table id="continuation-table" class="sop-official-table sop-continuation-page-table" style="width:100%;border-collapse:collapse;flex-shrink:0">
+                <tbody>
+                  <tr id="tail-row" data-sop-suppress-bottom-border="true">
+                    <td id="tail-left">PROSEDUR</td>
+                    <td id="tail-right">Baris terakhir sebelum filler.</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div id="continuation-fill" style="flex:1 1 auto;min-height:0;position:relative;box-sizing:border-box;background:#fff;border-left:1px solid #000;border-right:1px solid #000;border-bottom:1px solid #000">
+                <div style="position:absolute;top:0;bottom:0;left:28%;border-left:1px solid #000"></div>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+          npm exec vite -- --host 127.0.0.1 --port 4178 > /tmp/vite-border.log 2>&1 &
+          VITE_PID=$!
+          cleanup() { kill "$VITE_PID" 2>/dev/null || true; rm -f continuation-border-audit.html; }
+          trap cleanup EXIT
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:4178/continuation-border-audit.html >/dev/null; then break; fi
+            sleep 0.5
+          done
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import puppeteer from 'puppeteer-core';
+          const candidates = [process.env.CHROME_BIN, '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean);
+          let executablePath = candidates.find((candidate) => fs.existsSync(candidate));
+          let args = ['--no-sandbox', '--disable-setuid-sandbox'];
+          if (!executablePath) {
+            const mod = await import('@sparticuz/chromium');
+            const chromium = mod.default || mod;
+            executablePath = await chromium.executablePath();
+            args = chromium.args || args;
+          }
+          const browser = await puppeteer.launch({ executablePath, args, headless: true });
+          try {
+            const page = await browser.newPage();
+            await page.goto('http://127.0.0.1:4178/continuation-border-audit.html', { waitUntil: 'networkidle0' });
+            const result = await page.evaluate(() => {
+              const css = (id) => getComputedStyle(document.getElementById(id));
+              return {
+                tableBottom: css('continuation-table').borderBottomWidth,
+                leftBottom: css('tail-left').borderBottomWidth,
+                rightBottom: css('tail-right').borderBottomWidth,
+                fillerBottom: css('continuation-fill').borderBottomWidth,
+              };
+            });
+            console.log('CONTINUATION_BORDER_AUDIT', result);
+            if (result.tableBottom !== '0px') throw new Error(`Continuation table still has bottom border: ${result.tableBottom}`);
+            if (result.leftBottom !== '0px' || result.rightBottom !== '0px') throw new Error(`Tail row still has bottom border: ${result.leftBottom}/${result.rightBottom}`);
+            if (result.fillerBottom !== '1px') throw new Error(`Final floor line missing: ${result.fillerBottom}`);
+          } finally {
+            await browser.close();
+          }
+          NODE
+
+      - name: Live pagination regression
+        run: npm run test:live-pagination
+
+      - name: Toolbar regression
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+
+      - name: Structured table suite
+        run: npm run test:tables
+
+      - name: Storage regression
+        run: npm run test:storage
+
+      - name: Revision regression
+        run: npm run test:revision
+
+      - name: SOP edit regression
+        run: npm run test:sop-edit
+
+      - name: SOP review regression
+        run: npm run test:sop-review
+
+      - name: Mail regression
+        run: npm run test:mail
+
+      - name: PDF binary regression
+        run: npm run test:pdf-binary
+
+      - name: Numbering lifecycle regression
+        run: npm run test:numbering-lifecycle
+
+      - name: Verify Firebase Functions
+        run: npm run verify:functions
+
+      - name: TypeScript
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified patch and remove temporary workflow
+        shell: bash
+        run: |
+          git rm -f .github/workflows/tmp-continuation-bottom-border.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/SopDetailModal.tsx src/components/SopLiveTemplate.tsx src/index.css tests/live-sop-content-integrity.test.ts
+          git diff --cached --check
+          git commit -m "fix: remove duplicate continuation page bottom rule"
+          git push origin HEAD:fix/sop-continuation-bottom-border
