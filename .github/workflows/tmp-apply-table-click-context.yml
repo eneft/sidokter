@@ -1,0 +1,43 @@
+name: Temporary Apply Table Click Context Fix
+
+on:
+  push:
+    branches:
+      - fix/live-spo-toolbar-command-bridge-v3
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore: arm table click context fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply exact audited fix
+        run: python3 scripts/tmp-fix-table-click-context.py
+      - name: Verify patch scope
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts)
+          [[ "${changed[*]}" == "${expected[*]}" ]]
+      - name: Regression contract before commit
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+      - name: Commit audited candidate
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/RichTextEditor.tsx tests/live-editor-toolbar-regression.test.ts
+          git commit -m "fix: preserve table toolbar context after cell clicks"
+          git push origin HEAD:fix/live-spo-toolbar-command-bridge-v3
