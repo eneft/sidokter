@@ -1,0 +1,237 @@
+name: Live SPO Edit WYSIWYG Integrated Verification
+
+on:
+  push:
+    branches:
+      - fix/live-spo-edit-wysiwyg-integrated
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply fail-closed integrated patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_once(path, old, new, label):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              write(path, text.replace(old, new, 1))
+
+          live = 'src/components/SopLiveTemplate.tsx'
+          canonical = 'src/utils/canonicalA4Pagination.ts'
+          preview = 'src/components/SopDetailModal.tsx'
+          testfile = 'tests/live-sop-content-integrity.test.ts'
+
+          # ------------------------------------------------------------------
+          # 1) Shared toolbar ownership must follow the actually focused page
+          #    fragment, never whichever RichTextEditor happened to mount last.
+          # ------------------------------------------------------------------
+          replace_once(
+              live,
+              """  // Maintain active editor references\n  const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});\n  const activeEditorRef = useRef<RichTextEditorHandle | null>(null);\n""",
+              """  // Maintain active editor references. Multi-page sections can mount more than\n  // one RichTextEditor, so toolbar ownership must be tied to the fragment that\n  // the user actually focused instead of whichever fragment mounted last.\n  const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});\n  const activeEditorRef = useRef<RichTextEditorHandle | null>(null);\n  const activeEditorKeyRef = useRef<string | null>(null);\n""",
+              'live active editor refs'
+          )
+
+          replace_once(
+              live,
+              """  const getActiveEditor = (): RichTextEditorHandle | null => {\n    return activeEditorRef.current || editorRefs.current[activeTableSection] || null;\n  };\n""",
+              """  const getActiveEditor = (): RichTextEditorHandle | null => {\n    const activeKey = activeEditorKeyRef.current;\n    if (activeKey) {\n      const focusedFragment = editorRefs.current[activeKey];\n      if (focusedFragment) return focusedFragment;\n    }\n    return activeEditorRef.current || editorRefs.current[activeTableSection] || null;\n  };\n""",
+              'live active editor getter'
+          )
+
+          replace_once(
+              live,
+              """  const scrollToSection = (sectionKey: typeof activeTableSection) => {\n    setActiveTableSection(sectionKey);\n    const target = editorRefs.current[sectionKey];\n    if (target) {\n      target.focus();\n    }\n  };\n""",
+              """  const scrollToSection = (sectionKey: typeof activeTableSection) => {\n    setActiveTableSection(sectionKey);\n    const target = editorRefs.current[sectionKey];\n    if (target) {\n      // focus() will publish the exact page-fragment key through onFocus. Keep\n      // this fallback only for the tiny interval before that focus event fires.\n      activeEditorRef.current = target;\n      target.focus();\n    }\n  };\n""",
+              'live section focus bridge'
+          )
+
+          replace_once(
+              live,
+              "onChange={(e) => setActiveTableSection(e.target.value as typeof activeTableSection)}",
+              "onChange={(e) => scrollToSection(e.target.value as typeof activeTableSection)}",
+              'live toolbar section selector'
+          )
+
+          old_ref = """                                ref={(el) => {\n                                  if (el) {\n                                    editorRefs.current[editorKey] = el;\n                                    if (!editorRefs.current[cfg.id] || isSectionActive) {\n                                      editorRefs.current[cfg.id] = el;\n                                      activeEditorRef.current = el;\n                                    }\n                                  }\n                                }}\n"""
+          new_ref = """                                ref={(el) => {\n                                  const previous = editorRefs.current[editorKey];\n                                  if (el) {\n                                    editorRefs.current[editorKey] = el;\n                                    // The section alias is only a navigation fallback. It must\n                                    // never steal toolbar ownership from a focused fragment.\n                                    if (!editorRefs.current[cfg.id]) {\n                                      editorRefs.current[cfg.id] = el;\n                                    }\n                                    if (activeEditorKeyRef.current === editorKey) {\n                                      activeEditorRef.current = el;\n                                    }\n                                    return;\n                                  }\n\n                                  delete editorRefs.current[editorKey];\n                                  if (editorRefs.current[cfg.id] === previous) {\n                                    const replacementKey = Object.keys(editorRefs.current).find(\n                                      (key) => key.endsWith(`-${cfg.id}`) && Boolean(editorRefs.current[key])\n                                    );\n                                    editorRefs.current[cfg.id] = replacementKey\n                                      ? editorRefs.current[replacementKey]\n                                      : null;\n                                  }\n                                  if (activeEditorKeyRef.current === editorKey) {\n                                    activeEditorKeyRef.current = null;\n                                    activeEditorRef.current = editorRefs.current[cfg.id] || null;\n                                  }\n                                }}\n"""
+          replace_once(live, old_ref, new_ref, 'live fragment ref ownership')
+
+          old_focus = """                                onFocus={() => {\n                                  setActiveTableSection(cfg.id);\n                                  const currentEl = editorRefs.current[editorKey] || editorRefs.current[cfg.id];\n                                  if (currentEl) {\n                                    activeEditorRef.current = currentEl;\n                                  }\n                                }}\n                                onFormattingChange={setActiveFormatting}\n"""
+          new_focus = """                                onFocus={() => {\n                                  setActiveTableSection(cfg.id);\n                                  activeEditorKeyRef.current = editorKey;\n                                  const currentEl = editorRefs.current[editorKey] || editorRefs.current[cfg.id];\n                                  if (currentEl) {\n                                    activeEditorRef.current = currentEl;\n                                  }\n                                }}\n                                onFormattingChange={(formatting) => {\n                                  // Inactive fragments still emit formatting while pagination\n                                  // remounts. Only the focused owner may drive the shared toolbar.\n                                  if (activeEditorKeyRef.current === editorKey) {\n                                    setActiveFormatting(formatting);\n                                  }\n                                }}\n"""
+          replace_once(live, old_focus, new_focus, 'live formatting ownership')
+
+          # ------------------------------------------------------------------
+          # 2) Non-final physical pages extend Batang Tubuh visually to the
+          #    canonical 20mm bottom margin. The final page remains natural.
+          # ------------------------------------------------------------------
+          replace_once(
+              live,
+              """          {calculatedPages.map((pageBlocks, pageIndex) => {\n            const isFirstPage = pageIndex === 0;\n""",
+              """          {calculatedPages.map((pageBlocks, pageIndex) => {\n            const isFirstPage = pageIndex === 0;\n            const isContinuationPage = pageIndex < totalPages - 1;\n""",
+              'live continuation page flag'
+          )
+
+          old_live_page_start = """                >\n                  <table\n                    className=\"sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed\"\n                    style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}\n                  >\n"""
+          new_live_page_start = """                >\n                  <div\n                    className=\"sop-a4-content-frame\"\n                    style={{ height: '100%', display: 'flex', flexDirection: 'column' }}\n                  >\n                  <table\n                    className=\"sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed\"\n                    style={{\n                      border: '1px solid #000000',\n                      borderBottom: isContinuationPage ? '0' : '1px solid #000000',\n                      borderCollapse: 'collapse',\n                      width: '100%',\n                      flexShrink: 0\n                    }}\n                  >\n"""
+          # The exact opening exists in the visible page and in no other place with this indentation/context.
+          replace_once(live, old_live_page_start, new_live_page_start, 'live content frame start')
+
+          replace_once(
+              live,
+              """                        const editorKey = `${pageIndex}-${cfg.id}`;\n\n                        return (\n""",
+              """                        const editorKey = `${pageIndex}-${cfg.id}`;\n                        const extendToPageBottom =\n                          isContinuationPage && groupIdx === pageSectionGroups.length - 1;\n\n                        return (\n""",
+              'live last row continuation state'
+          )
+
+          replace_once(
+              live,
+              """                            <td className=\"border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] text-black\">\n""",
+              """                            <td\n                              className=\"border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] text-black\"\n                              style={{ borderBottom: extendToPageBottom ? '0' : undefined }}\n                            >\n""",
+              'live title cell bottom continuation'
+          )
+
+          old_live_content_td = """                            <td\n                              colSpan={3}\n                              className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content w-[72%] ${\n                                isSectionActive ? 'bg-indigo-50/10' : 'bg-white'\n                              }`}\n                            >\n"""
+          new_live_content_td = """                            <td\n                              colSpan={3}\n                              className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content w-[72%] ${\n                                isSectionActive ? 'bg-indigo-50/10' : 'bg-white'\n                              }`}\n                              style={{ borderBottom: extendToPageBottom ? '0' : undefined }}\n                            >\n"""
+          replace_once(live, old_live_content_td, new_live_content_td, 'live content cell bottom continuation')
+
+          old_live_page_end = """                    </tbody>\n                  </table>\n                </div>\n              </React.Fragment>\n"""
+          new_live_page_end = """                    </tbody>\n                  </table>\n                  {isContinuationPage && (\n                    <div\n                      aria-hidden=\"true\"\n                      data-sop-page-continuation-fill=\"true\"\n                      style={{\n                        flex: '1 1 auto',\n                        minHeight: 0,\n                        position: 'relative',\n                        boxSizing: 'border-box',\n                        backgroundColor: '#ffffff',\n                        borderLeft: '1px solid #000000',\n                        borderRight: '1px solid #000000',\n                        borderBottom: '1px solid #000000'\n                      }}\n                    >\n                      <div\n                        style={{\n                          position: 'absolute', top: 0, bottom: 0, left: '28%',\n                          borderLeft: '1px solid #000000'\n                        }}\n                      />\n                    </div>\n                  )}\n                  </div>\n                </div>\n              </React.Fragment>\n"""
+          replace_once(live, old_live_page_end, new_live_page_end, 'live continuation filler')
+
+          # ------------------------------------------------------------------
+          # 3) Structured tables must get a safe-row split chance BEFORE the
+          #    whole-block defer rule moves the entire table to the next page.
+          # ------------------------------------------------------------------
+          helper_anchor = """export function isSplittableTextFlowHtml(html: string): boolean {\n  if (!html || typeof DOMParser === 'undefined') return false;\n  try {\n    const doc = new DOMParser().parseFromString(html, 'text/html');\n    if (doc.body.querySelector('table, img, figure')) return false;\n    const first = doc.body.firstElementChild;\n    if (!first) return Boolean((doc.body.textContent || '').trim());\n    return /^(p|div|blockquote|h[1-6]|ol|ul)$/i.test(first.tagName);\n  } catch {\n    return false;\n  }\n}\n\n"""
+          helper_new = helper_anchor + """/** True when this flow unit contains a table that may split at safe row boundaries. */\nexport function hasStructuredTableFlowHtml(html: string): boolean {\n  if (!html || typeof DOMParser === 'undefined') return false;\n  try {\n    const doc = new DOMParser().parseFromString(html, 'text/html');\n    return Boolean(doc.body.querySelector('table'));\n  } catch {\n    return false;\n  }\n}\n\n"""
+          replace_once(canonical, helper_anchor, helper_new, 'canonical table flow classifier')
+
+          defer_anchor = """      // A complete unit that fits on a fresh page moves there intact only after\n      // rich text has had a chance to use the current page. This remains the\n      // correct behavior for tables/media and short unsplittable text.\n      if (\n        currentPageBlocks.length > 0 &&\n        shouldDeferWholeBlockToNextPage(\n"""
+          table_split = """      // Structured tables are continuous row flow. Before considering a whole-\n      // block defer, let the V2 table paginator consume every safe row that fits\n      // in the remaining page space. If no body row can fit, the normal defer\n      // rule below still moves the table intact to the next page.\n      if (\n        currentPageBlocks.length > 0 &&\n        remaining >= 24 &&\n        hasStructuredTableFlowHtml(block.html)\n      ) {\n        const tableParts = splitHtmlForCapacity(block.html, remaining, null);\n        if (tableParts.length > 1) {\n          const firstPart = tableParts[0];\n          const restParts = tableParts.slice(1);\n          const firstHeight = measureFlowPart(firstPart);\n          const firstNeeded = firstHeight + chrome;\n          if (firstHeight > 0 && used + firstNeeded <= capacity) {\n            const fittedFirstBlock: OfficialBlock = {\n              ...block,\n              id: `${block.id}-table-fit-1`,\n              html: forceLogicalListMetadata(firstPart, block)\n            };\n            const continuationBlocks: OfficialBlock[] = restParts.map(\n              (html, partIndex) => ({\n                ...block,\n                id: `${block.id}-table-fit-${partIndex + 2}`,\n                html: forceLogicalListMetadata(html, block)\n              })\n            );\n            const continuationHeights = continuationBlocks.map((part) =>\n              measureFlowPart(part.html)\n            );\n\n            flowBlocks[index] = fittedFirstBlock;\n            flowHeights[index] = firstHeight;\n            flowBlocks.splice(index + 1, 0, ...continuationBlocks);\n            flowHeights.splice(index + 1, 0, ...continuationHeights);\n\n            currentPageBlocks.push(fittedFirstBlock);\n            used += firstNeeded;\n            currentSection = block.section;\n            index += 1;\n            continue;\n          }\n        }\n      }\n\n      // A complete unit that fits on a fresh page moves there intact only after\n      // rich text and structured tables have had a chance to consume the current\n      // page. Images/media and genuinely unsplittable units remain atomic.\n      if (\n        currentPageBlocks.length > 0 &&\n        shouldDeferWholeBlockToNextPage(\n"""
+          replace_once(canonical, defer_anchor, table_split, 'canonical table split before defer')
+
+          # ------------------------------------------------------------------
+          # 4) Preview/PDF use the same non-final-page continuation frame. PDF
+          #    clones this DOM, so inline geometry remains identical.
+          # ------------------------------------------------------------------
+          replace_once(
+              preview,
+              """                {pageGroups.map((pageBlocks, pageIndex) => {\n                  if (!pageBlocks.length) return null;\n\n                  const pageElement = (\n""",
+              """                {pageGroups.map((pageBlocks, pageIndex) => {\n                  if (!pageBlocks.length) return null;\n                  const isContinuationPage = pageIndex < calculatedTotalPages - 1;\n\n                  const pageElement = (\n""",
+              'preview continuation page flag'
+          )
+
+          old_preview_start = """                    >\n                      <table\n                        className=\"sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed\"\n                        style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}\n                      >\n"""
+          new_preview_start = """                    >\n                      <div\n                        className=\"sop-a4-content-frame\"\n                        style={{ height: '100%', display: 'flex', flexDirection: 'column' }}\n                      >\n                      <table\n                        className=\"sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed\"\n                        style={{\n                          border: '1px solid #000000',\n                          borderBottom: isContinuationPage ? '0' : '1px solid #000000',\n                          borderCollapse: 'collapse',\n                          width: '100%',\n                          flexShrink: 0\n                        }}\n                      >\n"""
+          replace_once(preview, old_preview_start, new_preview_start, 'preview content frame start')
+
+          replace_once(
+              preview,
+              """                                false,\n                                true\n                              )\n""",
+              """                                false,\n                                !(isContinuationPage && groupIndex === groups.length - 1)\n                              )\n""",
+              'preview final visible row bottom border'
+          )
+
+          old_preview_end = """                        </tbody>\n                      </table>\n                    </div>\n                  );\n"""
+          new_preview_end = """                        </tbody>\n                      </table>\n                      {isContinuationPage && (\n                        <div\n                          aria-hidden=\"true\"\n                          data-sop-page-continuation-fill=\"true\"\n                          style={{\n                            flex: '1 1 auto',\n                            minHeight: 0,\n                            position: 'relative',\n                            boxSizing: 'border-box',\n                            backgroundColor: '#ffffff',\n                            borderLeft: '1px solid #000000',\n                            borderRight: '1px solid #000000',\n                            borderBottom: '1px solid #000000'\n                          }}\n                        >\n                          <div\n                            style={{\n                              position: 'absolute', top: 0, bottom: 0, left: '28%',\n                              borderLeft: '1px solid #000000'\n                            }}\n                          />\n                        </div>\n                      )}\n                      </div>\n                    </div>\n                  );\n"""
+          replace_once(preview, old_preview_end, new_preview_end, 'preview continuation filler')
+
+          # ------------------------------------------------------------------
+          # 5) Regression locks for ownership, natural table page breaks and
+          #    continuation-page bottom boundary (final page remains natural).
+          # ------------------------------------------------------------------
+          tests = read(testfile)
+          marker = "LiveSPO multi-page toolbar ownership is fragment-scoped"
+          if marker in tests:
+              raise SystemExit('regression tests already appended unexpectedly')
+          tests += r'''\n\ntest('LiveSPO multi-page toolbar ownership is fragment-scoped', () => {\n  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');\n  assert.match(live, /activeEditorKeyRef/);\n  assert.match(live, /activeEditorKeyRef\.current = editorKey/);\n  assert.match(live, /activeEditorKeyRef\.current === editorKey/);\n  assert.match(live, /Only the focused owner may drive the shared toolbar/);\n  assert.doesNotMatch(live, /!editorRefs\.current\[cfg\.id\] \|\| isSectionActive/);\n  assert.match(live, /onChange=\{\(e\) => scrollToSection\(e\.target\.value as typeof activeTableSection\)\}/);\n});\n\ntest('structured table gets safe-row split chance before whole-block defer', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  const tableGate = source.indexOf('hasStructuredTableFlowHtml(block.html)');\n  const tableSplit = source.indexOf('splitHtmlForCapacity(block.html, remaining, null)', tableGate);\n  const deferGate = source.indexOf('shouldDeferWholeBlockToNextPage(', tableGate);\n  assert.ok(tableGate >= 0, 'table flow classifier must be used in overflow path');\n  assert.ok(tableSplit > tableGate, 'table safe split must be attempted');\n  assert.ok(deferGate > tableSplit, 'whole-block defer must run only after table safe split');\n  assert.match(source, /table-fit-1/);\n  assert.match(source, /splitStructuredTableV2/);\n});\n\ntest('non-final Live and Preview pages extend Batang Tubuh to canonical bottom only', () => {\n  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');\n  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');\n  for (const source of [live, preview]) {\n    assert.match(source, /data-sop-page-continuation-fill=\"true\"/);\n    assert.match(source, /isContinuationPage/);\n    assert.match(source, /flex: '1 1 auto'/);\n    assert.match(source, /left: '28%'/);\n    assert.match(source, /borderBottom: '1px solid #000000'/);\n  }\n  assert.match(live, /pageIndex < totalPages - 1/);\n  assert.match(preview, /pageIndex < calculatedTotalPages - 1/);\n  assert.doesNotMatch(live, /data-sop-page-continuation-fill=\"true\"[\s\S]{0,500}pageIndex === totalPages - 1/);\n});\n'''
+          write(testfile, tests)
+
+          print('Integrated patch applied fail-closed.')
+          PY
+
+      - name: Diff sanity
+        run: |
+          git diff --check
+          git status --short
+          git diff --stat
+          git diff -- src/components/SopLiveTemplate.tsx src/utils/canonicalA4Pagination.ts src/components/SopDetailModal.tsx tests/live-sop-content-integrity.test.ts
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Toolbar regression
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+
+      - name: Live pagination regression
+        run: npm run test:live-pagination
+
+      - name: Structured table suite
+        run: npm run test:tables
+
+      - name: Storage tests
+        run: npm run test:storage
+
+      - name: Revision tests
+        run: npm run test:revision
+
+      - name: SOP edit tests
+        run: npm run test:sop-edit
+
+      - name: SOP review tests
+        run: npm run test:sop-review
+
+      - name: Mail tests
+        run: npm run test:mail
+
+      - name: PDF binary tests
+        run: npm run test:pdf-binary
+
+      - name: Numbering lifecycle tests
+        run: npm run test:numbering-lifecycle
+
+      - name: Verify Firebase functions syntax/contracts
+        run: npm run verify:functions
+
+      - name: TypeScript
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/SopLiveTemplate.tsx src/utils/canonicalA4Pagination.ts src/components/SopDetailModal.tsx tests/live-sop-content-integrity.test.ts
+          git commit -m "fix: stabilize Live SPO edit WYSIWYG and pagination"
+          git rm .github/workflows/live-spo-edit-wysiwyg-integrated.yml
+          git commit -m "chore: remove temporary Live SPO verification workflow"
+          git push origin HEAD:fix/live-spo-edit-wysiwyg-integrated
