@@ -31,6 +31,7 @@ jobs:
           import { createRoot } from 'react-dom/client';
           import './src/index.css';
           import { SopLiveTemplate } from './src/components/SopLiveTemplate';
+          declare global { interface Window { __auditState?: any } }
           const longProcedure = [
             '<p><strong>Persiapan petugas :</strong></p>',
             ...Array.from({ length: 55 }, (_, i) => `<p>${i + 1}. Langkah prosedur audit toolbar nomor ${i + 1} dengan isi cukup panjang agar section PROSEDUR terbagi ke beberapa halaman A4 untuk reproduksi editor existing multi-page.</p>`)
@@ -44,6 +45,7 @@ jobs:
             const [prosedur, setProsedur] = useState(longProcedure);
             const [alur, setAlur] = useState('<p>Alur audit.</p>');
             const [unitTerkait, setUnitTerkait] = useState('<p>Unit audit.</p>');
+            window.__auditState = { title, effectiveDate, pengertian, tujuan, kebijakan, prosedur, alur, unitTerkait };
             return <SopLiveTemplate title={title} onTitleChange={setTitle} sopNumber="PEN / 1.2.1.2 / 999 / 2026" version="00" effectiveDate={effectiveDate} onEffectiveDateChange={setEffectiveDate} approverName="DIREKTUR AUDIT" pengertian={pengertian} onPengertianChange={setPengertian} tujuan={tujuan} onTujuanChange={setTujuan} kebijakan={kebijakan} onKebijakanChange={setKebijakan} prosedur={prosedur} onProsedurChange={setProsedur} alur={alur} onAlurChange={setAlur} unitTerkait={unitTerkait} onUnitTerkaitChange={setUnitTerkait} showPageHint={true} />;
           }
           createRoot(document.getElementById('root')!).render(<App />);
@@ -62,6 +64,9 @@ jobs:
           exit 1
       - name: Audit isolated toolbar interactions in Chromium
         run: node scripts/tmp-toolbar-browser-audit.mjs
+      - name: Audit pagination object integrity
+        if: always()
+        run: node scripts/tmp-toolbar-integrity-audit.mjs
       - name: Diagnose remaining image context
         if: always()
         run: node scripts/tmp-image-context-debug.mjs
