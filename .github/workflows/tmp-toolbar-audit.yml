@@ -70,6 +70,9 @@ jobs:
       - name: Audit extended toolbar commands in Chromium
         if: always()
         run: node scripts/tmp-toolbar-extended-audit.mjs
+      - name: Diagnose toolbar root causes
+        if: always()
+        run: node scripts/tmp-toolbar-rootcause-diagnostic.mjs
       - name: Diagnose remaining image context
         if: always()
         run: node scripts/tmp-image-context-debug.mjs
