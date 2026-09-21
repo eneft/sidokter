@@ -1,0 +1,106 @@
+name: Temporary Live SPO WYSIWYG Geometry Verification
+
+on:
+  push:
+    branches:
+      - fix/live-spo-wysiwyg-geometry-final
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply fail-closed patch in working tree
+        run: python3 .github/scripts/apply-live-spo-wysiwyg-geometry-fix.py
+
+      - name: Audit patch scope before tests
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          printf 'Changed application files:\n%s\n' "${changed[*]}"
+          expected=(
+            "src/components/RichTextEditor.tsx"
+            "src/components/SopLiveTemplate.tsx"
+            "src/utils/canonicalA4Pagination.ts"
+            "tests/live-sop-content-integrity.test.ts"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          if [[ "${changed[*]}" != "${expected_sorted[*]}" ]]; then
+            echo "Unexpected patch scope"
+            git diff --stat
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Chromium WYSIWYG geometry regression
+        run: node .github/scripts/verify-live-spo-wysiwyg-geometry.mjs
+
+      - name: Live pagination regression
+        run: npm run test:live-pagination
+
+      - name: Toolbar regression
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+
+      - name: Structured table suite
+        run: npm run test:tables
+
+      - name: Storage regression
+        run: npm run test:storage
+
+      - name: Revision regression
+        run: npm run test:revision
+
+      - name: SOP edit regression
+        run: npm run test:sop-edit
+
+      - name: SOP review regression
+        run: npm run test:sop-review
+
+      - name: Mail regression
+        run: npm run test:mail
+
+      - name: PDF binary regression
+        run: npm run test:pdf-binary
+
+      - name: Numbering lifecycle regression
+        run: npm run test:numbering-lifecycle
+
+      - name: Verify Firebase Functions
+        run: npm run verify:functions
+
+      - name: TypeScript
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified application patch and remove temporary audit files
+        shell: bash
+        run: |
+          rm -f pagination-geometry-audit.html
+          git rm -f .github/workflows/tmp-live-spo-wysiwyg-geometry.yml
+          git rm -f .github/scripts/apply-live-spo-wysiwyg-geometry-fix.py
+          git rm -f .github/scripts/verify-live-spo-wysiwyg-geometry.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/RichTextEditor.tsx src/components/SopLiveTemplate.tsx src/utils/canonicalA4Pagination.ts tests/live-sop-content-integrity.test.ts
+          git diff --cached --check
+          git commit -m "fix: align Live SPO editor and paginator geometry with Preview"
+          git push origin HEAD:fix/live-spo-wysiwyg-geometry-final
