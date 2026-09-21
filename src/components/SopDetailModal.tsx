@@ -1017,6 +1017,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         className="sop-section-row"
         data-sop-section={section}
         data-measure-block-row={measure ? key : undefined}
+        data-sop-suppress-bottom-border={!lastInSection ? 'true' : undefined}
       >
         <td
           className={`${showLabel ? 'p-2.5' : 'p-0'} font-bold uppercase align-top text-black font-bookman sop-batang-tubuh-title`}
@@ -1670,7 +1671,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
                       >
                       <table
-                        className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
+                        className={`sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed ${isContinuationPage ? 'sop-continuation-page-table' : ''}`}
                         style={{
                           border: '1px solid #000000',
                           borderBottom: isContinuationPage ? '0' : '1px solid #000000',

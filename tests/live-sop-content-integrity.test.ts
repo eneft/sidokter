@@ -256,3 +256,16 @@ test('Live A4 section-label flow matches Preview geometry and contains no layout
   assert.doesNotMatch(live, /isContinuedFromEarlierPage/);
   assert.doesNotMatch(live, /\(Lanjutan\)/);
 });
+
+
+test('continuation pages suppress the duplicate table/tail-row bottom rule', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  const css = readFileSync('src/index.css', 'utf8');
+  assert.match(live, /sop-continuation-page-table/);
+  assert.match(live, /data-sop-suppress-bottom-border=\{extendToPageBottom \? 'true' : undefined\}/);
+  assert.match(preview, /sop-continuation-page-table/);
+  assert.match(preview, /data-sop-suppress-bottom-border=\{!lastInSection \? 'true' : undefined\}/);
+  assert.match(css, /table\.sop-official-table\.sop-continuation-page-table[\s\S]{0,220}border-bottom:\s*0 !important/);
+  assert.match(css, /tr\[data-sop-suppress-bottom-border="true"\]\s*>\s*td[\s\S]{0,240}border-bottom:\s*0 !important/);
+});

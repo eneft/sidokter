@@ -243,6 +243,20 @@ table.sop-official-table th,
   print-color-adjust: exact !important;
 }
 
+/* Continuation pages use one authoritative bottom rule: the page filler floor.
+   The global official-table border rules above are !important, so inline
+   borderBottom: 0 alone cannot suppress the residual line at the table/filler
+   junction. These specific markers remove only that duplicate boundary. */
+table.sop-official-table.sop-continuation-page-table,
+#printable-sop-official-document table.sop-official-table.sop-continuation-page-table {
+  border-bottom: 0 !important;
+}
+
+table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > td,
+#printable-sop-official-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > td {
+  border-bottom: 0 !important;
+}
+
 /* Standard Batang Tubuh Typography: Standard Universal Serif 12 pt */
 .sop-batang-tubuh-title,
 #printable-sop-official-document .sop-batang-tubuh-title {
