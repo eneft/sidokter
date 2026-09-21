@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import {
   buildOfficialBlocks,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+  getCanonicalContentWidthPx,
+  getCanonicalSectionRowChromePx,
   sectionFlowContributionPx,
   shouldDeferWholeBlockToNextPage,
 } from '../src/utils/canonicalA4Pagination';
@@ -50,8 +52,8 @@ test('sections after a long Pengertian preserve content, order and uniqueness', 
   assert.deepEqual(firstSeen, ORDER);
 });
 
-test('LiveSPO uses one compact minimum editor height for every section', () => {
-  assert.equal(LIVE_SOP_SECTION_MIN_HEIGHT_PX, 40);
+test('LiveSPO canonical minimum is exactly one 12pt / 1.5 content line', () => {
+  assert.equal(LIVE_SOP_SECTION_MIN_HEIGHT_PX, 24);
   assert.ok(LIVE_SOP_SECTION_MIN_HEIGHT_PX > 0);
 });
 
@@ -199,9 +201,9 @@ test('non-final Live and Preview pages extend Batang Tubuh to canonical bottom o
 
 
 test('pack-first section measurement is not inflated per extracted block', () => {
-  assert.equal(sectionFlowContributionPx(0, 18, true), 40);
-  assert.equal(sectionFlowContributionPx(18, 18, false), 0);
-  assert.equal(sectionFlowContributionPx(36, 18, false), 14);
+  assert.equal(sectionFlowContributionPx(0, 18, true), 24);
+  assert.equal(sectionFlowContributionPx(18, 18, false), 12);
+  assert.equal(sectionFlowContributionPx(36, 18, false), 18);
   assert.equal(
     sectionFlowContributionPx(0, 18, true) +
       sectionFlowContributionPx(18, 18, false) +
@@ -227,4 +229,30 @@ test('ordered and bullet lists pack a partial next text item after whole items b
   assert.ok(partial > wholeItems, 'next list item must get a partial split chance');
   assert.ok(fallback > partial, 'whole-item fallback must happen only after partial packing fails');
   assert.match(source, /Strict pack-first/);
+});
+
+
+test('canonical WYSIWYG body geometry counts official cell chrome exactly once', () => {
+  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  const expectedInnerWidth = (116.4 * 96) / 25.4 - 2;
+  const expectedChrome = (6 * 96) / 25.4 + 1;
+  assert.ok(Math.abs(getCanonicalContentWidthPx() - expectedInnerWidth) < 0.1);
+  assert.ok(Math.abs(getCanonicalSectionRowChromePx() - expectedChrome) < 0.001);
+  assert.doesNotMatch(source, /host\.className\s*=\s*[\s\S]{0,180}sop-batang-tubuh-content/);
+  assert.match(source, /const baseRowPadding = getCanonicalSectionRowChromePx\(\)/);
+  assert.doesNotMatch(source, /const baseRowPadding = 20/);
+});
+
+test('Live seamless editor has no second inner padding layer', () => {
+  const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
+  assert.match(editor, /variant === 'seamless' \? 'p-0' : 'p-2 sm:p-2\.5'/);
+});
+
+test('Live A4 section-label flow matches Preview geometry and contains no layout helper text', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  assert.match(live, /p-2\.5 font-bold uppercase align-top text-black font-bookman sop-batang-tubuh-title/);
+  assert.match(live, /<><div>ALUR \/<\/div><div>BAGAN ALIR<\/div><\/\>/);
+  assert.match(live, /<><div>UNIT<\/div><div>TERKAIT<\/div><\/\>/);
+  assert.doesNotMatch(live, /isContinuedFromEarlierPage/);
+  assert.doesNotMatch(live, /\(Lanjutan\)/);
 });
