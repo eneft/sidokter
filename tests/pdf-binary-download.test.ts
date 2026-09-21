@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { createPdfBlob, responseToPdfBlob } from '../src/utils/pdfBinary';
 
 const require = createRequire(import.meta.url);
@@ -48,4 +49,33 @@ test('frontend response parser and Blob download preserve raw bytes', async () =
 test('frontend rejects JSON-serialized numeric-key objects and incomplete PDFs', () => {
   assert.throws(() => createPdfBlob(new TextEncoder().encode('{"0":37,"1":80}')), /bukan PDF/);
   assert.throws(() => createPdfBlob(new TextEncoder().encode('%PDF-1.7\n')), /tidak lengkap/);
+});
+
+
+test('PDF server renderers preserve the canonical continuation bottom floor', () => {
+  const sources = [
+    ['Firebase pdfApi', readFileSync('functions/index.js', 'utf8')],
+    ['Vercel api/pdf', readFileSync('api/pdf.ts', 'utf8')],
+  ] as const;
+
+  for (const [label, source] of sources) {
+    const genericBorderPositions = [
+      ...source.matchAll(/border\s*:\s*1px\s+solid\s+#000(?:000)?\s*!important/gi),
+    ].map((match) => match.index ?? -1);
+    assert.ok(genericBorderPositions.length > 0, `${label}: generic PDF border contract missing`);
+
+    const finalOverride = source.lastIndexOf('table.sop-official-table.sop-continuation-page-table');
+    assert.ok(finalOverride > Math.max(...genericBorderPositions), `${label}: continuation override must come after generic PDF borders`);
+
+    assert.match(
+      source,
+      /table\.sop-official-table\.sop-continuation-page-table[^}]*\{[^}]*border-bottom\s*:\s*0\s*!important/i,
+      `${label}: continuation table bottom suppression missing`,
+    );
+    assert.match(
+      source,
+      /tr\[data-sop-suppress-bottom-border=[\\\"']?true[\\\"']?\][^\{]*>[\s]*td[\s\S]{0,320}border-bottom\s*:\s*0\s*!important/i,
+      `${label}: continuation tail-cell bottom suppression missing`,
+    );
+  }
 });
