@@ -73,7 +73,7 @@ test('clearing or deleting an image clears image formatting context', () => {
 });
 
 test('active Live SPO fragment ignores only same-epoch stale echoes and accepts canonical repagination', () => {
-  const sync = editor.slice(editor.indexOf('// Sync value from prop'), editor.indexOf('// Recalculate overlay'));
+  const sync = editor.slice(editor.indexOf('// Sync a genuinely new canonical fragment'), editor.indexOf('// Recalculate overlay'));
   assert.match(editor, /paginationEpoch\?: object/);
   assert.match(editor, /lastPaginationEpochRef/);
   assert.match(sync, /const epochChanged = paginationEpoch !== lastPaginationEpochRef\.current/);
@@ -93,10 +93,19 @@ test('shared native controls capture the active editor selection before focus le
   assert.match(editor, /captureSelection:\s*\(\) => boolean/);
   assert.match(editor, /captureSelection:\s*\(\) => \{/);
   assert.match(template, /aria-label="Ukuran huruf"[\s\S]{0,180}onMouseDown=\{\(\) => getActiveEditor\(\)\?\.captureSelection\(\)\}/);
-  assert.match(template, /aria-label="Sisipkan Tabel"[\s\S]{0,220}captureSelection/);
-  assert.match(template, /aria-label="Sisipkan Gambar"[\s\S]{0,220}captureSelection/);
+  assert.match(template, /captureSelection\(\)[\s\S]{0,220}aria-label="Sisipkan Tabel"/);
+  assert.match(template, /captureSelection\(\)[\s\S]{0,220}aria-label="Sisipkan Gambar"/);
 });
 
+
+test('native image deselection cannot demote a table-cell click back to text context', () => {
+  const clear = editor.slice(editor.indexOf('const clearFigureSelection'), editor.indexOf('// Direct native capture listener'));
+  const nativePointer = editor.slice(editor.indexOf('const handleNativePointerDown'), editor.indexOf('const handleNativeContextMenu'));
+  assert.match(clear, /preserveFormatting = false/);
+  assert.match(clear, /if \(!preserveFormatting\)/);
+  assert.match(nativePointer, /const tableCell = target\.closest\('td,th'\)/);
+  assert.match(nativePointer, /clearFigureSelection\(preserveFormatting\)/);
+});
 
 test('shared multi-page history is logical-section scoped and table clicks reclaim toolbar ownership', () => {
   assert.match(editor, /onHistoryCommand\?: \(command: RichTextHistoryCommand\) => boolean/);

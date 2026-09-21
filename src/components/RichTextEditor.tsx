@@ -1095,21 +1095,26 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     onFormattingChange?.(next);
   }, [activeFormatting, onFocus, onFormattingChange]);
 
-  const clearFigureSelection = useCallback(() => {
+  const clearFigureSelection = useCallback((preserveFormatting = false) => {
     setSelectedFigure(null);
     setFigureRect(null);
     setShowWrapTextMenu(false);
     if (editorRef.current) {
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
-    setActiveFormatting(current => ({
-    ...current,
-    context: 'text',
-    inTable: false,
-    imageWidth: undefined,
-    imageAlign: undefined,
-    imageWrap: undefined,
-  }));
+    // A table-cell click is handled first by the native image capture listener
+    // and then by React's table pointer handler. Do not let the later native
+    // click event demote the freshly published table context back to text.
+    if (!preserveFormatting) {
+      setActiveFormatting(current => ({
+        ...current,
+        context: 'text',
+        inTable: false,
+        imageWidth: undefined,
+        imageAlign: undefined,
+        imageWrap: undefined,
+      }));
+    }
   }, []);
 
   // Direct native capture listener on editor to guarantee 100% click/pointer capture on images and context menu
@@ -1169,7 +1174,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         selectFigureElement(figure);
         setContextMenu(null);
       } else if (!target.closest('.figure-wrapper') && !target.closest('figure') && !target.closest('img') && !target.closest('.figure-control-overlay') && !target.closest('.figure-context-menu') && !target.closest('.figure-quick-toolbar')) {
-        clearFigureSelection();
+        const tableCell = target.closest('td,th');
+        const preserveFormatting = Boolean(tableCell && editor.contains(tableCell));
+        clearFigureSelection(preserveFormatting);
         setContextMenu(null);
       }
     };
