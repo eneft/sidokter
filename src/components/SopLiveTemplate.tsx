@@ -785,7 +785,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                     style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
                   >
                   <table
-                    className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
+                    className={`sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed ${isContinuationPage ? 'sop-continuation-page-table' : ''}`}
                     style={{
                       border: '1px solid #000000',
                       borderBottom: isContinuationPage ? '0' : '1px solid #000000',
@@ -826,7 +826,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                           isContinuationPage && groupIdx === pageSectionGroups.length - 1;
 
                         return (
-                          <tr key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}>
+                          <tr
+                            key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}
+                            data-sop-suppress-bottom-border={extendToPageBottom ? 'true' : undefined}
+                          >
                             <td
                               className={`border border-black p-2.5 font-bold uppercase align-top text-black font-bookman sop-batang-tubuh-title whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] ${cfg.isMissing ? 'text-rose-700' : 'text-black'}`}
                               style={{ borderBottom: extendToPageBottom ? '0' : undefined }}
