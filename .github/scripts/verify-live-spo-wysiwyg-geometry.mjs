@@ -13,7 +13,7 @@ const fixture = `<!doctype html>
   <style>
     body { margin:0; padding:20px; background:#fff; }
     .audit-wrap { width:170mm; margin-bottom:20px; }
-    .measure-host { position:absolute; visibility:hidden; left:-100000px; top:0; width:116.4mm; height:auto; max-height:none; overflow:visible; box-sizing:border-box; font-family:'Bookman Old Style','URW Bookman',serif; font-size:12pt; line-height:1.5; padding:0; margin:0; border:none; }
+    .measure-host { position:absolute; visibility:hidden; left:-100000px; top:0; width:calc(116.4mm - 2px); height:auto; max-height:none; overflow:visible; box-sizing:border-box; font-family:'Bookman Old Style','URW Bookman',serif; font-size:12pt; line-height:1.5; padding:0; margin:0; border:none; }
   </style>
 </head>
 <body>
