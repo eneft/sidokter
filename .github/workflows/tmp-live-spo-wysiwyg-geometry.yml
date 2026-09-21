@@ -25,7 +25,9 @@ jobs:
           cache: npm
 
       - name: Apply fail-closed patch in working tree
-        run: python3 .github/scripts/apply-live-spo-wysiwyg-geometry-fix.py
+        run: |
+          python3 .github/scripts/apply-live-spo-wysiwyg-geometry-fix.py
+          python3 .github/scripts/refine-live-spo-content-width.py
 
       - name: Audit patch scope before tests
         shell: bash
@@ -97,6 +99,7 @@ jobs:
           rm -f pagination-geometry-audit.html
           git rm -f .github/workflows/tmp-live-spo-wysiwyg-geometry.yml
           git rm -f .github/scripts/apply-live-spo-wysiwyg-geometry-fix.py
+          git rm -f .github/scripts/refine-live-spo-content-width.py
           git rm -f .github/scripts/verify-live-spo-wysiwyg-geometry.mjs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
