@@ -28,8 +28,13 @@ for marker in [
 ]:
     assert marker in template, f'missing template candidate marker: {marker}'
 
-# First-stage already added the template source read before stopping.
-assert test.count("const template = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');") == 1
+# The first-stage writes the test file only after every test replacement succeeds,
+# so add the missing template source read here against the actual checked-out file.
+template_read = "const template = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');"
+assert test.count(template_read) == 0, 'template source read already present unexpectedly'
+editor_read = "const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');\n"
+assert test.count(editor_read) == 1
+test = test.replace(editor_read, editor_read + template_read + "\n", 1)
 
 old = """test('active Live SPO fragment ignores stale paginated prop echoes during local mutation', () => {
   const sync = editor.slice(editor.indexOf('// Sync value from prop'), editor.indexOf('// Recalculate overlay'));
