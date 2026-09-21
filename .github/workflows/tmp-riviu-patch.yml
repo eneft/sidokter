@@ -25,55 +25,54 @@ jobs:
           replacements = [
             ("import { isSopInReviewHierarchy } from './utils/sopReviewSource';", "import { isSopInReviewHierarchy } from './utils/sopReviewSource';\nimport { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from './utils/riviuRevision';"),
             ("""      const referenced = newSopData.existingSopId
-              ? sops.find((s) => s.id === newSopData.existingSopId)
-              : undefined;""", """      const referenced = findAuthoritativeRiviuPredecessor(sops, {
-              existingSopId: newSopData.existingSopId,
-              oldSopNumber: reviewNumber,
-            });"""),
+        ? sops.find((s) => s.id === newSopData.existingSopId)
+        : undefined;""", """      const referenced = findAuthoritativeRiviuPredecessor(sops, {
+        existingSopId: newSopData.existingSopId,
+        oldSopNumber: reviewNumber,
+      });"""),
             ("""      const previousRevisionNumber = String(newSopData.previousRevisionNumber || '').trim();
-            const revisionNumber = getNextRevisionNumber(previousRevisionNumber);
-            if (String(newSopData.revisionNumber || '') !== revisionNumber) {
-              throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
-            }""", """      const { previousRevisionNumber, revisionNumber } = referenced
-              ? getAuthoritativeRiviuRevision(referenced, newSopData.previousRevisionNumber)
-              : {
-                  previousRevisionNumber: String(newSopData.previousRevisionNumber || '').trim(),
-                  revisionNumber: getNextRevisionNumber(String(newSopData.previousRevisionNumber || '').trim()),
-                };"""),
+      const revisionNumber = getNextRevisionNumber(previousRevisionNumber);
+      if (String(newSopData.revisionNumber || '') !== revisionNumber) {
+        throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
+      }""", """      const { previousRevisionNumber, revisionNumber } = referenced
+        ? getAuthoritativeRiviuRevision(referenced, newSopData.previousRevisionNumber)
+        : {
+            previousRevisionNumber: String(newSopData.previousRevisionNumber || '').trim(),
+            revisionNumber: getNextRevisionNumber(String(newSopData.previousRevisionNumber || '').trim()),
+          };"""),
             ("""      reviewedSource = (target.existingSopId ? sops.find((s) => s.id === target.existingSopId) : undefined)
-              || (target.oldSopNumber
-                ? sops.find((s) => normalizeSopNumberInput(s.sopNumber) === normalizeSopNumberInput(target.oldSopNumber || '')
-                  || normalizeSopNumberInput(s.legacySopNumber) === normalizeSopNumberInput(target.oldSopNumber || ''))
-                : undefined);""", """      reviewedSource = findAuthoritativeRiviuPredecessor(sops, {
-              existingSopId: target.existingSopId,
-              oldSopNumber: target.oldSopNumber,
-            });"""),
+        || (target.oldSopNumber
+          ? sops.find((s) => normalizeSopNumberInput(s.sopNumber) === normalizeSopNumberInput(target.oldSopNumber || '')
+            || normalizeSopNumberInput(s.legacySopNumber) === normalizeSopNumberInput(target.oldSopNumber || ''))
+          : undefined);""", """      reviewedSource = findAuthoritativeRiviuPredecessor(sops, {
+        existingSopId: target.existingSopId,
+        oldSopNumber: target.oldSopNumber,
+      });"""),
             ("""      const previousRevision = String(target.previousRevisionNumber || '').trim();
-            try {
-              reviewRevisionNumber = getNextRevisionNumber(previousRevision);
-            } catch (error) {
-              addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
-              return;
-            }
-            if (target.revisionNumber !== reviewRevisionNumber) {
-              addToast('error', 'Aktivasi Ditolak', `Nomor revisi penerus harus ${reviewRevisionNumber}.`);
-              return;
-            }""", """      try {
-              const resolved = getAuthoritativeRiviuRevision(reviewedSource, target.previousRevisionNumber);
-              target.previousRevisionNumber = resolved.previousRevisionNumber;
-              reviewRevisionNumber = resolved.revisionNumber;
-            } catch (error) {
-              addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
-              return;
-            }"""),
+      try {
+        reviewRevisionNumber = getNextRevisionNumber(previousRevision);
+      } catch (error) {
+        addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
+        return;
+      }
+      if (target.revisionNumber !== reviewRevisionNumber) {
+        addToast('error', 'Aktivasi Ditolak', `Nomor revisi penerus harus ${reviewRevisionNumber}.`);
+        return;
+      }""", """      try {
+        const resolved = getAuthoritativeRiviuRevision(reviewedSource, target.previousRevisionNumber);
+        reviewRevisionNumber = resolved.revisionNumber;
+      } catch (error) {
+        addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
+        return;
+      }"""),
             ("""      ...(targetIsRiviu ? {
-              revisionNumber: reviewRevisionNumber,
-              version: reviewRevisionNumber,
-            } : {}),""", """      ...(targetIsRiviu ? {
-              previousRevisionNumber: String(reviewedSource?.revisionNumber || reviewedSource?.version || target.previousRevisionNumber || '').trim(),
-              revisionNumber: reviewRevisionNumber,
-              version: reviewRevisionNumber,
-            } : {}),"""),
+        revisionNumber: reviewRevisionNumber,
+        version: reviewRevisionNumber,
+      } : {}),""", """      ...(targetIsRiviu ? {
+        previousRevisionNumber: String(reviewedSource?.revisionNumber || reviewedSource?.version || target.previousRevisionNumber || '').trim(),
+        revisionNumber: reviewRevisionNumber,
+        version: reviewRevisionNumber,
+      } : {}),"""),
             ("activateRiviuInFirestore(updated, reviewedSource.id, String(target.previousRevisionNumber))", "activateRiviuInFirestore(updated, reviewedSource.id, String(updated.previousRevisionNumber))"),
           ]
           for old, new in replacements:
