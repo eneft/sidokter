@@ -1,1 +1,1 @@
-trigger toolbar browser audit no-echo candidate
+trigger toolbar browser audit smart-fragment candidate
