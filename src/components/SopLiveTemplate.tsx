@@ -909,6 +909,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 allowImageUpload={true}
                                 hideToolbar={true}
                                 variant="seamless"
+                                paginationEpoch={debouncedBlocks}
                                 onFocus={() => {
                                   setActiveTableSection(cfg.id);
                                   activeEditorKeyRef.current = editorKey;

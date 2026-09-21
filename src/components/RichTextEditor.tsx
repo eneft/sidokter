@@ -90,6 +90,9 @@ interface RichTextEditorProps {
   variant?: 'default' | 'seamless';
   onFocus?: () => void;
   onFormattingChange?: (formatting: RichTextFormattingState) => void;
+  // Optional canonical pagination generation supplied by SopLiveTemplate.
+  // A new object identity means physical-page fragments have been recomputed.
+  paginationEpoch?: object;
 }
 
 export interface RichTextFormattingState {
@@ -594,6 +597,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   variant = 'default',
   onFocus,
   onFormattingChange,
+  paginationEpoch,
 }, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -613,6 +617,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   // catch up on a debounce. During that gap the child can receive the exact same
   // old fragment again; that is a stale echo, not an external document change.
   const lastReceivedValueRef = useRef(value || '');
+  const lastPaginationEpochRef = useRef<object | undefined>(paginationEpoch);
   // Keep the user's text selection alive when a toolbar button takes focus.
   // This is critical for long SPO documents: formatting must apply to the
   // selection that was made in the editor, not to the caret created by the button.
@@ -944,20 +949,21 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   }, []);
 
   // Sync a genuinely new canonical fragment, but ignore the parent's stale
-  // pre-pagination echo after a local contentEditable mutation. Unlike a timed
-  // guard, this still accepts the moment pagination produces a different
-  // physical fragment, so content cannot remain duplicated across pages.
+  // pre-pagination echo after a local contentEditable mutation. The paginator
+  // epoch is authoritative: once it changes, even a byte-identical fragment is
+  // a fresh canonical result and must be allowed to evict stale local DOM.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
     const incoming = value || '';
     const previousIncoming = lastReceivedValueRef.current;
     const lastEmitted = lastEmittedValueRef.current;
+    const epochChanged = paginationEpoch !== lastPaginationEpochRef.current;
 
-    // Parent section state changed, but calculatedPages has not caught up yet:
-    // the prop is byte-for-byte the same fragment we already received while
-    // the editor DOM contains our newer local transaction. Preserve it.
+    // Parent section state changed, but debouncedBlocks/calculatedPages has not
+    // caught up yet. Ignore only within the SAME pagination epoch.
     if (
+      !epochChanged &&
       incoming === previousIncoming &&
       lastEmitted !== null &&
       incoming !== lastEmitted &&
@@ -967,9 +973,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
 
     lastReceivedValueRef.current = incoming;
+    lastPaginationEpochRef.current = paginationEpoch;
 
-    // The paginator has acknowledged exactly what this editor emitted. Do not
-    // rewrite innerHTML: keeping the same DOM preserves the browser undo stack.
+    // The canonical paginator acknowledged exactly what this editor emitted.
+    // Keep the existing DOM so the browser's native undo transaction survives.
     if (incoming === lastEmitted) return;
 
     if (editor.innerHTML === incoming) {
@@ -986,7 +993,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       setSelectedFigure(null);
       setFigureRect(null);
     }
-  }, [value, selectedFigure]);
+  }, [value, selectedFigure, paginationEpoch]);
 
   // Recalculate overlay on scroll or window resize
   useEffect(() => {
