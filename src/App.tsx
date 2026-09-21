@@ -34,6 +34,7 @@ import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, 
 import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import { validateSupportingEvidence } from './utils/supportingEvidence';
 import { isSopInReviewHierarchy } from './utils/sopReviewSource';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from './utils/riviuRevision';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -996,9 +997,10 @@ export default function App() {
       const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
       if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
 
-      const referenced = newSopData.existingSopId
-        ? sops.find((s) => s.id === newSopData.existingSopId)
-        : undefined;
+      const referenced = findAuthoritativeRiviuPredecessor(sops, {
+        existingSopId: newSopData.existingSopId,
+        oldSopNumber: reviewNumber,
+      });
       const externalSignedPdf = Boolean(
         (newSopData.fileDataUrl || (newSopData as any).oldFileDataUrl)
         && (String(newSopData.fileType || (newSopData as any).oldFileType || '').toLowerCase() === 'application/pdf'
@@ -1012,11 +1014,10 @@ export default function App() {
         divisionCode: newSopData.divisionCode,
         subHierarchyCode: newSopData.subHierarchyCode || '',
       })) throw new Error('SPO rujukan Riviu tidak berasal dari hirarki yang dipilih.');
-      const previousRevisionNumber = String(newSopData.previousRevisionNumber || '').trim();
-      const revisionNumber = getNextRevisionNumber(previousRevisionNumber);
-      if (String(newSopData.revisionNumber || '') !== revisionNumber) {
-        throw new Error(`Nomor revisi penerus harus ${revisionNumber}.`);
-      }
+      const { previousRevisionNumber, revisionNumber } = getAuthoritativeRiviuRevision(
+        referenced,
+        newSopData.previousRevisionNumber
+      );
       validateSupportingEvidence(newSopData.supportingEvidence);
       authoritativeSopData = {
         ...newSopData,
@@ -1838,25 +1839,20 @@ export default function App() {
     let reviewRevisionNumber = target.revisionNumber || target.version || '';
     let reviewedSource: SopDocument | undefined;
     if (targetIsRiviu) {
-      reviewedSource = (target.existingSopId ? sops.find((s) => s.id === target.existingSopId) : undefined)
-        || (target.oldSopNumber
-          ? sops.find((s) => normalizeSopNumberInput(s.sopNumber) === normalizeSopNumberInput(target.oldSopNumber || '')
-            || normalizeSopNumberInput(s.legacySopNumber) === normalizeSopNumberInput(target.oldSopNumber || ''))
-          : undefined);
+      reviewedSource = findAuthoritativeRiviuPredecessor(sops, {
+        existingSopId: target.existingSopId,
+        oldSopNumber: target.oldSopNumber,
+      });
 
       if (!reviewedSource || reviewedSource.status !== 'AKTIF') {
         addToast('error', 'Aktivasi Ditolak', 'SPO pendahulu Riviu tidak ditemukan atau tidak lagi AKTIF.');
         return;
       }
-      const previousRevision = String(target.previousRevisionNumber || '').trim();
       try {
-        reviewRevisionNumber = getNextRevisionNumber(previousRevision);
+        const resolved = getAuthoritativeRiviuRevision(reviewedSource, target.previousRevisionNumber);
+        reviewRevisionNumber = resolved.revisionNumber;
       } catch (error) {
         addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
-        return;
-      }
-      if (target.revisionNumber !== reviewRevisionNumber) {
-        addToast('error', 'Aktivasi Ditolak', `Nomor revisi penerus harus ${reviewRevisionNumber}.`);
         return;
       }
     }
@@ -1864,6 +1860,7 @@ export default function App() {
     const updated: SopDocument = {
       ...target,
       ...(targetIsRiviu ? {
+        previousRevisionNumber: String(reviewedSource?.revisionNumber || reviewedSource?.version || target.previousRevisionNumber || '').trim(),
         revisionNumber: reviewRevisionNumber,
         version: reviewRevisionNumber,
       } : {}),
@@ -1879,7 +1876,7 @@ export default function App() {
     };
     try {
       if (targetIsRiviu && reviewedSource) {
-        const transition = await activateRiviuInFirestore(updated, reviewedSource.id, String(target.previousRevisionNumber));
+        const transition = await activateRiviuInFirestore(updated, reviewedSource.id, String(updated.previousRevisionNumber));
         await restoreSopsToLocal(sops.map((s) => s.id === transition.successor.id
           ? transition.successor
           : s.id === transition.predecessor.id ? transition.predecessor : s));

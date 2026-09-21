@@ -13,22 +13,34 @@ export const findAuthoritativeRiviuPredecessor = (
   const normalizedOldNumber = normalizeSopNumberInput(params.oldSopNumber || '');
   if (!normalizedOldNumber) return undefined;
 
-  return sops.find((sop) =>
+  const matches = sops.filter((sop) =>
     normalizeSopNumberInput(sop.sopNumber || '') === normalizedOldNumber
     || normalizeSopNumberInput(sop.legacySopNumber || '') === normalizedOldNumber
   );
+
+  return matches.find((s) => s.status === 'AKTIF') || matches[0];
 };
 
 export const getAuthoritativeRiviuRevision = (
-  predecessor: SopDocument,
+  predecessor?: SopDocument | null,
   fallbackPreviousRevisionNumber?: string
 ): { previousRevisionNumber: string; revisionNumber: string } => {
-  const previousRevisionNumber = String(
-    predecessor.revisionNumber
-    || predecessor.version
+  const rawCandidate = String(
+    predecessor?.revisionNumber
+    || predecessor?.version
     || fallbackPreviousRevisionNumber
     || ''
   ).trim();
+
+  if (!rawCandidate) {
+    return {
+      previousRevisionNumber: '',
+      revisionNumber: '',
+    };
+  }
+
+  const matched = rawCandidate.match(/\d+/);
+  const previousRevisionNumber = matched ? matched[0].padStart(2, '0') : rawCandidate;
 
   return {
     previousRevisionNumber,

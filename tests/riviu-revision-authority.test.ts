@@ -68,3 +68,17 @@ test('Riviu predecessor lookup falls back to oldSopNumber with normalization and
   assert.equal(found?.id, 'sop-active');
   assert.equal(found?.revisionNumber, '01');
 });
+
+test('Riviu manual input: calculates revision when predecessor is null or undefined', () => {
+  const res00 = getAuthoritativeRiviuRevision(null, '00');
+  assert.equal(res00.previousRevisionNumber, '00');
+  assert.equal(res00.revisionNumber, '01');
+
+  const res01 = getAuthoritativeRiviuRevision(undefined, '01');
+  assert.equal(res01.previousRevisionNumber, '01');
+  assert.equal(res01.revisionNumber, '02');
+
+  const resEmpty = getAuthoritativeRiviuRevision(null, '');
+  assert.equal(resEmpty.previousRevisionNumber, '');
+  assert.equal(resEmpty.revisionNumber, '');
+});
