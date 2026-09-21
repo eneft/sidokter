@@ -1644,6 +1644,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                    ========================================================== */}
                 {pageGroups.map((pageBlocks, pageIndex) => {
                   if (!pageBlocks.length) return null;
+                  const isContinuationPage = pageIndex < calculatedTotalPages - 1;
 
                   const pageElement = (
                     <div
@@ -1664,9 +1665,19 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         position: 'relative'
                       }}
                     >
+                      <div
+                        className="sop-a4-content-frame"
+                        style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                      >
                       <table
                         className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
-                        style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
+                        style={{
+                          border: '1px solid #000000',
+                          borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+                          borderCollapse: 'collapse',
+                          width: '100%',
+                          flexShrink: 0
+                        }}
                       >
                         <colgroup>
                           <col style={{ width: '28%' }} />
@@ -1692,12 +1703,36 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                                 false,
                                 true,
                                 false,
-                                true
+                                !(isContinuationPage && groupIndex === groups.length - 1)
                               )
                             );
                           })()}
                         </tbody>
                       </table>
+                      {isContinuationPage && (
+                        <div
+                          aria-hidden="true"
+                          data-sop-page-continuation-fill="true"
+                          style={{
+                            flex: '1 1 auto',
+                            minHeight: 0,
+                            position: 'relative',
+                            boxSizing: 'border-box',
+                            backgroundColor: '#ffffff',
+                            borderLeft: '1px solid #000000',
+                            borderRight: '1px solid #000000',
+                            borderBottom: '1px solid #000000'
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute', top: 0, bottom: 0, left: '28%',
+                              borderLeft: '1px solid #000000'
+                            }}
+                          />
+                        </div>
+                      )}
+                      </div>
                     </div>
                   );
 

@@ -149,9 +149,12 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Maintain active editor references
+  // Maintain active editor references. Multi-page sections can mount more than
+  // one RichTextEditor, so toolbar ownership must be tied to the fragment that
+  // the user actually focused instead of whichever fragment mounted last.
   const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});
   const activeEditorRef = useRef<RichTextEditorHandle | null>(null);
+  const activeEditorKeyRef = useRef<string | null>(null);
 
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false,
@@ -170,6 +173,11 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   });
 
   const getActiveEditor = (): RichTextEditorHandle | null => {
+    const activeKey = activeEditorKeyRef.current;
+    if (activeKey) {
+      const focusedFragment = editorRefs.current[activeKey];
+      if (focusedFragment) return focusedFragment;
+    }
     return activeEditorRef.current || editorRefs.current[activeTableSection] || null;
   };
 
@@ -304,6 +312,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     setActiveTableSection(sectionKey);
     const target = editorRefs.current[sectionKey];
     if (target) {
+      // focus() will publish the exact page-fragment key through onFocus. Keep
+      // this fallback only for the tiny interval before that focus event fires.
+      activeEditorRef.current = target;
       target.focus();
     }
   };
@@ -554,7 +565,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           <span className="text-[10px] text-slate-400 font-semibold uppercase hidden sm:inline">Bagian:</span>
           <select
             value={activeTableSection}
-            onChange={(e) => setActiveTableSection(e.target.value as typeof activeTableSection)}
+            onChange={(e) => scrollToSection(e.target.value as typeof activeTableSection)}
             className="h-6 max-w-32 text-[10px] font-bold bg-white border border-slate-200 rounded px-1"
           >
             <option value="pengertian">PENGERTIAN</option>
@@ -723,6 +734,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
 
           {calculatedPages.map((pageBlocks, pageIndex) => {
             const isFirstPage = pageIndex === 0;
+            const isContinuationPage = pageIndex < totalPages - 1;
 
             // Group blocks on this page by their official section
             const pageSectionGroups: { section: OfficialSectionKey; blocks: OfficialBlock[] }[] = [];
@@ -768,9 +780,19 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                     marginBottom: isFirstPage && totalPages > 1 ? '0' : '24px'
                   }}
                 >
+                  <div
+                    className="sop-a4-content-frame"
+                    style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                  >
                   <table
                     className="sop-official-table w-full border-collapse font-bookman text-black text-sm bg-white table-fixed"
-                    style={{ border: '1px solid #000000', borderCollapse: 'collapse', width: '100%' }}
+                    style={{
+                      border: '1px solid #000000',
+                      borderBottom: isContinuationPage ? '0' : '1px solid #000000',
+                      borderCollapse: 'collapse',
+                      width: '100%',
+                      flexShrink: 0
+                    }}
                   >
                     <colgroup>
                       <col style={{ width: '28%' }} />
@@ -807,10 +829,15 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                           : cfg.val;
 
                         const editorKey = `${pageIndex}-${cfg.id}`;
+                        const extendToPageBottom =
+                          isContinuationPage && groupIdx === pageSectionGroups.length - 1;
 
                         return (
                           <tr key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}>
-                            <td className="border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] text-black">
+                            <td
+                              className="border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] text-black"
+                              style={{ borderBottom: extendToPageBottom ? '0' : undefined }}
+                            >
                               <div className="flex flex-col gap-0.5">
                                 <span className={cfg.isMissing ? 'text-rose-700' : 'text-black'}>
                                   {group.section}
@@ -832,15 +859,36 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                               className={`border border-black p-2.5 align-top font-bookman sop-batang-tubuh-content w-[72%] ${
                                 isSectionActive ? 'bg-indigo-50/10' : 'bg-white'
                               }`}
+                              style={{ borderBottom: extendToPageBottom ? '0' : undefined }}
                             >
                               <RichTextEditor
                                 ref={(el) => {
+                                  const previous = editorRefs.current[editorKey];
                                   if (el) {
                                     editorRefs.current[editorKey] = el;
-                                    if (!editorRefs.current[cfg.id] || isSectionActive) {
+                                    // The section alias is only a navigation fallback. It must
+                                    // never steal toolbar ownership from a focused fragment.
+                                    if (!editorRefs.current[cfg.id]) {
                                       editorRefs.current[cfg.id] = el;
+                                    }
+                                    if (activeEditorKeyRef.current === editorKey) {
                                       activeEditorRef.current = el;
                                     }
+                                    return;
+                                  }
+
+                                  delete editorRefs.current[editorKey];
+                                  if (editorRefs.current[cfg.id] === previous) {
+                                    const replacementKey = Object.keys(editorRefs.current).find(
+                                      (key) => key.endsWith(`-${cfg.id}`) && Boolean(editorRefs.current[key])
+                                    );
+                                    editorRefs.current[cfg.id] = replacementKey
+                                      ? editorRefs.current[replacementKey]
+                                      : null;
+                                  }
+                                  if (activeEditorKeyRef.current === editorKey) {
+                                    activeEditorKeyRef.current = null;
+                                    activeEditorRef.current = editorRefs.current[cfg.id] || null;
                                   }
                                 }}
                                 label=""
@@ -871,12 +919,19 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 variant="seamless"
                                 onFocus={() => {
                                   setActiveTableSection(cfg.id);
+                                  activeEditorKeyRef.current = editorKey;
                                   const currentEl = editorRefs.current[editorKey] || editorRefs.current[cfg.id];
                                   if (currentEl) {
                                     activeEditorRef.current = currentEl;
                                   }
                                 }}
-                                onFormattingChange={setActiveFormatting}
+                                onFormattingChange={(formatting) => {
+                                  // Inactive fragments still emit formatting while pagination
+                                  // remounts. Only the focused owner may drive the shared toolbar.
+                                  if (activeEditorKeyRef.current === editorKey) {
+                                    setActiveFormatting(formatting);
+                                  }
+                                }}
                               />
                             </td>
                           </tr>
@@ -884,6 +939,30 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       })}
                     </tbody>
                   </table>
+                  {isContinuationPage && (
+                    <div
+                      aria-hidden="true"
+                      data-sop-page-continuation-fill="true"
+                      style={{
+                        flex: '1 1 auto',
+                        minHeight: 0,
+                        position: 'relative',
+                        boxSizing: 'border-box',
+                        backgroundColor: '#ffffff',
+                        borderLeft: '1px solid #000000',
+                        borderRight: '1px solid #000000',
+                        borderBottom: '1px solid #000000'
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute', top: 0, bottom: 0, left: '28%',
+                          borderLeft: '1px solid #000000'
+                        }}
+                      />
+                    </div>
+                  )}
+                  </div>
                 </div>
               </React.Fragment>
             );
