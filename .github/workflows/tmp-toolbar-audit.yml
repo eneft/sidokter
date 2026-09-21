@@ -1,0 +1,247 @@
+name: Temporary Live SPO Toolbar Browser Audit
+
+on:
+  push:
+    branches:
+      - fix/live-spo-toolbar-command-bridge-v3
+
+permissions:
+  contents: read
+
+jobs:
+  audit-toolbar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Write browser fixture
+        shell: bash
+        run: |
+          cat > toolbar-audit.html <<'EOF'
+          <!doctype html>
+          <html><head><meta charset="UTF-8"><title>Toolbar Audit</title></head><body><div id="root"></div><script type="module" src="/toolbar-audit.tsx"></script></body></html>
+          EOF
+          cat > toolbar-audit.tsx <<'EOF'
+          import React, { useState } from 'react';
+          import { createRoot } from 'react-dom/client';
+          import './src/index.css';
+          import { SopLiveTemplate } from './src/components/SopLiveTemplate';
+
+          declare global { interface Window { __auditState?: any } }
+
+          const longProcedure = [
+            '<p><strong>Persiapan petugas :</strong></p>',
+            ...Array.from({ length: 55 }, (_, i) => `<p>${i + 1}. Langkah prosedur audit toolbar nomor ${i + 1} dengan isi cukup panjang agar section PROSEDUR terbagi ke beberapa halaman A4 untuk reproduksi editor existing multi-page.</p>`)
+          ].join('');
+
+          function App() {
+            const [title, setTitle] = useState('AUDIT TOOLBAR LIVE SPO');
+            const [effectiveDate, setEffectiveDate] = useState('2026-09-22');
+            const [pengertian, setPengertian] = useState('<p>Pengertian audit.</p>');
+            const [tujuan, setTujuan] = useState('<p>Tujuan audit.</p>');
+            const [kebijakan, setKebijakan] = useState('<p>Kebijakan audit.</p>');
+            const [prosedur, setProsedur] = useState(longProcedure);
+            const [alur, setAlur] = useState('<p>Alur audit.</p>');
+            const [unitTerkait, setUnitTerkait] = useState('<p>Unit audit.</p>');
+            window.__auditState = { title, pengertian, tujuan, kebijakan, prosedur, alur, unitTerkait };
+            return <SopLiveTemplate
+              title={title} onTitleChange={setTitle}
+              sopNumber="PEN / 1.2.1.2 / 999 / 2026" version="00"
+              effectiveDate={effectiveDate} onEffectiveDateChange={setEffectiveDate}
+              approverName="DIREKTUR AUDIT"
+              pengertian={pengertian} onPengertianChange={setPengertian}
+              tujuan={tujuan} onTujuanChange={setTujuan}
+              kebijakan={kebijakan} onKebijakanChange={setKebijakan}
+              prosedur={prosedur} onProsedurChange={setProsedur}
+              alur={alur} onAlurChange={setAlur}
+              unitTerkait={unitTerkait} onUnitTerkaitChange={setUnitTerkait}
+              showPageHint={true}
+            />;
+          }
+          createRoot(document.getElementById('root')!).render(<App />);
+          EOF
+      - name: Create image fixture
+        shell: bash
+        run: |
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9S8AAAAASUVORK5CYII=' | base64 -d > /tmp/toolbar-audit.png
+      - name: Start Vite
+        shell: bash
+        run: |
+          npm exec vite -- --host 127.0.0.1 --port 4177 > /tmp/vite-toolbar.log 2>&1 &
+          echo $! > /tmp/vite-toolbar.pid
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4177/toolbar-audit.html >/dev/null; then exit 0; fi
+            sleep 0.5
+          done
+          cat /tmp/vite-toolbar.log
+          exit 1
+      - name: Audit actual toolbar interactions in Chromium
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import puppeteer from 'puppeteer-core';
+
+          const candidates = [process.env.CHROME_BIN, '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean);
+          let executablePath = candidates.find((candidate) => fs.existsSync(candidate));
+          let args = ['--no-sandbox', '--disable-setuid-sandbox'];
+          if (!executablePath) {
+            const mod = await import('@sparticuz/chromium');
+            const chromium = mod.default || mod;
+            executablePath = await chromium.executablePath();
+            args = chromium.args || args;
+          }
+          const browser = await puppeteer.launch({ executablePath, args, headless: true });
+          const failures = [];
+          const result = {};
+          try {
+            const page = await browser.newPage();
+            page.on('console', msg => console.log('BROWSER', msg.type(), msg.text()));
+            page.on('pageerror', err => console.log('PAGEERROR', String(err)));
+            await page.goto('http://127.0.0.1:4177/toolbar-audit.html', { waitUntil: 'networkidle0' });
+            await page.waitForFunction(() => document.querySelectorAll('.sop-live-a4-page').length >= 3, { timeout: 15000 });
+            await page.evaluate(async () => { if (document.fonts?.ready) await document.fonts.ready; });
+
+            const evalResult = async (name, fn) => {
+              try { const value = await fn(); result[name] = value; if (!value) failures.push(name); }
+              catch (err) { result[name] = `ERROR:${err}`; failures.push(name); }
+            };
+
+            const procedureEditors = () => page.$$('.sop-live-a4-page tr td:first-child');
+            const focusFirstProcedure = async () => {
+              await page.evaluate(() => {
+                const rows = [...document.querySelectorAll('.sop-live-a4-page tr')];
+                const row = rows.find(r => (r.querySelector('td:first-child')?.textContent || '').trim() === 'PROSEDUR');
+                const ed = row?.querySelector('.rich-text-editor-content');
+                if (!(ed instanceof HTMLElement)) throw new Error('PROSEDUR editor not found');
+                ed.focus();
+                const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+                const node = walker.nextNode();
+                if (!node) throw new Error('No text node');
+                const range = document.createRange();
+                range.setStart(node, 0); range.setEnd(node, Math.min(10, node.textContent?.length || 0));
+                const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(range);
+                document.dispatchEvent(new Event('selectionchange'));
+              });
+              await new Promise(r => setTimeout(r, 80));
+            };
+
+            // 1. Section selector should focus the requested section editor.
+            await page.select('.live-spo-context-toolbar select', 'prosedur');
+            await new Promise(r => setTimeout(r, 100));
+            await evalResult('sectionSelectorFocusesProcedure', async () => page.evaluate(() => {
+              const active = document.activeElement;
+              return Boolean(active instanceof HTMLElement && active.classList.contains('rich-text-editor-content') && active.closest('tr')?.querySelector('td:first-child')?.textContent?.trim() === 'PROSEDUR');
+            }));
+
+            // 2. Mode switch renders table/image command sets.
+            await page.click('button[aria-label="Mode Tabel"]');
+            await evalResult('tableModeSwitch', async () => Boolean(await page.$('button[aria-label="Tambah Baris"]')));
+            await page.click('button[aria-label="Mode Gambar"]');
+            await evalResult('imageModeSwitch', async () => Boolean(await page.$('button[aria-label="Lebar gambar 25%"]')));
+            await page.click('button[aria-label="Mode Teks"]');
+
+            // 3a. Text Bold must persist across pagination debounce.
+            await focusFirstProcedure();
+            await page.click('button[aria-label="Tebal"]');
+            await new Promise(r => setTimeout(r, 450));
+            await evalResult('boldPersistsAfterDebounce', async () => page.evaluate(() => {
+              const rows = [...document.querySelectorAll('.sop-live-a4-page tr')];
+              const row = rows.find(r => (r.querySelector('td:first-child')?.textContent || '').trim() === 'PROSEDUR');
+              const ed = row?.querySelector('.rich-text-editor-content');
+              return Boolean(ed?.querySelector('b,strong,[style*="font-weight"]'));
+            }));
+
+            // 3b. Font size has a separate command pipeline.
+            await focusFirstProcedure();
+            await page.select('.live-spo-context-toolbar select[aria-label="Ukuran huruf"]', '10pt');
+            await new Promise(r => setTimeout(r, 450));
+            await evalResult('fontSizePersistsAfterDebounce', async () => page.evaluate(() => Boolean(document.querySelector('.sop-live-a4-page .rich-text-editor-content [style*="font-size: 10pt"]'))));
+
+            // 3c. Native typing + Ctrl+Z / Ctrl+Y and toolbar undo/redo.
+            await page.evaluate(() => {
+              const rows = [...document.querySelectorAll('.sop-live-a4-page tr')];
+              const row = rows.find(r => (r.querySelector('td:first-child')?.textContent || '').trim() === 'PROSEDUR');
+              const ed = row?.querySelector('.rich-text-editor-content');
+              if (!(ed instanceof HTMLElement)) throw new Error('editor missing');
+              ed.focus(); const range = document.createRange(); range.selectNodeContents(ed); range.collapse(false); const s = getSelection(); s?.removeAllRanges(); s?.addRange(range);
+            });
+            await page.keyboard.type('CTRLZ_AUDIT');
+            await new Promise(r => setTimeout(r, 350));
+            await evalResult('typingPersists', async () => page.evaluate(() => document.body.innerText.includes('CTRLZ_AUDIT')));
+            await page.keyboard.down('Control'); await page.keyboard.press('z'); await page.keyboard.up('Control');
+            await new Promise(r => setTimeout(r, 200));
+            await evalResult('ctrlZWorks', async () => page.evaluate(() => !document.body.innerText.includes('CTRLZ_AUDIT')));
+            await page.keyboard.down('Control'); await page.keyboard.press('y'); await page.keyboard.up('Control');
+            await new Promise(r => setTimeout(r, 200));
+            await evalResult('ctrlYWorks', async () => page.evaluate(() => document.body.innerText.includes('CTRLZ_AUDIT')));
+            await page.click('button[aria-label="Batalkan"]');
+            await new Promise(r => setTimeout(r, 200));
+            await evalResult('toolbarUndoWorks', async () => page.evaluate(() => !document.body.innerText.includes('CTRLZ_AUDIT')));
+            await page.click('button[aria-label="Ulangi"]');
+            await new Promise(r => setTimeout(r, 200));
+            await evalResult('toolbarRedoWorks', async () => page.evaluate(() => document.body.innerText.includes('CTRLZ_AUDIT')));
+
+            // 4. Insert table must persist; selecting it must enable + execute table commands.
+            await page.evaluate(() => {
+              const rows = [...document.querySelectorAll('.sop-live-a4-page tr')];
+              const row = rows.find(r => (r.querySelector('td:first-child')?.textContent || '').trim() === 'PROSEDUR');
+              const ed = row?.querySelector('.rich-text-editor-content');
+              if (!(ed instanceof HTMLElement)) throw new Error('editor missing');
+              ed.focus(); const range = document.createRange(); range.selectNodeContents(ed); range.collapse(false); const s = getSelection(); s?.removeAllRanges(); s?.addRange(range); document.dispatchEvent(new Event('selectionchange'));
+            });
+            await page.click('button[aria-label="Sisipkan Tabel"]');
+            await page.click('.insert-menu-popover button');
+            await new Promise(r => setTimeout(r, 450));
+            await evalResult('insertTablePersists', async () => page.evaluate(() => Boolean(document.querySelector('.sop-live-a4-page .rich-text-editor-content table'))));
+            const cell = await page.$('.sop-live-a4-page .rich-text-editor-content table td');
+            if (cell) await cell.click();
+            await page.click('button[aria-label="Mode Tabel"]');
+            await new Promise(r => setTimeout(r, 100));
+            await evalResult('tableContextEnablesCommands', async () => page.evaluate(() => {
+              const b = document.querySelector('button[aria-label="Tambah Baris"]'); return Boolean(b && !(b).hasAttribute('disabled'));
+            }));
+            const rowsBefore = await page.$$eval('.sop-live-a4-page .rich-text-editor-content table tr', els => els.length);
+            const addRow = await page.$('button[aria-label="Tambah Baris"]'); if (addRow) await addRow.click();
+            await new Promise(r => setTimeout(r, 450));
+            const rowsAfter = await page.$$eval('.sop-live-a4-page .rich-text-editor-content table tr', els => els.length);
+            result.tableAddRow = rowsAfter > rowsBefore; if (!(rowsAfter > rowsBefore)) failures.push('tableAddRow');
+
+            // 5. Insert image must persist and Image Tool commands must target it.
+            await page.click('button[aria-label="Mode Teks"]');
+            await page.evaluate(() => {
+              const rows = [...document.querySelectorAll('.sop-live-a4-page tr')];
+              const row = rows.find(r => (r.querySelector('td:first-child')?.textContent || '').trim() === 'PROSEDUR');
+              const ed = row?.querySelector('.rich-text-editor-content');
+              if (ed instanceof HTMLElement) { ed.focus(); const range = document.createRange(); range.selectNodeContents(ed); range.collapse(false); const s = getSelection(); s?.removeAllRanges(); s?.addRange(range); document.dispatchEvent(new Event('selectionchange')); }
+            });
+            const input = await page.$('.live-spo-context-toolbar input[type=file]');
+            if (input) await input.uploadFile('/tmp/toolbar-audit.png');
+            await new Promise(r => setTimeout(r, 700));
+            await evalResult('insertImagePersists', async () => page.evaluate(() => Boolean(document.querySelector('.sop-live-a4-page .rich-text-editor-content .figure-wrapper, .sop-live-a4-page .rich-text-editor-content figure'))));
+            const img = await page.$('.sop-live-a4-page .rich-text-editor-content img'); if (img) await img.click();
+            await page.click('button[aria-label="Mode Gambar"]');
+            await new Promise(r => setTimeout(r, 100));
+            await evalResult('imageContextEnablesCommands', async () => page.evaluate(() => {
+              const b = document.querySelector('button[aria-label="Lebar gambar 25%"]'); return Boolean(b && !(b).hasAttribute('disabled'));
+            }));
+            const width25 = await page.$('button[aria-label="Lebar gambar 25%"]'); if (width25) await width25.click();
+            await new Promise(r => setTimeout(r, 450));
+            await evalResult('imageWidthCommandPersists', async () => page.evaluate(() => {
+              const fig = document.querySelector('.sop-live-a4-page .rich-text-editor-content .figure-wrapper, .sop-live-a4-page .rich-text-editor-content figure');
+              return fig?.getAttribute('data-width') === '25%';
+            }));
+
+            console.log('TOOLBAR_AUDIT_RESULT', JSON.stringify(result, null, 2));
+            console.log('TOOLBAR_AUDIT_FAILURES', JSON.stringify(failures));
+            if (failures.length) process.exitCode = 1;
+          } finally {
+            await browser.close();
+          }
+          NODE
