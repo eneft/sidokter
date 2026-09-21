@@ -1,0 +1,184 @@
+name: Temporary Pack First Pagination Verification
+
+on:
+  push:
+    branches:
+      - fix/live-spo-pack-first-pagination
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply fail-closed pack-first patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          src = Path('src/utils/canonicalA4Pagination.ts')
+          test = Path('tests/live-sop-content-integrity.test.ts')
+          text = src.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          def replace_count(old, new, expected, label):
+              global text
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{label}: expected {expected} matches, found {count}')
+              text = text.replace(old, new)
+
+          replace_once(
+              "export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 40;\n\n\n/**\n * Keep a complete flow unit together",
+              "export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 40;\n\n/**\n * Returns the incremental rendered content height contributed by one flow unit.\n * The 40px editor minimum belongs to the whole section fragment on a page, not\n * to every extracted paragraph/list/table block inside that section.\n */\nexport function sectionFlowContributionPx(\n  previousRawHeightPx: number,\n  nextRawHeightPx: number,\n  startsNewSectionFragment: boolean\n): number {\n  const previous = Number.isFinite(previousRawHeightPx) ? Math.max(0, previousRawHeightPx) : 0;\n  const next = Number.isFinite(nextRawHeightPx) ? Math.max(0, nextRawHeightPx) : 0;\n  if (startsNewSectionFragment) {\n    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, next);\n  }\n  const before = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous);\n  const after = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous + next);\n  return Math.max(0, after - before);\n}\n\n\n/**\n * Keep a complete flow unit together",
+              'section flow contribution helper'
+          )
+
+          replace_once(
+              """  const measuredHeights = blocks.map((block) => {\n    host.innerHTML = block.html;\n    return Math.max(\n      LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n      host.getBoundingClientRect().height\n    );\n  });\n""",
+              """  const measuredHeights = blocks.map((block) => {\n    host.innerHTML = block.html;\n    // Raw content height only. The section minimum is accounted once per\n    // rendered section fragment by sectionFlowContributionPx below.\n    return Math.max(0, host.getBoundingClientRect().height);\n  });\n""",
+              'raw source block measurements'
+          )
+
+          replace_once(
+              """  const measureFlowPart = (html: string): number => {\n    if (!html) return 0;\n    const mHost = createMeasureHost();\n    mHost.innerHTML = html;\n    const h = mHost.getBoundingClientRect().height;\n    mHost.remove();\n    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, h);\n  };\n""",
+              """  const measureFlowPart = (html: string): number => {\n    if (!html) return 0;\n    const mHost = createMeasureHost();\n    mHost.innerHTML = html;\n    const h = mHost.getBoundingClientRect().height;\n    mHost.remove();\n    return Math.max(0, h);\n  };\n""",
+              'raw continuation measurements'
+          )
+
+          replace_once(
+              """  let used = 0;\n  let capacity = firstCapacity;\n  let currentSection: OfficialBlock['section'] | null = null;\n""",
+              """  let used = 0;\n  let capacity = firstCapacity;\n  let currentSection: OfficialBlock['section'] | null = null;\n  let currentSectionRawHeight = 0;\n""",
+              'section raw height state'
+          )
+
+          replace_once(
+              """    used = 0;\n    capacity = normalCapacity;\n    currentSection = null;\n  };\n""",
+              """    used = 0;\n    capacity = normalCapacity;\n    currentSection = null;\n    currentSectionRawHeight = 0;\n  };\n""",
+              'section raw height reset'
+          )
+
+          replace_once(
+              """    const startsNewSectionRow =\n      currentPageBlocks.length === 0 || block.section !== currentSection;\n    const chrome = startsNewSectionRow ? baseRowPadding : 0;\n    const needed = flowHeights[index] + chrome;\n""",
+              """    const startsNewSectionRow =\n      currentPageBlocks.length === 0 || block.section !== currentSection;\n    const chrome = startsNewSectionRow ? baseRowPadding : 0;\n    const contentContribution = sectionFlowContributionPx(\n      currentSectionRawHeight,\n      flowHeights[index],\n      startsNewSectionRow\n    );\n    const needed = contentContribution + chrome;\n""",
+              'section-scoped minimum accounting'
+          )
+
+          replace_count(
+              "const firstNeeded = firstHeight + chrome;",
+              "const firstNeeded =\n            sectionFlowContributionPx(\n              currentSectionRawHeight,\n              firstHeight,\n              startsNewSectionRow\n            ) + chrome;",
+              4,
+              'split fragment section contribution'
+          )
+
+          replace_count(
+              """            currentPageBlocks.push(fittedFirstBlock);\n            used += firstNeeded;\n            currentSection = block.section;\n            index += 1;\n""",
+              """            currentPageBlocks.push(fittedFirstBlock);\n            used += firstNeeded;\n            currentSectionRawHeight = startsNewSectionRow\n              ? firstHeight\n              : currentSectionRawHeight + firstHeight;\n            currentSection = block.section;\n            index += 1;\n""",
+              4,
+              'split fragment raw height update'
+          )
+
+          replace_once(
+              """    currentPageBlocks.push(block);\n    used += needed;\n    currentSection = block.section;\n    index += 1;\n""",
+              """    currentPageBlocks.push(block);\n    used += needed;\n    currentSectionRawHeight = startsNewSectionRow\n      ? flowHeights[index]\n      : currentSectionRawHeight + flowHeights[index];\n    currentSection = block.section;\n    index += 1;\n""",
+              'normal block raw height update'
+          )
+
+          list_old = """        if (fitCount > 0 && fitCount < items.length) {\n          host.remove();\n          const firstPart = makeList(\n            items.slice(0, fitCount).map((el) => el.outerHTML),\n            0\n          );\n          const remainingPart = makeList(\n            items.slice(fitCount).map((el) => el.outerHTML),\n            fitCount,\n            false,\n            explicitStart + fitCount\n          );\n          return [firstPart, remainingPart];\n        }\n"""
+          list_new = """        if (fitCount > 0 && fitCount < items.length) {\n          const prefixItemHtmls = items\n            .slice(0, fitCount)\n            .map((el) => el.outerHTML);\n          const nextItem = items[fitCount];\n\n          // Strict pack-first: after whole list items have filled most of the\n          // page, use the remaining space for as much of the next text item as\n          // safely fits. Nested tables keep the dedicated V2 safe-row path.\n          if (nextItem && !nextItem.querySelector('table')) {\n            const partialNextItem = splitElementPreservingMarkup(\n              nextItem,\n              maxHeight,\n              (fragment, isFirstChunk) => {\n                const li = nextItem.cloneNode(false) as HTMLElement;\n                li.removeAttribute('id');\n                li.innerHTML = '';\n                li.appendChild(fragment);\n                if (isFirstChunk) {\n                  return makeList(\n                    [...prefixItemHtmls, li.outerHTML],\n                    0,\n                    false,\n                    explicitStart\n                  );\n                }\n                return makeList(\n                  [li.outerHTML],\n                  fitCount,\n                  true,\n                  explicitStart + fitCount\n                );\n              },\n              template\n            );\n\n            if (partialNextItem.length > 1) {\n              host.remove();\n              const laterItems = items\n                .slice(fitCount + 1)\n                .map((el) => el.outerHTML);\n              const laterList = laterItems.length\n                ? makeList(\n                    laterItems,\n                    fitCount + 1,\n                    false,\n                    explicitStart + fitCount + 1\n                  )\n                : '';\n              return [\n                partialNextItem[0],\n                [...partialNextItem.slice(1), laterList].filter(Boolean).join('')\n              ];\n            }\n          }\n\n          host.remove();\n          const firstPart = makeList(prefixItemHtmls, 0);\n          const remainingPart = makeList(\n            items.slice(fitCount).map((el) => el.outerHTML),\n            fitCount,\n            false,\n            explicitStart + fitCount\n          );\n          return [firstPart, remainingPart];\n        }\n"""
+          replace_once(list_old, list_new, 'partial next list item packing')
+
+          src.write_text(text)
+
+          tests = test.read_text()
+          tests = tests.replace(
+              "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  shouldDeferWholeBlockToNextPage,",
+              "  LIVE_SOP_SECTION_MIN_HEIGHT_PX,\n  sectionFlowContributionPx,\n  shouldDeferWholeBlockToNextPage,",
+              1
+          )
+          marker = "pack-first section measurement is not inflated per extracted block"
+          if marker in tests:
+              raise SystemExit('pack-first regression tests already present unexpectedly')
+          tests += '''\n\ntest('pack-first section measurement is not inflated per extracted block', () => {\n  assert.equal(sectionFlowContributionPx(0, 18, true), 40);\n  assert.equal(sectionFlowContributionPx(18, 18, false), 0);\n  assert.equal(sectionFlowContributionPx(36, 18, false), 14);\n  assert.equal(\n    sectionFlowContributionPx(0, 18, true) +\n      sectionFlowContributionPx(18, 18, false) +\n      sectionFlowContributionPx(36, 18, false),\n    54\n  );\n});\n\ntest('canonical paginator measures raw flow blocks and applies the editor floor once per section fragment', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  assert.match(source, /let currentSectionRawHeight = 0/);\n  assert.match(source, /const contentContribution = sectionFlowContributionPx/);\n  assert.match(source, /currentSectionRawHeight = startsNewSectionRow/);\n  assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\\s\\S]{0,260}Math\.max\(\\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);\n});\n\ntest('ordered and bullet lists pack a partial next text item after whole items before deferring', () => {\n  const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');\n  const wholeItems = source.indexOf('if (fitCount > 0 && fitCount < items.length)');\n  const partial = source.indexOf('const partialNextItem = splitElementPreservingMarkup(', wholeItems);\n  const fallback = source.indexOf('const firstPart = makeList(prefixItemHtmls, 0);', partial);\n  assert.ok(wholeItems >= 0);\n  assert.ok(partial > wholeItems, 'next list item must get a partial split chance');\n  assert.ok(fallback > partial, 'whole-item fallback must happen only after partial packing fails');\n  assert.match(source, /Strict pack-first/);\n});\n'''
+          test.write_text(tests)
+          print('Pack-first patch applied fail-closed.')
+          PY
+
+      - name: Diff sanity
+        run: |
+          git diff --check
+          git status --short
+          git diff --stat
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' src/utils/canonicalA4Pagination.ts tests/live-sop-content-integrity.test.ts | sort)"
+          test "$changed" = "$expected"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Live pagination regression
+        run: npm run test:live-pagination
+
+      - name: Toolbar regression
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+
+      - name: Structured table suite
+        run: npm run test:tables
+
+      - name: Storage tests
+        run: npm run test:storage
+
+      - name: Revision tests
+        run: npm run test:revision
+
+      - name: SOP edit tests
+        run: npm run test:sop-edit
+
+      - name: SOP review tests
+        run: npm run test:sop-review
+
+      - name: Mail tests
+        run: npm run test:mail
+
+      - name: PDF binary tests
+        run: npm run test:pdf-binary
+
+      - name: Numbering lifecycle tests
+        run: npm run test:numbering-lifecycle
+
+      - name: Verify Firebase functions
+        run: npm run verify:functions
+
+      - name: TypeScript
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/utils/canonicalA4Pagination.ts tests/live-sop-content-integrity.test.ts
+          git rm .github/workflows/tmp-pack-first-pagination.yml
+          git commit -m "fix: pack Live SPO content before page breaks"
+          git push origin HEAD:fix/live-spo-pack-first-pagination
