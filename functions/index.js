@@ -2295,6 +2295,10 @@ table.sop-official-table td.sop-document-type-label {
    generic official-table border rule injected by the server renderer. */
 #printable-sop-official-document.pdf-export-document table.sop-official-table.sop-continuation-page-table{border-bottom:0!important}
 #printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"]>td,#printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"]>th{border-bottom:0!important}
+/* Raster-safe PDF continuation junction: overlap the collapsed table edge by
+   one pixel and draw the final floor inside the filler instead of on its clipped border. */
+#printable-sop-official-document.pdf-export-document [data-sop-page-continuation-fill="true"]{margin-top:-1px!important;position:relative!important;z-index:1!important;background:#fff!important;border-bottom:0!important;box-shadow:0 -1px 0 #fff!important}
+#printable-sop-official-document.pdf-export-document [data-sop-page-continuation-fill="true"]::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#000;pointer-events:none;z-index:2}
 .no-print { display: none !important; }
 </style>
 </head>

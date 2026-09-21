@@ -650,6 +650,31 @@ table.sop-official-table td.sop-document-type-label {
   border-bottom: 0 !important;
 }
 
+/* Chromium print can still rasterize the collapsed table edge at the junction
+   immediately above the continuation filler. Let the filler overlap that edge
+   by exactly one CSS pixel, then draw the authoritative floor as an inner
+   raster-safe rule so it cannot be clipped by the A4 overflow boundary. */
+#printable-sop-official-document.pdf-export-document [data-sop-page-continuation-fill="true"] {
+  margin-top: -1px !important;
+  position: relative !important;
+  z-index: 1 !important;
+  background: #ffffff !important;
+  border-bottom: 0 !important;
+  box-shadow: 0 -1px 0 #ffffff !important;
+}
+
+#printable-sop-official-document.pdf-export-document [data-sop-page-continuation-fill="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: #000000;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .no-print {
   display: none !important;
 }

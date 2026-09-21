@@ -79,3 +79,20 @@ test('PDF server renderers preserve the canonical continuation bottom floor', ()
     );
   }
 });
+
+
+test('PDF continuation filler masks the rasterized junction and redraws one inner floor', () => {
+  const sources = [
+    ['Firebase pdfApi', readFileSync('functions/index.js', 'utf8')],
+    ['Vercel api/pdf', readFileSync('api/pdf.ts', 'utf8')],
+  ] as const;
+
+  for (const [label, source] of sources) {
+    const guard = source.lastIndexOf('[data-sop-page-continuation-fill=');
+    const genericBorder = source.lastIndexOf('border:1px solid #000!important');
+    assert.ok(guard > genericBorder, `${label}: raster guard must follow generic table borders`);
+    assert.match(source, /data-sop-page-continuation-fill[^}]*\{[^}]*margin-top\s*:\s*-1px\s*!important/i, `${label}: 1px junction overlap missing`);
+    assert.match(source, /data-sop-page-continuation-fill[^}]*\{[^}]*border-bottom\s*:\s*0\s*!important/i, `${label}: clipped filler border must be disabled`);
+    assert.match(source, /data-sop-page-continuation-fill[^}]*::after[^}]*\{[^}]*bottom\s*:\s*0[^}]*height\s*:\s*1px[^}]*background\s*:\s*#(?:000000|000)/i, `${label}: inner canonical floor rule missing`);
+  }
+});
