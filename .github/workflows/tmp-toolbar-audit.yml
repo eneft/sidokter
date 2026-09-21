@@ -11,7 +11,7 @@ permissions:
 jobs:
   audit-toolbar:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,6 +67,48 @@ jobs:
       - name: Audit pagination object integrity
         if: always()
         run: node scripts/tmp-toolbar-integrity-audit.mjs
+      - name: Audit extended toolbar commands in Chromium
+        if: always()
+        run: node scripts/tmp-toolbar-extended-audit.mjs
       - name: Diagnose remaining image context
         if: always()
         run: node scripts/tmp-image-context-debug.mjs
+      - name: Live editor regression contract
+        if: always()
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+      - name: TypeScript gate
+        if: always()
+        run: npm run lint
+      - name: Functions verification gate
+        if: always()
+        run: npm run verify:functions
+      - name: Storage tests
+        if: always()
+        run: npm run test:storage
+      - name: Revision tests
+        if: always()
+        run: npm run test:revision
+      - name: SOP edit tests
+        if: always()
+        run: npm run test:sop-edit
+      - name: SOP review tests
+        if: always()
+        run: npm run test:sop-review
+      - name: Mail tests
+        if: always()
+        run: npm run test:mail
+      - name: Structured table tests
+        if: always()
+        run: npm run test:tables
+      - name: PDF binary tests
+        if: always()
+        run: npm run test:pdf-binary
+      - name: Numbering lifecycle tests
+        if: always()
+        run: npm run test:numbering-lifecycle
+      - name: Live pagination tests
+        if: always()
+        run: npm run test:live-pagination
+      - name: Production build
+        if: always()
+        run: npm run build
