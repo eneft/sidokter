@@ -128,6 +128,8 @@ export interface RichTextEditorHandle {
   applyImageWrap: (mode: WordWrapMode) => void;
   resetImage: () => void;
   deleteImage: () => void;
+  /** Capture the current editor selection before an external/native toolbar control takes focus. */
+  captureSelection: () => boolean;
   focus: () => void;
 }
 
@@ -2575,6 +2577,16 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       applyWordWrapMode('top-bottom', 'center');
     },
     deleteImage: deleteSelectedFigure,
+    captureSelection: () => {
+      const editor = editorRef.current;
+      const selection = window.getSelection();
+      if (editor && selection?.rangeCount && selection.anchorNode && editor.contains(selection.anchorNode)) {
+        savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+        return true;
+      }
+      const saved = savedRangeRef.current;
+      return Boolean(editor && saved && editor.contains(saved.commonAncestorContainer));
+    },
     focus: () => editorRef.current?.focus(),
   }));
 

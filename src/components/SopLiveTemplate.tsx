@@ -592,6 +592,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <select
               aria-label="Ukuran huruf"
               value={activeFormatting.fontSize || '12pt'}
+              onMouseDown={() => getActiveEditor()?.captureSelection()}
               onChange={(e) => getActiveEditor()?.applyFontSize(e.target.value as LiveSopFontSize)}
               className="h-6 w-14 shrink-0 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold"
             >
@@ -620,9 +621,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             </div>
             <div className="toolbar-command-group">
               <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { if (tableFileInputRef.current) { tableFileInputRef.current.value = ''; tableFileInputRef.current.click(); } }} className="toolbar-icon" title="Sisipkan Gambar" aria-label="Sisipkan Gambar"><ImagePlus /></button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); getActiveEditor()?.captureSelection(); }} onClick={() => { if (tableFileInputRef.current) { tableFileInputRef.current.value = ''; tableFileInputRef.current.click(); } }} className="toolbar-icon" title="Sisipkan Gambar" aria-label="Sisipkan Gambar"><ImagePlus /></button>
               <div className="relative">
-                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setShowInsertMenu((v) => !v)} className="toolbar-icon" title="Sisipkan Tabel" aria-label="Sisipkan Tabel" aria-expanded={showInsertMenu}><Table2 /></button>
+                <button type="button" onMouseDown={(e) => { e.preventDefault(); getActiveEditor()?.captureSelection(); }} onClick={() => setShowInsertMenu((v) => !v)} className="toolbar-icon" title="Sisipkan Tabel" aria-label="Sisipkan Tabel" aria-expanded={showInsertMenu}><Table2 /></button>
                 {showInsertMenu && (
                   <div className="insert-menu-popover absolute top-full right-0 z-50 mt-1 w-40 rounded-md border bg-white p-2 shadow-xl">
                     <p className="mb-1 text-[10px] font-bold">Sisipkan Tabel</p>
@@ -875,7 +876,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                       : null;
                                   }
                                   if (activeEditorKeyRef.current === editorKey) {
-                                    activeEditorKeyRef.current = null;
+                                    // Callback refs are recreated on every parent toolbar render,
+                                    // so React transiently calls the previous ref with null before
+                                    // attaching the new handle. Preserve the ownership key across
+                                    // that detach/attach pair; the fallback handle is temporary.
                                     activeEditorRef.current = editorRefs.current[cfg.id] || null;
                                   }
                                 }}

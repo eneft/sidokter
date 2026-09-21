@@ -79,3 +79,17 @@ test('active Live SPO fragment ignores stale paginated prop echoes during local 
   assert.match(sync, /return;/);
   assert.match(input, /localMutationUntilRef\.current = Date\.now\(\) \+ 1500/);
 });
+
+
+test('shared toolbar preserves fragment ownership across callback-ref churn', () => {
+  assert.doesNotMatch(template, /activeEditorKeyRef\.current === editorKey[\s\S]{0,120}activeEditorKeyRef\.current = null/);
+  assert.match(template, /Preserve the ownership key across/);
+});
+
+test('shared native controls capture the active editor selection before focus leaves contentEditable', () => {
+  assert.match(editor, /captureSelection:\s*\(\) => boolean/);
+  assert.match(editor, /captureSelection:\s*\(\) => \{/);
+  assert.match(template, /aria-label="Ukuran huruf"[\s\S]{0,180}onMouseDown=\{\(\) => getActiveEditor\(\)\?\.captureSelection\(\)\}/);
+  assert.match(template, /aria-label="Sisipkan Tabel"[\s\S]{0,220}captureSelection/);
+  assert.match(template, /aria-label="Sisipkan Gambar"[\s\S]{0,220}captureSelection/);
+});
