@@ -1055,23 +1055,22 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
     figure.classList.add('figure-selected');
-    // Image selection originates from a native capture listener. Publish the
-    // object context synchronously after onFocus() claims toolbar ownership;
-    // relying only on the later effect can race a parent toolbar rerender and
-    // leave the shared Image Tool disabled even though the figure is selected.
-    setActiveFormatting(current => {
-      const next: RichTextFormattingState = {
-        ...current,
-        context: 'image',
-        inTable: false,
-        imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
-        imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
-        imageWrap: wrapMode,
-      };
-      onFormattingChange?.(next);
-      return next;
-    });
-  }, [onFocus, onFormattingChange]);
+    // Image selection originates from a native capture listener. onFocus()
+    // above claims the exact fragment synchronously through the parent's refs.
+    // Publish the same image state to the shared toolbar outside the React
+    // state updater so we never update SopLiveTemplate while RichTextEditor is
+    // rendering its own state transition.
+    const next: RichTextFormattingState = {
+      ...activeFormatting,
+      context: 'image',
+      inTable: false,
+      imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
+      imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
+      imageWrap: wrapMode,
+    };
+    setActiveFormatting(next);
+    onFormattingChange?.(next);
+  }, [activeFormatting, onFocus, onFormattingChange]);
 
   const clearFigureSelection = useCallback(() => {
     setSelectedFigure(null);

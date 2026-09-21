@@ -95,9 +95,12 @@ test('shared native controls capture the active editor selection before focus le
 });
 
 
-test('image selection publishes shared toolbar context synchronously after claiming ownership', () => {
+test('image selection publishes shared toolbar context synchronously without parent update inside state updater', () => {
   const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));
   assert.match(selectFigure, /onFocus\?\.\(\)/);
+  assert.match(selectFigure, /const next:\s*RichTextFormattingState/);
+  assert.match(selectFigure, /setActiveFormatting\(next\)/);
   assert.match(selectFigure, /onFormattingChange\?\.\(next\)/);
   assert.match(selectFigure, /context:\s*'image'/);
+  assert.doesNotMatch(selectFigure, /setActiveFormatting\(current\s*=>[\s\S]*onFormattingChange/);
 });
