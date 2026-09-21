@@ -638,6 +638,18 @@ table.sop-official-table td.sop-document-type-label {
   clear: both;
 }
 
+/* Final PDF cascade guard: continuation pages have one authoritative bottom
+   rule, drawn by the continuation filler at the canonical page floor. Keep
+   this AFTER the generic PDF table/cell border rules above. */
+#printable-sop-official-document.pdf-export-document table.sop-official-table.sop-continuation-page-table {
+  border-bottom: 0 !important;
+}
+
+#printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > td,
+#printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"] > th {
+  border-bottom: 0 !important;
+}
+
 .no-print {
   display: none !important;
 }

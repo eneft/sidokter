@@ -2291,6 +2291,10 @@ table.sop-official-table td.sop-document-type-label {
 .figure-wrapper[data-wrap="square"][data-align="right"]{float:right!important;margin:4px 0 10px 18px!important;clear:none!important}
 .figure-wrapper[data-wrap="inline"]{display:inline-block!important;vertical-align:middle!important;float:none!important;clear:none!important;margin:2px 6px!important}
 .rich-text-document-content::after,.rich-text-output::after{content:"";display:table;clear:both}
+/* Final PDF cascade guard: keep continuation floor suppression after every
+   generic official-table border rule injected by the server renderer. */
+#printable-sop-official-document.pdf-export-document table.sop-official-table.sop-continuation-page-table{border-bottom:0!important}
+#printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"]>td,#printable-sop-official-document.pdf-export-document table.sop-official-table tr[data-sop-suppress-bottom-border="true"]>th{border-bottom:0!important}
 .no-print { display: none !important; }
 </style>
 </head>
