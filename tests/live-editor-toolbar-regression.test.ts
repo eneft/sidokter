@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
+const template = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
 
 test('image selection invalidates stale text range and pointer-up cannot demote image context', () => {
   const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));
@@ -71,13 +72,15 @@ test('clearing or deleting an image clears image formatting context', () => {
   assert.match(remove, /imageWrap:\s*undefined/);
 });
 
-test('active Live SPO fragment ignores stale paginated prop echoes during local mutation', () => {
+test('active Live SPO fragment ignores only same-epoch stale echoes and accepts canonical repagination', () => {
   const sync = editor.slice(editor.indexOf('// Sync value from prop'), editor.indexOf('// Recalculate overlay'));
-  const input = editor.slice(editor.indexOf('const handleInput'), editor.indexOf('// Helper to reliably select'));
-  assert.match(sync, /Date\.now\(\) < localMutationUntilRef\.current/);
-  assert.match(sync, /ownsInteraction/);
-  assert.match(sync, /return;/);
-  assert.match(input, /localMutationUntilRef\.current = Date\.now\(\) \+ 1500/);
+  assert.match(editor, /paginationEpoch\?: object/);
+  assert.match(editor, /lastPaginationEpochRef/);
+  assert.match(sync, /const epochChanged = paginationEpoch !== lastPaginationEpochRef\.current/);
+  assert.match(sync, /!epochChanged/);
+  assert.match(sync, /incoming === previousIncoming/);
+  assert.match(sync, /lastPaginationEpochRef\.current = paginationEpoch/);
+  assert.doesNotMatch(editor, /localMutationUntilRef/);
 });
 
 
@@ -94,6 +97,16 @@ test('shared native controls capture the active editor selection before focus le
   assert.match(template, /aria-label="Sisipkan Gambar"[\s\S]{0,220}captureSelection/);
 });
 
+
+test('shared multi-page history is logical-section scoped and table clicks reclaim toolbar ownership', () => {
+  assert.match(editor, /onHistoryCommand\?: \(command: RichTextHistoryCommand\) => boolean/);
+  assert.match(editor, /isHistoryCommand && onHistoryCommand\?\.\(command as RichTextHistoryCommand\)/);
+  assert.match(editor, /onFocus\?\.\(\);[\s\S]*const activeTable = activeCell\.closest\('table'\)/);
+  assert.match(editor, /onFormattingChange\?\.\(next\)/);
+  assert.match(template, /const handleSectionHistory = \(section: LiveSectionId, command: 'undo' \| 'redo'\)/);
+  assert.match(template, /setDebouncedBlocks\(buildOfficialBlocks\(nextSections\)\)/);
+  assert.match(template, /onHistoryCommand=\{\(command\) => handleSectionHistory\(cfg\.id, command\)\}/);
+});
 
 test('image selection publishes shared toolbar context synchronously without parent update inside state updater', () => {
   const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));

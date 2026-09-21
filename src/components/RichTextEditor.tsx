@@ -59,6 +59,10 @@ export type WordWrapMode =
 
 /** Canonical font sizes supported by LiveSPOEditor document content. */
 export type LiveSopFontSize = '8pt' | '10pt' | '12pt';
+export type RichTextHistoryCommand = 'undo' | 'redo';
+export interface RichTextChangeMeta {
+  historyMode: 'coalesce' | 'discrete';
+}
 
 // Microsoft Word Layout Options Button Icon (Exact match to MS Word UI)
 const WordLayoutOptionsIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-5' }) => (
@@ -79,7 +83,7 @@ interface RichTextEditorProps {
   label?: string;
   required?: boolean;
   value: string;
-  onChange: (val: string) => void;
+  onChange: (val: string, meta?: RichTextChangeMeta) => void;
   placeholder?: string;
   minHeight?: string;
   className?: string;
@@ -90,6 +94,10 @@ interface RichTextEditorProps {
   variant?: 'default' | 'seamless';
   onFocus?: () => void;
   onFormattingChange?: (formatting: RichTextFormattingState) => void;
+  // Shared multi-page Live A4 supplies section-level history because native
+  // contentEditable history is owned by one physical page fragment. Standalone
+  // editors omit this callback and keep the browser's native history.
+  onHistoryCommand?: (command: RichTextHistoryCommand) => boolean;
   // Optional canonical pagination generation supplied by SopLiveTemplate.
   // A new object identity means physical-page fragments have been recomputed.
   paginationEpoch?: object;
@@ -597,6 +605,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   variant = 'default',
   onFocus,
   onFormattingChange,
+  onHistoryCommand,
   paginationEpoch,
 }, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -758,6 +767,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
+    // Table cell clicks can happen while this contentEditable already owns DOM
+    // focus, so React onFocus will not fire again. Claim shared-toolbar ownership
+    // explicitly, exactly like object/image selection does.
+    onFocus?.();
     const activeTable = activeCell.closest('table') as HTMLTableElement | null;
     if (activeTable) ensureLogicalColumns(activeTable);
     setSelectedTable(activeTable);
@@ -771,11 +784,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     // covers empty cells and padding clicks where the browser leaves its native
     // selection in the previously active cell.
     savedRangeRef.current = cellRange;
-    // A click on cell padding or an empty cell may not move the browser
-    // selection. Publish table context directly from the pointer target so the
-    // shared toolbar switches modes immediately and consistently.
-    setActiveFormatting(current => ({
-      ...current,
+    // Publish table context synchronously after ownership is claimed. Do not
+    // call the parent from a functional state updater (React cross-render hazard).
+    const next: RichTextFormattingState = {
+      ...activeFormatting,
       context: 'table',
       inTable: true,
       tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
@@ -785,8 +797,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       tableColumnCount: cellPosition.columnCount,
       canMerge: Boolean(activeCell.nextElementSibling),
       canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
-    }));
-  }, [updateTableRect]);
+    };
+    setActiveFormatting(next);
+    onFormattingChange?.(next);
+  }, [activeFormatting, onFocus, onFormattingChange, updateTableRect]);
 
   const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -1014,13 +1028,13 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     };
   }, [updateFigureRect]);
 
-  const handleInput = useCallback(() => {
+  const handleInput = useCallback((historyMode: RichTextChangeMeta['historyMode'] = 'discrete') => {
     if (isUpdatingFromPropRef.current || !editorRef.current) return;
     normalizeStructuredTables(editorRef.current);
     const html = editorRef.current.innerHTML;
     const cleanHtml = html === '<br>' || html.trim() === '' ? '' : html;
     lastEmittedValueRef.current = cleanHtml;
-    onChange(cleanHtml);
+    onChange(cleanHtml, { historyMode });
     updateFigureRect();
   }, [onChange, updateFigureRect]);
 
@@ -1417,6 +1431,47 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     updateFigureRect();
   };
 
+  const resetSelectedFigure = () => {
+    if (!selectedFigure) return;
+    const width = 75;
+    const wrap: WordWrapMode = 'top-bottom';
+    const align: 'center' = 'center';
+
+    selectedFigure.setAttribute('data-rotation', '0');
+    selectedFigure.setAttribute('data-width', `${width}%`);
+    selectedFigure.setAttribute('data-wrap', wrap);
+    selectedFigure.style.transform = '';
+    selectedFigure.style.maxWidth = `${width}%`;
+    selectedFigure.style.width = `${width}%`;
+    selectedFigure.style.float = 'none';
+    selectedFigure.style.clear = 'both';
+    selectedFigure.style.marginLeft = 'auto';
+    selectedFigure.style.marginRight = 'auto';
+    selectedFigure.style.position = 'relative';
+    selectedFigure.style.opacity = '1';
+    selectedFigure.style.zIndex = '1';
+    selectedFigure.style.mixBlendMode = 'normal';
+    selectedFigure.style.boxShadow = 'none';
+    selectedFigure.style.top = 'auto';
+    selectedFigure.style.left = 'auto';
+    selectedFigure.style.verticalAlign = '';
+    applyFigureAlignment(selectedFigure, align, wrap);
+
+    setCurrentRotation(0);
+    setCurrentWrapMode(wrap);
+    setShowWrapTextMenu(false);
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'image',
+      inTable: false,
+      imageWidth: width,
+      imageAlign: align,
+      imageWrap: wrap,
+    }));
+    handleInput();
+    updateFigureRect();
+  };
+
   const deleteSelectedFigure = () => {
     if (!selectedFigure) return;
     selectedFigure.remove();
@@ -1441,6 +1496,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     if (!editorRef.current) return;
     const isHistoryCommand = command === 'undo' || command === 'redo';
     if (selectedFigure && !isHistoryCommand) return;
+    if (isHistoryCommand && onHistoryCommand?.(command as RichTextHistoryCommand)) {
+      updateActiveFormatting();
+      return;
+    }
     const restored = restoreSavedSelection();
     if (!isHistoryCommand && !restored) return;
 
@@ -1528,6 +1587,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const modifier = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (modifier && !e.altKey && (key === 'z' || key === 'y')) {
+      e.preventDefault();
+      executeCommand(key === 'y' || (key === 'z' && e.shiftKey) ? 'redo' : 'undo');
+      return;
+    }
+
     // 1. Tab / Shift+Tab for Indenting & Outdenting in lists (Sub-bullets & Sub-numbers)
     if (e.key === 'Tab') {
       const selection = window.getSelection();
@@ -2590,13 +2657,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       setActiveFormatting(current => ({ ...current, imageAlign: alignment, context: 'image' }));
     },
     applyImageWrap: applyWordWrapMode,
-    resetImage: () => {
-      if (!selectedFigure) return;
-      selectedFigure.style.transform = '';
-      selectedFigure.setAttribute('data-rotation', '0');
-      applyFigurePercentWidth(75);
-      applyWordWrapMode('top-bottom', 'center');
-    },
+    resetImage: resetSelectedFigure,
     deleteImage: deleteSelectedFigure,
     captureSelection: () => {
       const editor = editorRef.current;
@@ -3011,8 +3072,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           onFocus={onFocus}
           onPointerDown={handleEditorPointerDown}
           onPointerUp={handleEditorPointerUp}
-          onInput={handleInput}
-          onBlur={handleInput}
+          onInput={(event) => {
+            const inputType = (event.nativeEvent as InputEvent).inputType || '';
+            const historyMode: RichTextChangeMeta['historyMode'] = [
+              'insertText', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward'
+            ].includes(inputType) ? 'coalesce' : 'discrete';
+            handleInput(historyMode);
+          }}
+          onBlur={() => handleInput('discrete')}
           onKeyDown={handleEditorKeyDown}
           onKeyUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}

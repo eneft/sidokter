@@ -155,6 +155,38 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});
   const activeEditorRef = useRef<RichTextEditorHandle | null>(null);
   const activeEditorKeyRef = useRef<string | null>(null);
+  type LiveSectionId = 'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait';
+  type HistoryMode = 'coalesce' | 'discrete';
+  type SectionHistoryBucket = {
+    undo: string[];
+    redo: string[];
+    lastMode: HistoryMode | null;
+    lastAt: number;
+  };
+  const makeHistoryBucket = (): SectionHistoryBucket => ({ undo: [], redo: [], lastMode: null, lastAt: 0 });
+  const sectionHistoryRef = useRef<Record<LiveSectionId, SectionHistoryBucket>>({
+    pengertian: makeHistoryBucket(), tujuan: makeHistoryBucket(), kebijakan: makeHistoryBucket(),
+    prosedur: makeHistoryBucket(), alur: makeHistoryBucket(), unitTerkait: makeHistoryBucket(),
+  });
+  const latestSectionValuesRef = useRef<Record<LiveSectionId, string>>({
+    pengertian, tujuan, kebijakan, prosedur, alur, unitTerkait,
+  });
+  const pendingSectionValuesRef = useRef<Partial<Record<LiveSectionId, string>>>({});
+
+  useEffect(() => {
+    const incoming: Record<LiveSectionId, string> = { pengertian, tujuan, kebijakan, prosedur, alur, unitTerkait };
+    (Object.keys(incoming) as LiveSectionId[]).forEach((section) => {
+      const hasPending = Object.prototype.hasOwnProperty.call(pendingSectionValuesRef.current, section);
+      if (!hasPending) {
+        latestSectionValuesRef.current[section] = incoming[section];
+        return;
+      }
+      if (pendingSectionValuesRef.current[section] === incoming[section]) {
+        latestSectionValuesRef.current[section] = incoming[section];
+        delete pendingSectionValuesRef.current[section];
+      }
+    });
+  }, [pengertian, tujuan, kebijakan, prosedur, alur, unitTerkait]);
 
   const [activeFormatting, setActiveFormatting] = useState<RichTextFormattingState>({
     bold: false,
@@ -225,6 +257,60 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   }, [rawSections]);
 
   const [debouncedBlocks, setDebouncedBlocks] = useState<OfficialBlock[]>(officialBlocks);
+
+  const pushBounded = (stack: string[], value: string) => {
+    stack.push(value);
+    if (stack.length > 100) stack.shift();
+  };
+
+  const recordSectionHistory = (section: LiveSectionId, nextValue: string, mode: HistoryMode = 'discrete') => {
+    const previousValue = latestSectionValuesRef.current[section];
+    if (previousValue === nextValue) return;
+    const bucket = sectionHistoryRef.current[section];
+    const now = Date.now();
+    const coalesce = mode === 'coalesce' && bucket.lastMode === 'coalesce' && now - bucket.lastAt < 1200;
+    if (!coalesce) pushBounded(bucket.undo, previousValue);
+    bucket.redo = [];
+    bucket.lastMode = mode;
+    bucket.lastAt = now;
+    latestSectionValuesRef.current[section] = nextValue;
+    pendingSectionValuesRef.current[section] = nextValue;
+  };
+
+  const applySectionValue = (section: LiveSectionId, value: string) => {
+    switch (section) {
+      case 'pengertian': onPengertianChange(value); break;
+      case 'tujuan': onTujuanChange(value); break;
+      case 'kebijakan': onKebijakanChange(value); break;
+      case 'prosedur': onProsedurChange(value); break;
+      case 'alur': onAlurChange(value); break;
+      case 'unitTerkait': onUnitTerkaitChange(value); break;
+    }
+  };
+
+  const handleSectionHistory = (section: LiveSectionId, command: 'undo' | 'redo') => {
+    const bucket = sectionHistoryRef.current[section];
+    const source = command === 'undo' ? bucket.undo : bucket.redo;
+    // Shared A4 always owns history. Swallow an empty history command instead
+    // of falling through to a stale physical-fragment native stack.
+    if (source.length === 0) return true;
+
+    const currentValue = latestSectionValuesRef.current[section];
+    const targetValue = source.pop() as string;
+    const opposite = command === 'undo' ? bucket.redo : bucket.undo;
+    pushBounded(opposite, currentValue);
+    bucket.lastMode = null;
+    bucket.lastAt = 0;
+    latestSectionValuesRef.current[section] = targetValue;
+    pendingSectionValuesRef.current[section] = targetValue;
+
+    const nextSections = { ...latestSectionValuesRef.current };
+    // History changes must be visible immediately; do not wait for the normal
+    // 250 ms pagination debounce before remapping the physical page fragments.
+    setDebouncedBlocks(buildOfficialBlocks(nextSections));
+    applySectionValue(section, targetValue);
+    return true;
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -885,8 +971,11 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 }}
                                 label=""
                                 value={fragmentHtml}
-                                onChange={(newPartHtml) => {
+                                onChange={(newPartHtml, changeMeta) => {
                                   // If this section is split across multiple pages, reassemble it cleanly
+                                  // before recording history. History belongs to the logical section,
+                                  // never to one transient physical page fragment.
+                                  let nextSectionHtml = newPartHtml;
                                   if (totalPages > 1 && calculatedPages.length > 1) {
                                     const allPartsForSection: string[] = [];
                                     calculatedPages.forEach((p, pIdx) => {
@@ -899,10 +988,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                         }
                                       }
                                     });
-                                    cfg.onChange(allPartsForSection.join(''));
-                                  } else {
-                                    cfg.onChange(newPartHtml);
+                                    nextSectionHtml = allPartsForSection.join('');
                                   }
+                                  recordSectionHistory(cfg.id, nextSectionHtml, changeMeta?.historyMode || 'discrete');
+                                  cfg.onChange(nextSectionHtml);
                                 }}
                                 placeholder={cfg.placeholder}
                                 minHeight={cfg.minHeight}
@@ -910,6 +999,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 hideToolbar={true}
                                 variant="seamless"
                                 paginationEpoch={debouncedBlocks}
+                                onHistoryCommand={(command) => handleSectionHistory(cfg.id, command)}
                                 onFocus={() => {
                                   setActiveTableSection(cfg.id);
                                   activeEditorKeyRef.current = editorKey;
