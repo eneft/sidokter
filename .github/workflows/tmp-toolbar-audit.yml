@@ -62,3 +62,6 @@ jobs:
           exit 1
       - name: Audit isolated toolbar interactions in Chromium
         run: node scripts/tmp-toolbar-browser-audit.mjs
+      - name: Diagnose remaining image context
+        if: always()
+        run: node scripts/tmp-image-context-debug.mjs
