@@ -812,13 +812,6 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                         const cfg = getSectionConfig(group.section);
                         const isSectionActive = activeTableSection === cfg.id;
 
-                        // Check if this section already had content on an earlier page
-                        const isContinuedFromEarlierPage =
-                          pageIndex > 0 &&
-                          calculatedPages
-                            .slice(0, pageIndex)
-                            .some((earlierPage) => earlierPage.some((b) => b.section === group.section));
-
                         // If the section is contained entirely on this page, use cfg.val directly
                         // to avoid unnecessary HTML serialization differences
                         const isMultiPageSection =
@@ -835,24 +828,16 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                         return (
                           <tr key={`page-${pageIndex}-group-${groupIdx}-${cfg.id}`}>
                             <td
-                              className="border border-black p-2 font-bold uppercase align-top text-xs font-bookman whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] text-black"
+                              className={`border border-black p-2.5 font-bold uppercase align-top text-black font-bookman sop-batang-tubuh-title whitespace-normal [word-break:normal] [overflow-wrap:break-word] w-[28%] ${cfg.isMissing ? 'text-rose-700' : 'text-black'}`}
                               style={{ borderBottom: extendToPageBottom ? '0' : undefined }}
                             >
-                              <div className="flex flex-col gap-0.5">
-                                <span className={cfg.isMissing ? 'text-rose-700' : 'text-black'}>
-                                  {group.section}
-                                </span>
-                                {group.section === 'ALUR / BAGAN ALIR' && (
-                                  <span className="text-[9px] font-normal text-slate-500 tracking-normal normal-case">
-                                    (Opsional)
-                                  </span>
-                                )}
-                                {isContinuedFromEarlierPage && (
-                                  <span className="text-[9px] font-semibold text-indigo-700 normal-case tracking-normal">
-                                    (Lanjutan)
-                                  </span>
-                                )}
-                              </div>
+                              {group.section === 'ALUR / BAGAN ALIR' ? (
+                                <><div>ALUR /</div><div>BAGAN ALIR</div></>
+                              ) : group.section === 'UNIT TERKAIT' ? (
+                                <><div>UNIT</div><div>TERKAIT</div></>
+                              ) : (
+                                group.section
+                              )}
                             </td>
                             <td
                               colSpan={3}

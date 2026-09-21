@@ -2960,7 +2960,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           onDrop={handleEditorDrop}
           style={{ minHeight }}
           data-placeholder={placeholder}
-          className={`rich-text-editor-content p-2 sm:p-2.5 text-xs sm:text-[13px] text-slate-900 focus:outline-none font-bookman leading-normal empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none [word-break:normal] [overflow-wrap:break-word] [word-wrap:break-word] [hyphens:none] ${isFullscreen ? "flex-1 min-h-0" : ""}`}
+          className={`rich-text-editor-content ${variant === 'seamless' ? 'p-0' : 'p-2 sm:p-2.5'} text-xs sm:text-[13px] text-slate-900 focus:outline-none font-bookman leading-normal empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none [word-break:normal] [overflow-wrap:break-word] [word-wrap:break-word] [hyphens:none] ${isFullscreen ? "flex-1 min-h-0" : ""}`}
         />
 
         {/* Persistent table selection chrome keeps table context visually clear

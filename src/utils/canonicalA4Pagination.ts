@@ -35,17 +35,26 @@ export interface CanonicalPaginationOptions {
 }
 
 /**
- * Empty/short LiveSPO sections keep one compact editable line. The same value
- * is used by the paginator and SopLiveTemplate so no section gets a special
- * fixed height (PROSEDUR included). Content taller than this remains fully
- * content-driven.
+ * Empty/short LiveSPO sections keep exactly one canonical 12pt / 1.5 line.
+ * Cell inset/border are page-row chrome and are accounted separately so Live,
+ * Preview/PDF and the paginator use the same physical geometry.
  */
-export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 40;
+export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 24;
+
+/** Canonical Batang Tubuh content-cell inset used by Preview/PDF and Live A4. */
+export const SOP_SECTION_CELL_PADDING_MM = 3;
+const CSS_PX_PER_MM = 96 / 25.4;
+const OFFICIAL_CELL_HORIZONTAL_BORDER_PX = 2;
+
+/** 3mm top + 3mm bottom + the collapsed official-table border. */
+export function getCanonicalSectionRowChromePx(): number {
+  return SOP_SECTION_CELL_PADDING_MM * 2 * CSS_PX_PER_MM + 1;
+}
 
 /**
  * Returns the incremental rendered content height contributed by one flow unit.
- * The 40px editor minimum belongs to the whole section fragment on a page, not
- * to every extracted paragraph/list/table block inside that section.
+ * The one-line editor minimum belongs to the whole section fragment on a page,
+ * not to every extracted paragraph/list/table block inside that section.
  */
 export function sectionFlowContributionPx(
   previousRawHeightPx: number,
@@ -334,19 +343,20 @@ export function extractProcedureBlocks(html: string): string[] {
 }
 
 /**
- * Calculates the exact canonical width (in px) of the Batang Tubuh content cell.
- * A4 width = 210mm, Left/Right margin = 20mm each.
- * Effective content width = 170mm.
- * Batang Tubuh right column = 72% of 170mm = 122.4mm.
- * At 96 DPI: 122.4 * 96 / 25.4 = 462.61px.
- * Minus cell padding (0.625rem = 10px each side = 20px) = 442.6px.
+ * Calculates the exact canonical authored-content width (in px) inside the
+ * Batang Tubuh content cell. The official cell is 72% of 170mm = 122.4mm and
+ * Preview/PDF apply 3mm inset on both sides, leaving 116.4mm for authored HTML.
  */
 export function getCanonicalContentWidthPx(): number {
-  const contentWidthMm = SPO_A4.contentWidthMm; // 170mm
-  const colRatio = (SPO_A4.sectionContentPercent || 72) / 100; // 0.72
-  const cellWidthMm = contentWidthMm * colRatio; // 122.4mm
-  const cellWidthPx = (cellWidthMm * 96) / 25.4; // 462.61px
-  return Math.round((cellWidthPx - 20) * 10) / 10; // ~442.6px
+  const contentWidthMm = SPO_A4.contentWidthMm;
+  const colRatio = (SPO_A4.sectionContentPercent || 72) / 100;
+  const cellWidthMm = contentWidthMm * colRatio;
+  const innerWidthMm = cellWidthMm - SOP_SECTION_CELL_PADDING_MM * 2;
+  // The content box also excludes the official 1px left/right cell borders.
+  // In Chromium's collapsed table layout this keeps the measurement width
+  // within a sub-pixel of the actual Preview/Live authored-content box.
+  const innerWidthPx = innerWidthMm * CSS_PX_PER_MM - OFFICIAL_CELL_HORIZONTAL_BORDER_PX;
+  return Math.round(innerWidthPx * 10) / 10;
 }
 
 /**
@@ -379,9 +389,12 @@ export function createMeasureHost(template?: HTMLElement | null): HTMLElement {
       ? `${measuredWidth}px`
       : `${canonicalWidth}px`;
 
-  // Apply classes so compact table rules and typography match Preview and PDF identically
+  // Measure authored HTML only. The official 3mm cell inset belongs to the
+  // section row and is counted once by getCanonicalSectionRowChromePx(). If
+  // this host carries sop-batang-tubuh-content, CSS adds 3mm here and every
+  // extracted paragraph/list/table block gets the inset again.
   host.className =
-    'sop-batang-tubuh-content font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+    'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
 
   if (template?.parentElement) {
     template.parentElement.appendChild(host);
@@ -1071,8 +1084,10 @@ export function computeCanonicalA4Pages(
   });
   host.remove();
 
-  // Content cell padding is 20px (10px top + 10px bottom)
-  const baseRowPadding = 20;
+  // Official Batang Tubuh row chrome is 3mm top/bottom plus collapsed border.
+  // Count it once when a section fragment starts; authored content is measured
+  // separately by the content-only measurement host above.
+  const baseRowPadding = getCanonicalSectionRowChromePx();
 
   const measureFlowPart = (html: string): number => {
     if (!html) return 0;
