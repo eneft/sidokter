@@ -1,0 +1,44 @@
+name: Temporary Apply Hierarchy Consistency Fix
+
+on:
+  push:
+    branches:
+      - fix/multi-hierarchy-user-assignments
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply only on exact one-shot trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          message="$(jq -r '.head_commit.message // ""' "$GITHUB_EVENT_PATH")"
+          if [[ "$message" != "chore: execute hierarchy consistency fix" ]]; then
+            echo "Not the one-shot trigger commit; no source mutation."
+            exit 0
+          fi
+          npm ci
+          python3 scripts/tmp-apply-hierarchy-consistency-fix.py
+          npx tsx --test tests/user-assignment-policy.test.ts
+          npm run lint
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(src/components/UserManagementModal.tsx)
+          [[ "${changed[*]}" == "${expected[*]}" ]]
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/UserManagementModal.tsx
+          git commit -m "fix: keep hierarchy selector state consistent"
+          git push origin HEAD:fix/multi-hierarchy-user-assignments
