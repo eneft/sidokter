@@ -528,7 +528,10 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       tujuan: normalizedTujuan,
       kebijakan: normalizedKebijakan,
       prosedur: normalizedProsedur,
-      alur: normalizedAlur || undefined,
+      // Empty ALUR is an intentional edit (for example after deleting the last bagan/image).
+      // Persist an explicit empty string so Firestore merge semantics clear the old HTML instead
+      // of silently retaining the previous image when an undefined field is omitted.
+      alur: normalizedAlur,
       unitTerkait: normalizedUnitTerkait,
       revisionHistory: updatedHistory,
       updatedAt: new Date().toISOString()
