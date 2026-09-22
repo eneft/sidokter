@@ -1,8 +1,8 @@
 import { getDefaultSoegiriMasterCategories, setSoegiriMasterCategories, SoegiriCategory } from '../utils/soegiriStructure';
 import { safeSetLocalStorage, getFromIndexedDB, saveToIndexedDB } from '../utils/storageQuota';
-import { saveSystemConfigToFirestore } from './firestoreService';
+import { getPersistedClientSession } from './authService';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, authPersistenceReady, db } from './firebase';
 
 const KEY = 'soegiri_offline_hierarchy_v1';
 const FIRESTORE_CONFIG_KEY = 'hierarchy_master';
@@ -122,6 +122,31 @@ function applyNewCategories(cats: SoegiriCategory[], source: string) {
   void saveToIndexedDB(KEY, JSON.stringify(cats));
   console.info(`[HierarchyService] Hirarki sinkron dari [${source}] (${cats.length} kategori).`);
   notifySubscribers(cats);
+}
+
+async function buildHierarchyWriteHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+
+  try {
+    await authPersistenceReady;
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady();
+    }
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    if (token && token.includes('.')) headers.Authorization = `Bearer ${token}`;
+  } catch (err) {
+    console.warn('[HierarchyService] Firebase auth token notice:', err);
+  }
+
+  const session = getPersistedClientSession();
+  if (session?.sessionId) headers['X-Session-Id'] = session.sessionId;
+  if (session?.authUid) headers['X-Soegiri-Auth-Uid'] = session.authUid;
+  if (session?.username) headers['X-User-Username'] = session.username;
+
+  return headers;
 }
 
 /**
@@ -293,7 +318,9 @@ export function subscribeToHierarchyMaster(
 }
 
 /**
- * Menyimpan master hirarki ke Cloud Firestore, server, dan local storage.
+ * Menyimpan master hirarki melalui trusted Firebase Function dan baru mengubah cache lokal
+ * setelah server mengonfirmasi write Firestore berhasil. Browser tidak pernah menulis
+ * system_config secara langsung karena collection tersebut tetap Admin/trusted-backend only.
  */
 export async function saveHierarchyMaster(
   categories: SoegiriCategory[],
@@ -303,11 +330,38 @@ export async function saveHierarchyMaster(
     JSON.parse(JSON.stringify(categories.map((c) => ({ ...c, active: c.active !== false }))))
   );
 
+  if (!clean.length) throw new Error('Data kategori tidak boleh kosong.');
+
+  let response: Response;
+  try {
+    response = await fetch('/api/hierarchy', {
+      method: 'POST',
+      headers: await buildHierarchyWriteHeaders(),
+      body: JSON.stringify({ categories: clean, updatedBy }),
+      cache: 'no-store'
+    });
+  } catch (err) {
+    console.error('[HierarchyService] Trusted hierarchy endpoint network error:', err);
+    throw new Error('Gagal terhubung ke layanan penyimpanan Master Hirarki.');
+  }
+
+  let payload: any = {};
+  try {
+    payload = await response.json();
+  } catch {}
+
+  if (!response.ok || payload?.success !== true || payload?.firestoreSynced !== true) {
+    const message = payload?.message
+      || (response.status === 401 ? 'Sesi login tidak valid atau sudah berakhir. Silakan login kembali.' : '')
+      || (response.status === 403 ? 'Akses menyimpan Master Hirarki ditolak.' : '')
+      || `Gagal menyimpan Master Hirarki ke server (HTTP ${response.status}).`;
+    throw new Error(message);
+  }
+
   activeCategoriesCache = clean;
   hasSyncedFromCloud = true;
   setSoegiriMasterCategories(clean);
 
-  // 1. Simpan ke local storage & IndexedDB
   try {
     safeSetLocalStorage(KEY, JSON.stringify(clean));
     void saveToIndexedDB(KEY, JSON.stringify(clean));
@@ -315,7 +369,6 @@ export async function saveHierarchyMaster(
     console.warn('[HierarchyService] Local persistence warning:', err);
   }
 
-  // 2. Broadcast ke seluruh tab dan komponen aktif di aplikasi
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: JSON.stringify(clean) }));
@@ -323,34 +376,7 @@ export async function saveHierarchyMaster(
   }
   notifySubscribers(clean);
 
-  // 3. Sinkronkan ke Cloud Firestore (system_config/hierarchy_master)
-  let cloudSaved = false;
-  try {
-    await saveSystemConfigToFirestore(FIRESTORE_CONFIG_KEY, clean);
-    cloudSaved = true;
-    console.info(`[HierarchyService] Hirarki berhasil disinkronkan ke Firestore (system_config/${FIRESTORE_CONFIG_KEY}) dengan ${clean.length} kategori.`);
-  } catch (err: any) {
-    console.error('[HierarchyService] Firestore cloud sync error:', err?.message || err);
-  }
-
-  // 4. Sinkronkan juga ke REST backend (/api/hierarchy) sebagai cadangan ganda
-  try {
-    const res = await fetch('/api/hierarchy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ categories: clean, updatedBy })
-    });
-    if (res.ok) {
-      cloudSaved = true;
-    }
-  } catch (restErr) {
-    // Non-blocking
-  }
-
-  if (!cloudSaved && typeof navigator !== 'undefined' && !navigator.onLine) {
-    console.warn('[HierarchyService] Perangkat sedang offline. Perubahan disimpan secara lokal dan akan disinkronkan saat online.');
-  }
-
+  console.info(`[HierarchyService] Master Hirarki tersimpan melalui trusted backend (${clean.length} kategori).`);
   return clean;
 }
 
