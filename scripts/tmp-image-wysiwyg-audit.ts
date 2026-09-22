@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
+import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import {
   extractProcedureBlocks,
   isAtomicMediaHtml,
 } from '../src/utils/canonicalA4Pagination';
 
-const { window } = parseHTML('<!doctype html><html><body></body></html>');
 Object.assign(globalThis, {
-  DOMParser: window.DOMParser,
-  // canonicalA4Pagination only needs the DOM nodeType constants here.
-  // linkedom's exported Node constructor does not expose them consistently.
+  DOMParser: LinkedomDOMParser,
   Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
 });
 
@@ -21,6 +18,10 @@ const authored = [
   ' style="width:100%;height:auto;display:inline-block">',
   '</div><p><br></p>',
 ].join('');
+
+const sanityDoc = new LinkedomDOMParser().parseFromString(authored, 'text/html');
+assert.equal(sanityDoc.body.querySelectorAll('img').length, 1, 'linkedom sanity: authored image must be parsed');
+assert.equal(sanityDoc.body.querySelectorAll('.figure-wrapper').length, 1, 'linkedom sanity: wrapper must be parsed');
 
 const blocks = extractProcedureBlocks(authored);
 console.log(JSON.stringify(blocks, null, 2));
