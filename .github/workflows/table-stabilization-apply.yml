@@ -1,0 +1,56 @@
+name: Apply Table Stabilization
+
+on:
+  push:
+    branches:
+      - fix/table-engine-stabilization
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/table-engine-stabilization
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Apply deterministic editor patch
+        run: node scripts/patch-table-editor-stabilization.cjs
+
+      - name: Remove one-shot patch machinery
+        run: |
+          rm scripts/patch-table-editor-stabilization.cjs
+          rm .github/workflows/table-stabilization-apply.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run expanded table regression suite
+        run: npm run test:tables
+
+      - name: TypeScript verification
+        run: npm run lint
+
+      - name: Build web client
+        run: npm run build:client
+
+      - name: Verify clean patch formatting
+        run: git diff --check
+
+      - name: Commit verified stabilization
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Stabilize table editor interactions and regression coverage"
+          git push origin HEAD:fix/table-engine-stabilization
