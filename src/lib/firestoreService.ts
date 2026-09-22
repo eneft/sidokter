@@ -26,6 +26,7 @@ import { SopDocument, LibraryDocument, UserAccount, NumberingConfig, UserSession
 import { getSopAccessKeys, getUserHierarchyAccessKeys } from '../utils/soegiriStructure';
 import { generateSopNumber, getHighestSequenceForUnit, getNextLifecycleSequence, getNumberingSequenceScope, parseSopNumber } from '../utils/numbering';
 import { assertCanEditExistingSop, preserveSopWorkflowIdentity } from './sopEditPolicy';
+import { callAuthenticatedAuthApi } from './authService';
 
 export interface FirebaseConnectionStatus {
   isConnected: boolean;
@@ -339,60 +340,45 @@ export async function saveSopToFirestore(
  * reread inside a transaction, preventing a stale DRAFT editor from saving
  * after another actor activates it.
  */
-export async function updateExistingSopInFirestore(submitted: SopDocument, actor: UserSession): Promise<SopDocument> {
+export async function updateExistingSopInFirestore(
+  submitted: SopDocument,
+  actor: UserSession,
+  originalSopNumber?: string,
+): Promise<SopDocument> {
   if (!submitted?.id) throw new Error('Dokumen SPO tidak valid.');
-  // A number correction has dependent metadata and must cross the backend
-  // transaction boundary. Content-only edits retain the existing direct path.
-  if (actor.role === 'admin') {
-    const currentSnapshot = await getDocFromServer(doc(db, 'sops', submitted.id));
-    if (!currentSnapshot.exists()) throw new Error('SPO tidak ditemukan atau sudah dihapus.');
-    const stored = { ...currentSnapshot.data(), id: currentSnapshot.id } as SopDocument;
-    if (String(stored.sopNumber || '').trim() !== String(submitted.sopNumber || '').trim()) {
-      try {
-        const callable = httpsCallable(functions, 'updateSopNumber');
-        const result = await callable({ sop: sanitizeForFirestore(submitted) });
-        const data = result.data as { sop?: SopDocument };
-        if (!data?.sop) throw new Error('Respons koreksi nomor SPO tidak valid.');
-        return data.sop;
-      } catch (error: any) {
-        throw getSopNumberUpdateError(error);
-      }
+
+  // Number correction remains on its dedicated atomic backend boundary. For
+  // ordinary content edits, never perform a direct browser Firestore read: the
+  // trusted SIDOKTER session is authoritative and is validated by authApi.
+  const previousNumber = String(originalSopNumber ?? submitted.sopNumber ?? '').trim();
+  const submittedNumber = String(submitted.sopNumber || '').trim();
+  if (actor.role === 'admin' && previousNumber && previousNumber !== submittedNumber) {
+    try {
+      const callable = httpsCallable(functions, 'updateSopNumber');
+      const result = await callable({ sop: sanitizeForFirestore(submitted) });
+      const data = result.data as { sop?: SopDocument };
+      if (!data?.sop) throw new Error('Respons koreksi nomor SPO tidak valid.');
+      return data.sop;
+    } catch (error: any) {
+      throw getSopNumberUpdateError(error);
     }
   }
-  const sopRef = doc(db, 'sops', submitted.id);
-  return runTransaction(db, async (transaction) => {
-    const snapshot = await transaction.get(sopRef);
-    if (!snapshot.exists()) throw new Error('SPO tidak ditemukan atau sudah dihapus.');
-    const stored = { ...snapshot.data(), id: snapshot.id } as SopDocument;
-    assertCanEditExistingSop(stored, actor);
 
-    const next = preserveSopWorkflowIdentity(stored, submitted, actor);
-    const clean = sanitizeForFirestore({
-      ...next,
-      fileDataUrl: deleteField(),
-      signedScanDataUrl: deleteField(),
-      oldFileDataUrl: deleteField(),
-      accessKeys: getSopAccessKeys(next),
-      authorizedUids: (stored as any).authorizedUids,
-      _syncedAt: new Date().toISOString(),
+  try {
+    const result = await callAuthenticatedAuthApi('sop-edit', {
+      sop: sanitizeForFirestore(submitted),
     });
-    transaction.set(sopRef, clean, { merge: true });
-
-    const auditRef = doc(collection(db, 'audit_logs'));
-    transaction.set(auditRef, {
-      id: auditRef.id,
-      action: 'SOP_EDITED',
-      documentId: stored.id,
-      documentNumber: stored.sopNumber,
-      documentStatus: stored.status,
-      actorUid: auth.currentUser?.uid || actor.authUid || actor.id || '',
-      actorName: actor.name,
-      actorUsername: actor.username,
-      actorRole: actor.role,
-      timestamp: serverTimestamp(),
-    });
-    return next;
-  });
+    if (!result?.success || !result?.sop) {
+      throw new Error(result?.message || 'Respons penyimpanan SPO tidak valid.');
+    }
+    return result.sop as SopDocument;
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    if (error?.status === 401 || code === 'UNAUTHENTICATED' || code === 'SESSION_REVOKED') {
+      throw new Error('Sesi login tidak valid atau telah berakhir. Silakan login kembali.');
+    }
+    throw error instanceof Error ? error : new Error(String(error || 'Gagal menyimpan perubahan SPO.'));
+  }
 }
 
 /** Authoritative, all-or-nothing lifecycle transition for a Riviu. */

@@ -12,6 +12,7 @@ const { assertReviewTransition } = require('./sopReviewPolicy');
 const { assertMailReply } = require('./internalMailPolicy');
 const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
 const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
+const { buildTrustedSopContentUpdate } = require('./sopEditContentPolicy');
 const { sendPdf } = require('./pdfBinary');
 
 if (!process.env.AWS_EXECUTION_ENV) {
@@ -165,7 +166,7 @@ function getAuthSafe() {
 
 // SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
-const AUTH_API_BUILD = 'firebase-migration-fix-v5';
+const AUTH_API_BUILD = 'firebase-migration-fix-v6-trusted-sop-edit';
 let _db = null;
 function getFirestoreInstance() {
   if (!_db) {
@@ -1190,6 +1191,107 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         }
       }
       return json(res, 200, { success: true, sops, source: 'trusted-server' });
+    }
+
+    if (action === 'sop-edit') {
+      const submitted = req.body?.sop || {};
+      const sopId = String(submitted.id || '').trim();
+      if (!sopId) return json(res, 400, { success: false, code: 'INVALID_SOP', message: 'Dokumen SPO tidak valid.' });
+
+      const sopRef = db.collection('sops').doc(sopId);
+      const hierarchyClaims = getUserHierarchyClaims(context.user);
+      let resultingSop = null;
+
+      try {
+        await db.runTransaction(async (transaction) => {
+          const snapshot = await transaction.get(sopRef);
+          if (!snapshot.exists) {
+            const error = new Error('SPO_NOT_FOUND');
+            error.sopEditStatus = 404;
+            error.sopEditCode = 'SOP_NOT_FOUND';
+            error.sopEditMessage = 'SPO tidak ditemukan atau sudah dihapus.';
+            throw error;
+          }
+
+          const storedRaw = { id: snapshot.id, ...snapshot.data() };
+          const stored = {
+            ...storedRaw,
+            accessKeys: Array.isArray(storedRaw.accessKeys) && storedRaw.accessKeys.length
+              ? storedRaw.accessKeys
+              : getSopAccessKeysServer(storedRaw),
+          };
+
+          let next;
+          try {
+            next = buildTrustedSopContentUpdate({
+              stored,
+              submitted,
+              actor: context.user,
+              hierarchyClaims,
+            });
+          } catch (policyError) {
+            const reason = String(policyError?.message || policyError || 'SOP_EDIT_DENIED');
+            const mapping = {
+              INVALID_SOP: [400, 'INVALID_SOP', 'Dokumen SPO tidak valid.'],
+              UNAUTHENTICATED: [401, 'UNAUTHENTICATED', 'Sesi login tidak valid. Silakan login kembali.'],
+              DRAFT_REQUIRED: [403, 'DRAFT_REQUIRED', 'Petugas hanya dapat mengedit SPO berstatus DRAFT.'],
+              HIERARCHY_DENIED: [403, 'HIERARCHY_DENIED', 'Anda tidak memiliki hak edit pada hirarki SPO ini.'],
+              NUMBER_CHANGE_REQUIRES_CORRECTION: [409, 'NUMBER_CHANGE_REQUIRES_CORRECTION', 'Perubahan nomor SPO harus melalui alur koreksi nomor Admin.'],
+            };
+            const [status, code, message] = mapping[reason] || [403, 'SOP_EDIT_DENIED', 'Perubahan SPO tidak diizinkan.'];
+            const error = new Error(reason);
+            error.sopEditStatus = status;
+            error.sopEditCode = code;
+            error.sopEditMessage = message;
+            throw error;
+          }
+
+          const writePayload = {
+            ...next,
+            fileDataUrl: FieldValue.delete(),
+            signedScanDataUrl: FieldValue.delete(),
+            oldFileDataUrl: FieldValue.delete(),
+          };
+          transaction.set(sopRef, writePayload, { merge: true });
+
+          const auditRef = db.collection('audit_logs').doc();
+          transaction.set(auditRef, {
+            id: auditRef.id,
+            action: 'SOP_EDITED',
+            documentId: stored.id,
+            documentNumber: stored.sopNumber || '',
+            documentStatus: stored.status || '',
+            actorUid: context.decoded.uid,
+            actorName: context.user.name || context.user.username || 'Pengguna SIDOKTER',
+            actorUsername: context.user.username || '',
+            actorRole: context.user.role,
+            timestamp: FieldValue.serverTimestamp(),
+            boundary: 'trusted-session',
+          });
+
+          resultingSop = { ...storedRaw, ...next };
+          delete resultingSop.fileDataUrl;
+          delete resultingSop.signedScanDataUrl;
+          delete resultingSop.oldFileDataUrl;
+        });
+      } catch (error) {
+        if (error?.sopEditStatus) {
+          return json(res, error.sopEditStatus, {
+            success: false,
+            code: error.sopEditCode,
+            message: error.sopEditMessage,
+          });
+        }
+        console.error('Trusted SOP edit failed', {
+          sopId,
+          actorUid: context.decoded.uid,
+          code: error?.code,
+          message: error?.message || String(error),
+        });
+        throw error;
+      }
+
+      return json(res, 200, { success: true, sop: resultingSop, source: 'trusted-session' });
     }
 
     if (action === 'migrate-sop-access') {

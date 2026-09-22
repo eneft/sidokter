@@ -1,48 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 import { isFullContentWidthTable, normalizeStructuredTables } from '../src/utils/a4Layout';
 
-type FakeStyle = Record<string, string>;
+const makeTable = (editorTable?: string, widths: string[] = []) => {
+  const cols = widths.map((width) => `<col style="width:${width}">`).join('');
+  const editorAttr = editorTable ? ` data-editor-table="${editorTable}"` : '';
+  const { document } = parseHTML(
+    `<html><body><div id="root"><table${editorAttr}><colgroup>${cols}</colgroup><tbody></tbody></table></div></body></html>`
+  );
+  const root = document.querySelector('#root') as unknown as ParentNode;
+  const table = document.querySelector('table') as unknown as HTMLTableElement;
+  return { root, table };
+};
 
-const fakeTable = (editorTable?: string, widths: string[] = []) => {
-  const cols = widths.map((width) => ({
-    style: { width } as FakeStyle,
-    getAttribute: () => null,
-    removeAttribute: () => undefined,
-  }));
-  const attributes = new Map<string, string>();
-  const table = {
-    dataset: editorTable ? { editorTable } : {},
-    style: {} as FakeStyle,
-    querySelectorAll: (selector: string) => selector === ':scope > colgroup > col' ? cols : [],
-    getAttribute: (name: string) => attributes.get(name) || null,
-    removeAttribute: (name: string) => attributes.delete(name),
-  };
-  return { table, cols };
+const columnPercents = (table: HTMLTableElement): number[] =>
+  Array.from(table.querySelectorAll<HTMLTableColElement>(':scope > colgroup > col'))
+    .map((col) => Number.parseFloat(col.style.width));
+
+const assertPercentsClose = (actual: number[], expected: number[]) => {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((value, index) => {
+    assert.ok(Math.abs(value - expected[index]) < 0.011, `column ${index} expected ${expected[index]}%, got ${value}%`);
+  });
 };
 
 test('manual 2x2 dan 5x5 memakai seluruh inner width Batang Tubuh', () => {
   for (const columns of [2, 5]) {
-    const { table, cols } = fakeTable('true', Array(columns).fill(String(100 / columns)));
-    normalizeStructuredTables({ querySelectorAll: () => [table] } as unknown as ParentNode);
+    const { root, table } = makeTable('true', Array(columns).fill(String(100 / columns)));
+    normalizeStructuredTables(root);
     assert.equal(table.style.width, '100%');
     assert.equal(table.style.maxWidth, '100%');
     assert.equal(table.style.tableLayout, 'fixed');
-    assert.deepEqual(cols.map((col) => col.style.width), Array(columns).fill(`${100 / columns}%`));
+    assertPercentsClose(columnPercents(table), Array(columns).fill(100 / columns));
   }
 });
 
 test('unequal columns retain proportions, spans/content do not affect width normalization', () => {
-  const { table, cols } = fakeTable('true', ['8', '41', '25', '26']);
-  normalizeStructuredTables({ querySelectorAll: () => [table] } as unknown as ParentNode);
-  assert.deepEqual(cols.map((col) => col.style.width), ['8%', '41%', '25%', '26%']);
-  assert.equal(isFullContentWidthTable(table as unknown as HTMLTableElement), true);
+  const { root, table } = makeTable('true', ['8', '41', '25', '26']);
+  normalizeStructuredTables(root);
+  assertPercentsClose(columnPercents(table), [8, 41, 25, 26]);
+  assert.equal(isFullContentWidthTable(table), true);
 });
 
 test('narrow imported DOCX table keeps authored width instead of being expanded', () => {
-  const { table } = fakeTable(undefined, ['30', '70']);
+  const { root, table } = makeTable(undefined, ['30', '70']);
   table.style.width = '62.5%';
-  normalizeStructuredTables({ querySelectorAll: () => [table] } as unknown as ParentNode);
+  normalizeStructuredTables(root);
   assert.equal(table.style.width, '62.5%');
-  assert.equal(isFullContentWidthTable(table as unknown as HTMLTableElement), false);
+  assert.equal(isFullContentWidthTable(table), false);
 });
