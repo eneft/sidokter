@@ -5,8 +5,17 @@ import {
   isAtomicMediaHtml,
 } from '../src/utils/canonicalA4Pagination';
 
+class BrowserLikeDOMParser {
+  parseFromString(source: string, type: string) {
+    return new LinkedomDOMParser().parseFromString(
+      `<!doctype html><html><body>${source}</body></html>`,
+      type,
+    );
+  }
+}
+
 Object.assign(globalThis, {
-  DOMParser: LinkedomDOMParser,
+  DOMParser: BrowserLikeDOMParser,
   Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
 });
 
@@ -19,9 +28,9 @@ const authored = [
   '</div><p><br></p>',
 ].join('');
 
-const sanityDoc = new LinkedomDOMParser().parseFromString(authored, 'text/html');
-assert.equal(sanityDoc.body.querySelectorAll('img').length, 1, 'linkedom sanity: authored image must be parsed');
-assert.equal(sanityDoc.body.querySelectorAll('.figure-wrapper').length, 1, 'linkedom sanity: wrapper must be parsed');
+const sanityDoc = new BrowserLikeDOMParser().parseFromString(authored, 'text/html');
+assert.equal(sanityDoc.body.querySelectorAll('img').length, 1, 'parser sanity: authored image must be parsed');
+assert.equal(sanityDoc.body.querySelectorAll('.figure-wrapper').length, 1, 'parser sanity: wrapper must be parsed');
 
 const blocks = extractProcedureBlocks(authored);
 console.log(JSON.stringify(blocks, null, 2));
