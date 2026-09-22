@@ -178,6 +178,59 @@ export function hasHtmlTags(str: string): boolean {
 }
 
 /**
+ * contentEditable may split one ordered list into OL / TABLE / OL siblings when
+ * a table is inserted between numbered items. Live DOM can still look correct,
+ * but Preview/PDF canonical blocks render each OL independently and would reset
+ * the second fragment to 1. Carry the next number only across tables and empty
+ * spacer paragraphs; meaningful prose/headings deliberately terminate the list.
+ */
+export function normalizeOrderedListContinuityAroundTables(root: ParentNode): void {
+  const children = Array.from(root.children || []) as HTMLElement[];
+  let nextOrderedStart: number | null = null;
+  let bridgeHasTable = false;
+
+  const isEmptySpacer = (element: HTMLElement) => {
+    const tag = element.tagName.toLowerCase();
+    if (tag !== 'p' && tag !== 'div') return false;
+    if (element.querySelector('table,ol,ul,img,figure')) return false;
+    return !(element.textContent || '').replace(/\u00a0/g, ' ').trim();
+  };
+
+  children.forEach((element) => {
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'ol') {
+      const directItems = Array.from(element.children).filter((child) => child.tagName.toLowerCase() === 'li');
+      const rawStart = element.getAttribute('start');
+      const parsedStart = rawStart ? Number.parseInt(rawStart, 10) : Number.NaN;
+      const hasExplicitStart = Number.isFinite(parsedStart) && parsedStart > 0;
+      const shouldContinue = !hasExplicitStart && bridgeHasTable && nextOrderedStart !== null;
+      const effectiveStart = hasExplicitStart ? parsedStart : (shouldContinue ? nextOrderedStart! : 1);
+      if (shouldContinue && effectiveStart > 1) {
+        element.setAttribute('start', String(effectiveStart));
+      }
+      element.style.setProperty('--sop-start-offset', String(Math.max(0, effectiveStart - 1)));
+      nextOrderedStart = effectiveStart + directItems.length;
+      bridgeHasTable = false;
+      return;
+    }
+
+    if (tag === 'table') {
+      if (nextOrderedStart !== null) bridgeHasTable = true;
+      return;
+    }
+    if (isEmptySpacer(element)) return;
+
+    // Normalize nested block containers independently; their numbering context
+    // must not leak into or out of this sibling sequence.
+    if (/^(div|section|article|main)$/i.test(tag)) {
+      normalizeOrderedListContinuityAroundTables(element);
+    }
+    nextOrderedStart = null;
+    bridgeHasTable = false;
+  });
+}
+
+/**
  * Decomposes authored section HTML into granular flow units (paragraphs,
  * list items, tables, media) so the canonical pagination engine can pack
  * and fill all remaining A4 space before creating a new page.
@@ -246,6 +299,7 @@ export function extractProcedureBlocks(html: string): string[] {
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(source, 'text/html');
+    normalizeOrderedListContinuityAroundTables(doc.body);
     const blocks: string[] = [];
     let inlineBuffer = '';
 
