@@ -73,5 +73,5 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SIDOKTER_SOEGIRI }}
 
-      - name: Deploy Hosting and Functions
-        run: npx firebase-tools@15.22.1 deploy --only hosting,functions --project sidokter-soegiri --non-interactive
+      - name: Deploy Hosting, Functions, and Firestore Rules
+        run: npx firebase-tools@15.22.1 deploy --only hosting,functions,firestore:rules --project sidokter-soegiri --non-interactive
