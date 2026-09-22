@@ -16,8 +16,7 @@ if pkg.count(old_script) != 1:
     raise SystemExit(f'package test:sop-edit target mismatch: {pkg.count(old_script)}')
 package.write_text(pkg.replace(old_script, new_script, 1))
 
-Path('tests/sop-alur-image-delete.test.cjs').write_text(r'''\
-'use strict';
+Path('tests/sop-alur-image-delete.test.cjs').write_text(r''' 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -53,6 +52,6 @@ test('trusted SPO edit clears an old ALUR image when submitted ALUR is empty', (
   assert.equal(next.alur, '');
   assert.equal(next.alur.includes('OLD_IMAGE'), false);
 });
-''')
+'''.lstrip())
 
 print('ALUR image delete persistence patch applied')
