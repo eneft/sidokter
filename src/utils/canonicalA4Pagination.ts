@@ -28,6 +28,11 @@ export interface SopSectionsInput {
   categoryName?: string;
 }
 
+export interface BuildOfficialBlocksOptions {
+  /** Output-only mode: ALUR/BAGAN ALIR is optional and must disappear when empty. */
+  omitEmptyAlur?: boolean;
+}
+
 export interface CanonicalPaginationOptions {
   headerHeightPx?: number;
   publicationHeightPx?: number;
@@ -988,7 +993,8 @@ export function forceLogicalListMetadata(
  * Builds the array of official section blocks from the raw sections input.
  */
 export function buildOfficialBlocks(
-  input: SopSectionsInput
+  input: SopSectionsInput,
+  options: BuildOfficialBlocksOptions = {}
 ): OfficialBlock[] {
   const pengertianHtml = (input.pengertian || input.summary || '').trim();
   const tujuanHtml = (input.tujuan || '').trim();
@@ -1022,6 +1028,13 @@ export function buildOfficialBlocks(
       // Empty sections are structural parts of the official SPO body and must
       // remain editable after an earlier section spans multiple pages.
       const extracted = extractProcedureBlocks(sec.html);
+      // ALUR / BAGAN ALIR is optional in the finalized document. Live/editor
+      // callers keep the empty structural row by default; Preview/PDF callers
+      // explicitly opt in to omitting it. This also treats editor-empty HTML
+      // such as <p><br></p> as empty because extractProcedureBlocks returns [].
+      if (sec.id === 'alur' && options.omitEmptyAlur && extracted.length === 0) {
+        return [];
+      }
       const units = extracted.length > 0 ? extracted : [''];
       return units.map((unitHtml, unitIdx) => {
         let logicalListGroup: string | undefined;

@@ -730,7 +730,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     unitTerkait: sop?.unitTerkait,
     divisionName: sop?.divisionName,
     categoryName: sop?.categoryName
-  }) as OfficialBlock[];
+  }, { omitEmptyAlur: true }) as OfficialBlock[];
 
   // Reset the flow model whenever the source SPO changes.  The pagination
   // engine works only from these blocks, so no content is ever discarded.
@@ -1633,7 +1633,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                         backgroundColor: '#ffffff',
                         overflow: 'hidden',
                         boxShadow: '0 2px 12px rgba(0,0,0,.08)',
-                        border: '1px solid #e2e8f0',
+                        border: 'none',
                         position: 'relative'
                       }}
                     >
