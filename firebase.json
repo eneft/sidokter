@@ -18,6 +18,17 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      }
+    ],
     "rewrites": [
       {
         "source": "/api/auth",
@@ -57,14 +68,14 @@
       {
         "source": "/api/hierarchy",
         "function": {
-          "functionId": "hierarchyApi",
+          "functionId": "hierarchyApiV2",
           "region": "asia-southeast2"
         }
       },
       {
         "source": "/api/hierarchy/**",
         "function": {
-          "functionId": "hierarchyApi",
+          "functionId": "hierarchyApiV2",
           "region": "asia-southeast2"
         }
       },
