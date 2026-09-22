@@ -1,0 +1,43 @@
+name: One-time SPO preview compact cleanup
+
+on:
+  push:
+    branches:
+      - fix/spo-preview-compact-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/spo-preview-compact-cleanup
+          fetch-depth: 0
+
+      - name: Apply guarded preview cleanup
+        run: python .github/scripts/fix-spo-preview-compact.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run preview regression tests
+        run: npm run test:live-pagination
+
+      - name: Build web client
+        run: npm run build:client
+
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/SopDetailModal.tsx tests/live-sop-content-integrity.test.ts
+          if git diff --cached --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git commit -m "Refine SPO preview layout and remove fullscreen control"
+          git push origin HEAD:fix/spo-preview-compact-cleanup
