@@ -45,7 +45,7 @@ service cloud.firestore {
     }
 
     match /library_documents/{documentId} { allow read, write: if signedIn(); }
-    match /system_config/{configId} { allow read, write: if signedIn(); }
+    match /system_config/{configId} { allow read: if signedIn(); allow write: if isAdmin(); }
     match /users/{userId} { allow read: if signedIn(); allow create, update, delete: if isAdmin(); }
     match /admins/{adminId} { allow read: if isAdmin(); allow create, update, delete: if isAdmin(); }
     match /notifications/{uid}/items/{notificationId} { allow read, write: if isOwnNotification(uid); }
