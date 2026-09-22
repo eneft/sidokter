@@ -1393,7 +1393,14 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               ) : legacyFileUrl ? (
                 <div className="overflow-hidden border border-slate-200 bg-white">
-                  <DocumentViewer fileUrl={legacyFileUrl} fileName={legacyFileName} storagePath={resolvedLegacySource?.storagePath} className="w-full" singleScroll />
+                  <DocumentViewer
+                    fileUrl={legacyFileUrl}
+                    fileName={legacyFileName}
+                    storagePath={resolvedLegacySource?.storagePath}
+                    className="w-full"
+                    heightClass="h-[70vh] min-h-[420px] sm:min-h-[520px]"
+                    showPdfDownloadAction={false}
+                  />
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
