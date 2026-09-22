@@ -11,13 +11,44 @@ permissions:
 jobs:
   audit-image-wysiwyg:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - name: Reproduce image wrapper loss
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix functions
+      - name: Image canonical wrapper contract
         run: npx tsx scripts/tmp-image-wysiwyg-audit.ts
+      - name: Chromium image WYSIWYG geometry
+        run: npx tsx scripts/tmp-image-wysiwyg-browser-audit.ts
+      - name: Live pagination regression
+        run: npm run test:live-pagination
+      - name: Toolbar regression
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+      - name: Structured table regression
+        run: npm run test:tables
+      - name: PDF binary regression
+        run: npm run test:pdf-binary
+      - name: Storage regression
+        run: npm run test:storage
+      - name: Revision regression
+        run: npm run test:revision
+      - name: SOP edit regression
+        run: npm run test:sop-edit
+      - name: SOP review regression
+        run: npm run test:sop-review
+      - name: Mail regression
+        run: npm run test:mail
+      - name: Numbering lifecycle regression
+        run: npm run test:numbering-lifecycle
+      - name: Functions verification
+        run: npm run verify:functions
+      - name: TypeScript gate
+        run: npm run lint
+      - name: Production build
+        run: npm run build
