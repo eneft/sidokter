@@ -368,7 +368,7 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   // exists on this browser.
   try {
     const saved = options?.editActor
-      ? await updateExistingSopInFirestore(next, options.editActor)
+      ? await updateExistingSopInFirestore(next, options.editActor, previous?.sopNumber)
       : await saveSopToFirestore(next, { throwOnError: true, allocateOfficialNumber: options?.allocateOfficialNumber, reservationId: options?.reservationId });
     Object.assign(next, saved);
   } catch (err) {
