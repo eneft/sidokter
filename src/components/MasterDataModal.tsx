@@ -31,13 +31,13 @@ function cloneCategories(source: SoegiriCategory[] = SOEGIRI_MASTER_CATEGORIES) 
 function findParentChildren(categories: SoegiriCategory[], parent: ParentRef): SoegiriHierarchyNode[] | null {
   const cat = categories.find(c => c.code === parent.divisionCode);
   if (!cat) return null;
-  if (!parent.path.length) return (cat.children || []) as SoegiriHierarchyNode[];
+  if (!parent.path.length) return getNodeChildren(cat);
   let node: any = cat;
   for (const code of parent.path) {
     node = getNodeChildren(node).find(n => n.code === code);
     if (!node) return null;
   }
-  return (node.children || []) as SoegiriHierarchyNode[];
+  return getNodeChildren(node);
 }
 
 function deleteNodeByPath(categories: SoegiriCategory[], divisionCode: string, path: string[]): boolean {
@@ -50,14 +50,14 @@ function deleteNodeByPath(categories: SoegiriCategory[], divisionCode: string, p
 
   let parentChildren: SoegiriHierarchyNode[] | undefined;
   if (parentPath.length === 0) {
-    parentChildren = cat.children;
+    parentChildren = getNodeChildren(cat);
   } else {
     let current: any = cat;
     for (const code of parentPath) {
       current = getNodeChildren(current).find(n => n.code === code);
       if (!current) return false;
     }
-    parentChildren = current.children;
+    parentChildren = getNodeChildren(current);
   }
 
   if (!parentChildren) return false;
@@ -151,6 +151,7 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }, [isOpen]);
 
   const selected = draft.find(c => c.code === selectedDivision);
+  const selectedChildren = selected ? getNodeChildren(selected) : [];
   const parentLabel = useMemo(() => {
     if (!parent) return '';
     const cat = draft.find(c => c.code === parent.divisionCode); 
@@ -539,8 +540,8 @@ export const MasterDataModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
               {/* Hierarchy Tree Viewer */}
               <div className="max-h-[48vh] overflow-y-auto pr-1">
-                {selected?.children?.length ? (
-                  selected.children.map(n => (
+                {selectedChildren.length ? (
+                  selectedChildren.map(n => (
                     <TreeNode
                       key={n.id || n.code}
                       node={n}
