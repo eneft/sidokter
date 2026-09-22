@@ -1693,7 +1693,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                             backgroundColor: '#ffffff',
                             borderLeft: '1px solid #000000',
                             borderRight: '1px solid #000000',
-                            borderBottom: 0
+                            borderBottom: '1px solid #000000'
                           }}
                         >
                           <div
