@@ -1209,22 +1209,25 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       try {
         await db.runTransaction(async (transaction) => {
           const snapshot = await transaction.get(sopRef);
+          let storedRaw;
           let stored;
           if (!snapshot.exists) {
-            const userUid = String(context.user?.id || context.user?.authUid || '').trim();
+            const userUid = String(context.decoded?.uid || context.user?.id || context.user?.authUid || '').trim();
             const baseKeys = getSopAccessKeysServer(submitted);
-            stored = {
+            storedRaw = {
+              ...submitted,
               id: sopId,
               status: 'DRAFT',
               title: String(submitted.title || 'Draft SPO').trim(),
-              createdAt: new Date().toISOString(),
+              createdAt: submitted.createdAt || new Date().toISOString(),
               createdBy: context.user?.username || 'user',
+              creatorUid: userUid,
               accessKeys: baseKeys,
               authorizedUids: userUid ? [userUid] : [],
-              ...submitted,
             };
+            stored = storedRaw;
           } else {
-            const storedRaw = { id: snapshot.id, ...snapshot.data() };
+            storedRaw = { id: snapshot.id, ...snapshot.data() };
             stored = {
               ...storedRaw,
               accessKeys: Array.isArray(storedRaw.accessKeys) && storedRaw.accessKeys.length
@@ -1322,19 +1325,33 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
           }
 
           const stored = { id: snapshot.id, ...snapshot.data() };
-          const isAdmin = context.user?.role === 'admin';
-          const userUid = String(context.user?.id || context.user?.authUid || context.decoded?.uid || '').trim();
-          const isCreator = stored.createdBy === context.user?.username || (Array.isArray(stored.authorizedUids) && stored.authorizedUids.includes(userUid));
+          const isAdmin = normalizeRole(context.user?.role) === 'admin';
+          const userUid = String(context.decoded?.uid || context.user?.id || context.user?.authUid || '').trim();
+          const actorUsername = normalizeUsername(context.user?.username);
+          const creatorUid = String(stored.creatorUid || '').trim();
+          const createdBy = normalizeUsername(stored.createdBy);
+          const isCreator = Boolean(
+            (creatorUid && userUid && creatorUid === userUid) ||
+            (createdBy && actorUsername && createdBy === actorUsername)
+          );
 
-          if (!isAdmin && !isCreator) {
+          const wasEverActive = stored.everActivated === true || stored.status === 'AKTIF' || stored.status === 'DIARSIPKAN' || Boolean(stored.activatedAt);
+
+          if (wasEverActive && !isAdmin) {
             const error = new Error('PERMISSION_DENIED');
             error.sopDeleteStatus = 403;
             error.sopDeleteCode = 'PERMISSION_DENIED';
-            error.sopDeleteMessage = 'Anda tidak memiliki hak akses untuk menghapus dokumen SPO ini.';
+            error.sopDeleteMessage = 'SPO yang pernah aktif hanya dapat diarsipkan oleh Administrator.';
             throw error;
           }
 
-          const wasEverActive = stored.everActivated === true || stored.status === 'AKTIF' || stored.status === 'DIARSIPKAN' || Boolean(stored.activatedAt);
+          if (!wasEverActive && !isAdmin && !isCreator) {
+            const error = new Error('PERMISSION_DENIED');
+            error.sopDeleteStatus = 403;
+            error.sopDeleteCode = 'PERMISSION_DENIED';
+            error.sopDeleteMessage = 'Anda hanya dapat menghapus permanen DRAFT yang Anda buat sendiri.';
+            throw error;
+          }
 
           if (wasEverActive) {
             transaction.set(sopRef, {

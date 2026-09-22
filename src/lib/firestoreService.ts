@@ -248,6 +248,8 @@ export async function saveSopToFirestore(
     // Clean payload for backend and client sync
     const cleanSop = sanitizeForFirestore({
       ...sop,
+      creatorUid: (sop as any).creatorUid || currentUid || undefined,
+      createdBy: (sop as any).createdBy || currentSessionRaw?.username || 'user',
       ...(sop.status === 'AKTIF' || sop.status === 'DIARSIPKAN' || sop.everActivated ? { everActivated: true } : {}),
       fileDataUrl: deleteField(),
       signedScanDataUrl: deleteField(),
@@ -296,6 +298,8 @@ export async function saveSopToFirestore(
           sequenceNumber: cleanSop.sequenceNumber || 0,
           revisionNumber: cleanSop.revisionNumber || '00',
           createdAt: cleanSop.createdAt || new Date().toISOString(),
+          creatorUid: currentUid || undefined,
+          createdBy: currentSessionRaw?.username || 'user',
           updatedAt: new Date().toISOString(),
           authorizedUids: authorizedUids.length ? authorizedUids : (currentUid ? [currentUid] : []),
           accessKeys: sopAccessKeys,
