@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-and-diagnose:
+  apply-and-verify:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -24,71 +24,64 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Repair one-shot patch quoting
+      - name: Repair one-shot patch and tighten numbering bridge
         run: node scripts/fix-one-shot-preview-patch.cjs
 
-      - name: Apply guarded patch
+      - name: Apply guarded source patch
         run: node scripts/patch-preview-list-numbering-table-guides.cjs
+
+      - name: Remove one-shot machinery
+        run: |
+          rm scripts/fix-one-shot-preview-patch.cjs
+          rm scripts/patch-preview-list-numbering-table-guides.cjs
+          rm .github/workflows/one-time-preview-list-numbering-table-guides.yml
 
       - name: Install dependencies
         run: npm ci
 
       - name: Structured table pagination
-        id: structured
-        continue-on-error: true
         run: npx tsx --test tests/structured-table-pagination.test.ts
 
       - name: Table geometry resize
-        id: geometry
-        continue-on-error: true
         run: npx tsx --test tests/table-geometry-resize.test.ts
 
       - name: Table pagination V2
-        id: paginationv2
-        continue-on-error: true
         run: npx tsx --test tests/table-pagination-v2.test.ts
 
       - name: A4 table width contract
-        id: width
-        continue-on-error: true
         run: npx tsx --test tests/a4-table-width-contract.test.ts
 
       - name: Live editor toolbar regressions
-        id: toolbar
-        continue-on-error: true
         run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
 
       - name: Live SPO content integrity
-        id: liveintegrity
-        continue-on-error: true
         run: npx tsx --test tests/live-sop-content-integrity.test.ts
 
       - name: Table structural mutations
-        id: mutations
-        continue-on-error: true
         run: npx tsx --test tests/table-structural-mutations.test.ts
 
       - name: Table interaction regressions
-        id: interactions
-        continue-on-error: true
         run: npx tsx --test tests/table-interaction-regression.test.ts
 
-      - name: Diagnostic summary gate
-        if: always()
+      - name: Preview list numbering around inserted tables
+        run: npx tsx --test tests/preview-list-numbering-table.test.ts
+
+      - name: Full table gate
+        run: npm run test:tables
+
+      - name: TypeScript verification
+        run: npm run lint
+
+      - name: Build web client
+        run: npm run build:client
+
+      - name: Verify clean diff
+        run: git diff --check
+
+      - name: Commit verified fix
         run: |
-          echo "structured=${{ steps.structured.outcome }}"
-          echo "geometry=${{ steps.geometry.outcome }}"
-          echo "paginationv2=${{ steps.paginationv2.outcome }}"
-          echo "width=${{ steps.width.outcome }}"
-          echo "toolbar=${{ steps.toolbar.outcome }}"
-          echo "liveintegrity=${{ steps.liveintegrity.outcome }}"
-          echo "mutations=${{ steps.mutations.outcome }}"
-          echo "interactions=${{ steps.interactions.outcome }}"
-          test "${{ steps.structured.outcome }}" = success
-          test "${{ steps.geometry.outcome }}" = success
-          test "${{ steps.paginationv2.outcome }}" = success
-          test "${{ steps.width.outcome }}" = success
-          test "${{ steps.toolbar.outcome }}" = success
-          test "${{ steps.liveintegrity.outcome }}" = success
-          test "${{ steps.mutations.outcome }}" = success
-          test "${{ steps.interactions.outcome }}" = success
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Preview numbering around inserted tables and align table guides"
+          git push origin HEAD:fix/preview-list-numbering-table-guides
