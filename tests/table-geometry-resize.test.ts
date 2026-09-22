@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { resizeLogicalBoundary, tableOuterEdgeAtPoint } from '../src/utils/tableGeometry';
+import { renderedLogicalColumnWidths, resizeLogicalBoundary, tableOuterEdgeAtPoint } from '../src/utils/tableGeometry';
 
 const editor = fs.readFileSync('src/components/RichTextEditor.tsx', 'utf8');
 const geometry = fs.readFileSync('src/utils/tableGeometry.ts', 'utf8');
@@ -29,6 +29,25 @@ test('outer border hit testing exposes all four table edges', () => {
   assert.equal(tableOuterEdgeAtPoint(rect as DOMRect, 300, 350, 7), null);
 });
 
+test('rendered column measurement dereferences table-grid slots to DOM cells', () => {
+  const leftCell = {
+    rowSpan: 1,
+    colSpan: 1,
+    getBoundingClientRect: () => ({ right: 40 }),
+  } as unknown as HTMLTableCellElement;
+  const rightCell = {
+    rowSpan: 1,
+    colSpan: 1,
+    getBoundingClientRect: () => ({ right: 100 }),
+  } as unknown as HTMLTableCellElement;
+  const table = {
+    rows: [{ cells: [leftCell, rightCell] }],
+    getBoundingClientRect: () => ({ left: 0, width: 100 }),
+  } as unknown as HTMLTableElement;
+
+  assert.deepEqual(renderedLogicalColumnWidths(table, [50, 50]), [40, 60]);
+});
+
 test('production editor uses canonical colgroup, pointer capture and one commit per drag', () => {
   assert.match(editor, /ensureLogicalColumns\(activeTable\)/);
   assert.match(editor, /startColumnResize[\s\S]*resizeLogicalBoundary/);
@@ -40,7 +59,7 @@ test('production editor uses canonical colgroup, pointer capture and one commit 
 
 test('column guides are derived from rendered cell borders, not only colgroup percentages', () => {
   assert.match(geometry, /renderedLogicalColumnWidths/);
-  assert.match(geometry, /leftCell\.getBoundingClientRect\(\)/);
+  assert.match(geometry, /leftSlot\.cell\.getBoundingClientRect\(\)/);
   assert.match(geometry, /cellRect\.right\s*-\s*tableRect\.left/);
   assert.match(geometry, /logicalColumnWidths[\s\S]*renderedLogicalColumnWidths/);
 });
