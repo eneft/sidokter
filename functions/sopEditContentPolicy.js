@@ -21,6 +21,8 @@ const IMMUTABLE_WORKFLOW_FIELDS = [
   'authorizedUids',
   'accessKeys',
   'accessBoundaryVersion',
+  'creatorUid',
+  'createdBy',
   'everActivated',
   'activatedAt',
   'activatedBy',
