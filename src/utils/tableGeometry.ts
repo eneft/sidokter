@@ -89,6 +89,58 @@ export function renderedLogicalColumnWidths(
   return widths.map((width) => roundPercent(width / total * 100));
 }
 
+/**
+ * Return the physical X positions (px from the rendered table left edge) of
+ * every internal logical column boundary. The midpoint between the adjacent
+ * rendered cell borders is authoritative, so the visible resize guide sits
+ * exactly on the black table rule even with border-collapse/sub-pixel rounding.
+ */
+export function renderedLogicalColumnBoundaryPositions(table: HTMLTableElement): number[] {
+  const grid = tableGrid(table);
+  const count = Math.max(0, ...grid.map((row) => row.length));
+  if (count <= 1) return [];
+
+  const tableRect = table.getBoundingClientRect();
+  if (!Number.isFinite(tableRect.width) || tableRect.width <= 0) return [];
+
+  const cols = Array.from(table.querySelectorAll<HTMLTableColElement>(':scope > colgroup > col'));
+  const parsed = cols.map((col) => Number.parseFloat(col.style.width || col.getAttribute('width') || ''));
+  const validAuthored = cols.length === count && parsed.every((width) => Number.isFinite(width) && width > 0);
+  const authoredTotal = validAuthored ? parsed.reduce((sum, width) => sum + width, 0) : count;
+  const authored = validAuthored
+    ? parsed.map((width) => width / Math.max(1, authoredTotal))
+    : new Array(count).fill(1 / count);
+
+  const positions: number[] = [];
+  let fallbackRatio = 0;
+  let previous = 0;
+  for (let boundary = 1; boundary < count; boundary += 1) {
+    fallbackRatio += authored[boundary - 1] || 0;
+    const samples: number[] = [];
+    grid.forEach((row) => {
+      const leftSlot = row[boundary - 1];
+      const rightSlot = row[boundary];
+      if (!leftSlot || !rightSlot || leftSlot.cell === rightSlot.cell) return;
+      const leftRect = leftSlot.cell.getBoundingClientRect();
+      const rightRect = rightSlot.cell.getBoundingClientRect();
+      const position = ((leftRect.right + rightRect.left) / 2) - tableRect.left;
+      if (Number.isFinite(position) && position > 0 && position < tableRect.width) samples.push(position);
+    });
+
+    samples.sort((a, b) => a - b);
+    let position = samples.length
+      ? samples[Math.floor(samples.length / 2)]
+      : tableRect.width * fallbackRatio;
+    if (!Number.isFinite(position) || position <= previous || position >= tableRect.width) {
+      position = tableRect.width * fallbackRatio;
+    }
+    if (!Number.isFinite(position) || position <= previous || position >= tableRect.width) return [];
+    positions.push(position);
+    previous = position;
+  }
+  return positions;
+}
+
 const setExplicitTableHorizontalGeometry = (
   table: HTMLTableElement,
   editorWidth: number,

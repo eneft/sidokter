@@ -3192,7 +3192,32 @@ main .rich-text-toolbar,
   cursor: row-resize;
 }
 .table-selection-overlay .table-column-boundary:hover,
-.table-selection-overlay .table-row-boundary:hover { background: rgb(79 70 229 / 25%); }
+.table-selection-overlay .table-row-boundary:hover { background: transparent; }
+.table-selection-overlay .table-column-boundary::after,
+.table-selection-overlay .table-row-boundary::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  background: transparent;
+}
+.table-selection-overlay .table-column-boundary::after {
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+}
+.table-selection-overlay .table-row-boundary::after {
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 1px;
+}
+.table-selection-overlay .table-column-boundary:hover::after,
+.table-selection-overlay .table-column-boundary:active::after,
+.table-selection-overlay .table-row-boundary:hover::after,
+.table-selection-overlay .table-row-boundary:active::after {
+  background: rgb(79 70 229 / 75%);
+}
 .table-selection-overlay .table-move-handle {
   left: -10px;
   top: -10px;

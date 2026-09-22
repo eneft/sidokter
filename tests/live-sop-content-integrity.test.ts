@@ -383,3 +383,53 @@ test('Preview continuation fill closes the Batang Tubuh boundary without restori
   assert.match(preview, /boxShadow:\s*'0 2px 12px rgba\(0,0,0,\.08\)'[\s\S]{0,100}border:\s*'none'/);
   assert.doesNotMatch(preview, /border:\s*'1px solid #e2e8f0'/);
 });
+
+
+test('Preview/PDF numbering continues across an inserted table but resets after meaningful prose', () => {
+  const priorParser = (globalThis as any).DOMParser;
+  const priorNode = (globalThis as any).Node;
+  class BrowserLikeDOMParser {
+    parseFromString(source: string) {
+      return new LinkedomDOMParser().parseFromString(
+        `<!doctype html><html><body>${source}</body></html>`,
+        'text/html'
+      );
+    }
+  }
+  (globalThis as any).DOMParser = BrowserLikeDOMParser;
+  (globalThis as any).Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+
+  try {
+    const interrupted = extractProcedureBlocks(
+      '<ol><li>Satu</li><li>Dua</li></ol>' +
+      '<table><tbody><tr><td>Tabel</td></tr></tbody></table>' +
+      '<p><br></p>' +
+      '<ol><li>Tiga</li><li>Empat</li></ol>'
+    );
+    const ordered = interrupted.filter((block) => /^<ol\b/i.test(block));
+    assert.equal(ordered.length, 2);
+    const second = new LinkedomDOMParser().parseFromString(
+      `<!doctype html><html><body>${ordered[1]}</body></html>`,
+      'text/html'
+    ).body.querySelector('ol');
+    assert.equal(second?.getAttribute('start'), '3');
+    assert.equal(second?.style.getPropertyValue('--sop-start-offset'), '2');
+
+    const separateLists = extractProcedureBlocks(
+      '<ol><li>Pertama</li></ol>' +
+      '<p>Paragraf baru yang memutus daftar.</p>' +
+      '<table><tbody><tr><td>Tabel</td></tr></tbody></table>' +
+      '<ol><li>Daftar baru</li></ol>'
+    );
+    const separateOrdered = separateLists.filter((block) => /^<ol\b/i.test(block));
+    const reset = new LinkedomDOMParser().parseFromString(
+      `<!doctype html><html><body>${separateOrdered[1]}</body></html>`,
+      'text/html'
+    ).body.querySelector('ol');
+    assert.equal(reset?.getAttribute('start'), null);
+    assert.equal(reset?.style.getPropertyValue('--sop-start-offset'), '0');
+  } finally {
+    (globalThis as any).DOMParser = priorParser;
+    (globalThis as any).Node = priorNode;
+  }
+});

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { renderedLogicalColumnWidths, resizeLogicalBoundary, tableOuterEdgeAtPoint } from '../src/utils/tableGeometry';
+import { renderedLogicalColumnBoundaryPositions, renderedLogicalColumnWidths, resizeLogicalBoundary, tableOuterEdgeAtPoint } from '../src/utils/tableGeometry';
 
 const editor = fs.readFileSync('src/components/RichTextEditor.tsx', 'utf8');
 const geometry = fs.readFileSync('src/utils/tableGeometry.ts', 'utf8');
@@ -48,10 +48,33 @@ test('rendered column measurement dereferences table-grid slots to DOM cells', (
   assert.deepEqual(renderedLogicalColumnWidths(table, [50, 50]), [40, 60]);
 });
 
+test('purple column guide uses the midpoint of the actual adjacent rendered borders', () => {
+  const leftCell = {
+    rowSpan: 1,
+    colSpan: 1,
+    getBoundingClientRect: () => ({ left: 0, right: 41 }),
+  } as unknown as HTMLTableCellElement;
+  const rightCell = {
+    rowSpan: 1,
+    colSpan: 1,
+    getBoundingClientRect: () => ({ left: 39, right: 100 }),
+  } as unknown as HTMLTableCellElement;
+  const table = {
+    rows: [{ cells: [leftCell, rightCell] }],
+    querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 0, width: 100 }),
+  } as unknown as HTMLTableElement;
+
+  assert.deepEqual(renderedLogicalColumnBoundaryPositions(table), [40]);
+  assert.match(editor, /renderedLogicalColumnBoundaryPositions\(selectedTable\)/);
+
+  assert.match(css, /table-column-boundary::after[\s\S]*width:\s*1px/);
+});
+
 test('production editor separates read-only selection from geometry mutation', () => {
   assert.match(editor, /enableTableBorderResize\(activeTable\)/);
   assert.doesNotMatch(editor, /if \(activeTable\) ensureLogicalColumns\(activeTable\)/);
-  assert.match(editor, /logicalColumnWidths\(selectedTable, false\)/);
+  assert.match(editor, /renderedLogicalColumnBoundaryPositions\(selectedTable\)/);
   assert.match(editor, /startColumnResize[\s\S]*resizeLogicalBoundary/);
   assert.match(editor, /setPointerCapture[\s\S]*releasePointerCapture/);
   assert.match(editor, /Pointer moves are live DOM previews only[\s\S]*execCommand\('insertHTML'/);

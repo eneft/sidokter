@@ -4,7 +4,7 @@ import { canMergeCell, createSemanticTable, mutateTable, type TableCommand } fro
 import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
   applyLogicalColumnWidths, enableTableBorderResize, ensureLogicalColumns, logicalColumnWidths,
-  MIN_TABLE_COLUMN_PX, resizeLogicalBoundary, restoreTableSnapshot, setRowMinimumHeight,
+  MIN_TABLE_COLUMN_PX, renderedLogicalColumnBoundaryPositions, resizeLogicalBoundary, restoreTableSnapshot, setRowMinimumHeight,
 } from '../utils/tableGeometry';
 import {
   Bold,
@@ -3088,14 +3088,13 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
             style={{ top: tableRect.top, left: tableRect.left, width: tableRect.width, height: tableRect.height }}
             aria-hidden="true"
           >
-            {logicalColumnWidths(selectedTable, false).slice(0, -1).map((_, boundary, widths) => {
-              const left = widths.slice(0, boundary + 1).reduce((sum, width) => sum + width, 0);
-              return <button key={`column-${boundary}`} type="button" tabIndex={-1}
-                className="table-column-boundary pointer-events-auto" style={{ left: `${left}%` }}
+            {renderedLogicalColumnBoundaryPositions(selectedTable).map((left, boundary) => (
+              <button key={`column-${boundary}`} type="button" tabIndex={-1}
+                className="table-column-boundary pointer-events-auto" style={{ left: `${left}px` }}
                 title={`Ubah batas kolom ${boundary + 1}/${boundary + 2}`}
                 onPointerDown={(event) => startColumnResize(event, boundary)}
-                onPointerMove={moveGridResize} onPointerUp={finishGridResize} onPointerCancel={cancelGridResize} />;
-            })}
+                onPointerMove={moveGridResize} onPointerUp={finishGridResize} onPointerCancel={cancelGridResize} />
+            ))}
             {Array.from(selectedTable.rows as HTMLCollectionOf<HTMLTableRowElement>).map((row, index) => {
               const tableBounds = selectedTable.getBoundingClientRect();
               const rowBounds = row.getBoundingClientRect();
