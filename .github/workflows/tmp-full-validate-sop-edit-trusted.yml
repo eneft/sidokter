@@ -31,14 +31,29 @@ jobs:
       - name: Install functions dependencies
         run: npm ci --prefix functions
 
-      - name: All TypeScript regression tests
-        run: npx tsx --test tests/*.test.ts
+      - name: All TypeScript regression tests isolated
+        run: |
+          set -euo pipefail
+          for f in tests/*.test.ts; do
+            echo "=== $f ==="
+            npx tsx --test "$f"
+          done
 
-      - name: All CommonJS UI/source regression tests
-        run: node --test tests/*.test.cjs
+      - name: All CommonJS UI/source regression tests isolated
+        run: |
+          set -euo pipefail
+          for f in tests/*.test.cjs; do
+            echo "=== $f ==="
+            node --test "$f"
+          done
 
-      - name: All Functions unit tests
-        run: node --test functions/*.test.js
+      - name: All Functions unit tests isolated
+        run: |
+          set -euo pipefail
+          for f in functions/*.test.js; do
+            echo "=== $f ==="
+            node --test "$f"
+          done
 
       - name: Official storage regression
         run: npm run test:storage
