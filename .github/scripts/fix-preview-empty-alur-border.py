@@ -49,7 +49,62 @@ test_path = Path('tests/live-sop-content-integrity.test.ts')
 tests = test_path.read_text()
 marker = "test('Preview/PDF omit an empty optional ALUR while Live keeps the structural editor row'"
 if marker not in tests:
-    tests += r'''\n\ntest('Preview/PDF omit an empty optional ALUR while Live keeps the structural editor row', () => {\n  const base = {\n    pengertian: '<p>Pengertian</p>',\n    tujuan: '<p>Tujuan</p>',\n    kebijakan: '<p>Kebijakan</p>',\n    prosedur: '<p>Prosedur</p>',\n    alur: '',\n    unitTerkait: '<p>Unit</p>',\n  };\n\n  const liveBlocks = buildOfficialBlocks(base);\n  assert.equal(liveBlocks.some((block) => block.section === 'ALUR / BAGAN ALIR'), true);\n\n  const outputBlocks = buildOfficialBlocks(base, { omitEmptyAlur: true });\n  assert.equal(outputBlocks.some((block) => block.section === 'ALUR / BAGAN ALIR'), false);\n  assert.equal(outputBlocks.some((block) => block.section === 'UNIT TERKAIT'), true);\n\n  const priorParser = (globalThis as any).DOMParser;\n  const priorNode = (globalThis as any).Node;\n  class BrowserLikeDOMParser {\n    parseFromString(source: string) {\n      return new LinkedomDOMParser().parseFromString(\n        `<!doctype html><html><body>${source}</body></html>`,\n        'text/html'\n      );\n    }\n  }\n  (globalThis as any).DOMParser = BrowserLikeDOMParser;\n  (globalThis as any).Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };\n  try {\n    const editorEmpty = buildOfficialBlocks(\n      { ...base, alur: '<p><br></p>' },\n      { omitEmptyAlur: true }\n    );\n    assert.equal(editorEmpty.some((block) => block.section === 'ALUR / BAGAN ALIR'), false);\n\n    const mediaAlur = buildOfficialBlocks(\n      { ...base, alur: '<figure><img src="data:image/png;base64,AA==" /></figure>' },\n      { omitEmptyAlur: true }\n    );\n    assert.equal(mediaAlur.some((block) => block.section === 'ALUR / BAGAN ALIR'), true);\n  } finally {\n    (globalThis as any).DOMParser = priorParser;\n    (globalThis as any).Node = priorNode;\n  }\n});\n\ntest('Preview/PDF explicitly opt out of empty ALUR and do not draw an outer A4 page border', () => {\n  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');\n  assert.match(preview, /omitEmptyAlur:\s*true/);\n  assert.match(preview, /boxShadow:\s*'0 2px 12px rgba\(0,0,0,\.08\)'[\s\S]{0,100}border:\s*'none'/);\n  assert.doesNotMatch(preview, /border:\s*'1px solid #e2e8f0'/);\n});\n'''
+    tests += '''
+
+test('Preview/PDF omit an empty optional ALUR while Live keeps the structural editor row', () => {
+  const base = {
+    pengertian: '<p>Pengertian</p>',
+    tujuan: '<p>Tujuan</p>',
+    kebijakan: '<p>Kebijakan</p>',
+    prosedur: '<p>Prosedur</p>',
+    alur: '',
+    unitTerkait: '<p>Unit</p>',
+  };
+
+  const liveBlocks = buildOfficialBlocks(base);
+  assert.equal(liveBlocks.some((block) => block.section === 'ALUR / BAGAN ALIR'), true);
+
+  const outputBlocks = buildOfficialBlocks(base, { omitEmptyAlur: true });
+  assert.equal(outputBlocks.some((block) => block.section === 'ALUR / BAGAN ALIR'), false);
+  assert.equal(outputBlocks.some((block) => block.section === 'UNIT TERKAIT'), true);
+
+  const priorParser = (globalThis as any).DOMParser;
+  const priorNode = (globalThis as any).Node;
+  class BrowserLikeDOMParser {
+    parseFromString(source: string) {
+      return new LinkedomDOMParser().parseFromString(
+        `<!doctype html><html><body>${source}</body></html>`,
+        'text/html'
+      );
+    }
+  }
+  (globalThis as any).DOMParser = BrowserLikeDOMParser;
+  (globalThis as any).Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+  try {
+    const editorEmpty = buildOfficialBlocks(
+      { ...base, alur: '<p><br></p>' },
+      { omitEmptyAlur: true }
+    );
+    assert.equal(editorEmpty.some((block) => block.section === 'ALUR / BAGAN ALIR'), false);
+
+    const mediaAlur = buildOfficialBlocks(
+      { ...base, alur: '<figure><img src="data:image/png;base64,AA==" /></figure>' },
+      { omitEmptyAlur: true }
+    );
+    assert.equal(mediaAlur.some((block) => block.section === 'ALUR / BAGAN ALIR'), true);
+  } finally {
+    (globalThis as any).DOMParser = priorParser;
+    (globalThis as any).Node = priorNode;
+  }
+});
+
+test('Preview/PDF explicitly opt out of empty ALUR and do not draw an outer A4 page border', () => {
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  assert.match(preview, /omitEmptyAlur:\s*true/);
+  assert.match(preview, /boxShadow:\s*'0 2px 12px rgba\(0,0,0,\.08\)'[\s\S]{0,100}border:\s*'none'/);
+  assert.doesNotMatch(preview, /border:\s*'1px solid #e2e8f0'/);
+});
+'''
 
 test_path.write_text(tests)
 print('Preview empty-ALUR + page-border repair applied')
