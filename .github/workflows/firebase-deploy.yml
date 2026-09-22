@@ -36,6 +36,15 @@ jobs:
       - name: Verify Functions
         run: npm run verify:functions
 
+      - name: Test Hierarchy Cloud Boundary
+        run: npm run test:hierarchy
+
+      - name: Test SPO Edit and Numbering Boundaries
+        run: |
+          npm run test:sop-edit
+          npm run test:numbering-lifecycle
+          node --test tests/sop-mutation-regression.test.cjs
+
       - name: Test Tables
         run: npm run test:tables
 
