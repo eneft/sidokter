@@ -32,6 +32,19 @@ const numericWidth = (value: string | null): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+const applyExplicitTableLeft = (table: HTMLTableElement): boolean => {
+  const raw = table.dataset.tableLeft;
+  if (raw === undefined || raw === '') return false;
+  const left = Number(raw);
+  if (!Number.isFinite(left) || left < 0 || left > 100) {
+    delete table.dataset.tableLeft;
+    return false;
+  }
+  table.style.marginLeft = `${left}%`;
+  table.style.marginRight = 'auto';
+  return true;
+};
+
 /** Normalize imported absolute column geometry without changing table semantics. */
 export function normalizeStructuredTables(root: ParentNode): void {
   root.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
@@ -91,11 +104,19 @@ export function normalizeStructuredTables(root: ParentNode): void {
       }
     });
     const value = table.dataset.align || table.dataset.docxAlign || table.getAttribute('align');
-    applyTableAlignment(table, value === 'center' || value === 'right' ? value : 'left');
+    // A manually dragged outer left/right border has exact geometry that must
+    // survive Live editor -> Preview -> PDF normalization. If there is no
+    // explicit horizontal position, keep the normal semantic alignment path.
+    if (!applyExplicitTableLeft(table)) {
+      applyTableAlignment(table, value === 'center' || value === 'right' ? value : 'left');
+    }
   });
 }
 
 export function applyTableAlignment(table: HTMLTableElement, alignment: TableAlignment): void {
+  // An explicit toolbar/move alignment intentionally exits manual outer-edge
+  // positioning; the next normalization follows the requested alignment.
+  delete table.dataset.tableLeft;
   table.dataset.align = alignment;
   table.removeAttribute('align');
   table.style.marginLeft = alignment === 'left' ? '0' : 'auto';
