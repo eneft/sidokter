@@ -20,6 +20,14 @@ function replaceOnce(before, after, label) {
   source = source.slice(0, first) + after + source.slice(first + before.length);
 }
 
+// The JSX map expression closes the arrow-expression and .map call: two ')',
+// then the JSX expression '}'. The first generator draft had one extra ')'.
+replaceOnce(
+  `            )))}`,
+  `            ))}`,
+  'physical guide JSX closure',
+);
+
 // Continuation is allowed only when an actual table bridges two OL siblings.
 // Adjacent OL siblings without a table remain independent authored lists.
 replaceOnce(
@@ -47,4 +55,4 @@ replaceOnce(
 );
 
 fs.writeFileSync(path, source);
-console.log('Repaired one-shot quoting and restricted list continuation to real table bridges.');
+console.log('Repaired one-shot quoting/JSX and restricted list continuation to real table bridges.');
