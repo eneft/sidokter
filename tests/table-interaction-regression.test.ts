@@ -1,14 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { parseHTML } from 'linkedom';
 import { logicalColumnWidths, restoreTableSnapshot, tableOuterEdgeAtPoint } from '../src/utils/tableGeometry';
+import { makeTestTable } from './table-dom-test-utils';
 
 const editorSource = fs.readFileSync('src/components/RichTextEditor.tsx', 'utf8');
 
 const makeTwoColumnTable = () => {
-  const { document } = parseHTML('<html><body><table><tbody><tr><td>A</td><td>B</td></tr></tbody></table></body></html>');
-  const table = document.querySelector('table') as unknown as HTMLTableElement;
+  const { table } = makeTestTable('<table><tbody><tr><td>A</td><td>B</td></tr></tbody></table>');
   const left = table.rows[0].cells[0] as any;
   const right = table.rows[0].cells[1] as any;
   (table as any).getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20 });
@@ -33,8 +32,7 @@ test('outer table resize hit testing is horizontal-only; row height owns vertica
 });
 
 test('cancel restore keeps the same table DOM node while restoring saved geometry and content', () => {
-  const { document } = parseHTML('<html><body><table data-table-width="60" style="margin-left:10%"><tbody><tr><td>A</td></tr></tbody></table></body></html>');
-  const table = document.querySelector('table') as unknown as HTMLTableElement;
+  const { table } = makeTestTable('<table data-table-width="60" style="margin-left:10%"><tbody><tr><td>A</td></tr></tbody></table>');
   const identity = table;
   const snapshot = table.outerHTML;
   table.dataset.tableWidth = '90';

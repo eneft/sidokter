@@ -1,13 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
 import { canMergeCell, mutateTable, tableGrid } from '../src/utils/editorTableCommands';
+import { makeTestTable } from './table-dom-test-utils';
 
 const makeTable = (markup: string) => {
-  const { document, window } = parseHTML(`<html><body>${markup}</body></html>`);
-  (globalThis as any).document = document;
-  (globalThis as any).Node = window.Node;
-  const table = document.querySelector('table') as unknown as HTMLTableElement;
+  const { document, table } = makeTestTable(markup);
   assert.ok(table, 'fixture must contain a table');
   return { document, table };
 };
