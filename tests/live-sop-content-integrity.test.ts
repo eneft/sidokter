@@ -188,7 +188,7 @@ test('structured table gets safe-row split chance before whole-block defer', () 
   assert.match(source, /splitStructuredTableV2/);
 });
 
-test('non-final Live and Preview pages extend Batang Tubuh to canonical bottom only', () => {
+test('non-final Live and Preview pages extend Batang Tubuh without a stray preview bottom-margin rule', () => {
   const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
   const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
   for (const source of [live, preview]) {
@@ -196,10 +196,18 @@ test('non-final Live and Preview pages extend Batang Tubuh to canonical bottom o
     assert.match(source, /isContinuationPage/);
     assert.match(source, /flex: '1 1 auto'/);
     assert.match(source, /left: '28%'/);
-    assert.match(source, /borderBottom: '1px solid #000000'/);
   }
+  assert.match(live, /borderBottom: '1px solid #000000'/);
+  assert.match(preview, /borderBottom: 0/);
   assert.match(live, /pageIndex < totalPages - 1/);
   assert.match(preview, /pageIndex < calculatedTotalPages - 1/);
+});
+
+test('SPO preview uses a compact fixed desktop shell with no fullscreen control and caps Existing PDF width', () => {
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  assert.match(preview, /sm:max-w-\[1120px\]/);
+  assert.match(preview, /max-w-\[920px\] mx-auto/);
+  assert.doesNotMatch(preview, /isMaximized|setIsMaximized|sop_modal_maximized|Maximize2|Minimize2/);
 });
 
 

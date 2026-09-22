@@ -26,8 +26,6 @@ import {
   Stamp,
   Lock,
   Loader2,
-  Maximize2,
-  Minimize2,
   BookOpen,
   Table as TableIcon,
   ChevronLeft,
@@ -268,12 +266,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [selectedEvidenceName, setSelectedEvidenceName] = useState<string>('');
 
   // Canonical A4 visual scale viewer (identik across desktop, tablet, and mobile)
-  const [isMaximized, setIsMaximized] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth >= 640) {
-      return localStorage.getItem('sop_modal_maximized') !== 'false';
-    }
-    return true;
-  });
   const [previewZoomMode, setPreviewZoomMode] = useState<'fit' | '50%' | '75%' | '100%' | '125%' | '150%'>('fit');
   const [previewViewportWidth, setPreviewViewportWidth] = useState<number>(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1024
@@ -291,7 +283,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     const obs = new ResizeObserver(updateWidth);
     obs.observe(previewViewportRef.current);
     return () => obs.disconnect();
-  }, [isOpen, isMaximized]);
+  }, [isOpen]);
 
   const calculatedPreviewScale = useMemo(() => {
     if (previewZoomMode === '50%') return 0.5;
@@ -1296,8 +1288,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   };
 
   return (
-    <div className={`fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center ${isMaximized ? 'p-0' : 'p-0 sm:p-3 sm:py-2'} printable-modal-active`}>
-      <div className={`bg-white w-full ${isMaximized ? 'h-full max-w-full rounded-none border-0 shadow-none' : 'sm:max-w-[96vw] h-full sm:h-[95vh] rounded-none sm:rounded-xl shadow-2xl border-0 sm:border border-slate-200'} overflow-hidden flex flex-col printable-modal-overlay`}>
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 printable-modal-active">
+      <div className="bg-white w-full h-full sm:h-[94vh] sm:max-w-[1120px] rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-slate-200 overflow-hidden flex flex-col printable-modal-overlay">
         
         {/* Top Bar (Hidden in Print) */}
         <div className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-100 bg-slate-50/90 no-print flex-wrap gap-2 shrink-0">
@@ -1372,27 +1364,6 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
             </AdminTooltip>
 
             <AdminTooltip
-              title={isMaximized ? "Perkecil Tampilan" : "Maksimalkan Tampilan"}
-              content={isMaximized ? "Kembalikan ke mode jendela berbingkai." : "Maksimalkan tampilan modal memenuhi seluruh layar desktop."}
-              side="bottom"
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMaximized((prev) => {
-                    const next = !prev;
-                    try { localStorage.setItem('sop_modal_maximized', String(next)); } catch {}
-                    return next;
-                  });
-                }}
-                className="hidden sm:inline-flex items-center justify-center p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 active:bg-slate-300 rounded-xl transition-colors cursor-pointer min-h-[36px] min-w-[36px]"
-                aria-label={isMaximized ? "Perkecil Tampilan" : "Maksimalkan Tampilan"}
-              >
-                {isMaximized ? <Minimize2 className="w-4 h-4 text-slate-700" /> : <Maximize2 className="w-4 h-4 text-slate-700" />}
-              </button>
-            </AdminTooltip>
-
-            <AdminTooltip
               title="Tutup Pratinjau"
               content="Tutup dialog pratinjau dan kembali ke katalog naskah."
               side="bottom"
@@ -1413,7 +1384,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-3">
           
           {isExistingPdf ? (
-            <div className="space-y-4">
+            <div className="space-y-4 w-full max-w-[920px] mx-auto">
               <PreviewMetadata users={users} sop={sop} kind="EKSISTING" />
               {isLoadingLegacyFile ? (
                 <div className="flex flex-col items-center justify-center gap-3 p-12 bg-white rounded-2xl border border-slate-200 min-h-[380px]">
@@ -1722,7 +1693,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                             backgroundColor: '#ffffff',
                             borderLeft: '1px solid #000000',
                             borderRight: '1px solid #000000',
-                            borderBottom: '1px solid #000000'
+                            borderBottom: 0
                           }}
                         >
                           <div
