@@ -19,7 +19,7 @@
     "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts && node --test functions/sopNumberUpdate.test.js functions/sopEditContentPolicy.test.js tests/sop-edit-trusted-boundary.test.cjs tests/sop-alur-image-delete.test.cjs",
     "test:sop-review": "node --test functions/sopReviewPolicy.test.js functions/sopReviewOwnership.test.js && tsx --test tests/sop-review-source.test.ts",
     "test:mail": "node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs && tsx --test tests/mailbox-filter.test.ts",
-    "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts tests/table-pagination-v2.test.ts",
+    "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts tests/table-pagination-v2.test.ts tests/a4-table-width-contract.test.ts tests/live-editor-toolbar-regression.test.ts tests/live-sop-content-integrity.test.ts tests/table-structural-mutations.test.ts tests/table-interaction-regression.test.ts",
     "test:hierarchy": "node --test tests/hierarchy-cloud-boundary.test.cjs",
     "test:pdf-binary": "tsx --test tests/pdf-binary-download.test.ts",
     "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts",
