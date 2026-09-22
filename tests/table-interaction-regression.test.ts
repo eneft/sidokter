@@ -54,8 +54,13 @@ test('editor table click enables border interaction without normalizing columns'
   assert.doesNotMatch(pointerDown, /ensureLogicalColumns\(activeTable\)/);
 });
 
-test('editor render path uses pure logical-width measurement', () => {
-  assert.match(editorSource, /logicalColumnWidths\(selectedTable, false\)/);
+test('editor render path anchors column guides to physical rendered borders', () => {
+  assert.match(editorSource, /renderedLogicalColumnBoundaryPositions\(selectedTable\)/);
+  const overlay = editorSource.slice(
+    editorSource.indexOf('Persistent table selection chrome'),
+    editorSource.indexOf('DRAG-AND-DROP FILE OVERLAY'),
+  );
+  assert.doesNotMatch(overlay, /logicalColumnWidths\(selectedTable, false\)/);
 });
 
 test('grid pointer cancellation has a rollback path distinct from commit', () => {
