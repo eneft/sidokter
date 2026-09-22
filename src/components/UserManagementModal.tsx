@@ -18,6 +18,7 @@ import {
 import { UserAccount, UserAssignment, UserRole } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES, SoegiriCategory, buildSubHierarchyCode, getSoegiriHierarchyInfo } from '../utils/soegiriStructure';
 import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
+import { mergeUserAssignments, getPrimaryUserAssignment } from '../lib/userAssignmentPolicy';
 import { HierarchyPicker } from './HierarchyPicker';
 import { AdminTooltip, AdminHelpHint } from './AdminTooltip';
 
@@ -208,12 +209,14 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         hierarchyPath: getSoegiriHierarchyInfo({ categoryCode: divisionCode, hierarchyCode: currentDraftHierarchy, subCode, instalasiCode: instCode, poliCode, subUnitCode }).path
       };
       
-      const otherAssignments = assignments.filter((a) => a.divisionCode !== divisionCode || (a.hierarchyCode || '') !== (draftAssignment.hierarchyCode || ''));
-      const finalAssignments = role === 'admin'
+      // The picker represents a pending/selected assignment. Saving must merge it
+      // into the authoritative list instead of replacing the only existing
+      // hierarchy. This makes additional hierarchy access persist even when the
+      // Admin goes straight from selecting TARGET AKSES to Simpan Akun.
+      const uniqueAssignments = role === 'admin'
         ? []
-        : (assignments.length <= 1 ? [draftAssignment] : [draftAssignment, ...otherAssignments]);
-      const uniqueAssignments = finalAssignments.filter((a, idx, arr) => idx === arr.findIndex((x) => x.divisionCode === a.divisionCode && (x.hierarchyCode || '') === (a.hierarchyCode || '')));
-      const firstAssignment = draftAssignment;
+        : mergeUserAssignments(assignments, draftAssignment);
+      const firstAssignment = getPrimaryUserAssignment(uniqueAssignments, draftAssignment);
       const userPayload: UserAccount = {
         id: editingUserId || `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         username: cleanUsername,
@@ -743,7 +746,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           ))}
                         </div>
                       ) : (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[10px] text-amber-800">Belum ada kewenangan tersimpan. Pilih hirarki di atas lalu klik <strong>Tambah Kewenangan Ini</strong>.</div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[10px] text-amber-800">Belum ada kewenangan tersimpan. <strong>TARGET AKSES</strong> yang dipilih akan ikut disimpan saat Simpan Akun. Gunakan <strong>Tambah Kewenangan Ini</strong> untuk menambahkan lebih dari satu hirarki sebelum menyimpan.</div>
                       )}
                     </div>
                   )}
