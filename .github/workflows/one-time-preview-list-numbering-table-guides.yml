@@ -24,11 +24,15 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Repair one-shot patch quoting
+        run: node scripts/fix-one-shot-preview-patch.cjs
+
       - name: Apply guarded patch
         run: node scripts/patch-preview-list-numbering-table-guides.cjs
 
       - name: Remove one-shot machinery
         run: |
+          rm scripts/fix-one-shot-preview-patch.cjs
           rm scripts/patch-preview-list-numbering-table-guides.cjs
           rm .github/workflows/one-time-preview-list-numbering-table-guides.yml
 
