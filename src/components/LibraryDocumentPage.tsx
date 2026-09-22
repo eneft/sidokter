@@ -1611,6 +1611,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
                 fileName={viewer.fileName}
                 storagePath={viewer.storagePath}
                 heightClass="h-full w-full"
+                showPdfDownloadAction={false}
               />
             </div>
           </div>

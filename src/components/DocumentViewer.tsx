@@ -25,6 +25,8 @@ export interface DocumentViewerProps {
   heightClass?: string;
   /** Let the parent own vertical scrolling by expanding a PDF to all pages. */
   singleScroll?: boolean;
+  /** Hide the inline PDF download action when the parent already provides one. */
+  showPdfDownloadAction?: boolean;
 }
 
 type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
@@ -74,7 +76,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   storagePath,
   className = '',
   heightClass = 'h-[500px]',
-  singleScroll = false
+  singleScroll = false,
+  showPdfDownloadAction = true
 }) => {
   const effectiveFileName = fileName || (file as File | undefined)?.name || 'Dokumen_SPO.pdf';
   const effectiveFileUrl = fileUrl || (storagePath ? buildStoragePathUrl(storagePath) : '');
@@ -210,10 +213,12 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       {detectedType === 'pdf' && !error && (
         <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-slate-100 bg-white shrink-0 no-print min-h-[34px]">
           <span className="text-[11px] font-semibold text-slate-500">PDF</span>
-          <button type="button" onClick={handleDownload} className="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-slate-50" title="Unduh dokumen">
-            <Download className="w-3 h-3" />
-            <span>Unduh</span>
-          </button>
+          {showPdfDownloadAction && (
+            <button type="button" onClick={handleDownload} className="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-slate-50" title="Unduh dokumen">
+              <Download className="w-3 h-3" />
+              <span>Unduh</span>
+            </button>
+          )}
         </div>
       )}
 
