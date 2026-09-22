@@ -36,6 +36,9 @@ jobs:
       - name: Verify Functions
         run: npm run verify:functions
 
+      - name: Test Hierarchy Cloud Boundary
+        run: npm run test:hierarchy
+
       - name: Test Tables
         run: npm run test:tables
 
