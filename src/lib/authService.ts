@@ -228,6 +228,26 @@ export async function getCurrentAuthToken(forceRefresh=false){
   return getIdToken(forceRefresh);
 }
 
+/**
+ * Ensures the client is properly authenticated with Firebase Auth if a valid SIDOKTER
+ * session exists, so that client-side Firestore operations have a valid auth context.
+ */
+export async function ensureFirebaseAuthSession(): Promise<boolean> {
+  try {
+    await authPersistenceReady;
+    if (typeof (auth as any).authStateReady === 'function') {
+      await (auth as any).authStateReady();
+    }
+    if (auth.currentUser) return true;
+    const current = getPersistedClientSession();
+    if (!current?.sessionId) return false;
+    const refreshed = await refreshUserSessionProfile(current);
+    return !!refreshed && !!auth.currentUser;
+  } catch {
+    return false;
+  }
+}
+
 /** Trusted server API call for operations that must use the SIDOKTER session
  * and Firebase Admin SDK instead of relying on browser Firestore Rules. */
 export async function callAuthenticatedAuthApi(action:string, body:Record<string,any>={}){

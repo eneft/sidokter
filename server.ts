@@ -8,7 +8,7 @@ import { handleStorageUpload, handleStorageDownload, handleStorageDownloadByPath
 import { handleHierarchyGet, handleHierarchySave } from './server/hierarchyHandler';
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = 3000;
 
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || '');

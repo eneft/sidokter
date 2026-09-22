@@ -6,6 +6,16 @@ const DATA_DIR = path.resolve(process.cwd(), 'data');
 const HIERARCHY_FILE = path.resolve(DATA_DIR, 'hierarchy_master.json');
 const CONFIG_FILE = path.resolve(process.cwd(), 'firebase-applet-config.json');
 
+let firestoreProjectId = process.env.FIREBASE_PROJECT_ID || 'sidokter-soegiri';
+try {
+  if (fs.existsSync(CONFIG_FILE)) {
+    const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    if (parsed.projectId) firestoreProjectId = parsed.projectId;
+  }
+} catch {}
+
+const CANONICAL_CLOUD_HIERARCHY_API_URL = `https://asia-southeast2-${firestoreProjectId}.cloudfunctions.net/hierarchyApiV2`;
+
 let serverFirestoreDb: any = null;
 async function getServerFirestore() {
   if (serverFirestoreDb) return serverFirestoreDb;
@@ -31,7 +41,43 @@ async function getServerFirestore() {
 
 export async function handleHierarchyGet(_req: Request, res: Response): Promise<void> {
   try {
-    // 1. Coba baca dari Firestore di server jika tersedia
+    // 1. Ambil dari canonical Cloud Functions hierarchyApiV2 (mengakses Firestore via firebase-admin)
+    try {
+      const cloudRes = await fetch(CANONICAL_CLOUD_HIERARCHY_API_URL, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(6000)
+      });
+      if (cloudRes.ok) {
+        const cloudData: any = await cloudRes.json();
+        const list = Array.isArray(cloudData?.categories) ? cloudData.categories : [];
+        if (list.length > 0) {
+          try {
+            if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+            fs.writeFileSync(HIERARCHY_FILE, JSON.stringify(list, null, 2), 'utf-8');
+          } catch {}
+
+          res.json({ success: true, source: 'cloud_functions', categories: list });
+          return;
+        }
+      }
+    } catch {
+      // Cloud functions network error or timeout, proceed to local and client SDK fallback
+    }
+
+    // 2. Baca dari file lokal server
+    if (fs.existsSync(HIERARCHY_FILE)) {
+      try {
+        const raw = fs.readFileSync(HIERARCHY_FILE, 'utf-8');
+        const list = JSON.parse(raw);
+        if (Array.isArray(list) && list.length > 0) {
+          res.json({ success: true, source: 'local_file', categories: list });
+          return;
+        }
+      } catch {}
+    }
+
+    // 3. Fallback baca langsung dari Firestore jika tersedia
     const db = await getServerFirestore();
     if (db) {
       try {
@@ -47,7 +93,6 @@ export async function handleHierarchyGet(_req: Request, res: Response): Promise<
             list = keys.map((k) => val[k]).filter(Boolean);
           }
           if (list.length > 0) {
-            // Backup ke file lokal server
             try {
               if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
               fs.writeFileSync(HIERARCHY_FILE, JSON.stringify(list, null, 2), 'utf-8');
@@ -57,18 +102,10 @@ export async function handleHierarchyGet(_req: Request, res: Response): Promise<
             return;
           }
         }
-      } catch (fErr) {
-        console.warn('[hierarchyHandler] Server Firestore get error:', fErr);
-      }
-    }
-
-    // 2. Fallback baca dari file lokal server
-    if (fs.existsSync(HIERARCHY_FILE)) {
-      const raw = fs.readFileSync(HIERARCHY_FILE, 'utf-8');
-      const list = JSON.parse(raw);
-      if (Array.isArray(list) && list.length > 0) {
-        res.json({ success: true, source: 'local_file', categories: list });
-        return;
+      } catch (fErr: any) {
+        if (fErr?.code !== 'permission-denied' && !fErr?.message?.includes('permissions')) {
+          console.warn('[hierarchyHandler] Server Firestore get notice:', fErr?.message || fErr);
+        }
       }
     }
 
@@ -103,21 +140,51 @@ export async function handleHierarchySave(req: Request, res: Response): Promise<
       console.warn('[hierarchyHandler] Simpan file lokal warning:', fsErr);
     }
 
-    // 2. Simpan ke Firestore di server
+    // 2. Forward ke Cloud Functions hierarchyApiV2 (dengan header otorisasi)
     let firestoreSynced = false;
-    const db = await getServerFirestore();
-    if (db) {
-      try {
-        const { doc, setDoc } = await import('firebase/firestore');
-        await setDoc(doc(db, 'system_config', 'hierarchy_master'), {
-          id: 'hierarchy_master',
-          value: list,
-          updatedAt: new Date().toISOString(),
-          updatedBy: updatedBy || 'admin'
-        }, { merge: true });
-        firestoreSynced = true;
-      } catch (fErr) {
-        console.warn('[hierarchyHandler] Server Firestore save error:', fErr);
+    try {
+      const forwardHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      };
+      if (req.headers.authorization) forwardHeaders.authorization = String(req.headers.authorization);
+      if (req.headers['x-soegiri-auth-uid']) forwardHeaders['x-soegiri-auth-uid'] = String(req.headers['x-soegiri-auth-uid']);
+      if (req.headers['x-session-id']) forwardHeaders['x-session-id'] = String(req.headers['x-session-id']);
+      if (req.headers['x-soegiri-session-id']) forwardHeaders['x-soegiri-session-id'] = String(req.headers['x-soegiri-session-id']);
+      if (req.headers['x-user-username']) forwardHeaders['x-user-username'] = String(req.headers['x-user-username']);
+
+      const cloudRes = await fetch(CANONICAL_CLOUD_HIERARCHY_API_URL, {
+        method: 'POST',
+        headers: forwardHeaders,
+        body: JSON.stringify({ categories: list, updatedBy }),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (cloudRes.ok) {
+        const cloudJson: any = await cloudRes.json();
+        if (cloudJson?.success === true) {
+          firestoreSynced = true;
+        }
+      }
+    } catch {}
+
+    // 3. Cadangan: simpan ke Firestore via Client SDK jika Cloud Functions tidak merespons
+    if (!firestoreSynced) {
+      const db = await getServerFirestore();
+      if (db) {
+        try {
+          const { doc, setDoc } = await import('firebase/firestore');
+          await setDoc(doc(db, 'system_config', 'hierarchy_master'), {
+            id: 'hierarchy_master',
+            value: list,
+            updatedAt: new Date().toISOString(),
+            updatedBy: updatedBy || 'admin'
+          }, { merge: true });
+          firestoreSynced = true;
+        } catch (fErr: any) {
+          if (fErr?.code !== 'permission-denied' && !fErr?.message?.includes('permissions')) {
+            console.warn('[hierarchyHandler] Server Firestore save notice:', fErr?.message || fErr);
+          }
+        }
       }
     }
 

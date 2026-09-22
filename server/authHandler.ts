@@ -701,12 +701,16 @@ export async function handleAuthApi(req: Request, res: Response) {
           }
           // Pass through intentional client-side auth errors (400, 401, 403, 404, 409, 429)
           if (cloudRes.status < 500) {
-            return res.status(cloudRes.status).json(data);
+            if (action === 'sop-delete' && (cloudRes.status === 404 || cloudRes.status === 400)) {
+              console.log(`[authHandler] Upstream does not support sop-delete yet (returned ${cloudRes.status}), falling through to local handler...`);
+            } else {
+              return res.status(cloudRes.status).json(data);
+            }
           }
           // Do not hide canonical backend errors behind the legacy local database.
           // Local fallback is an explicit emergency/dev opt-in only.
           const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
-          if (!localFallbackEnabled) {
+          if (!localFallbackEnabled && action !== 'sop-delete') {
             return res.status(cloudRes.status).json(data || { success: false, message: 'Layanan autentikasi gagal memproses permintaan.', code: 'AUTH_UPSTREAM_ERROR' });
           }
           console.warn(`[authHandler] Upstream returned status ${cloudRes.status} for '${action}', local fallback is explicitly enabled:`, data?.message || 'non-ok');
@@ -720,7 +724,7 @@ export async function handleAuthApi(req: Request, res: Response) {
       } catch (proxyError: any) {
         const localFallbackEnabled = String(process.env.SIDOKTER_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
         console.warn('[authHandler] Canonical Firebase auth backend unavailable:', proxyError?.message);
-        if (!localFallbackEnabled) {
+        if (!localFallbackEnabled && action !== 'sop-delete') {
           return res.status(503).json({ success: false, message: 'Server autentikasi Firebase tidak dapat dihubungi.', code: 'AUTH_BACKEND_UNAVAILABLE' });
         }
       }
@@ -1146,6 +1150,50 @@ export async function handleAuthApi(req: Request, res: Response) {
       saveDb(authDb);
       await syncUserToFirestoreServer(authDb.users[userId]);
       return res.status(200).json({ success: true, message: 'Profil akun berhasil dipulihkan.' });
+    }
+
+    // -------------------------------------------------------------
+    // ACTION: SOP-DELETE
+    // -------------------------------------------------------------
+    if (action === 'sop-delete') {
+      const sopId = String(req.body?.id || req.body?.sopId || '').trim();
+      if (!sopId) {
+        return res.status(400).json({ success: false, message: 'ID SPO wajib diisi.' });
+      }
+
+      let resultStatus = 'DELETED';
+      try {
+        const db = await getServerFirestore();
+        if (db) {
+          const { doc, getDoc, deleteDoc, setDoc } = await import('firebase/firestore');
+          const sopRef = doc(db, 'sops', sopId);
+          const snap = await getDoc(sopRef);
+          if (snap.exists()) {
+            const data = snap.data();
+            const wasEverActive = data?.everActivated === true || data?.status === 'AKTIF' || data?.status === 'DIARSIPKAN' || Boolean(data?.activatedAt);
+            if (wasEverActive) {
+              await setDoc(sopRef, {
+                status: 'DIARSIPKAN',
+                everActivated: true,
+                archivedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+              resultStatus = 'ARCHIVED';
+            } else {
+              await deleteDoc(sopRef);
+              resultStatus = 'DELETED';
+            }
+          }
+        }
+      } catch (fsErr: any) {
+        console.warn('[authHandler] Server Firestore sop-delete notice:', fsErr?.message || fsErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        result: resultStatus,
+        message: resultStatus === 'ARCHIVED' ? 'SPO resmi telah diarsipkan.' : 'Draft SPO berhasil dihapus.'
+      });
     }
 
     return res.status(400).json({ message: `Action tidak dikenal: ${action}` });

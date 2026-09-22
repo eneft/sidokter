@@ -1193,6 +1193,10 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       return json(res, 200, { success: true, sops, source: 'trusted-server' });
     }
 
+    if (action === 'sop-create') {
+      action = 'sop-edit';
+    }
+
     if (action === 'sop-edit') {
       const submitted = req.body?.sop || {};
       const sopId = String(submitted.id || '').trim();
@@ -1205,21 +1209,29 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       try {
         await db.runTransaction(async (transaction) => {
           const snapshot = await transaction.get(sopRef);
+          let stored;
           if (!snapshot.exists) {
-            const error = new Error('SPO_NOT_FOUND');
-            error.sopEditStatus = 404;
-            error.sopEditCode = 'SOP_NOT_FOUND';
-            error.sopEditMessage = 'SPO tidak ditemukan atau sudah dihapus.';
-            throw error;
+            const userUid = String(context.user?.id || context.user?.authUid || '').trim();
+            const baseKeys = getSopAccessKeysServer(submitted);
+            stored = {
+              id: sopId,
+              status: 'DRAFT',
+              title: String(submitted.title || 'Draft SPO').trim(),
+              createdAt: new Date().toISOString(),
+              createdBy: context.user?.username || 'user',
+              accessKeys: baseKeys,
+              authorizedUids: userUid ? [userUid] : [],
+              ...submitted,
+            };
+          } else {
+            const storedRaw = { id: snapshot.id, ...snapshot.data() };
+            stored = {
+              ...storedRaw,
+              accessKeys: Array.isArray(storedRaw.accessKeys) && storedRaw.accessKeys.length
+                ? storedRaw.accessKeys
+                : getSopAccessKeysServer(storedRaw),
+            };
           }
-
-          const storedRaw = { id: snapshot.id, ...snapshot.data() };
-          const stored = {
-            ...storedRaw,
-            accessKeys: Array.isArray(storedRaw.accessKeys) && storedRaw.accessKeys.length
-              ? storedRaw.accessKeys
-              : getSopAccessKeysServer(storedRaw),
-          };
 
           let next;
           try {
@@ -1292,6 +1304,144 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       }
 
       return json(res, 200, { success: true, sop: resultingSop, source: 'trusted-session' });
+    }
+
+    if (action === 'sop-delete') {
+      const sopId = String(req.body?.id || req.body?.sopId || '').trim();
+      if (!sopId) return json(res, 400, { success: false, code: 'INVALID_SOP_ID', message: 'ID SPO wajib diisi.' });
+
+      const sopRef = db.collection('sops').doc(sopId);
+      let deletionResult = 'DELETED';
+
+      try {
+        await db.runTransaction(async (transaction) => {
+          const snapshot = await transaction.get(sopRef);
+          if (!snapshot.exists) {
+            deletionResult = 'DELETED';
+            return;
+          }
+
+          const stored = { id: snapshot.id, ...snapshot.data() };
+          const isAdmin = context.user?.role === 'admin';
+          const userUid = String(context.user?.id || context.user?.authUid || context.decoded?.uid || '').trim();
+          const isCreator = stored.createdBy === context.user?.username || (Array.isArray(stored.authorizedUids) && stored.authorizedUids.includes(userUid));
+
+          if (!isAdmin && !isCreator) {
+            const error = new Error('PERMISSION_DENIED');
+            error.sopDeleteStatus = 403;
+            error.sopDeleteCode = 'PERMISSION_DENIED';
+            error.sopDeleteMessage = 'Anda tidak memiliki hak akses untuk menghapus dokumen SPO ini.';
+            throw error;
+          }
+
+          const wasEverActive = stored.everActivated === true || stored.status === 'AKTIF' || stored.status === 'DIARSIPKAN' || Boolean(stored.activatedAt);
+
+          if (wasEverActive) {
+            transaction.set(sopRef, {
+              ...stored,
+              status: 'DIARSIPKAN',
+              everActivated: true,
+              archivedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
+
+            const auditRef = db.collection('audit_logs').doc();
+            transaction.set(auditRef, {
+              id: auditRef.id,
+              action: 'SOP_ARCHIVED',
+              documentId: stored.id,
+              documentNumber: stored.sopNumber || '',
+              documentStatus: 'DIARSIPKAN',
+              actorUid: context.decoded?.uid || userUid || 'unknown',
+              actorName: context.user?.name || context.user?.username || 'Pengguna SIDOKTER',
+              actorUsername: context.user?.username || '',
+              actorRole: context.user?.role || 'user',
+              timestamp: FieldValue.serverTimestamp(),
+              boundary: 'trusted-session',
+            });
+
+            deletionResult = 'ARCHIVED';
+            return;
+          }
+
+          if (stored.status !== 'DRAFT') {
+            const error = new Error('CANNOT_DELETE_ACTIVE');
+            error.sopDeleteStatus = 400;
+            error.sopDeleteCode = 'CANNOT_DELETE_ACTIVE';
+            error.sopDeleteMessage = 'Hanya draft SPO yang dapat dihapus permanen.';
+            throw error;
+          }
+
+          const divisionCode = String(stored.divisionCode || '').trim().toUpperCase();
+          const subHierarchyCode = String(stored.subHierarchyCode || '').trim();
+          const effectiveDate = String(stored.effectiveDate || stored.createdAt || '').slice(0, 10);
+          const year = effectiveDate.slice(0, 4);
+          const sequenceNumber = Number(stored.sequenceNumber || 0);
+
+          if (divisionCode && /^\d{4}$/.test(year) && Number.isSafeInteger(sequenceNumber) && sequenceNumber > 0) {
+            const scopeKey = subHierarchyCode ? `${year}|${divisionCode}|${subHierarchyCode}` : `${year}|${divisionCode}`;
+            const sequenceKey = encodeURIComponent(scopeKey);
+            const sequenceRef = db.collection('system_config').doc(`spo_sequence_${sequenceKey}`);
+            const reservationRef = db.collection('sop_number_reservations').doc(`sop-number-${sequenceKey}-${sequenceNumber}`);
+
+            const [seqSnap, resSnap] = await Promise.all([
+              transaction.get(sequenceRef),
+              transaction.get(reservationRef),
+            ]);
+
+            const current = seqSnap.exists ? (seqSnap.data() || {}) : {};
+            const reusable = Array.from(new Set(
+              [...(Array.isArray(current.reusableSequences) ? current.reusableSequences : []), sequenceNumber]
+                .map((v) => Number(v))
+                .filter((v) => Number.isSafeInteger(v) && v > 0)
+            )).sort((a, b) => a - b);
+
+            transaction.set(sequenceRef, {
+              id: sequenceRef.id,
+              divisionCode,
+              subHierarchyCode,
+              year,
+              lastSequence: Math.max(Number(current.lastSequence || 0), sequenceNumber),
+              reusableSequences: reusable,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+
+            if (resSnap.exists) {
+              const resData = resSnap.data() || {};
+              if (resData.status === 'USED' && String(resData.usedDocumentId || '') === stored.id) {
+                transaction.delete(reservationRef);
+              }
+            }
+          }
+
+          transaction.delete(sopRef);
+
+          const auditRef = db.collection('audit_logs').doc();
+          transaction.set(auditRef, {
+            id: auditRef.id,
+            action: 'SOP_DELETED',
+            documentId: stored.id,
+            documentNumber: stored.sopNumber || '',
+            documentStatus: 'DRAFT',
+            actorUid: context.decoded?.uid || userUid || 'unknown',
+            actorName: context.user?.name || context.user?.username || 'Pengguna SIDOKTER',
+            actorUsername: context.user?.username || '',
+            actorRole: context.user?.role || 'user',
+            timestamp: FieldValue.serverTimestamp(),
+            boundary: 'trusted-session',
+          });
+
+          deletionResult = 'DELETED';
+        });
+      } catch (err) {
+        if (err?.sopDeleteStatus) {
+          return json(res, err.sopDeleteStatus, { success: false, code: err.sopDeleteCode, message: err.sopDeleteMessage });
+        }
+        console.error('Trusted SOP delete failed', { sopId, error: err?.message || err });
+        return json(res, 500, { success: false, code: 'SOP_DELETE_ERROR', message: err?.message || 'Gagal menghapus dokumen SPO.' });
+      }
+
+      return json(res, 200, { success: true, result: deletionResult, message: deletionResult === 'ARCHIVED' ? 'SPO resmi telah diarsipkan.' : 'Draft SPO berhasil dihapus.' });
     }
 
     if (action === 'migrate-sop-access') {

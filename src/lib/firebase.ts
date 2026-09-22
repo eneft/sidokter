@@ -41,21 +41,12 @@ export const functions = getFunctions(app, 'asia-southeast2');
 // Never use local persistence for SIDOKTER login credentials.
 export const authPersistenceReady = setPersistence(auth, browserSessionPersistence);
 
-// Validate Firestore connectivity only after Firebase Auth restoration has had a
-// chance to complete. Running a protected read while the client is anonymous
-// creates misleading permission-denied warnings during normal app bootstrap.
+// Validate connection to Firestore on boot (per firebase skill guidelines)
 if (typeof window !== 'undefined') {
-  void authPersistenceReady.then(async () => {
-    try {
-      if (typeof (auth as any).authStateReady === 'function') {
-        await (auth as any).authStateReady();
-      }
-      if (!auth.currentUser) return;
-      await getDocFromServer(doc(db, 'test', 'connection'));
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('the client is offline')) {
-        console.info('Firestore initial boot check: client offline or backend not yet reached.');
-      }
+  getDocFromServer(doc(db, 'test', 'connection')).catch((error) => {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.info('Firestore initial boot check: client offline or backend not yet reached.');
     }
   });
 }
+
