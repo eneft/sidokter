@@ -1,0 +1,52 @@
+name: One-time login logo diagnostic
+
+on:
+  push:
+    branches:
+      - fix/login-logo-rendering
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-logo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/login-logo-rendering
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Inspect source asset
+        run: |
+          set -euxo pipefail
+          test -s public/sidokter-logo.webp
+          file public/sidokter-logo.webp
+          xxd -l 16 public/sidokter-logo.webp
+          grep -q 'src="/sidokter-logo.webp"' src/components/LoginPage.tsx
+      - name: Install dependencies
+        run: npm ci
+      - name: Build client
+        run: npm run build:client
+      - name: Verify built asset
+        run: |
+          set -euxo pipefail
+          test -s dist/sidokter-logo.webp
+          file dist/sidokter-logo.webp
+          xxd -l 16 dist/sidokter-logo.webp
+          cmp public/sidokter-logo.webp dist/sidokter-logo.webp
+      - name: Verify local serving and MIME
+        run: |
+          set -euxo pipefail
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
+          pid=$!
+          trap 'kill $pid || true' EXIT
+          for i in {1..20}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          curl -fsSI http://127.0.0.1:4173/sidokter-logo.webp | tee /tmp/logo-headers.txt
+          grep -qi 'content-type: image/webp' /tmp/logo-headers.txt
+          curl -fsS http://127.0.0.1:4173/sidokter-logo.webp -o /tmp/served-logo.webp
+          cmp dist/sidokter-logo.webp /tmp/served-logo.webp
