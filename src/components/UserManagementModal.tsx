@@ -230,7 +230,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
         instCode: role === 'admin' ? undefined : (firstAssignment.instCode || undefined),
         poliCode: role === 'admin' ? undefined : (firstAssignment.poliCode || undefined),
         subUnitCode: role === 'admin' ? undefined : (firstAssignment.subUnitCode || undefined),
-        unitName: cleanUnit || 'Unit Kerja RSUD Dr. Soegiri',
+        unitName: firstAssignment.unitName || cleanUnit || 'Unit Kerja RSUD Dr. Soegiri',
         createdAt: editingUserId
           ? (users.find(u => u.id === editingUserId)?.createdAt || new Date().toISOString())
           : new Date().toISOString(),
@@ -599,6 +599,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         value={subCode}
                         onChange={(e) => {
                           const newSubCode = e.target.value;
+                          setSelectedHierarchyOverride('');
                           setSubCode(newSubCode);
                           setInstCode('');
                           setPoliCode('');
@@ -630,6 +631,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         value={instCode}
                         onChange={(e) => {
                           const newInstCode = e.target.value;
+                          setSelectedHierarchyOverride('');
                           setInstCode(newInstCode);
                           setPoliCode('');
                           const inst = availableInsts.find((i) => i.code === newInstCode);
@@ -660,6 +662,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                         value={poliCode}
                         onChange={(e) => {
                           const newPoliCode = e.target.value;
+                          setSelectedHierarchyOverride('');
                           setPoliCode(newPoliCode);
                           const poli = availablePolis.find((p) => p.code === newPoliCode);
                           if (poli) {
@@ -690,6 +693,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           value={subUnitCode}
                           onChange={(e) => {
                             const newSubUnitCode = e.target.value;
+                            setSelectedHierarchyOverride('');
                             setSubUnitCode(newSubUnitCode);
                             const su = availableSubUnits.find((u) => u.code === newSubUnitCode);
                             if (su) {
