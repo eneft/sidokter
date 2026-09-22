@@ -25,6 +25,7 @@ jobs:
           cache: npm
 
       - name: Apply deterministic editor patch
+        id: patch
         run: node scripts/patch-table-editor-stabilization.cjs
 
       - name: Remove one-shot patch machinery
@@ -33,21 +34,55 @@ jobs:
           rm .github/workflows/table-stabilization-apply.yml
 
       - name: Install dependencies
+        id: install
         run: npm ci
 
-      - name: Run expanded table regression suite
-        run: npm run test:tables
+      - name: Test structured table pagination
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/structured-table-pagination.test.ts
+
+      - name: Test table geometry resize
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/table-geometry-resize.test.ts
+
+      - name: Test table pagination V2
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/table-pagination-v2.test.ts
+
+      - name: Test A4 table width contract
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/a4-table-width-contract.test.ts
+
+      - name: Test live editor toolbar regressions
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+
+      - name: Test live SPO content integrity
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/live-sop-content-integrity.test.ts
+
+      - name: Test table structural mutations
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/table-structural-mutations.test.ts
+
+      - name: Test table interaction regressions
+        if: always() && steps.install.outcome == 'success'
+        run: npx tsx --test tests/table-interaction-regression.test.ts
 
       - name: TypeScript verification
+        if: always() && steps.install.outcome == 'success'
         run: npm run lint
 
       - name: Build web client
+        if: always() && steps.install.outcome == 'success'
         run: npm run build:client
 
       - name: Verify clean patch formatting
+        if: always()
         run: git diff --check
 
       - name: Commit verified stabilization
+        if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
