@@ -231,7 +231,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="login-brand-hero">
                 <div className="login-brand-title" aria-label="SIDOKTER — Sistem Dokumen Terpadu">
                   <img
-                    src="/sidokter-logo.webp"
+                    src="/sidokter-logo-v2.webp?v=20260923-0619"
                     alt="SIDOKTER — Sistem Dokumen Terpadu"
                     className="block h-auto w-full max-w-[430px] rounded-xl bg-white/95 px-3 py-2 object-contain shadow-sm"
                   />
@@ -288,7 +288,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <div className="login-mobile-titles">
                   <div className="login-mobile-brand-title">
                     <img
-                      src="/sidokter-logo.webp"
+                      src="/sidokter-logo-v2.webp?v=20260923-0619"
                       alt="SIDOKTER — Sistem Dokumen Terpadu"
                       className="block h-auto w-[190px] max-w-full object-contain"
                     />
