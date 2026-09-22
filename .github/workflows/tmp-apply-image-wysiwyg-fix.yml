@@ -1,0 +1,45 @@
+name: Temporary Apply Image WYSIWYG Fix
+
+on:
+  push:
+    branches:
+      - fix/live-spo-image-wysiwyg
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply audited candidate only on the one-shot trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          message="$(jq -r '.head_commit.message // ""' "$GITHUB_EVENT_PATH")"
+          if [[ "$message" != "chore: execute image WYSIWYG candidate" ]]; then
+            echo "Not the one-shot trigger commit; no source mutation."
+            exit 0
+          fi
+          npm ci
+          python3 scripts/tmp-apply-image-wysiwyg-fix.py
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(src/utils/canonicalA4Pagination.ts tests/live-sop-content-integrity.test.ts)
+          [[ "${changed[*]}" == "${expected[*]}" ]]
+          npx tsx scripts/tmp-image-wysiwyg-audit.ts
+          npm run test:live-pagination
+          npm run lint
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/utils/canonicalA4Pagination.ts tests/live-sop-content-integrity.test.ts
+          git commit -m "fix: preserve Live SPO image geometry through pagination"
+          git push origin HEAD:fix/live-spo-image-wysiwyg
