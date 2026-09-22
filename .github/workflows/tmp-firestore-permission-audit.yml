@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  reproduce:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +18,34 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Reproduce production permission deploy gap
+      - run: npm ci --prefix functions
+      - name: Firestore permission/deploy contract
         run: npx tsx --test tests/firestore-permission-deploy-contract.test.ts
+      - name: Hierarchy compatibility
+        run: npx tsx --test tests/hierarchy-tree-compat.test.ts
+      - name: Live pagination
+        run: npm run test:live-pagination
+      - name: Live toolbar
+        run: npx tsx --test tests/live-editor-toolbar-regression.test.ts
+      - name: Structured tables
+        run: npm run test:tables
+      - name: PDF binary
+        run: npm run test:pdf-binary
+      - name: Storage
+        run: npm run test:storage
+      - name: Revision
+        run: npm run test:revision
+      - name: SOP edit
+        run: npm run test:sop-edit
+      - name: SOP review
+        run: npm run test:sop-review
+      - name: Internal mail
+        run: npm run test:mail
+      - name: Numbering lifecycle
+        run: npm run test:numbering-lifecycle
+      - name: Verify Functions
+        run: npm run verify:functions
+      - name: TypeScript
+        run: npm run lint
+      - name: Production build
+        run: npm run build:client
