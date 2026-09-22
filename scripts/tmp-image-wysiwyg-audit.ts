@@ -8,7 +8,9 @@ import {
 const { window } = parseHTML('<!doctype html><html><body></body></html>');
 Object.assign(globalThis, {
   DOMParser: window.DOMParser,
-  Node: window.Node,
+  // canonicalA4Pagination only needs the DOM nodeType constants here.
+  // linkedom's exported Node constructor does not expose them consistently.
+  Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
 });
 
 const authored = [
