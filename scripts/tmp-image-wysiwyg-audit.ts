@@ -6,11 +6,11 @@ import {
 } from '../src/utils/canonicalA4Pagination';
 
 class BrowserLikeDOMParser {
-  parseFromString(source: string, type: string) {
+  parseFromString(source: string, _type: DOMParserSupportedType): Document {
     return new LinkedomDOMParser().parseFromString(
       `<!doctype html><html><body>${source}</body></html>`,
-      type,
-    );
+      'text/html',
+    ) as unknown as Document;
   }
 }
 
