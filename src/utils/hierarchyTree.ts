@@ -1,9 +1,21 @@
 import { SoegiriCategory, SoegiriHierarchyNode } from './soegiriStructure';
 
 export function getNodeChildren(node: SoegiriCategory | SoegiriHierarchyNode): SoegiriHierarchyNode[] {
-  if (Array.isArray(node.children)) return node.children;
-  const legacy = (node as any).subs || (node as any).instalasis || (node as any).polis || (node as any).subUnits;
-  return Array.isArray(legacy) ? legacy : [];
+  const genericChildren = Array.isArray(node.children) ? node.children : [];
+  if (genericChildren.length > 0) return genericChildren;
+
+  // Cloud normalization can legitimately produce `children: []` alongside a
+  // populated legacy hierarchy (`subs` / `instalasis` / `polis` / `subUnits`).
+  // Treat only a non-empty generic branch as authoritative so older master data
+  // remains traversable while newer arbitrary-depth `children` still wins.
+  for (const key of ['subs', 'instalasis', 'polis', 'subUnits'] as const) {
+    const legacyChildren = (node as any)[key];
+    if (Array.isArray(legacyChildren) && legacyChildren.length > 0) {
+      return legacyChildren;
+    }
+  }
+
+  return genericChildren;
 }
 
 export function findNodeByPath(root: SoegiriCategory | SoegiriHierarchyNode, codes: string[]): SoegiriHierarchyNode | SoegiriCategory | undefined {

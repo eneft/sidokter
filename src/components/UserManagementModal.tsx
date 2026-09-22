@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, UserAssignment, UserRole } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES, SoegiriCategory, buildSubHierarchyCode, getSoegiriHierarchyInfo } from '../utils/soegiriStructure';
+import { getNodeChildren } from '../utils/hierarchyTree';
 import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { mergeUserAssignments, getPrimaryUserAssignment } from '../lib/userAssignmentPolicy';
 import { HierarchyPicker } from './HierarchyPicker';
@@ -71,15 +72,18 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  // Active Category & Sub objects for cascading selects
+  // Read every visible level through the same generic tree resolver used by
+  // HierarchyPicker. This keeps legacy masters and arbitrary-depth cloud
+  // `children` compatible instead of silently stopping at an instalasi.
   const selectedCategory = categories.find(c => c.code === divisionCode);
-  const availableSubs = selectedCategory?.subs || [];
+  const availableSubs = selectedCategory ? getNodeChildren(selectedCategory) : [];
   const selectedSub = availableSubs.find(s => s.code === subCode);
-  const availableInsts = selectedSub?.instalasis || [];
+  const availableInsts = selectedSub ? getNodeChildren(selectedSub) : [];
   const selectedInst = availableInsts.find(i => i.code === instCode);
-  const availablePolis = selectedInst?.polis || [];
+  const availablePolis = selectedInst ? getNodeChildren(selectedInst) : [];
   const selectedPoli = availablePolis.find(p => p.code === poliCode);
-  const availableSubUnits = selectedPoli?.subUnits || [];
+  const availableSubUnits = selectedPoli ? getNodeChildren(selectedPoli) : [];
+  const visibleHierarchyCode = selectedHierarchyOverride || [subCode, instCode, poliCode, subUnitCode].filter(Boolean).join('.');
 
   if (!isOpen) return null;
 
@@ -546,7 +550,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
                   <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
                     <HierarchyPicker
-                      value={{ divisionCode, hierarchyCode: selectedHierarchyOverride, hierarchyPath: [] }}
+                      value={{ divisionCode, hierarchyCode: visibleHierarchyCode, hierarchyPath: [] }}
                       onChange={(v) => {
                         setDivisionCode(v.divisionCode); setSelectedHierarchyOverride(v.hierarchyCode);
                         const parts = v.hierarchyCode.split('.').filter(Boolean);
