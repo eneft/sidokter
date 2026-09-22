@@ -1,1 +1,1 @@
-execute image WYSIWYG candidate
+execute image WYSIWYG candidate v2
