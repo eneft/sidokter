@@ -1,0 +1,43 @@
+name: One-time PDF Preview Fit Page Repair
+
+on:
+  push:
+    branches:
+      - fix/pdf-preview-fit-page-clean-toolbar
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/pdf-preview-fit-page-clean-toolbar
+          fetch-depth: 0
+
+      - name: Apply guarded repair
+        run: python .github/scripts/fix-pdf-preview-fit-page.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused PDF viewer regression tests
+        run: node --test tests/document-viewer-ui.test.cjs
+
+      - name: Build web client
+        run: npm run build:client
+
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/DocumentViewer.tsx src/components/SopDetailModal.tsx src/components/LibraryDocumentPage.tsx tests/document-viewer-ui.test.cjs
+          if git diff --cached --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git commit -m "Refine PDF preview viewport and remove duplicate download control"
+          git push origin HEAD:fix/pdf-preview-fit-page-clean-toolbar
