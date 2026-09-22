@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { DOMParser as LinkedomDOMParser } from 'linkedom';
 import {
   buildOfficialBlocks,
+  extractProcedureBlocks,
+  isAtomicMediaHtml,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
   getCanonicalContentWidthPx,
   getCanonicalSectionRowChromePx,
@@ -268,4 +271,44 @@ test('continuation pages suppress the duplicate table/tail-row bottom rule', () 
   assert.match(preview, /data-sop-suppress-bottom-border=\{!lastInSection \? 'true' : undefined\}/);
   assert.match(css, /table\.sop-official-table\.sop-continuation-page-table[\s\S]{0,220}border-bottom:\s*0 !important/);
   assert.match(css, /tr\[data-sop-suppress-bottom-border="true"\]\s*>\s*td[\s\S]{0,240}border-bottom:\s*0 !important/);
+});
+
+
+test('canonical image flow preserves Live editor wrapper width/alignment as atomic media', () => {
+  const priorParser = (globalThis as any).DOMParser;
+  const priorNode = (globalThis as any).Node;
+
+  class BrowserLikeDOMParser {
+    parseFromString(source: string) {
+      return new LinkedomDOMParser().parseFromString(
+        `<!doctype html><html><body>${source}</body></html>`,
+        'text/html'
+      );
+    }
+  }
+
+  (globalThis as any).DOMParser = BrowserLikeDOMParser;
+  (globalThis as any).Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+
+  try {
+    for (const width of [25, 50, 75, 100]) {
+      const authored = [
+        `<div class="my-3 figure-wrapper figure-wrap-top-bottom" data-wrap="top-bottom" data-width="${width}%" data-align="left"`,
+        ` style="display:block;max-width:${width}%;width:${width}%;margin:12px auto 12px 0">`,
+        '<img src="data:image/png;base64,iVBORw0KGgo=" style="width:100%;height:auto;display:inline-block">',
+        '</div><p><br></p>',
+      ].join('');
+
+      const blocks = extractProcedureBlocks(authored);
+      assert.equal(blocks.length, 1, `${width}% image must remain one flow unit`);
+      assert.match(blocks[0], /figure-wrapper/);
+      assert.match(blocks[0], new RegExp(`data-width="${width}%"`));
+      assert.match(blocks[0], /data-align="left"/);
+      assert.match(blocks[0], new RegExp(`max-width:${width}%`));
+      assert.equal(isAtomicMediaHtml(blocks[0]), true);
+    }
+  } finally {
+    (globalThis as any).DOMParser = priorParser;
+    (globalThis as any).Node = priorNode;
+  }
 });

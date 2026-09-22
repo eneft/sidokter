@@ -129,7 +129,13 @@ export function isAtomicMediaHtml(html: string): boolean {
     if (meaningful.length !== 1 || meaningful[0].nodeType !== Node.ELEMENT_NODE) return false;
     const el = meaningful[0] as HTMLElement;
     const tag = el.tagName.toLowerCase();
-    return tag === 'img' || tag === 'figure' || (tag === 'p' && el.children.length === 1 && el.firstElementChild?.tagName.toLowerCase() === 'img');
+    const isEditorImageWrapper = el.classList.contains('figure-wrapper');
+    return (
+      tag === 'img' ||
+      tag === 'figure' ||
+      isEditorImageWrapper ||
+      (tag === 'p' && el.children.length === 1 && el.firstElementChild?.tagName.toLowerCase() === 'img')
+    );
   } catch {
     return false;
   }
@@ -268,6 +274,16 @@ export function extractProcedureBlocks(html: string): string[] {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       const el = node as HTMLElement;
       const tag = el.tagName.toLowerCase();
+
+      // LiveSPO image sizing/alignment/wrap metadata lives on .figure-wrapper,
+      // while the nested <img> intentionally stays width:100%. Treat the
+      // wrapper as one authored media unit so Preview/PDF cannot lose the
+      // selected 25/50/75/100% width when canonical flow is decomposed.
+      if (el.classList.contains('figure-wrapper')) {
+        pushInlineBuffer();
+        blocks.push(el.outerHTML);
+        return;
+      }
 
       if (/^(ol|ul)$/i.test(tag)) {
         pushInlineBuffer();
