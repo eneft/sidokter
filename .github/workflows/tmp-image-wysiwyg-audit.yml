@@ -1,0 +1,23 @@
+name: Temporary Image WYSIWYG Audit
+
+on:
+  push:
+    branches:
+      - fix/live-spo-image-wysiwyg
+
+permissions:
+  contents: read
+
+jobs:
+  audit-image-wysiwyg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reproduce image wrapper loss
+        run: npx tsx scripts/tmp-image-wysiwyg-audit.ts
