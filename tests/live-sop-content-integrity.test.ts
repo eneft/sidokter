@@ -198,7 +198,7 @@ test('non-final Live and Preview pages extend Batang Tubuh without a stray previ
     assert.match(source, /left: '28%'/);
   }
   assert.match(live, /borderBottom: '1px solid #000000'/);
-  assert.match(preview, /borderBottom: 0/);
+  assert.match(preview, /borderBottom: '1px solid #000000'/);
   assert.match(live, /pageIndex < totalPages - 1/);
   assert.match(preview, /pageIndex < calculatedTotalPages - 1/);
 });
@@ -372,6 +372,14 @@ test('Preview/PDF omit an empty optional ALUR while Live keeps the structural ed
 test('Preview/PDF explicitly opt out of empty ALUR and do not draw an outer A4 page border', () => {
   const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
   assert.match(preview, /omitEmptyAlur:\s*true/);
+  assert.match(preview, /boxShadow:\s*'0 2px 12px rgba\(0,0,0,\.08\)'[\s\S]{0,100}border:\s*'none'/);
+  assert.doesNotMatch(preview, /border:\s*'1px solid #e2e8f0'/);
+});
+
+
+test('Preview continuation fill closes the Batang Tubuh boundary without restoring the outer A4 shell border', () => {
+  const preview = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  assert.match(preview, /data-sop-page-continuation-fill="true"[\s\S]{0,500}borderBottom:\s*'1px solid #000000'/);
   assert.match(preview, /boxShadow:\s*'0 2px 12px rgba\(0,0,0,\.08\)'[\s\S]{0,100}border:\s*'none'/);
   assert.doesNotMatch(preview, /border:\s*'1px solid #e2e8f0'/);
 });
