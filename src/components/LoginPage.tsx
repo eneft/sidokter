@@ -229,9 +229,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               {/* Main App Title */}
               <div className="login-brand-hero">
-                <div className="login-brand-title" aria-label="SIDOKTER">
-                  <span className="login-brand-title-light">SIDO</span>
-                  <span className="login-brand-title-accent">KTER</span>
+                <div className="login-brand-title" aria-label="SIDOKTER — Sistem Dokumen Terpadu">
+                  <img
+                    src="/sidokter-logo.webp"
+                    alt="SIDOKTER — Sistem Dokumen Terpadu"
+                    className="block h-auto w-full max-w-[430px] rounded-xl bg-white/95 px-3 py-2 object-contain shadow-sm"
+                  />
                 </div>
                 <h1 className="login-brand-system-name">
                   Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan
@@ -284,8 +287,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 />
                 <div className="login-mobile-titles">
                   <div className="login-mobile-brand-title">
-                    <span className="text-[#0e294b]">SIDO</span>
-                    <span className="text-[#009b83]">KTER</span>
+                    <img
+                      src="/sidokter-logo.webp"
+                      alt="SIDOKTER — Sistem Dokumen Terpadu"
+                      className="block h-auto w-[190px] max-w-full object-contain"
+                    />
                   </div>
                   <div className="login-mobile-brand-sub">Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan</div>
                 </div>
