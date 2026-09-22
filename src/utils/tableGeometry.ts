@@ -66,10 +66,10 @@ export function renderedLogicalColumnWidths(
     fallbackCursor += fallbackWidths[boundary - 1] || 0;
     const samples: number[] = [];
     grid.forEach((row) => {
-      const leftCell = row[boundary - 1];
-      const rightCell = row[boundary];
-      if (!leftCell || !rightCell || leftCell === rightCell) return;
-      const cellRect = leftCell.getBoundingClientRect();
+      const leftSlot = row[boundary - 1];
+      const rightSlot = row[boundary];
+      if (!leftSlot || !rightSlot || leftSlot.cell === rightSlot.cell) return;
+      const cellRect = leftSlot.cell.getBoundingClientRect();
       const position = cellRect.right - tableRect.left;
       if (Number.isFinite(position) && position > 0 && position < tableRect.width) samples.push(position);
     });
