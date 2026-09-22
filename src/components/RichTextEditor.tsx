@@ -59,6 +59,10 @@ export type WordWrapMode =
 
 /** Canonical font sizes supported by LiveSPOEditor document content. */
 export type LiveSopFontSize = '8pt' | '10pt' | '12pt';
+export type RichTextHistoryCommand = 'undo' | 'redo';
+export interface RichTextChangeMeta {
+  historyMode: 'coalesce' | 'discrete';
+}
 
 // Microsoft Word Layout Options Button Icon (Exact match to MS Word UI)
 const WordLayoutOptionsIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-5' }) => (
@@ -79,7 +83,7 @@ interface RichTextEditorProps {
   label?: string;
   required?: boolean;
   value: string;
-  onChange: (val: string) => void;
+  onChange: (val: string, meta?: RichTextChangeMeta) => void;
   placeholder?: string;
   minHeight?: string;
   className?: string;
@@ -90,6 +94,13 @@ interface RichTextEditorProps {
   variant?: 'default' | 'seamless';
   onFocus?: () => void;
   onFormattingChange?: (formatting: RichTextFormattingState) => void;
+  // Shared multi-page Live A4 supplies section-level history because native
+  // contentEditable history is owned by one physical page fragment. Standalone
+  // editors omit this callback and keep the browser's native history.
+  onHistoryCommand?: (command: RichTextHistoryCommand) => boolean;
+  // Optional canonical pagination generation supplied by SopLiveTemplate.
+  // A new object identity means physical-page fragments have been recomputed.
+  paginationEpoch?: object;
 }
 
 export interface RichTextFormattingState {
@@ -128,6 +139,8 @@ export interface RichTextEditorHandle {
   applyImageWrap: (mode: WordWrapMode) => void;
   resetImage: () => void;
   deleteImage: () => void;
+  /** Capture the current editor selection before an external/native toolbar control takes focus. */
+  captureSelection: () => boolean;
   focus: () => void;
 }
 
@@ -592,6 +605,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   variant = 'default',
   onFocus,
   onFormattingChange,
+  onHistoryCommand,
+  paginationEpoch,
 }, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -606,6 +621,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const isUpdatingFromPropRef = useRef(false);
   const lastEmittedValueRef = useRef<string | null>(null);
+  // Track the last fragment value actually received from the paginator. A local
+  // edit updates parent section state immediately, while physical-page fragments
+  // catch up on a debounce. During that gap the child can receive the exact same
+  // old fragment again; that is a stale echo, not an external document change.
+  const lastReceivedValueRef = useRef(value || '');
+  const lastPaginationEpochRef = useRef<object | undefined>(paginationEpoch);
   // Keep the user's text selection alive when a toolbar button takes focus.
   // This is critical for long SPO documents: formatting must apply to the
   // selection that was made in the editor, not to the caret created by the button.
@@ -746,6 +767,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
+    // Table cell clicks can happen while this contentEditable already owns DOM
+    // focus, so React onFocus will not fire again. Claim shared-toolbar ownership
+    // explicitly, exactly like object/image selection does.
+    onFocus?.();
     const activeTable = activeCell.closest('table') as HTMLTableElement | null;
     if (activeTable) ensureLogicalColumns(activeTable);
     setSelectedTable(activeTable);
@@ -759,11 +784,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     // covers empty cells and padding clicks where the browser leaves its native
     // selection in the previously active cell.
     savedRangeRef.current = cellRange;
-    // A click on cell padding or an empty cell may not move the browser
-    // selection. Publish table context directly from the pointer target so the
-    // shared toolbar switches modes immediately and consistently.
-    setActiveFormatting(current => ({
-      ...current,
+    // Publish table context synchronously after ownership is claimed. Do not
+    // call the parent from a functional state updater (React cross-render hazard).
+    const next: RichTextFormattingState = {
+      ...activeFormatting,
       context: 'table',
       inTable: true,
       tableAutoFit: activeTable?.dataset.tableAutofit === 'true',
@@ -773,8 +797,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       tableColumnCount: cellPosition.columnCount,
       canMerge: Boolean(activeCell.nextElementSibling),
       canSplit: activeCell.rowSpan > 1 || activeCell.colSpan > 1,
-    }));
-  }, [updateTableRect]);
+    };
+    setActiveFormatting(next);
+    onFormattingChange?.(next);
+  }, [activeFormatting, onFocus, onFormattingChange, updateTableRect]);
 
   const handleEditorPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -936,25 +962,52 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     return true;
   }, []);
 
-  // Sync value from prop to contentEditable ONLY when prop genuinely changes from outside
+  // Sync a genuinely new canonical fragment, but ignore the parent's stale
+  // pre-pagination echo after a local contentEditable mutation. The paginator
+  // epoch is authoritative: once it changes, even a byte-identical fragment is
+  // a fresh canonical result and must be allowed to evict stale local DOM.
   useEffect(() => {
-    if (!editorRef.current) return;
-    if (value !== lastEmittedValueRef.current) {
-      if (editorRef.current.innerHTML === (value || '')) {
-        lastEmittedValueRef.current = value || '';
-        return;
-      }
-      lastEmittedValueRef.current = value || '';
-      isUpdatingFromPropRef.current = true;
-      editorRef.current.innerHTML = value || '';
-      savedRangeRef.current = null;
-      isUpdatingFromPropRef.current = false;
-      if (selectedFigure && !editorRef.current.contains(selectedFigure)) {
-        setSelectedFigure(null);
-        setFigureRect(null);
-      }
+    const editor = editorRef.current;
+    if (!editor) return;
+    const incoming = value || '';
+    const previousIncoming = lastReceivedValueRef.current;
+    const lastEmitted = lastEmittedValueRef.current;
+    const epochChanged = paginationEpoch !== lastPaginationEpochRef.current;
+
+    // Parent section state changed, but debouncedBlocks/calculatedPages has not
+    // caught up yet. Ignore only within the SAME pagination epoch.
+    if (
+      !epochChanged &&
+      incoming === previousIncoming &&
+      lastEmitted !== null &&
+      incoming !== lastEmitted &&
+      editor.innerHTML !== incoming
+    ) {
+      return;
     }
-  }, [value, selectedFigure]);
+
+    lastReceivedValueRef.current = incoming;
+    lastPaginationEpochRef.current = paginationEpoch;
+
+    // The canonical paginator acknowledged exactly what this editor emitted.
+    // Keep the existing DOM so the browser's native undo transaction survives.
+    if (incoming === lastEmitted) return;
+
+    if (editor.innerHTML === incoming) {
+      lastEmittedValueRef.current = incoming;
+      return;
+    }
+
+    lastEmittedValueRef.current = incoming;
+    isUpdatingFromPropRef.current = true;
+    editor.innerHTML = incoming;
+    savedRangeRef.current = null;
+    isUpdatingFromPropRef.current = false;
+    if (selectedFigure && !editor.contains(selectedFigure)) {
+      setSelectedFigure(null);
+      setFigureRect(null);
+    }
+  }, [value, selectedFigure, paginationEpoch]);
 
   // Recalculate overlay on scroll or window resize
   useEffect(() => {
@@ -975,13 +1028,13 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     };
   }, [updateFigureRect]);
 
-  const handleInput = useCallback(() => {
+  const handleInput = useCallback((historyMode: RichTextChangeMeta['historyMode'] = 'discrete') => {
     if (isUpdatingFromPropRef.current || !editorRef.current) return;
     normalizeStructuredTables(editorRef.current);
     const html = editorRef.current.innerHTML;
     const cleanHtml = html === '<br>' || html.trim() === '' ? '' : html;
     lastEmittedValueRef.current = cleanHtml;
-    onChange(cleanHtml);
+    onChange(cleanHtml, { historyMode });
     updateFigureRect();
   }, [onChange, updateFigureRect]);
 
@@ -1025,29 +1078,43 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
     figure.classList.add('figure-selected');
-    setActiveFormatting(current => ({
-      ...current, context: 'image', inTable: false,
+    // Image selection originates from a native capture listener. onFocus()
+    // above claims the exact fragment synchronously through the parent's refs.
+    // Publish the same image state to the shared toolbar outside the React
+    // state updater so we never update SopLiveTemplate while RichTextEditor is
+    // rendering its own state transition.
+    const next: RichTextFormattingState = {
+      ...activeFormatting,
+      context: 'image',
+      inTable: false,
       imageWidth: Math.min(Math.max(parsedPercent, 10), 100),
       imageAlign: (figure.getAttribute('data-align') as 'left' | 'center' | 'right') || 'center',
       imageWrap: wrapMode,
-    }));
-  }, [onFocus]);
+    };
+    setActiveFormatting(next);
+    onFormattingChange?.(next);
+  }, [activeFormatting, onFocus, onFormattingChange]);
 
-  const clearFigureSelection = useCallback(() => {
+  const clearFigureSelection = useCallback((preserveFormatting = false) => {
     setSelectedFigure(null);
     setFigureRect(null);
     setShowWrapTextMenu(false);
     if (editorRef.current) {
       editorRef.current.querySelectorAll('.figure-wrapper, figure').forEach((f) => f.classList.remove('figure-selected'));
     }
-    setActiveFormatting(current => ({
-    ...current,
-    context: 'text',
-    inTable: false,
-    imageWidth: undefined,
-    imageAlign: undefined,
-    imageWrap: undefined,
-  }));
+    // A table-cell click is handled first by the native image capture listener
+    // and then by React's table pointer handler. Do not let the later native
+    // click event demote the freshly published table context back to text.
+    if (!preserveFormatting) {
+      setActiveFormatting(current => ({
+        ...current,
+        context: 'text',
+        inTable: false,
+        imageWidth: undefined,
+        imageAlign: undefined,
+        imageWrap: undefined,
+      }));
+    }
   }, []);
 
   // Direct native capture listener on editor to guarantee 100% click/pointer capture on images and context menu
@@ -1080,7 +1147,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           wrapper.appendChild(target);
           target.style.cssText = 'width: 100%; height: auto; border: none; border-radius: 0; display: inline-block; box-shadow: none; cursor: pointer; pointer-events: auto;';
           figure = wrapper;
-          handleInput();
+          // Rehydrating a paginator-produced bare <img> is local UI structure,
+          // not a document edit. Serializing here would rerender the parent
+          // before object selection finishes. The next real image command will
+          // serialize this wrapper through handleInput().
         }
       }
 
@@ -1092,7 +1162,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           if (!figure.getAttribute('data-wrap')) figure.setAttribute('data-wrap', 'top-bottom');
           if (!figure.getAttribute('data-width')) figure.setAttribute('data-width', '75%');
           if (!figure.getAttribute('data-align')) figure.setAttribute('data-align', 'center');
-          handleInput();
+          // Selection-time normalization stays local until a real mutation.
         }
 
         if (e.button === 2) {
@@ -1104,7 +1174,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         selectFigureElement(figure);
         setContextMenu(null);
       } else if (!target.closest('.figure-wrapper') && !target.closest('figure') && !target.closest('img') && !target.closest('.figure-control-overlay') && !target.closest('.figure-context-menu') && !target.closest('.figure-quick-toolbar')) {
-        clearFigureSelection();
+        const tableCell = target.closest('td,th');
+        const preserveFormatting = Boolean(tableCell && editor.contains(tableCell));
+        clearFigureSelection(preserveFormatting);
         setContextMenu(null);
       }
     };
@@ -1366,6 +1438,47 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     updateFigureRect();
   };
 
+  const resetSelectedFigure = () => {
+    if (!selectedFigure) return;
+    const width = 75;
+    const wrap: WordWrapMode = 'top-bottom';
+    const align: 'center' = 'center';
+
+    selectedFigure.setAttribute('data-rotation', '0');
+    selectedFigure.setAttribute('data-width', `${width}%`);
+    selectedFigure.setAttribute('data-wrap', wrap);
+    selectedFigure.style.transform = '';
+    selectedFigure.style.maxWidth = `${width}%`;
+    selectedFigure.style.width = `${width}%`;
+    selectedFigure.style.float = 'none';
+    selectedFigure.style.clear = 'both';
+    selectedFigure.style.marginLeft = 'auto';
+    selectedFigure.style.marginRight = 'auto';
+    selectedFigure.style.position = 'relative';
+    selectedFigure.style.opacity = '1';
+    selectedFigure.style.zIndex = '1';
+    selectedFigure.style.mixBlendMode = 'normal';
+    selectedFigure.style.boxShadow = 'none';
+    selectedFigure.style.top = 'auto';
+    selectedFigure.style.left = 'auto';
+    selectedFigure.style.verticalAlign = '';
+    applyFigureAlignment(selectedFigure, align, wrap);
+
+    setCurrentRotation(0);
+    setCurrentWrapMode(wrap);
+    setShowWrapTextMenu(false);
+    setActiveFormatting(current => ({
+      ...current,
+      context: 'image',
+      inTable: false,
+      imageWidth: width,
+      imageAlign: align,
+      imageWrap: wrap,
+    }));
+    handleInput();
+    updateFigureRect();
+  };
+
   const deleteSelectedFigure = () => {
     if (!selectedFigure) return;
     selectedFigure.remove();
@@ -1390,6 +1503,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     if (!editorRef.current) return;
     const isHistoryCommand = command === 'undo' || command === 'redo';
     if (selectedFigure && !isHistoryCommand) return;
+    if (isHistoryCommand && onHistoryCommand?.(command as RichTextHistoryCommand)) {
+      updateActiveFormatting();
+      return;
+    }
     const restored = restoreSavedSelection();
     if (!isHistoryCommand && !restored) return;
 
@@ -1477,6 +1594,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const modifier = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (modifier && !e.altKey && (key === 'z' || key === 'y')) {
+      e.preventDefault();
+      executeCommand(key === 'y' || (key === 'z' && e.shiftKey) ? 'redo' : 'undo');
+      return;
+    }
+
     // 1. Tab / Shift+Tab for Indenting & Outdenting in lists (Sub-bullets & Sub-numbers)
     if (e.key === 'Tab') {
       const selection = window.getSelection();
@@ -2539,14 +2664,18 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       setActiveFormatting(current => ({ ...current, imageAlign: alignment, context: 'image' }));
     },
     applyImageWrap: applyWordWrapMode,
-    resetImage: () => {
-      if (!selectedFigure) return;
-      selectedFigure.style.transform = '';
-      selectedFigure.setAttribute('data-rotation', '0');
-      applyFigurePercentWidth(75);
-      applyWordWrapMode('top-bottom', 'center');
-    },
+    resetImage: resetSelectedFigure,
     deleteImage: deleteSelectedFigure,
+    captureSelection: () => {
+      const editor = editorRef.current;
+      const selection = window.getSelection();
+      if (editor && selection?.rangeCount && selection.anchorNode && editor.contains(selection.anchorNode)) {
+        savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+        return true;
+      }
+      const saved = savedRangeRef.current;
+      return Boolean(editor && saved && editor.contains(saved.commonAncestorContainer));
+    },
     focus: () => editorRef.current?.focus(),
   }));
 
@@ -2950,8 +3079,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           onFocus={onFocus}
           onPointerDown={handleEditorPointerDown}
           onPointerUp={handleEditorPointerUp}
-          onInput={handleInput}
-          onBlur={handleInput}
+          onInput={(event) => {
+            const inputType = (event.nativeEvent as InputEvent).inputType || '';
+            const historyMode: RichTextChangeMeta['historyMode'] = [
+              'insertText', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward'
+            ].includes(inputType) ? 'coalesce' : 'discrete';
+            handleInput(historyMode);
+          }}
+          onBlur={() => handleInput('discrete')}
           onKeyDown={handleEditorKeyDown}
           onKeyUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}

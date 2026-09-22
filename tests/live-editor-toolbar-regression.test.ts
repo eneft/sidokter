@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
+const template = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
 
 test('image selection invalidates stale text range and pointer-up cannot demote image context', () => {
   const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));
@@ -69,4 +70,59 @@ test('clearing or deleting an image clears image formatting context', () => {
   assert.match(remove, /context:\s*'text'/);
   assert.match(remove, /imageWidth:\s*undefined/);
   assert.match(remove, /imageWrap:\s*undefined/);
+});
+
+test('active Live SPO fragment ignores only same-epoch stale echoes and accepts canonical repagination', () => {
+  const sync = editor.slice(editor.indexOf('// Sync a genuinely new canonical fragment'), editor.indexOf('// Recalculate overlay'));
+  assert.match(editor, /paginationEpoch\?: object/);
+  assert.match(editor, /lastPaginationEpochRef/);
+  assert.match(sync, /const epochChanged = paginationEpoch !== lastPaginationEpochRef\.current/);
+  assert.match(sync, /!epochChanged/);
+  assert.match(sync, /incoming === previousIncoming/);
+  assert.match(sync, /lastPaginationEpochRef\.current = paginationEpoch/);
+  assert.doesNotMatch(editor, /localMutationUntilRef/);
+});
+
+
+test('shared toolbar preserves fragment ownership across callback-ref churn', () => {
+  assert.doesNotMatch(template, /activeEditorKeyRef\.current === editorKey[\s\S]{0,120}activeEditorKeyRef\.current = null/);
+  assert.match(template, /Preserve the ownership key across/);
+});
+
+test('shared native controls capture the active editor selection before focus leaves contentEditable', () => {
+  assert.match(editor, /captureSelection:\s*\(\) => boolean/);
+  assert.match(editor, /captureSelection:\s*\(\) => \{/);
+  assert.match(template, /aria-label="Ukuran huruf"[\s\S]{0,180}onMouseDown=\{\(\) => getActiveEditor\(\)\?\.captureSelection\(\)\}/);
+  assert.match(template, /captureSelection\(\)[\s\S]{0,220}aria-label="Sisipkan Tabel"/);
+  assert.match(template, /captureSelection\(\)[\s\S]{0,220}aria-label="Sisipkan Gambar"/);
+});
+
+
+test('native image deselection cannot demote a table-cell click back to text context', () => {
+  const clear = editor.slice(editor.indexOf('const clearFigureSelection'), editor.indexOf('// Direct native capture listener'));
+  const nativePointer = editor.slice(editor.indexOf('const handleNativePointerDown'), editor.indexOf('const handleNativeContextMenu'));
+  assert.match(clear, /preserveFormatting = false/);
+  assert.match(clear, /if \(!preserveFormatting\)/);
+  assert.match(nativePointer, /const tableCell = target\.closest\('td,th'\)/);
+  assert.match(nativePointer, /clearFigureSelection\(preserveFormatting\)/);
+});
+
+test('shared multi-page history is logical-section scoped and table clicks reclaim toolbar ownership', () => {
+  assert.match(editor, /onHistoryCommand\?: \(command: RichTextHistoryCommand\) => boolean/);
+  assert.match(editor, /isHistoryCommand && onHistoryCommand\?\.\(command as RichTextHistoryCommand\)/);
+  assert.match(editor, /onFocus\?\.\(\);[\s\S]*const activeTable = activeCell\.closest\('table'\)/);
+  assert.match(editor, /onFormattingChange\?\.\(next\)/);
+  assert.match(template, /const handleSectionHistory = \(section: LiveSectionId, command: 'undo' \| 'redo'\)/);
+  assert.match(template, /setDebouncedBlocks\(buildOfficialBlocks\(nextSections\)\)/);
+  assert.match(template, /onHistoryCommand=\{\(command\) => handleSectionHistory\(cfg\.id, command\)\}/);
+});
+
+test('image selection publishes shared toolbar context synchronously without parent update inside state updater', () => {
+  const selectFigure = editor.slice(editor.indexOf('const selectFigureElement'), editor.indexOf('const clearFigureSelection'));
+  assert.match(selectFigure, /onFocus\?\.\(\)/);
+  assert.match(selectFigure, /const next:\s*RichTextFormattingState/);
+  assert.match(selectFigure, /setActiveFormatting\(next\)/);
+  assert.match(selectFigure, /onFormattingChange\?\.\(next\)/);
+  assert.match(selectFigure, /context:\s*'image'/);
+  assert.doesNotMatch(selectFigure, /setActiveFormatting\(current\s*=>[\s\S]*onFormattingChange/);
 });
