@@ -40,7 +40,7 @@ test('Nomor Terbit uses trusted callable instead of browser transaction', () => 
 test('SPO Baru/Riviu allocation uses the same trusted sequence boundary', () => {
   const block = between(
     firestoreClient,
-    '// Handle official number allocation if requested',
+    '// Handle official number allocation through the trusted backend.',
     '// Clean payload for backend and client sync'
   );
   assert.match(block, /httpsCallable\(functions,\s*'allocateSopNumber'\)/);
