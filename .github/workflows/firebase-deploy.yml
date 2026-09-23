@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -20,6 +20,147 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply trusted numbering source patch
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/trusted-sop-number-allocation'
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/lib/firestoreService.ts')
+          source = path.read_text(encoding='utf-8')
+          if "allocationMode: 'DOCUMENT'" in source and "allocationMode: 'RESERVATION'" in source:
+              print('Trusted numbering patch already present.')
+              raise SystemExit(0)
+
+          old_import = "import { generateSopNumber, getHighestSequenceForUnit, getNextLifecycleSequence, getNumberingSequenceScope, parseSopNumber } from '../utils/numbering';"
+          new_import = "import { getNumberingSequenceScope, parseSopNumber } from '../utils/numbering';"
+          if old_import not in source:
+              raise SystemExit('Expected numbering import not found')
+          source = source.replace(old_import, new_import, 1)
+
+          allocation_pattern = re.compile(
+              r"    // Handle official number allocation if requested\n    if \(options\?\.allocateOfficialNumber\) \{.*?\n    \}\n\n    // Clean payload for backend and client sync",
+              re.S,
+          )
+          allocation_replacement = """    // Handle official number allocation through the trusted backend. The browser
+    // must never mutate system_config/spo_sequence_* directly because that ledger
+    // is intentionally fail-closed to ordinary Firestore clients.
+    if (options?.allocateOfficialNumber) {
+      const divisionCode = String(sop.divisionCode || '').trim().toUpperCase();
+      const subHierarchyCode = String(sop.subHierarchyCode || '').trim();
+      const effectiveDate = sop.effectiveDate || new Date().toISOString().slice(0, 10);
+      const year = effectiveDate.slice(0, 4);
+      if (!divisionCode || divisionCode === 'ALL' || !/^\\d{4}$/.test(year)) {
+        throw new Error('Hirarki atau tahun penomoran SPO tidak valid.');
+      }
+
+      try {
+        const callable = httpsCallable(functions, 'allocateSopNumber');
+        const result = await callable({
+          allocationMode: 'DOCUMENT',
+          config: sanitizeForFirestore(options.allocateOfficialNumber),
+          divisionCode,
+          subHierarchyCode,
+          dateStr: effectiveDate,
+          title: sop.title || '',
+          documentId: sop.id,
+          reservedBy: currentSessionRaw?.name || currentSessionRaw?.username || 'Pengguna SIDOKTER',
+        });
+        const allocation = result.data as SopNumberReservation;
+        const sequenceNumber = Number(allocation?.sequenceNumber || 0);
+        if (!allocation?.sopNumber || !Number.isSafeInteger(sequenceNumber) || sequenceNumber <= 0) {
+          throw new Error('Respons alokasi nomor SPO dari server tidak valid.');
+        }
+        sop.sequenceNumber = sequenceNumber;
+        sop.sopNumber = String(allocation.sopNumber);
+      } catch (error: any) {
+        const code = String(error?.code || '');
+        if (code === 'functions/unauthenticated') {
+          throw new Error('Sesi login tidak valid. Silakan login kembali sebelum menyimpan SPO.');
+        }
+        if (code === 'functions/permission-denied') {
+          throw new Error(error?.message || 'Anda tidak memiliki akses penomoran untuk hirarki SPO ini.');
+        }
+        throw error instanceof Error ? error : new Error(String(error || 'Gagal mengalokasikan nomor SPO.'));
+      }
+    }
+
+    // Clean payload for backend and client sync"""
+          source, count = allocation_pattern.subn(allocation_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one official-number allocation block, changed {count}')
+
+          reserve_pattern = re.compile(
+              r"export async function reserveNextSopNumberInFirestore\(params: ReserveSopNumberParams\): Promise<SopNumberReservation> \{.*?\n\}\n\nexport async function fetchSopNumberReservationsFromFirestore",
+              re.S,
+          )
+          reserve_replacement = """export async function reserveNextSopNumberInFirestore(params: ReserveSopNumberParams): Promise<SopNumberReservation> {
+  const cleanDiv = String(params.divisionCode || '').trim().toUpperCase();
+  const cleanSub = String(params.subHierarchyCode || '').trim();
+  const effectiveDate = params.dateStr || new Date().toISOString().slice(0, 10);
+  const year = effectiveDate.slice(0, 4);
+  if (!cleanDiv || cleanDiv === 'ALL' || !/^\\d{4}$/.test(year)) {
+    throw new Error('Hirarki atau tahun reservation SPO tidak valid.');
+  }
+
+  await ensureFirebaseAuthSession();
+  try {
+    const callable = httpsCallable(functions, 'allocateSopNumber');
+    const result = await callable({
+      allocationMode: 'RESERVATION',
+      config: sanitizeForFirestore(params.config),
+      divisionCode: cleanDiv,
+      subHierarchyCode: cleanSub,
+      dateStr: effectiveDate,
+      title: params.title?.trim() || '',
+      reservedBy: params.reservedBy,
+      purpose: params.purpose || 'EXISTING_REPLACE_ONLY',
+    });
+    const reservation = result.data as SopNumberReservation;
+    const sequenceNumber = Number(reservation?.sequenceNumber || 0);
+    if (!reservation?.id || !reservation?.sopNumber || !Number.isSafeInteger(sequenceNumber) || sequenceNumber <= 0) {
+      throw new Error('Respons penerbitan nomor SPO dari server tidak valid.');
+    }
+    return { ...reservation, sequenceNumber };
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    if (code === 'functions/unauthenticated') {
+      throw new Error('Sesi login tidak valid. Silakan login kembali sebelum menerbitkan nomor.');
+    }
+    if (code === 'functions/permission-denied') {
+      throw new Error(error?.message || 'Hanya Administrator yang dapat menerbitkan Nomor Terbit.');
+    }
+    throw error instanceof Error ? error : new Error(String(error || 'Nomor SPO gagal diterbitkan.'));
+  }
+}
+
+export async function fetchSopNumberReservationsFromFirestore"""
+          source, count = reserve_pattern.subn(reserve_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one reserveNextSopNumberInFirestore block, changed {count}')
+
+          path.write_text(source, encoding='utf-8')
+          PY
+
+      - name: Commit trusted numbering source patch
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/trusted-sop-number-allocation'
+        shell: bash
+        run: |
+          if git diff --quiet -- src/lib/firestoreService.ts; then
+            echo "No client source changes to commit."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/lib/firestoreService.ts
+            git commit -m "Route SPO numbering through trusted backend"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
