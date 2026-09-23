@@ -185,64 +185,47 @@ export async function saveSopToFirestore(
     }
     authorizedUids = Array.from(new Set(authorizedUids));
 
-    // Handle official number allocation if requested
+    // Handle official number allocation through the trusted backend. The browser
+    // must never mutate system_config/spo_sequence_* directly because that ledger
+    // is intentionally fail-closed to ordinary Firestore clients.
     if (options?.allocateOfficialNumber) {
       const divisionCode = String(sop.divisionCode || '').trim().toUpperCase();
       const subHierarchyCode = String(sop.subHierarchyCode || '').trim();
       const effectiveDate = sop.effectiveDate || new Date().toISOString().slice(0, 10);
       const year = effectiveDate.slice(0, 4);
-      if (!divisionCode || !/^\d{4}$/.test(year)) throw new Error('Hirarki atau tahun penomoran SPO tidak valid.');
+      if (!divisionCode || divisionCode === 'ALL' || !/^\d{4}$/.test(year)) {
+        throw new Error('Hirarki atau tahun penomoran SPO tidak valid.');
+      }
 
-      const scopeKey = getNumberingSequenceScope(year, divisionCode, subHierarchyCode);
-      let existingSops: SopDocument[] = [];
-      let reservationsList: any[] = [];
       try {
-        const [serverSops, serverReservations] = await Promise.all([
-          getDocs(collection(db, 'sops')),
-          getDocs(query(collection(db, 'sop_number_reservations'), where('scopeKey', '==', scopeKey))),
-        ]);
-        existingSops = serverSops.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as SopDocument));
-        reservationsList = serverReservations.docs;
-      } catch {
-        // Fallback to local
+        const callable = httpsCallable(functions, 'allocateSopNumber');
+        const result = await callable({
+          allocationMode: 'DOCUMENT',
+          config: sanitizeForFirestore(options.allocateOfficialNumber),
+          divisionCode,
+          subHierarchyCode,
+          dateStr: effectiveDate,
+          title: sop.title || '',
+          documentId: sop.id,
+          reservedBy: currentSessionRaw?.name || currentSessionRaw?.username || 'Pengguna SIDOKTER',
+        });
+        const allocation = result.data as SopNumberReservation;
+        const sequenceNumber = Number(allocation?.sequenceNumber || 0);
+        if (!allocation?.sopNumber || !Number.isSafeInteger(sequenceNumber) || sequenceNumber <= 0) {
+          throw new Error('Respons alokasi nomor SPO dari server tidak valid.');
+        }
+        sop.sequenceNumber = sequenceNumber;
+        sop.sopNumber = String(allocation.sopNumber);
+      } catch (error: any) {
+        const code = String(error?.code || '');
+        if (code === 'functions/unauthenticated') {
+          throw new Error('Sesi login tidak valid. Silakan login kembali sebelum menyimpan SPO.');
+        }
+        if (code === 'functions/permission-denied') {
+          throw new Error(error?.message || 'Anda tidak memiliki akses penomoran untuk hirarki SPO ini.');
+        }
+        throw error instanceof Error ? error : new Error(String(error || 'Gagal mengalokasikan nomor SPO.'));
       }
-
-      const highestExisting = getHighestSequenceForUnit(existingSops, divisionCode, subHierarchyCode, year);
-      const occupiedSequences = new Set<number>();
-      for (const existing of existingSops) {
-        if (existing.isLegacySop || existing.documentType === 'LAMA') continue;
-        const parsed = parseSopNumber(existing.sopNumber);
-        const existingYear = String(existing.effectiveDate || parsed?.year || existing.createdAt || '').slice(0, 4);
-        if (String(existing.divisionCode || '').trim().toUpperCase() !== divisionCode || String(existing.subHierarchyCode || '').trim() !== subHierarchyCode || existingYear !== year) continue;
-        const sequence = Number(existing.sequenceNumber || parsed?.sequenceNumber || 0);
-        if (Number.isSafeInteger(sequence) && sequence > 0) occupiedSequences.add(sequence);
-      }
-      for (const reservation of reservationsList) {
-        const sequence = Number(reservation.data()?.sequenceNumber || 0);
-        if (Number.isSafeInteger(sequence) && sequence > 0) occupiedSequences.add(sequence);
-      }
-
-      const allocation = getNextLifecycleSequence(
-        highestExisting,
-        highestExisting,
-        undefined,
-        occupiedSequences,
-      );
-      const sequenceNumber = allocation.sequenceNumber;
-      const generated = generateSopNumber({
-        config: options.allocateOfficialNumber!,
-        divisionCode,
-        subHierarchyCode: subHierarchyCode || undefined,
-        dateStr: effectiveDate,
-        sequenceNum: sequenceNumber,
-      });
-
-      if (existingSops.some((existing) => existing.id !== sop.id && String(existing.sopNumber || '').replace(/\s+/g, '').toUpperCase() === generated.sopNumber.replace(/\s+/g, '').toUpperCase())) {
-        throw new Error(`Nomor SPO ${generated.sopNumber} sudah digunakan; muat ulang data lalu coba lagi.`);
-      }
-
-      sop.sequenceNumber = sequenceNumber;
-      sop.sopNumber = generated.sopNumber;
     }
 
     // Clean payload for backend and client sync
@@ -461,95 +444,46 @@ export interface ReserveSopNumberParams {
   purpose?: 'EXISTING_REPLACE_ONLY' | 'SYSTEM_DOCUMENT' | string;
 }
 
-/** Cloud-authoritative Nomor Terbit allocator. It contends on the exact same
- * year+division+hierarchy sequence document used by SPO Baru/Riviu. */
+/** Cloud-authoritative Nomor Terbit allocator. The privileged sequence ledger
+ * is mutated only by the trusted Firebase callable, never by the browser. */
 export async function reserveNextSopNumberInFirestore(params: ReserveSopNumberParams): Promise<SopNumberReservation> {
   const cleanDiv = String(params.divisionCode || '').trim().toUpperCase();
   const cleanSub = String(params.subHierarchyCode || '').trim();
   const effectiveDate = params.dateStr || new Date().toISOString().slice(0, 10);
   const year = effectiveDate.slice(0, 4);
-  if (!cleanDiv || cleanDiv === 'ALL' || !/^\d{4}$/.test(year)) throw new Error('Hirarki atau tahun reservation SPO tidak valid.');
-
-  const scopeKey = getNumberingSequenceScope(year, cleanDiv, cleanSub);
-  const sequenceKey = encodeURIComponent(scopeKey);
-  const sequenceRef = doc(db, 'system_config', `spo_sequence_${sequenceKey}`);
-
-  // Bootstrap/repair evidence comes from authoritative cloud data. Concurrent
-  // allocators still serialize on sequenceRef inside the transaction below.
-  const [sopSnapshot, reservationSnapshot] = await Promise.all([
-    getDocsFromServer(collection(db, 'sops')),
-    getDocsFromServer(query(collection(db, 'sop_number_reservations'), where('scopeKey', '==', scopeKey))),
-  ]);
-  const scopedSops = sopSnapshot.docs
-    .map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as SopDocument))
-    .filter((sop) => {
-      if (sop.isLegacySop || sop.documentType === 'LAMA') return false;
-      const parsed = parseSopNumber(sop.sopNumber);
-      const sopYear = String(sop.effectiveDate || parsed?.year || sop.createdAt || '').slice(0, 4);
-      return String(sop.divisionCode || '').trim().toUpperCase() === cleanDiv
-        && String(sop.subHierarchyCode || '').trim() === cleanSub
-        && sopYear === year;
-    });
-  const occupied = new Set<number>();
-  for (const sop of scopedSops) {
-    const parsed = parseSopNumber(sop.sopNumber);
-    const seq = Number(sop.sequenceNumber || parsed?.sequenceNumber || 0);
-    if (Number.isSafeInteger(seq) && seq > 0) occupied.add(seq);
+  if (!cleanDiv || cleanDiv === 'ALL' || !/^\d{4}$/.test(year)) {
+    throw new Error('Hirarki atau tahun reservation SPO tidak valid.');
   }
-  for (const snapshot of reservationSnapshot.docs) {
-    const seq = Number(snapshot.data()?.sequenceNumber || 0);
-    if (Number.isSafeInteger(seq) && seq > 0) occupied.add(seq);
-  }
-  const highestExisting = Math.max(0, ...Array.from(occupied));
 
-  return runTransaction(db, async (transaction) => {
-    const sequenceSnapshot = await transaction.get(sequenceRef);
-    const storedCounter = Number(sequenceSnapshot.data()?.lastSequence || 0);
-    const allocation = getNextLifecycleSequence(
-      storedCounter,
-      highestExisting,
-      sequenceSnapshot.data()?.reusableSequences,
-      occupied,
-    );
-    const sequenceNumber = allocation.sequenceNumber;
-    const generated = generateSopNumber({
-      config: params.config,
+  await ensureFirebaseAuthSession();
+  try {
+    const callable = httpsCallable(functions, 'allocateSopNumber');
+    const result = await callable({
+      allocationMode: 'RESERVATION',
+      config: sanitizeForFirestore(params.config),
       divisionCode: cleanDiv,
-      subHierarchyCode: cleanSub || undefined,
+      subHierarchyCode: cleanSub,
       dateStr: effectiveDate,
-      sequenceNum: sequenceNumber,
-    });
-    const reservationId = `sop-number-${sequenceKey}-${sequenceNumber}`;
-    const reservationRef = doc(db, 'sop_number_reservations', reservationId);
-    const reservationSnapshotInTx = await transaction.get(reservationRef);
-    if (reservationSnapshotInTx.exists()) throw new Error(`Nomor SPO ${generated.sopNumber} sudah memiliki register reservation.`);
-
-    const reservation: SopNumberReservation = {
-      id: reservationId,
-      divisionCode: cleanDiv,
-      subHierarchyCode: cleanSub,
-      sequenceNumber,
-      sopNumber: generated.sopNumber,
-      year,
-      title: params.title?.trim() || undefined,
-      effectiveDate,
+      title: params.title?.trim() || '',
       reservedBy: params.reservedBy,
-      reservedAt: new Date().toISOString(),
-      status: 'RESERVED',
-      purpose: params.purpose || 'SYSTEM_DOCUMENT',
-    };
-    transaction.set(sequenceRef, {
-      id: sequenceRef.id,
-      divisionCode: cleanDiv,
-      subHierarchyCode: cleanSub,
-      year,
-      lastSequence: Math.max(storedCounter, highestExisting, sequenceNumber),
-      reusableSequences: allocation.remainingReusable,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-    transaction.set(reservationRef, sanitizeForFirestore({ ...reservation, scopeKey, updatedAt: new Date().toISOString() }), { merge: false });
-    return reservation;
-  });
+      purpose: params.purpose || 'EXISTING_REPLACE_ONLY',
+    });
+    const reservation = result.data as SopNumberReservation;
+    const sequenceNumber = Number(reservation?.sequenceNumber || 0);
+    if (!reservation?.id || !reservation?.sopNumber || !Number.isSafeInteger(sequenceNumber) || sequenceNumber <= 0) {
+      throw new Error('Respons penerbitan nomor SPO dari server tidak valid.');
+    }
+    return { ...reservation, sequenceNumber };
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    if (code === 'functions/unauthenticated') {
+      throw new Error('Sesi login tidak valid. Silakan login kembali sebelum menerbitkan nomor.');
+    }
+    if (code === 'functions/permission-denied') {
+      throw new Error(error?.message || 'Hanya Administrator yang dapat menerbitkan Nomor Terbit.');
+    }
+    throw error instanceof Error ? error : new Error(String(error || 'Nomor SPO gagal diterbitkan.'));
+  }
 }
 
 export async function fetchSopNumberReservationsFromFirestore(): Promise<SopNumberReservation[]> {
