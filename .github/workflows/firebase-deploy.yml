@@ -13,6 +13,7 @@ permissions:
   contents: write
 
 jobs:
+  # The hotfix step is idempotent; when the source is already patched it makes no commit.
   hotfix:
     name: Apply Riviu activation hotfix
     runs-on: ubuntu-latest
