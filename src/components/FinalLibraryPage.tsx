@@ -198,7 +198,7 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-black text-slate-900">Arsip Digital</h1>
+              <h1 className="text-lg font-black text-slate-900">Dokumen Digital Soegiri</h1>
               <span className="text-[11px] font-bold text-slate-500">{combinedRows.length} dokumen</span>
             </div>
           </div>
