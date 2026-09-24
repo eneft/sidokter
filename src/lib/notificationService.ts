@@ -4,7 +4,7 @@
  * untuk penugasan dokumen ke divisi, aktivasi SPO oleh Admin bagi User,
  * usulan aktivasi bagi Admin, dan pesan alur perbaikan/verifikasi SPO.
  */
-import { collection, onSnapshot, query, where, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { db, functions, auth } from './firebase';
 import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -765,27 +765,33 @@ export function markAllNotificationsAsRead(): void {
   items.forEach((item) => void persistNotificationReadToCloud(item));
 }
 
-export function clearNotifications(): void {
+export async function clearNotifications(): Promise<void> {
   const ref = notificationCollectionRef();
-  const items = [...activeNotifications];
   activeNotifications = [];
   persistNotifications(activeNotifications);
   notifySubscribers();
   if (!ref) return;
-  void (async () => {
-    try {
+
+  try {
+    const snapshot = await getDocs(ref);
+    const visibleDocs = snapshot.docs.filter((entry) => {
+      const item = entry.data() as AppNotification;
+      return item && item.hidden !== true;
+    });
+    const now = Date.now();
+
+    // Firestore batches are capped at 500 writes. Keep margin for safety.
+    for (let offset = 0; offset < visibleDocs.length; offset += 400) {
       const batch = writeBatch(db);
-      const now = Date.now();
-      items.forEach((item) => {
-        const eventKey = String(item.metadata?.eventKey || item.id || '').trim();
-        const id = getNotificationDocId(eventKey, item.id);
-        batch.set(doc(ref, id), { id, hidden: true, deletedAt: now }, { merge: true });
+      visibleDocs.slice(offset, offset + 400).forEach((entry) => {
+        batch.set(entry.ref, { id: entry.id, hidden: true, deletedAt: now }, { merge: true });
       });
       await batch.commit();
-    } catch (error) {
-      console.warn('Could not clear cloud notifications:', error);
     }
-  })();
+  } catch (error) {
+    console.warn('Could not clear cloud notifications:', error);
+    throw error;
+  }
 }
 
 /* =========================================================================
