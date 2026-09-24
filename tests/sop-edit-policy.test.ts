@@ -65,6 +65,37 @@ test('ordinary user cannot change canonical or historical numbers', () => {
   assert.equal(result.previousSopNumber, 'PREVIOUS');
 });
 
+test('legacy DRAFT Riviu can complete missing predecessor identity exactly once', () => {
+  const stored = {
+    ...sop('DRAFT'),
+    jenis_spo: 'RIVIU' as const,
+    documentType: 'RIVIU' as const,
+    isReviewDocument: true,
+  };
+  const repaired = preserveSopWorkflowIdentity(stored, {
+    ...stored,
+    oldSopNumber: 'PEL / 099 / 2024',
+    previousSopNumber: 'PEL / 099 / 2024',
+    previousRevisionNumber: '01',
+    revisionNumber: '02',
+    version: '02',
+  }, actor('user'));
+  assert.equal(repaired.oldSopNumber, 'PEL / 099 / 2024');
+  assert.equal(repaired.previousRevisionNumber, '01');
+  assert.equal(repaired.revisionNumber, '02');
+
+  const immutable = preserveSopWorkflowIdentity(repaired, {
+    ...repaired,
+    oldSopNumber: 'MUTATED',
+    previousRevisionNumber: '99',
+    revisionNumber: '100',
+    version: '100',
+  }, actor('user'));
+  assert.equal(immutable.oldSopNumber, 'PEL / 099 / 2024');
+  assert.equal(immutable.previousRevisionNumber, '01');
+  assert.equal(immutable.revisionNumber, '02');
+});
+
 test('callable failures produce actionable Admin toast messages', () => {
   assert.match(getSopNumberUpdateError({ code: 'functions/not-found', message: 'not-found' }).message, /Deploy function updateSopNumber/);
   assert.equal(

@@ -31,3 +31,39 @@ test('edit path retains previous number for dedicated number-correction routing'
   const source = read('src/lib/sopService.ts');
   assert.match(source, /updateExistingSopInFirestore\(next, options\.editActor, previous\?\.sopNumber\)/);
 });
+
+test('initial Firestore DRAFT persists Riviu identity and never hides a failed authoritative save', () => {
+  const source = read('src/lib/firestoreService.ts');
+  const start = source.indexOf('const draftPayload = sanitizeForFirestore({');
+  const end = source.indexOf('await setDoc(docRef, draftPayload', start);
+  assert.ok(start >= 0 && end > start, 'initial draft payload must be present');
+  const payload = source.slice(start, end);
+  for (const field of [
+    'isReviewDocument', 'existingSopId', 'oldSopNumber', 'previousSopNumber',
+    'previousRevisionNumber', 'reviewReason', 'externalReviewSignedConfirmed',
+    'oldFileUrl', 'oldStoragePath', 'supportingEvidence',
+  ]) {
+    assert.match(payload, new RegExp(field), `${field} must be persisted in the first DRAFT write`);
+  }
+  assert.match(source, /if \(options\?\.throwOnError\) \{\s*throw apiErr/s);
+});
+
+test('Edit Draft Riviu exposes required identity and missing external source controls', () => {
+  const source = read('src/components/EditSopModal.tsx');
+  assert.match(source, /Identitas &amp; Kelengkapan Wajib Riviu/);
+  assert.match(source, /Nomor SPO Lama/);
+  assert.match(source, /Alasan Riviu &amp; Catatan Perubahan/);
+  assert.match(source, /PDF sumber SPO lama wajib diunggah/);
+  assert.match(source, /requiresExternalReviewPdf/);
+  assert.match(source, /isReview && reuploadOldDataUrl/);
+});
+
+test('activation uses a dedicated lifecycle transaction after Draft metadata is persisted', () => {
+  const app = read('src/App.tsx');
+  const firestore = read('src/lib/firestoreService.ts');
+  assert.match(app, /const preparedDraft = await saveSopToLocal/);
+  assert.match(app, /activateStandaloneSopInFirestore/);
+  assert.match(firestore, /export async function activateStandaloneSopInFirestore/);
+  assert.match(firestore, /if \(isExternalRiviu\)/);
+  assert.match(firestore, /PDF sumber Riviu eksternal belum tersimpan di Firebase Storage/);
+});

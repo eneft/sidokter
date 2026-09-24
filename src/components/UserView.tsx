@@ -867,6 +867,10 @@ export const UserView: React.FC<UserViewProps> = ({
           setSubmitError('Nomor / Judul Rujukan SPO Lama wajib diisi.');
           return;
         }
+        if (!reviewReason.trim()) {
+          setSubmitError('Alasan Riviu dan catatan perubahan wajib diisi.');
+          return;
+        }
         if ((selectedExistingSopIdForReview || existingSopId) && (!referenced || referenced.status !== 'AKTIF')) {
           setSubmitError('SPO rujukan Riviu harus berstatus AKTIF.');
           return;
@@ -2166,10 +2170,11 @@ export const UserView: React.FC<UserViewProps> = ({
 
                             <div>
                               <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                                Dasar Kebijakan / Alasan Riviu & Catatan Perubahan
+                                Dasar Kebijakan / Alasan Riviu & Catatan Perubahan <span className="text-rose-500">*</span>
                               </label>
                               <textarea
                                 rows={2}
+                                required={documentType === 'REVIEW'}
                                 value={reviewReason}
                                 onChange={(e) => setReviewReason(e.target.value)}
                                 placeholder="Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026."

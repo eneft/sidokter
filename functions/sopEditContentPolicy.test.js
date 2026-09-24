@@ -72,3 +72,39 @@ test('content edit cannot change registered number', () => {
     hierarchyClaims: { hierarchyKeys: [], globalHierarchyAccess: true },
   }), /NUMBER_CHANGE_REQUIRES_CORRECTION/);
 });
+
+test('trusted edit can repair absent identity on a legacy DRAFT Riviu but cannot overwrite it later', () => {
+  const legacyDraft = {
+    ...base,
+    jenis_spo: 'RIVIU',
+    documentType: 'RIVIU',
+    isReviewDocument: true,
+  };
+  const submitted = {
+    ...legacyDraft,
+    oldSopNumber: 'PEN / 2.1.1 / 099 / 2024',
+    previousSopNumber: 'PEN / 2.1.1 / 099 / 2024',
+    previousRevisionNumber: '01',
+    revisionNumber: '02',
+    version: '02',
+  };
+  const repaired = buildTrustedSopContentUpdate({
+    stored: legacyDraft,
+    submitted,
+    actor: { role: 'user' },
+    hierarchyClaims: { hierarchyKeys: ['PEN|2.1.1'], globalHierarchyAccess: false },
+  });
+  assert.equal(repaired.oldSopNumber, submitted.oldSopNumber);
+  assert.equal(repaired.previousRevisionNumber, '01');
+  assert.equal(repaired.revisionNumber, '02');
+
+  const immutable = buildTrustedSopContentUpdate({
+    stored: repaired,
+    submitted: { ...repaired, oldSopNumber: 'MUTATED', previousRevisionNumber: '99', revisionNumber: '100' },
+    actor: { role: 'user' },
+    hierarchyClaims: { hierarchyKeys: ['PEN|2.1.1'], globalHierarchyAccess: false },
+  });
+  assert.equal(immutable.oldSopNumber, submitted.oldSopNumber);
+  assert.equal(immutable.previousRevisionNumber, '01');
+  assert.equal(immutable.revisionNumber, '02');
+});

@@ -50,7 +50,7 @@ import {
   findNumberReservationBySopNumber,
   getAllNumberReservations
 } from './lib/sopService';
-import { activateRiviuInFirestore } from './lib/firestoreService';
+import { activateRiviuInFirestore, activateStandaloneSopInFirestore } from './lib/firestoreService';
 import { canEditExistingSop, preserveSopWorkflowIdentity } from './lib/sopEditPolicy';
 import { mutateSopReview, SopReviewAction } from './lib/sopReviewService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
@@ -996,6 +996,9 @@ export default function App() {
     if (isRiviuInput) {
       const reviewNumber = normalizeSopNumberInput(newSopData.oldSopNumber || rawTargetNumber);
       if (!reviewNumber) throw new Error('Nomor SPO lama/rujukan wajib diisi untuk proses Riviu.');
+      if (!String(newSopData.reviewReason || '').trim()) {
+        throw new Error('Alasan Riviu dan catatan perubahan wajib diisi.');
+      }
 
       const referenced = findAuthoritativeRiviuPredecessor(sops, {
         existingSopId: newSopData.existingSopId,
@@ -1882,8 +1885,20 @@ export default function App() {
       signedScanDataUrl: activationData.signedScanDataUrl,
     };
     try {
+      // Upload/persist any final scan and metadata while the record is still a
+      // Draft. The lifecycle transition itself is then committed atomically.
+      const preparedDraft = await saveSopToLocal(
+        { ...updated, status: 'DRAFT' },
+        userSession ? { editActor: userSession } : undefined,
+      );
+      let activatedSop: SopDocument;
       if (targetIsRiviu && reviewedSource) {
-        const transition = await activateRiviuInFirestore(updated, reviewedSource.id, String(updated.previousRevisionNumber));
+        const transition = await activateRiviuInFirestore(
+          { ...preparedDraft, ...updated, signedScanUrl: preparedDraft.signedScanUrl, signedScanStoragePath: preparedDraft.signedScanStoragePath },
+          reviewedSource.id,
+          String(updated.previousRevisionNumber),
+        );
+        activatedSop = transition.successor;
         await restoreSopsToLocal(sops.map((s) => s.id === transition.successor.id
           ? transition.successor
           : s.id === transition.predecessor.id ? transition.predecessor : s));
@@ -1891,18 +1906,24 @@ export default function App() {
           s.id === sopId ? transition.successor : s.id === transition.predecessor.id ? transition.predecessor : s
         ));
       } else {
-        await saveSopToLocal(updated);
-        setSops((prev) => prev.map((s) => s.id === sopId ? updated : s));
+        activatedSop = await activateStandaloneSopInFirestore({
+          ...preparedDraft,
+          ...updated,
+          signedScanUrl: preparedDraft.signedScanUrl,
+          signedScanStoragePath: preparedDraft.signedScanStoragePath,
+        });
+        await restoreSopsToLocal(sops.map((s) => s.id === sopId ? activatedSop : s));
+        setSops((prev) => prev.map((s) => s.id === sopId ? activatedSop : s));
       }
-      setSelectedSopForDetail((prev) => prev?.id === sopId ? updated : prev);
+      setSelectedSopForDetail((prev) => prev?.id === sopId ? activatedSop : prev);
       setSelectedSopForActivation(null);
 
       const successToastTitle = targetIsExisting ? 'SPO Eksisting Disetujui' : 'SPO Diaktifkan';
       const successToastMsg = targetIsExisting
         ? (targetIsExistingDocx
-          ? `SPO Eksisting DOCX "${updated.title}" telah disetujui & diaktifkan. Dokumen dapat difinalisasi dengan TTD dan stempel.`
-          : `SPO Eksisting PDF "${updated.title}" telah disetujui & diaktifkan. PDF naskah tetap asli tanpa TTD/Stempel tambahan.`)
-        : `SPO ${updated.sopNumber} telah disahkan dan berstatus Aktif.`;
+          ? `SPO Eksisting DOCX "${activatedSop.title}" telah disetujui & diaktifkan. Dokumen dapat difinalisasi dengan TTD dan stempel.`
+          : `SPO Eksisting PDF "${activatedSop.title}" telah disetujui & diaktifkan. PDF naskah tetap asli tanpa TTD/Stempel tambahan.`)
+        : `SPO ${activatedSop.sopNumber} telah disahkan dan berstatus Aktif.`;
       addToast('success', successToastTitle, successToastMsg);
       
       // Dispatch activation event so users / pengusul receive notification
@@ -1912,13 +1933,13 @@ export default function App() {
       // SPO EXISTING: Pengusul -> 🔔Admin -> Setujui -> AKTIF -> 🔔 Pengusul -> PDF tetap asli -> tanpa TTD/Stempel tambahan
       const notifMsg = targetIsExisting
         ? (targetIsExistingDocx
-          ? `SPO Eksisting DOCX "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. Dokumen dapat difinalisasi dengan TTD dan stempel.`
-          : `SPO Eksisting PDF "${updated.title}" (${updated.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`)
+          ? `SPO Eksisting DOCX "${activatedSop.title}" (${activatedSop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. Dokumen dapat difinalisasi dengan TTD dan stempel.`
+          : `SPO Eksisting PDF "${activatedSop.title}" (${activatedSop.sopNumber || 'Eksisting'}) telah disetujui & diaktifkan oleh Admin. PDF tetap asli tanpa TTD/Stempel tambahan.`)
         : targetIsRiviu
-        ? `Hasil riviu SPO "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`
-        : `SPO Baru "${updated.title}" (${updated.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${updated.divisionName || updated.divisionCode}.`;
+        ? `Hasil riviu SPO "${activatedSop.title}" (${activatedSop.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${activatedSop.divisionName || activatedSop.divisionCode}.`
+        : `SPO Baru "${activatedSop.title}" (${activatedSop.sopNumber}) telah disetujui & diaktifkan oleh Admin untuk ${activatedSop.divisionName || activatedSop.divisionCode}.`;
 
-      dispatchDocumentEvent('activation', updated, notifMsg);
+      dispatchDocumentEvent('activation', activatedSop, notifMsg);
     } catch (err) {
       console.error('Error activating SOP:', err);
       addToast('error', 'Aktivasi Gagal', err instanceof Error ? err.message : 'Data aktivasi tidak dapat disimpan.');

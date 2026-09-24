@@ -275,11 +275,30 @@ export async function saveSopToFirestore(
           title: cleanSop.title || 'Draft SPO',
           documentType: cleanSop.documentType || 'BARU',
           jenis_spo: cleanSop.jenis_spo || 'BARU',
+          isReviewDocument: cleanSop.isReviewDocument === true,
           divisionCode: cleanSop.divisionCode || 'PEL',
           subHierarchyCode: cleanSop.subHierarchyCode || '',
           sopNumber: cleanSop.sopNumber || '',
           sequenceNumber: cleanSop.sequenceNumber || 0,
           revisionNumber: cleanSop.revisionNumber || '00',
+          version: cleanSop.version || cleanSop.revisionNumber || '00',
+          // Workflow identity must exist on the very first Firestore write.
+          // The trusted edit boundary intentionally treats these fields as
+          // immutable, so omitting them here made Riviu metadata disappear.
+          ...(cleanSop.existingSopId ? { existingSopId: cleanSop.existingSopId } : {}),
+          ...(cleanSop.oldSopNumber ? { oldSopNumber: cleanSop.oldSopNumber } : {}),
+          ...(cleanSop.previousSopNumber ? { previousSopNumber: cleanSop.previousSopNumber } : {}),
+          ...(cleanSop.previousRevisionNumber ? { previousRevisionNumber: cleanSop.previousRevisionNumber } : {}),
+          ...(cleanSop.reviewReason ? { reviewReason: cleanSop.reviewReason } : {}),
+          ...(cleanSop.externalReviewSignedConfirmed !== undefined
+            ? { externalReviewSignedConfirmed: cleanSop.externalReviewSignedConfirmed }
+            : {}),
+          ...(cleanSop.oldFileName ? { oldFileName: cleanSop.oldFileName } : {}),
+          ...(cleanSop.oldFileSize !== undefined ? { oldFileSize: cleanSop.oldFileSize } : {}),
+          ...(cleanSop.oldFileType ? { oldFileType: cleanSop.oldFileType } : {}),
+          ...(cleanSop.oldFileUrl ? { oldFileUrl: cleanSop.oldFileUrl } : {}),
+          ...(cleanSop.oldStoragePath ? { oldStoragePath: cleanSop.oldStoragePath } : {}),
+          ...(cleanSop.supportingEvidence !== undefined ? { supportingEvidence: cleanSop.supportingEvidence } : {}),
           createdAt: cleanSop.createdAt || new Date().toISOString(),
           creatorUid: currentUid || undefined,
           createdBy: currentSessionRaw?.username || 'user',
@@ -305,7 +324,10 @@ export async function saveSopToFirestore(
       }
     } catch (apiErr: any) {
       console.warn('[SPO] Backend sop-edit proxy notice:', apiErr?.message || apiErr);
-      if (!existsInFirestore && options?.throwOnError) {
+      // A successful minimal DRAFT create is not equivalent to a successful
+      // authoritative save. Surface every backend failure to the caller so the
+      // UI cannot report success while Firestore contains only a partial draft.
+      if (options?.throwOnError) {
         throw apiErr instanceof Error ? apiErr : new Error(String(apiErr?.message || 'Gagal menyimpan SPO ke server.'));
       }
     }
@@ -430,6 +452,55 @@ export async function activateRiviuInFirestore(
     transaction.set(predecessorRef, archived, { merge: true });
     transaction.set(successorRef, activated, { merge: true });
     return { successor: { ...successor, status: 'AKTIF' }, predecessor: { ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt } };
+  });
+}
+
+/** Activates a Draft without an internal predecessor (SPO Baru, Existing, or
+ * external/legacy Riviu). Content/file metadata is saved while still DRAFT;
+ * this transaction performs only the lifecycle transition. */
+export async function activateStandaloneSopInFirestore(successor: SopDocument): Promise<SopDocument> {
+  const successorRef = doc(db, 'sops', successor.id);
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(successorRef);
+    if (!snapshot.exists()) throw new Error('Draft SPO tidak ditemukan.');
+
+    const stored = { ...snapshot.data(), id: snapshot.id } as SopDocument;
+    if (stored.status !== 'DRAFT') throw new Error('Dokumen bukan Draft yang dapat diaktifkan.');
+    if (stored.reviewState === 'REVISION_REQUESTED' || stored.reviewState === 'REVISION_SUBMITTED') {
+      throw new Error('Aktivasi ditolak. Alur perbaikan SPO belum diselesaikan.');
+    }
+
+    const jenis = String(stored.jenis_spo || stored.documentType || '').trim().toUpperCase();
+    const isExternalRiviu = (jenis === 'RIVIU' || jenis === 'REVIEW' || stored.isReviewDocument === true)
+      && !stored.existingSopId;
+    if (isExternalRiviu) {
+      const sourceName = String(stored.oldFileName || '').trim().toLowerCase();
+      const sourceType = String(stored.oldFileType || '').trim().toLowerCase();
+      const sourceIsPdf = sourceType === 'application/pdf' || sourceName.endsWith('.pdf');
+      if (!stored.oldSopNumber || !stored.reviewReason || !stored.previousRevisionNumber) {
+        throw new Error('Metadata wajib Riviu eksternal belum lengkap.');
+      }
+      if (!sourceIsPdf || !stored.oldFileUrl || !stored.oldStoragePath) {
+        throw new Error('PDF sumber Riviu eksternal belum tersimpan di Firebase Storage.');
+      }
+    }
+
+    const activated = sanitizeForFirestore({
+      ...stored,
+      status: 'AKTIF',
+      everActivated: true,
+      updatedAt: successor.updatedAt,
+      activatedAt: successor.activatedAt,
+      activatedBy: successor.activatedBy,
+      activationNotes: successor.activationNotes,
+      signedScanFileName: successor.signedScanFileName,
+      signedScanFileSize: successor.signedScanFileSize,
+      signedScanFileType: successor.signedScanFileType,
+      signedScanUrl: successor.signedScanUrl,
+      signedScanStoragePath: successor.signedScanStoragePath,
+    });
+    transaction.set(successorRef, activated, { merge: true });
+    return { ...stored, ...successor, status: 'AKTIF', everActivated: true };
   });
 }
 

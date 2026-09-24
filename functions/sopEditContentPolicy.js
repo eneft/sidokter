@@ -68,8 +68,26 @@ function buildTrustedSopContentUpdate({ stored, submitted, actor, hierarchyClaim
   }
 
   const next = { ...submitted };
+  const isDraftRiviu = String(stored.status || '').trim().toUpperCase() === 'DRAFT' && (
+    String(stored.jenis_spo || '').trim().toUpperCase() === 'RIVIU'
+    || ['RIVIU', 'REVIEW'].includes(String(stored.documentType || '').trim().toUpperCase())
+    || stored.isReviewDocument === true
+  );
+  const repairableRiviuFields = new Set([
+    'existingSopId',
+    'previousRevisionNumber',
+    'previousSopNumber',
+    'oldSopNumber',
+  ]);
+  const canRepairRiviuRevision = isDraftRiviu && !String(stored.previousRevisionNumber || '').trim();
   for (const field of IMMUTABLE_WORKFLOW_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(stored, field)) next[field] = stored[field];
+    if (canRepairRiviuRevision && (field === 'revisionNumber' || field === 'version') && Object.prototype.hasOwnProperty.call(submitted, field)) {
+      next[field] = submitted[field];
+    }
+    else if (Object.prototype.hasOwnProperty.call(stored, field)) next[field] = stored[field];
+    else if (isDraftRiviu && repairableRiviuFields.has(field) && Object.prototype.hasOwnProperty.call(submitted, field)) {
+      next[field] = submitted[field];
+    }
     else delete next[field];
   }
 

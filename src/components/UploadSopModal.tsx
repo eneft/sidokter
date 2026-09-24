@@ -460,6 +460,10 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
         alert("Silakan isi Nomor atau Judul SPO Lama yang Diriviu terlebih dahulu.");
         return;
       }
+      if (!reviewReason.trim()) {
+        alert('Alasan Riviu dan catatan perubahan wajib diisi.');
+        return;
+      }
       const reviewNumber = normalizeSopNumberInput(oldSopNumber);
       const referenced = findAuthoritativeRiviuPredecessor(sops, { oldSopNumber: reviewNumber });
       const hasExternalSignedPdf = Boolean(
@@ -1212,10 +1216,11 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-amber-950 mb-1">
-                        Dasar Kebijakan / Alasan Review
+                        Dasar Kebijakan / Alasan Riviu <span className="text-rose-500">*</span>
                       </label>
                       <textarea
                         rows={2}
+                        required={documentType === 'REVIEW'}
                         value={reviewReason}
                         onChange={(e) => setReviewReason(e.target.value)}
                         placeholder="Contoh: Perbaruan Regulasi Berdasarkan SK Direktur RSUD Dr. Soegiri & Permenkes Terbaru 2026"

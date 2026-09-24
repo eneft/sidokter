@@ -24,6 +24,18 @@ export function preserveSopWorkflowIdentity(
   actor?: UserSession | null,
 ): SopDocument {
   const adminNumberCorrection = actor?.role === 'admin';
+  const isDraftRiviu = stored.status === 'DRAFT' && (
+    stored.jenis_spo === 'RIVIU'
+    || stored.documentType === 'RIVIU'
+    || stored.documentType === 'REVIEW'
+    || stored.isReviewDocument === true
+  );
+  const preserveOrRepair = <T,>(current: T | undefined, proposed: T | undefined): T | undefined => (
+    current !== undefined && current !== null && String(current).trim() !== ''
+      ? current
+      : (isDraftRiviu ? proposed : current)
+  );
+  const canRepairRiviuRevision = isDraftRiviu && !String(stored.previousRevisionNumber || '').trim();
   return {
     ...submitted,
     id: stored.id,
@@ -32,15 +44,18 @@ export function preserveSopWorkflowIdentity(
     // correct it; historical predecessor/reference fields remain immutable.
     sopNumber: adminNumberCorrection ? submitted.sopNumber : stored.sopNumber,
     sequenceNumber: adminNumberCorrection ? submitted.sequenceNumber : stored.sequenceNumber,
-    revisionNumber: stored.revisionNumber,
-    version: stored.version,
+    revisionNumber: canRepairRiviuRevision ? submitted.revisionNumber : stored.revisionNumber,
+    version: canRepairRiviuRevision ? submitted.version : stored.version,
     jenis_spo: stored.jenis_spo,
     documentType: stored.documentType,
     isReviewDocument: stored.isReviewDocument,
-    existingSopId: stored.existingSopId,
-    previousRevisionNumber: stored.previousRevisionNumber,
-    previousSopNumber: stored.previousSopNumber,
-    oldSopNumber: stored.oldSopNumber,
+    // Draft Riviu records created by older clients may be missing their source
+    // identity. Permit a one-time completion of absent fields, but never allow
+    // an already-recorded predecessor identity to be replaced by content edit.
+    existingSopId: preserveOrRepair(stored.existingSopId, submitted.existingSopId),
+    previousRevisionNumber: preserveOrRepair(stored.previousRevisionNumber, submitted.previousRevisionNumber),
+    previousSopNumber: preserveOrRepair(stored.previousSopNumber, submitted.previousSopNumber),
+    oldSopNumber: preserveOrRepair(stored.oldSopNumber, submitted.oldSopNumber),
     reviewState: stored.reviewState,
     reviewHistory: stored.reviewHistory,
     currentReviewRequesterUid: stored.currentReviewRequesterUid,
