@@ -70,13 +70,18 @@ function isHumanMail(item: AppNotification): boolean {
 }
 
 function threadKeyFor(item: AppNotification): string {
-  const explicit = String(item.metadata?.threadKey || item.metadata?.correlationId || '').trim();
-  if (explicit) return explicit;
+  const explicitThread = String(item.metadata?.threadKey || '').trim();
+  if (explicitThread) return explicitThread;
+
+  // All review/correction conversation for one SPO belongs to one thread,
+  // including legacy replies whose correlationId used an individual event key.
   if (item.documentId && item.type === 'review') return `sop-review:${item.documentId}`;
   if (item.documentId && ['proposal', 'activation', 'assignment'].includes(item.type)) {
     return `sop-workflow:${item.documentId}`;
   }
-  return item.id;
+
+  const correlationId = String(item.metadata?.correlationId || '').trim();
+  return correlationId || item.id;
 }
 
 function isActionable(item: AppNotification): boolean {
