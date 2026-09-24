@@ -402,106 +402,33 @@ export async function activateRiviuInFirestore(
   predecessorId: string,
   expectedPreviousRevision: string,
 ): Promise<{ successor: SopDocument; predecessor: SopDocument }> {
-  const successorRef = doc(db, 'sops', successor.id);
-  const predecessorRef = doc(db, 'sops', predecessorId);
-  return runTransaction(db, async (transaction) => {
-    const [successorSnapshot, predecessorSnapshot] = await Promise.all([
-      transaction.get(successorRef),
-      transaction.get(predecessorRef),
-    ]);
-    if (!successorSnapshot.exists()) throw new Error('Draft Riviu tidak ditemukan.');
-    if (!predecessorSnapshot.exists()) throw new Error('SPO pendahulu tidak ditemukan.');
-
-    const storedSuccessor = { ...successorSnapshot.data(), id: successorSnapshot.id } as SopDocument;
-    const predecessor = { ...predecessorSnapshot.data(), id: predecessorSnapshot.id } as SopDocument;
-    if (predecessor.status !== 'AKTIF') throw new Error('SPO pendahulu tidak lagi berstatus AKTIF.');
-    if (storedSuccessor.status !== 'DRAFT') throw new Error('Dokumen penerus bukan draft Riviu yang dapat diaktifkan.');
-    if (storedSuccessor.reviewState === 'REVISION_REQUESTED' || storedSuccessor.reviewState === 'REVISION_SUBMITTED') {
-      throw new Error('Aktivasi ditolak. Alur perbaikan SPO belum diselesaikan.');
-    }
-    if (storedSuccessor.jenis_spo !== 'RIVIU' || storedSuccessor.existingSopId !== predecessor.id) {
-      throw new Error('Referensi pendahulu pada draft Riviu tidak valid.');
-    }
-    const previous = String(storedSuccessor.previousRevisionNumber || '').trim();
-    if (previous !== expectedPreviousRevision || !/^\d+$/.test(previous)) {
-      throw new Error('Nomor revisi pendahulu pada draft Riviu tidak valid.');
-    }
-    const expectedNext = String(Number(previous) + 1).padStart(2, '0');
-    if (storedSuccessor.revisionNumber !== expectedNext || successor.revisionNumber !== expectedNext) {
-      throw new Error('Nomor revisi penerus tidak sesuai dengan revisi pendahulu + 1.');
-    }
-    if (!storedSuccessor.sopNumber || storedSuccessor.sopNumber === predecessor.sopNumber) {
-      throw new Error('Riviu wajib memiliki nomor SPO baru yang valid.');
-    }
-
-    const archived = sanitizeForFirestore({ ...predecessor, status: 'DIARSIPKAN', everActivated: true, archivedAt: successor.updatedAt, updatedAt: successor.updatedAt });
-    const activated = sanitizeForFirestore({
-      ...storedSuccessor,
-      status: 'AKTIF',
-      everActivated: true,
-      updatedAt: successor.updatedAt,
-      activatedAt: successor.activatedAt,
-      activatedBy: successor.activatedBy,
-      activationNotes: successor.activationNotes,
-      signedScanFileName: successor.signedScanFileName,
-      signedScanFileSize: successor.signedScanFileSize,
-      signedScanFileType: successor.signedScanFileType,
-      signedScanUrl: successor.signedScanUrl,
-      signedScanStoragePath: successor.signedScanStoragePath,
-    });
-    transaction.set(predecessorRef, archived, { merge: true });
-    transaction.set(successorRef, activated, { merge: true });
-    return { successor: { ...successor, status: 'AKTIF' }, predecessor: { ...predecessor, status: 'DIARSIPKAN', updatedAt: successor.updatedAt } };
+  if (String(successor.previousRevisionNumber || '').trim() !== String(expectedPreviousRevision || '').trim()) {
+    throw new Error('Nomor revisi pendahulu pada Draft Riviu tidak valid.');
+  }
+  const result = await callAuthenticatedAuthApi('sop-activate', {
+    sop: sanitizeForFirestore(successor),
+    predecessorId,
   });
+  if (!result?.success || !result?.successor || !result?.predecessor) {
+    throw new Error(result?.message || 'Respons aktivasi Riviu tidak valid.');
+  }
+  return {
+    successor: result.successor as SopDocument,
+    predecessor: result.predecessor as SopDocument,
+  };
 }
 
 /** Activates a Draft without an internal predecessor (SPO Baru, Existing, or
  * external/legacy Riviu). Content/file metadata is saved while still DRAFT;
  * this transaction performs only the lifecycle transition. */
 export async function activateStandaloneSopInFirestore(successor: SopDocument): Promise<SopDocument> {
-  const successorRef = doc(db, 'sops', successor.id);
-  return runTransaction(db, async (transaction) => {
-    const snapshot = await transaction.get(successorRef);
-    if (!snapshot.exists()) throw new Error('Draft SPO tidak ditemukan.');
-
-    const stored = { ...snapshot.data(), id: snapshot.id } as SopDocument;
-    if (stored.status !== 'DRAFT') throw new Error('Dokumen bukan Draft yang dapat diaktifkan.');
-    if (stored.reviewState === 'REVISION_REQUESTED' || stored.reviewState === 'REVISION_SUBMITTED') {
-      throw new Error('Aktivasi ditolak. Alur perbaikan SPO belum diselesaikan.');
-    }
-
-    const jenis = String(stored.jenis_spo || stored.documentType || '').trim().toUpperCase();
-    const isExternalRiviu = (jenis === 'RIVIU' || jenis === 'REVIEW' || stored.isReviewDocument === true)
-      && !stored.existingSopId;
-    if (isExternalRiviu) {
-      const sourceName = String(stored.oldFileName || '').trim().toLowerCase();
-      const sourceType = String(stored.oldFileType || '').trim().toLowerCase();
-      const sourceIsPdf = sourceType === 'application/pdf' || sourceName.endsWith('.pdf');
-      if (!stored.oldSopNumber || !stored.reviewReason || !stored.previousRevisionNumber) {
-        throw new Error('Metadata wajib Riviu eksternal belum lengkap.');
-      }
-      if (!sourceIsPdf || !stored.oldFileUrl || !stored.oldStoragePath) {
-        throw new Error('PDF sumber Riviu eksternal belum tersimpan di Firebase Storage.');
-      }
-    }
-
-    const activated = sanitizeForFirestore({
-      ...stored,
-      status: 'AKTIF',
-      everActivated: true,
-      updatedAt: successor.updatedAt,
-      activatedAt: successor.activatedAt,
-      activatedBy: successor.activatedBy,
-      activationNotes: successor.activationNotes,
-      signedScanFileName: successor.signedScanFileName,
-      signedScanFileSize: successor.signedScanFileSize,
-      signedScanFileType: successor.signedScanFileType,
-      signedScanUrl: successor.signedScanUrl,
-      signedScanStoragePath: successor.signedScanStoragePath,
-    });
-    transaction.set(successorRef, activated, { merge: true });
-    return { ...stored, ...successor, status: 'AKTIF', everActivated: true };
+  const result = await callAuthenticatedAuthApi('sop-activate', {
+    sop: sanitizeForFirestore(successor),
   });
+  if (!result?.success || !result?.successor) {
+    throw new Error(result?.message || 'Respons aktivasi SPO tidak valid.');
+  }
+  return result.successor as SopDocument;
 }
 
 

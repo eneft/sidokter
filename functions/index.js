@@ -13,6 +13,7 @@ const { assertMailReply } = require('./internalMailPolicy');
 const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevisionRequestNotification } = require('./sopReviewOwnership');
 const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
 const { buildTrustedSopContentUpdate } = require('./sopEditContentPolicy');
+const { buildSopActivationTransition } = require('./sopActivationPolicy');
 const { sendPdf } = require('./pdfBinary');
 
 if (!process.env.AWS_EXECUTION_ENV) {
@@ -166,7 +167,7 @@ function getAuthSafe() {
 
 // SIDOKTER uses a named Firestore Enterprise database; do not fall back to (default).
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
-const AUTH_API_BUILD = 'firebase-migration-fix-v6-trusted-sop-edit';
+const AUTH_API_BUILD = 'firebase-migration-fix-v7-trusted-sop-activation';
 let _db = null;
 function getFirestoreInstance() {
   if (!_db) {
@@ -1307,6 +1308,109 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       }
 
       return json(res, 200, { success: true, sop: resultingSop, source: 'trusted-session' });
+    }
+
+    if (action === 'sop-activate') {
+      if (normalizeRole(context.user?.role) !== 'admin') {
+        return json(res, 403, {
+          success: false,
+          code: 'ADMIN_REQUIRED',
+          message: 'Aktivasi SPO hanya dapat dilakukan oleh Administrator.',
+        });
+      }
+
+      const submitted = req.body?.sop || {};
+      const sopId = String(submitted.id || '').trim();
+      const requestedPredecessorId = String(req.body?.predecessorId || '').trim();
+      if (!sopId) {
+        return json(res, 400, { success: false, code: 'INVALID_SOP', message: 'Dokumen SPO tidak valid.' });
+      }
+
+      const successorRef = db.collection('sops').doc(sopId);
+      let transitionResult = null;
+      try {
+        await db.runTransaction(async (transaction) => {
+          const successorSnapshot = await transaction.get(successorRef);
+          if (!successorSnapshot.exists) throw new Error('SOP_NOT_FOUND');
+          const storedSuccessor = { id: successorSnapshot.id, ...successorSnapshot.data() };
+
+          const authoritativePredecessorId = String(storedSuccessor.existingSopId || '').trim();
+          if (requestedPredecessorId && authoritativePredecessorId !== requestedPredecessorId) {
+            throw new Error('INVALID_PREDECESSOR');
+          }
+
+          let predecessor = null;
+          let predecessorRef = null;
+          if (authoritativePredecessorId) {
+            predecessorRef = db.collection('sops').doc(authoritativePredecessorId);
+            const predecessorSnapshot = await transaction.get(predecessorRef);
+            if (!predecessorSnapshot.exists) throw new Error('PREDECESSOR_NOT_FOUND');
+            predecessor = { id: predecessorSnapshot.id, ...predecessorSnapshot.data() };
+          }
+
+          transitionResult = buildSopActivationTransition({
+            storedSuccessor,
+            submitted,
+            predecessor,
+            actor: context.user,
+          });
+
+          transaction.set(successorRef, {
+            ...transitionResult.successor,
+            fileDataUrl: FieldValue.delete(),
+            signedScanDataUrl: FieldValue.delete(),
+            oldFileDataUrl: FieldValue.delete(),
+          }, { merge: true });
+          if (predecessorRef && transitionResult.predecessor) {
+            transaction.set(predecessorRef, transitionResult.predecessor, { merge: true });
+          }
+
+          const auditRef = db.collection('audit_logs').doc();
+          transaction.set(auditRef, {
+            id: auditRef.id,
+            action: predecessor ? 'SOP_RIVIU_ACTIVATED' : 'SOP_ACTIVATED',
+            documentId: storedSuccessor.id,
+            documentNumber: storedSuccessor.sopNumber || '',
+            predecessorId: predecessor?.id || '',
+            actorUid: context.decoded.uid,
+            actorName: context.user.name || context.user.username || 'Administrator',
+            actorUsername: context.user.username || '',
+            actorRole: context.user.role,
+            timestamp: FieldValue.serverTimestamp(),
+            boundary: 'trusted-session',
+          });
+        });
+      } catch (error) {
+        const reason = String(error?.message || error || 'ACTIVATION_FAILED');
+        const mapping = {
+          ADMIN_REQUIRED: [403, 'ADMIN_REQUIRED', 'Aktivasi SPO hanya dapat dilakukan oleh Administrator.'],
+          INVALID_SOP: [400, 'INVALID_SOP', 'Dokumen SPO tidak valid.'],
+          SOP_NOT_FOUND: [404, 'SOP_NOT_FOUND', 'Draft SPO tidak ditemukan.'],
+          DRAFT_REQUIRED: [409, 'DRAFT_REQUIRED', 'Dokumen bukan Draft yang dapat diaktifkan.'],
+          REVIEW_NOT_COMPLETE: [409, 'REVIEW_NOT_COMPLETE', 'Alur perbaikan SPO harus diselesaikan sebelum aktivasi.'],
+          INVALID_RIVIU: [409, 'INVALID_RIVIU', 'Jenis dokumen tidak sesuai dengan alur aktivasi Riviu.'],
+          INVALID_PREDECESSOR: [409, 'INVALID_PREDECESSOR', 'Referensi SPO pendahulu tidak valid.'],
+          PREDECESSOR_NOT_FOUND: [404, 'PREDECESSOR_NOT_FOUND', 'SPO pendahulu tidak ditemukan.'],
+          PREDECESSOR_NOT_ACTIVE: [409, 'PREDECESSOR_NOT_ACTIVE', 'SPO pendahulu tidak lagi berstatus AKTIF.'],
+          INVALID_REVISION: [409, 'INVALID_REVISION', 'Nomor revisi Riviu wajib berupa angka.'],
+          PREDECESSOR_REVISION_MISMATCH: [409, 'PREDECESSOR_REVISION_MISMATCH', 'Nomor revisi Draft tidak sesuai dengan revisi SPO pendahulu.'],
+          SUCCESSOR_REVISION_MISMATCH: [409, 'SUCCESSOR_REVISION_MISMATCH', 'Nomor revisi hasil Riviu harus satu tingkat di atas revisi pendahulu.'],
+          NEW_NUMBER_REQUIRED: [409, 'NEW_NUMBER_REQUIRED', 'Hasil Riviu wajib menggunakan nomor SPO baru.'],
+          PREDECESSOR_REQUIRED: [409, 'PREDECESSOR_REQUIRED', 'Referensi SPO pendahulu wajib tersedia.'],
+          EXTERNAL_METADATA_REQUIRED: [409, 'EXTERNAL_METADATA_REQUIRED', 'Metadata wajib Riviu eksternal belum lengkap.'],
+          EXTERNAL_PDF_REQUIRED: [409, 'EXTERNAL_PDF_REQUIRED', 'PDF sumber Riviu eksternal belum tersimpan di Firebase Storage.'],
+        };
+        const [status, code, message] = mapping[reason] || [500, 'ACTIVATION_FAILED', 'Aktivasi SPO gagal diproses secara atomik.'];
+        console.error('Trusted SOP activation failed', { sopId, actorUid: context.decoded.uid, reason, code: error?.code });
+        return json(res, status, { success: false, code, message });
+      }
+
+      return json(res, 200, {
+        success: true,
+        successor: transitionResult.successor,
+        predecessor: transitionResult.predecessor,
+        source: 'trusted-session',
+      });
     }
 
     if (action === 'sop-delete') {

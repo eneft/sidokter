@@ -72,12 +72,20 @@ test('Riviu edit keeps additional evidence optional and removes duplicate naviga
   assert.doesNotMatch(upload, /Minimal satu Bukti Dukung Riviu wajib diunggah/);
 });
 
-test('activation uses a dedicated lifecycle transaction after Draft metadata is persisted', () => {
+test('activation uses a trusted backend lifecycle transaction after Draft metadata is persisted', () => {
   const app = read('src/App.tsx');
   const firestore = read('src/lib/firestoreService.ts');
+  const backend = read('functions/index.js');
   assert.match(app, /const preparedDraft = await saveSopToLocal/);
   assert.match(app, /activateStandaloneSopInFirestore/);
   assert.match(firestore, /export async function activateStandaloneSopInFirestore/);
-  assert.match(firestore, /if \(isExternalRiviu\)/);
-  assert.match(firestore, /PDF sumber Riviu eksternal belum tersimpan di Firebase Storage/);
+  assert.match(firestore, /callAuthenticatedAuthApi\(['"]sop-activate['"]/);
+  assert.match(backend, /if \(action === ['"]sop-activate['"]\)/);
+  assert.match(backend, /buildSopActivationTransition/);
+  assert.match(backend, /SOP_RIVIU_ACTIVATED/);
+
+  const start = firestore.indexOf('export async function activateRiviuInFirestore');
+  const end = firestore.indexOf('export interface ReserveSopNumberParams', start);
+  assert.ok(start >= 0 && end > start, 'activation client functions must be present');
+  assert.doesNotMatch(firestore.slice(start, end), /runTransaction\(db/);
 });
