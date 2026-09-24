@@ -92,6 +92,8 @@ interface UserViewProps {
   divisions: Division[];
   categories: SopCategory[];
   onViewDetail: (sop: SopDocument) => void;
+  onEditSop?: (sop: SopDocument) => void;
+  onDeleteSop?: (sop: SopDocument) => void;
   onCopyNumber: (sopNumber: string) => void;
   users?: UserAccount[];
   onUpdatePassword?: (currentPass: string, newPass: string) => Promise<{ success: boolean; message: string }>;
@@ -116,6 +118,8 @@ export const UserView: React.FC<UserViewProps> = ({
   divisions,
   categories,
   onViewDetail,
+  onEditSop,
+  onDeleteSop,
   onCopyNumber,
   users,
   onUpdatePassword,
@@ -1225,7 +1229,8 @@ export const UserView: React.FC<UserViewProps> = ({
         {/* TAB 2: SPO (Workspace User) */}
         {activeTab === 'spo' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            {/* Sub-header / toggle */}
+            {/* Input workflow keeps the original sub-header; list/archive use the SK-style register header. */}
+            {spoSubTab === 'input' && (
             <div className="bg-white rounded-2xl border border-slate-200 px-4 sm:px-5 py-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700">
@@ -1322,30 +1327,34 @@ export const UserView: React.FC<UserViewProps> = ({
                 )}
               </div>
             </div>
+            )}
 
             {/* SubTab List: User Library Tab */}
             {spoSubTab === 'list' && (
               <UserLibraryTab
+                title="SPO"
                 sops={sops.filter((s) => s.status !== 'DIARSIPKAN')}
                 userSession={userSession}
                 onViewDetail={onViewDetail}
+                onEditSop={onEditSop}
+                onDeleteSop={onDeleteSop}
                 onSwitchToInputTab={() => setSpoSubTab('input')}
+                onSwitchToArchiveTab={userSession.role === 'admin' ? () => setSpoSubTab('archive') : undefined}
               />
             )}
 
             {spoSubTab === 'archive' && userSession.role === 'admin' && (
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
-                  <h2 className="text-base font-black text-slate-900 flex items-center gap-2"><Archive className="w-4 h-4" /> Arsip SPO</h2>
-                  <p className="text-xs text-slate-500 mt-1">Riwayat dokumen yang pernah aktif. Nomor SPO pada arsip terkunci permanen dan tidak dapat digunakan kembali.</p>
-                </div>
-                <UserLibraryTab
-                  sops={sops.filter((s) => s.status === 'DIARSIPKAN')}
-                  userSession={userSession}
-                  onViewDetail={onViewDetail}
-                  onSwitchToInputTab={() => setSpoSubTab('input')}
-                />
-              </div>
+              <UserLibraryTab
+                title="Arsip SPO"
+                isArchiveView
+                sops={sops.filter((s) => s.status === 'DIARSIPKAN')}
+                userSession={userSession}
+                onViewDetail={onViewDetail}
+                onEditSop={onEditSop}
+                onDeleteSop={onDeleteSop}
+                onSwitchToInputTab={() => setSpoSubTab('input')}
+                onSwitchToListTab={() => setSpoSubTab('list')}
+              />
             )}
 
             {/* SubTab Input: Form Input SPO — compact workspace */}

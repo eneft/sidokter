@@ -2162,6 +2162,8 @@ export default function App() {
             divisions={divisions}
             categories={categories}
             onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+            onEditSop={(sop) => setSelectedSopForEdit(sop)}
+            onDeleteSop={(sop) => handleDeleteSop(sop.id, sop.title)}
             onCopyNumber={handleCopyNumber}
             users={users}
             onUpdatePassword={handleUpdateSelfPassword}
@@ -2239,6 +2241,8 @@ export default function App() {
         divisions={divisions}
         categories={categories}
         onViewDetail={(sop) => setSelectedSopForDetail(sop)}
+        onEditSop={(sop) => setSelectedSopForEdit(sop)}
+        onDeleteSop={(sop) => handleDeleteSop(sop.id, sop.title)}
         onCopyNumber={handleCopyNumber}
         users={users}
         onUpdatePassword={handleUpdateSelfPassword}
