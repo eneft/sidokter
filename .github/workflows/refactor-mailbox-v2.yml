@@ -24,7 +24,7 @@ jobs:
       - name: Apply mailbox refactor
         run: python3 scripts/refactor-mailbox-v2.py
 
-      - name: Restore reply suggestion helper contract
+      - name: Align mailbox UI and regression contracts
         run: python3 scripts/fix-mailbox-v2-ui.py
 
       - name: Install dependencies
@@ -46,6 +46,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/notificationService.ts src/components/NotificationModal.tsx package.json functions/mailboxWorkflow.test.js tests/notification-architecture.test.cjs
+          git add src/lib/notificationService.ts src/components/NotificationModal.tsx package.json functions/mailboxWorkflow.test.js tests/notification-architecture.test.cjs tests/internal-mail-ui.test.cjs tests/periodic-review-notification-disabled.test.cjs
           git commit -m "refactor: make SIDOKTER mailbox server authoritative"
           git push
