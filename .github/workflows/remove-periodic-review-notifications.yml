@@ -27,252 +27,82 @@ jobs:
           from pathlib import Path
           import json
 
-          def replace_once(text, old, new, label):
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected 1 match, found {count}')
-              return text.replace(old, new, 1)
+          def require(text, needle, label):
+              if needle not in text:
+                  raise SystemExit(f'{label}: marker not found')
 
-          # ------------------------------------------------------------------
-          # App.tsx: stop all client producers of automatic periodic review mail.
-          # Human correction/review workflow remains server-authoritative.
-          # ------------------------------------------------------------------
+          def remove_between(text, start, end, label, replacement=''):
+              require(text, start, label + ' start')
+              start_index = text.index(start)
+              try:
+                  end_index = text.index(end, start_index + len(start))
+              except ValueError:
+                  raise SystemExit(f'{label}: end marker not found')
+              return text[:start_index] + replacement + text[end_index:]
+
           app_path = Path('src/App.tsx')
           app = app_path.read_text()
-          app = replace_once(app, '  scanDocumentsForPeriodicReviews, \n', '', 'App import scanDocumentsForPeriodicReviews')
-          app = replace_once(app, '  evaluatePeriodicReview,\n', '', 'App import evaluatePeriodicReview')
-          app = replace_once(app, '// Real-time document assignment & review watcher', '// Real-time document workflow watcher', 'App watcher comment')
-          app = replace_once(app, '// Periodic review and proposal scanning on session start / data load', '// Activation and proposal scanning on session start / data load', 'App scan comment')
-
-          periodic_scan_call = '''      scanDocumentsForPeriodicReviews(
-        sops,
-        userSession,
-        (type, title, message, opts) => {
-          addToast(type, title, message, opts);
-        },
-        (sop) => {
-          setSelectedSopForDetail(sop);
-        }
-      );
-'''
-          app = replace_once(app, periodic_scan_call, '', 'App periodic scan call')
-
-          periodic_edit_dispatch = '''
-    const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);
-    if (reviewStatus.isDue) {
-      dispatchDocumentEvent('review', finalUpdatedSop, `Dokumen ${finalUpdatedSop.sopNumber}: ${reviewStatus.reason}`);
-    }
-'''
-          app = replace_once(app, periodic_edit_dispatch, '', 'App periodic edit dispatch')
+          require(app, '  scanDocumentsForPeriodicReviews, ', 'App periodic scan import')
+          require(app, '  evaluatePeriodicReview,', 'App periodic evaluator import')
+          app = app.replace('  scanDocumentsForPeriodicReviews, \n', '', 1)
+          app = app.replace('  evaluatePeriodicReview,\n', '', 1)
+          app = app.replace('// Real-time document assignment & review watcher', '// Real-time document workflow watcher', 1)
+          app = app.replace('// Periodic review and proposal scanning on session start / data load', '// Activation and proposal scanning on session start / data load', 1)
+          app = remove_between(app, '      scanDocumentsForPeriodicReviews(\n', '      scanDocumentsForActivations(\n', 'App periodic session scan')
+          app = remove_between(app, '\n    const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);\n', '\n  };\n\n  const handleReviewWorkflow', 'App periodic edit dispatch')
           app_path.write_text(app)
 
-          # ------------------------------------------------------------------
-          # notificationService.ts: remove realtime/local/session producers.
-          # Keep review type because human correction messages use it.
-          # ------------------------------------------------------------------
           notif_path = Path('src/lib/notificationService.ts')
           notif = notif_path.read_text()
-          notif = replace_once(
-              notif,
-              ' * untuk penugasan dokumen ke divisi, pengingat riviu berkala,\n * aktivasi SPO oleh Admin bagi User, dan usulan aktivasi bagi Admin.\n',
-              ' * untuk penugasan dokumen ke divisi, aktivasi SPO oleh Admin bagi User,\n * usulan aktivasi bagi Admin, dan pesan alur perbaikan/verifikasi SPO.\n',
-              'notification service header'
-          )
-          notif = replace_once(
-              notif,
-              ' * Initializes real-time listener for document assignments, periodic reviews,\n * admin activation alerts for users in that hierarchy, and user proposals for admin.\n',
-              ' * Initializes real-time listener for document assignments, admin activation alerts\n * for users in that hierarchy, and user proposals for admin.\n',
-              'notification watcher docs'
-          )
-
-          periodic_realtime = '''
-          // EVENT 4: PERIODIC REVIEW ALERT
-          if ((change.type === 'added' || change.type === 'modified') && inUserHierarchy && sop.status === 'AKTIF') {
-            const reviewStatus = evaluatePeriodicReview(sop);
-            if (reviewStatus.isDue) {
-              const reviewEventKey = getReviewEventKey(sop, reviewStatus.dueDate);
-              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber}): ${reviewStatus.reason}`;
-              processNotificationEvent({
-                type: 'review', sop, eventKey: reviewEventKey,
-                title: 'Perlu Riviu Berkala', message: notifMsg,
-                actionLabel: 'Tinjau Sekarang', dueDate: reviewStatus.dueDate,
-                isOverdue: reviewStatus.isOverdue, onAction: () => onSelectDocument?.(sop)
-              }, onToast);
-            }
-          }
-'''
-          notif = replace_once(notif, periodic_realtime, '', 'realtime periodic review producer')
-
-          periodic_local = '''
-    if (type === 'review') {
-      if (!inUserHierarchy) return;
-      const status = evaluatePeriodicReview(sop);
-      if (!status.isDue) return;
-      const eventKey = getReviewEventKey(sop, status.dueDate);
-      const message = reason || `SPO "${sop.title}" (${sop.sopNumber}): ${status.reason || 'Memerlukan peninjauan berkala.'}`;
-      processNotificationEvent({ type, sop, eventKey, title: 'Perlu Riviu Berkala', message, actionLabel: 'Tinjau Sekarang', dueDate: status.dueDate, isOverdue: status.isOverdue, onAction: () => onSelectDocument?.(sop) }, onToast);
-    }
-'''
-          notif = replace_once(
-              notif,
-              periodic_local,
-              '''
-    // Legacy client periodic-review events are intentionally ignored. Human
-    // correction/review messages are created authoritatively by sopReviewWorkflow.
-    if (type === 'review') return;
-''',
-              'local periodic review producer'
-          )
-
-          old_scan = '''/**
- * Evaluates all existing documents in memory on login/session mount and alerts if any
- * document assigned to user's division requires periodic review.
- */
-export function scanDocumentsForPeriodicReviews(
-  sops: SopDocument[],
-  userSession: UserSession | null,
-  _onToast: RealtimeWatcherOptions['onToast'],
-  onSelectDocument?: (doc: SopDocument) => void
-): void {
-  if (!userSession || !Array.isArray(sops) || sops.length === 0) return;
-  setNotificationUserSession(userSession);
-
-  const dueDocs: Array<{ sop: SopDocument; status: ReviewStatus }> = [];
-
-  for (const sop of sops) {
-    if (!sop || sop.status === 'DIARSIPKAN') continue;
-    if (!userCanAccessSop(sop, userSession)) continue;
-
-    const status = evaluatePeriodicReview(sop);
-    if (status.isDue) {
-      dueDocs.push({ sop, status });
-    }
-  }
-
-  if (dueDocs.length === 0) return;
-
-  // Add items to Notification Center so they are readily browsable
-  dueDocs.forEach(({ sop, status }) => {
-    const key = getReviewEventKey(sop, status.dueDate);
-    if (!notifiedReviewDocIds.has(key)) {
-      notifiedReviewDocIds.add(key);
-      addNotification({
-        type: 'review',
-        title: 'Perlu Riviu Berkala',
-        message: `SPO "${sop.title}" (${sop.sopNumber}): ${status.reason}`,
-        documentId: sop.id,
-        documentNumber: sop.sopNumber,
-        documentType: 'SPO',
-        divisionCode: sop.divisionCode,
-        dueDate: status.dueDate,
-        isOverdue: status.isOverdue,
-        metadata: { eventKey: getReviewEventKey(sop, status.dueDate) },
-        actionLabel: 'Tinjau Sekarang',
-        onAction: () => onSelectDocument?.(sop)
-      });
-    }
-  });
-
-  // Periodic review discovery is represented by Pesan only.
-}'''
-          compat_scan = '''/**
- * Backward-compatible no-op. Automatic periodic/annual SPO review reminders were
- * retired from Pesan; review dates may still exist as document metadata.
- */
-export function scanDocumentsForPeriodicReviews(
-  _sops: SopDocument[],
-  _userSession: UserSession | null,
-  _onToast: RealtimeWatcherOptions['onToast'],
-  _onSelectDocument?: (doc: SopDocument) => void
-): void {
-  return;
-}'''
-          notif = replace_once(notif, old_scan, compat_scan, 'periodic scan function')
+          old_header = ' * untuk penugasan dokumen ke divisi, pengingat riviu berkala,\n * aktivasi SPO oleh Admin bagi User, dan usulan aktivasi bagi Admin.\n'
+          new_header = ' * untuk penugasan dokumen ke divisi, aktivasi SPO oleh Admin bagi User,\n * usulan aktivasi bagi Admin, dan pesan alur perbaikan/verifikasi SPO.\n'
+          require(notif, old_header, 'notification header')
+          notif = notif.replace(old_header, new_header, 1)
+          old_docs = ' * Initializes real-time listener for document assignments, periodic reviews,\n * admin activation alerts for users in that hierarchy, and user proposals for admin.\n'
+          new_docs = ' * Initializes real-time listener for document assignments, admin activation alerts\n * for users in that hierarchy, and user proposals for admin.\n'
+          require(notif, old_docs, 'notification watcher docs')
+          notif = notif.replace(old_docs, new_docs, 1)
+          notif = remove_between(notif, '\n          // EVENT 4: PERIODIC REVIEW ALERT\n', '\n        });\n      },\n', 'realtime periodic review producer')
+          local_replacement = '\n    // Legacy client periodic-review events are intentionally ignored. Human\n    // correction/review messages are created authoritatively by sopReviewWorkflow.\n    if (type === \'review\') return;\n'
+          notif = remove_between(notif, '\n    if (type === \'review\') {\n', '\n  };\n\n  const handleBroadcastMessage', 'local periodic review producer', local_replacement)
+          scan_marker = '/**\n * Evaluates all existing documents in memory on login/session mount and alerts if any\n * document assigned to user\'s division requires periodic review.\n */\nexport function scanDocumentsForPeriodicReviews('
+          require(notif, scan_marker, 'periodic scan compatibility function')
+          scan_index = notif.index(scan_marker)
+          compat = "/**\n * Backward-compatible no-op. Automatic periodic/annual SPO review reminders were\n * retired from Pesan; review dates may still exist as document metadata.\n */\nexport function scanDocumentsForPeriodicReviews(\n  _sops: SopDocument[],\n  _userSession: UserSession | null,\n  _onToast: RealtimeWatcherOptions['onToast'],\n  _onSelectDocument?: (doc: SopDocument) => void\n): void {\n  return;\n}\n"
+          notif = notif[:scan_index] + compat
           notif_path.write_text(notif)
 
-          # ------------------------------------------------------------------
-          # Mailbox admission: hide already-persisted legacy periodic reminders
-          # while preserving human correction/review mail.
-          # ------------------------------------------------------------------
           mailbox_path = Path('src/lib/mailboxPolicy.ts')
           mailbox = mailbox_path.read_text()
-          marker = '''export interface MailboxCandidate {
-  id?: unknown;
-  type?: unknown;
-  title?: unknown;
-  message?: unknown;
-  documentId?: unknown;
-  timestamp?: unknown;
-  hidden?: unknown;
-  metadata?: Record<string, unknown>;
-}
-'''
-          insert = marker + '''
-/** Legacy automatic periodic/annual SPO review reminders are no longer mailbox items. */
-export function isPeriodicReviewReminder(item: MailboxCandidate): boolean {
-  const eventKey = String(item?.metadata?.eventKey || item?.id || '').trim().toLowerCase();
-  const title = String(item?.title || '').trim().toLowerCase();
-  return eventKey.startsWith('review:') || title === 'perlu riviu berkala';
-}
-'''
-          mailbox = replace_once(mailbox, marker, insert, 'mailbox periodic helper insertion')
-          mailbox = replace_once(
-              mailbox,
-              '''export function isInternalMailItem(item: MailboxCandidate): boolean {
-  if (!item || typeof item.id !== 'string' || !item.id.trim()) return false;
-''',
-              '''export function isInternalMailItem(item: MailboxCandidate): boolean {
-  if (!item || typeof item.id !== 'string' || !item.id.trim()) return false;
-  if (isPeriodicReviewReminder(item)) return false;
-''',
-              'mailbox periodic exclusion'
-          )
+          marker = 'export function isInternalMailItem(item: MailboxCandidate): boolean {\n  if (!item || typeof item.id !== \'string\' || !item.id.trim()) return false;\n'
+          require(mailbox, marker, 'mailbox admission function')
+          helper = "\n/** Legacy automatic periodic/annual SPO review reminders are no longer mailbox items. */\nexport function isPeriodicReviewReminder(item: MailboxCandidate): boolean {\n  const eventKey = String(item?.metadata?.eventKey || item?.id || '').trim().toLowerCase();\n  const title = String(item?.title || '').trim().toLowerCase();\n  return eventKey.startsWith('review:') || title === 'perlu riviu berkala';\n}\n"
+          interface_end = '}\n\n/**\n * Unified mailbox admission policy.'
+          require(mailbox, interface_end, 'mailbox helper insertion point')
+          mailbox = mailbox.replace(interface_end, '}' + helper + '\n/**\n * Unified mailbox admission policy.', 1)
+          mailbox = mailbox.replace(marker, marker + '  if (isPeriodicReviewReminder(item)) return false;\n', 1)
           mailbox_path.write_text(mailbox)
 
-          # ------------------------------------------------------------------
-          # Tests: legacy periodic reminder hidden; human review stays visible.
-          # ------------------------------------------------------------------
           test_path = Path('tests/mailbox-filter.test.ts')
           test_text = test_path.read_text()
-          extra_test = '''
-
-test('automatic periodic SPO review reminders are excluded but human correction mail remains visible', () => {
-  assert.equal(isVisibleMailboxItem(workflow('review', {
-    title: 'Perlu Riviu Berkala',
-    metadata: { eventKey: 'review:spo-1:2026-12-31' }
-  })), false);
-  assert.equal(isVisibleMailboxItem(workflow('review', {
-    title: 'Perlu Perbaikan SPO',
-    metadata: { eventKey: 'sop-revision-requested-spo-1-1', mailKind: 'human', senderUid: 'reviewer' }
-  })), true);
-});
-'''
-          if "automatic periodic SPO review reminders are excluded" not in test_text:
-              test_text += extra_test
+          if 'automatic periodic SPO review reminders are excluded' not in test_text:
+              test_text += "\n\ntest('automatic periodic SPO review reminders are excluded but human correction mail remains visible', () => {\n  assert.equal(isVisibleMailboxItem(workflow('review', {\n    title: 'Perlu Riviu Berkala',\n    metadata: { eventKey: 'review:spo-1:2026-12-31' }\n  })), false);\n  assert.equal(isVisibleMailboxItem(workflow('review', {\n    title: 'Perlu Perbaikan SPO',\n    metadata: { eventKey: 'sop-revision-requested-spo-1-1', mailKind: 'human', senderUid: 'reviewer' }\n  })), true);\n});\n"
           test_path.write_text(test_text)
 
           source_test_path = Path('tests/periodic-review-notification-disabled.test.cjs')
-          source_test_path.write_text('''const test = require('node:test');\nconst assert = require('node:assert/strict');\nconst fs = require('node:fs');\n\nconst app = fs.readFileSync('src/App.tsx', 'utf8');\nconst service = fs.readFileSync('src/lib/notificationService.ts', 'utf8');\n\ntest('automatic periodic review notification producers are disabled', () => {\n  assert.equal(app.includes('scanDocumentsForPeriodicReviews('), false);\n  assert.equal(app.includes("dispatchDocumentEvent('review'"), false);\n  assert.equal(service.includes('EVENT 4: PERIODIC REVIEW ALERT'), false);\n  assert.equal(service.includes("title: 'Perlu Riviu Berkala'"), false);\n});\n\ntest('human SPO correction workflow remains separate from periodic review reminders', () => {\n  assert.equal(service.includes("if (type === 'review') return;"), true);\n  assert.equal(service.includes('sopReviewWorkflow'), false);\n});\n''')
+          source_test_path.write_text("const test = require('node:test');\nconst assert = require('node:assert/strict');\nconst fs = require('node:fs');\n\nconst app = fs.readFileSync('src/App.tsx', 'utf8');\nconst service = fs.readFileSync('src/lib/notificationService.ts', 'utf8');\n\ntest('automatic periodic review notification producers are disabled', () => {\n  assert.equal(app.includes('scanDocumentsForPeriodicReviews('), false);\n  assert.equal(app.includes(\"dispatchDocumentEvent('review'\"), false);\n  assert.equal(service.includes('EVENT 4: PERIODIC REVIEW ALERT'), false);\n  assert.equal(service.includes(\"title: 'Perlu Riviu Berkala'\"), false);\n});\n\ntest('legacy periodic review client events are ignored', () => {\n  assert.equal(service.includes(\"if (type === 'review') return;\"), true);\n});\n")
 
-          # Include source contract in mail test command.
           pkg_path = Path('package.json')
           pkg = json.loads(pkg_path.read_text())
           pkg['scripts']['test:mail'] = 'node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs tests/periodic-review-notification-disabled.test.cjs && tsx --test tests/mailbox-filter.test.ts'
           pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
 
-          # Production CI must actually run notification/mail tests.
           ci_path = Path('.github/workflows/firebase-deploy.yml')
           ci = ci_path.read_text()
-          anchor = '''      - name: Verify Functions
-        run: npm run verify:functions
-
-'''
-          addition = anchor + '''      - name: Test Notification & Mail
-        run: npm run test:mail
-
-'''
           if 'name: Test Notification & Mail' not in ci:
-              ci = replace_once(ci, anchor, addition, 'CI mail test insertion')
+              anchor = '      - name: Verify Functions\n        run: npm run verify:functions\n\n'
+              require(ci, anchor, 'production CI mail test insertion')
+              ci = ci.replace(anchor, anchor + '      - name: Test Notification & Mail\n        run: npm run test:mail\n\n', 1)
           ci_path.write_text(ci)
           PY
 
