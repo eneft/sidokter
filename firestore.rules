@@ -63,7 +63,18 @@ service cloud.firestore {
     }
     match /users/{userId} { allow read: if signedIn(); allow create, update, delete: if isAdmin(); }
     match /admins/{adminId} { allow read: if isAdmin(); allow create, update, delete: if isAdmin(); }
-    match /notifications/{uid}/items/{notificationId} { allow read, write: if isOwnNotification(uid); }
+
+    // Pesan/notifikasi dibuat oleh trusted backend. Client hanya boleh mengubah
+    // state presentasi mailbox miliknya sendiri: read/unread dan soft-delete.
+    match /notifications/{uid}/items/{notificationId} {
+      allow read: if isOwnNotification(uid);
+      allow create: if false;
+      allow update: if isOwnNotification(uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'read', 'readAt', 'hidden', 'deletedAt'
+        ]);
+      allow delete: if false;
+    }
 
     match /sop_number_reservations/{reservationId} {
       allow read: if signedIn();
