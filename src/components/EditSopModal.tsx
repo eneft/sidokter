@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   FileEdit,
@@ -49,6 +49,7 @@ import { HierarchyPicker } from './HierarchyPicker';
 import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
 import { canEditExistingSop } from '../lib/sopEditPolicy';
 import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
+import { parseSopFromDocx } from '../utils/docxParser';
 import {
   SupportingEvidenceInput,
   PendingEvidence,
@@ -281,6 +282,51 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       (sop.divisionName ? `${sop.divisionName}${sop.categoryName ? `, ${sop.categoryName}` : ''}` : '')
   );
 
+  // Upload ulang Word saat Edit Batang Tubuh. File Word hanya dipakai untuk
+  // ekstraksi ulang isi Live SPO; binary DOCX tidak disimpan sebagai dokumen.
+  const [isReimportingBodyDocx, setIsReimportingBodyDocx] = useState(false);
+  const [bodyDocxImportSummary, setBodyDocxImportSummary] = useState<{ fileName: string; fields: string[] } | null>(null);
+  const bodyDocxInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBodyDocxReupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      setValidationMessage(['Upload Word ulang hanya mendukung format .docx.']);
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setIsReimportingBodyDocx(true);
+      setValidationMessage([]);
+      const parsed = await parseSopFromDocx(file);
+      const updatedFields: string[] = [];
+
+      // Hanya batang tubuh yang diganti. Judul, tanggal, nomor, hirarki, status,
+      // revisi, dan identitas workflow tetap berasal dari dokumen yang sedang diedit.
+      if (parsed.pengertian) { setPengertian(parsed.pengertian); updatedFields.push('PENGERTIAN'); }
+      if (parsed.tujuan) { setTujuan(parsed.tujuan); updatedFields.push('TUJUAN'); }
+      if (parsed.kebijakan) { setKebijakan(parsed.kebijakan); updatedFields.push('KEBIJAKAN'); }
+      if (parsed.prosedur) { setProsedur(parsed.prosedur); updatedFields.push('PROSEDUR'); }
+      if (parsed.alur) { setAlur(parsed.alur); updatedFields.push('ALUR'); }
+      if (parsed.unitTerkait) { setUnitTerkait(parsed.unitTerkait); updatedFields.push('UNIT TERKAIT'); }
+
+      if (updatedFields.length === 0) {
+        throw new Error('Batang tubuh SPO tidak terdeteksi pada file Word tersebut. Pastikan dokumen memiliki bagian Pengertian, Tujuan, Kebijakan, Prosedur, Alur, atau Unit Terkait.');
+      }
+
+      setBodyDocxImportSummary({ fileName: file.name, fields: updatedFields });
+    } catch (error) {
+      console.error('Error re-importing DOCX body:', error);
+      setValidationMessage([error instanceof Error ? error.message : 'Gagal membaca ulang batang tubuh dari file Word.']);
+    } finally {
+      setIsReimportingBodyDocx(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // =========================================================
   // NOMOR SPO & UNIT
   // =========================================================
@@ -340,6 +386,8 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
     setRevisionAuthor(userSession?.name || sop.creatorName || '');
     setTagInput('');
     setValidationMessage([]);
+    setIsReimportingBodyDocx(false);
+    setBodyDocxImportSummary(null);
 
     // Reset upload states
     setReuploadExistingFile(null);
@@ -1233,6 +1281,49 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
           {/* =============================================== */}
           {activeTab === 'konten' && !isExisting && (
             <div className="space-y-3">
+              <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-slate-900">
+                      <FileUp className="w-4 h-4 text-teal-700" />
+                      <span>Perbarui Batang Tubuh dari Word</span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      Upload ulang DOCX untuk mendeteksi kembali isi batang tubuh. Hanya bagian yang terdeteksi yang diganti; nomor SPO, hirarki, status, judul, tanggal, dan metadata lainnya tetap.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={bodyDocxInputRef}
+                    type="file"
+                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={handleBodyDocxReupload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => bodyDocxInputRef.current?.click()}
+                    disabled={isReimportingBodyDocx}
+                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl border border-teal-200 bg-teal-50 text-teal-800 text-xs font-bold hover:bg-teal-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shrink-0"
+                  >
+                    {isReimportingBodyDocx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {isReimportingBodyDocx ? 'Mendeteksi...' : 'Upload Word Ulang'}
+                  </button>
+                </div>
+
+                {bodyDocxImportSummary && (
+                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{bodyDocxImportSummary.fileName}</span>
+                    </div>
+                    <div className="mt-1 text-emerald-800">
+                      Bagian diperbarui: {bodyDocxImportSummary.fields.join(', ')}. Bagian yang tidak terdeteksi tetap menggunakan isi sebelumnya.
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="bg-teal-50/80 border border-teal-200/90 rounded-xl p-3 text-xs text-teal-950 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-teal-700 shrink-0" />
                 <span>
