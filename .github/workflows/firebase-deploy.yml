@@ -13,39 +13,8 @@ permissions:
   contents: write
 
 jobs:
-  # The hotfix step is idempotent; when the source is already patched it makes no commit.
-  hotfix:
-    name: Apply SIDOKTER activation hotfix
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.patch.outputs.changed }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Apply patch script
-        id: patch
-        run: |
-          result=$(python scripts/apply-riviu-external-activation-hotfix.py)
-          echo "$result"
-          echo "$result" >> "$GITHUB_OUTPUT"
-
-      - name: Commit hotfix
-        if: steps.patch.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/App.tsx src/components/UploadSopModal.tsx src/utils/riviuRevision.ts src/lib/sopService.ts functions/sopActivationPolicy.js functions/sopActivationPolicy.test.js tests/riviu-revision-authority.test.ts tests/sop-mutation-regression.test.cjs
-          git commit -m "fix: harden trusted SPO activation boundary"
-          git push origin HEAD:main
-
   verify:
     name: Verify SIDOKTER
-    needs: hotfix
-    if: needs.hotfix.outputs.changed != 'true'
     runs-on: ubuntu-latest
 
     steps:
