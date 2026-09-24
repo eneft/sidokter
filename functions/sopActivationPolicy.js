@@ -35,6 +35,26 @@ function buildSopActivationTransition({ storedSuccessor, submitted, predecessor,
     activationNotes: String(submitted.activationNotes || '').trim(),
   };
 
+  // Asset upload happens before this transaction. Carry only durable file
+  // metadata into the authoritative activation write; never carry DataURLs.
+  const durableStringFields = [
+    'fileName', 'fileType', 'fileUrl', 'storagePath',
+    'signedScanFileName', 'signedScanFileType', 'signedScanUrl', 'signedScanStoragePath',
+    'oldFileName', 'oldFileType', 'oldFileUrl', 'oldStoragePath',
+    'existingSourceFormat',
+  ];
+  for (const key of durableStringFields) {
+    const value = String(submitted?.[key] || '').trim();
+    if (value) activationFields[key] = value;
+  }
+  for (const key of ['fileSize', 'signedScanFileSize', 'oldFileSize']) {
+    const value = Number(submitted?.[key]);
+    if (Number.isFinite(value) && value >= 0) activationFields[key] = value;
+  }
+  if (Array.isArray(submitted?.supportingEvidence)) {
+    activationFields.supportingEvidence = submitted.supportingEvidence;
+  }
+
   const riviu = isRiviu(storedSuccessor);
   if (predecessor) {
     if (!riviu) throw new Error('INVALID_RIVIU');

@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const indexSource = fs.readFileSync('functions/index.js', 'utf8');
 const rulesSource = fs.readFileSync('firestore.rules', 'utf8');
 const mainSource = fs.readFileSync('src/main.tsx', 'utf8');
+const sopServiceSource = fs.readFileSync('src/lib/sopService.ts', 'utf8');
 
 test('trusted sop-edit keeps storedRaw in transaction scope', () => {
   const blockStart = indexSource.indexOf("if (action === 'sop-edit')");
@@ -39,4 +40,13 @@ test('privileged numbering writes remain fail-closed in Firestore Rules', () => 
 test('Firebase Auth is restored before React mounts', () => {
   assert.match(mainSource, /restoreFirebaseAuthBeforeRender/);
   assert.match(mainSource, /await refreshUserSessionProfile\(persistedSession\)/);
+});
+
+
+test('activation preparation is asset-only before trusted lifecycle commit', () => {
+  assert.match(sopServiceSource, /const isActivationPreparation = Boolean\(/);
+  assert.match(sopServiceSource, /if \(isActivationPreparation\) \{\s*return next;\s*\}/);
+  const prepIndex = sopServiceSource.indexOf('const isActivationPreparation');
+  const authoritativeSaveIndex = sopServiceSource.indexOf('const saved = options?.editActor', prepIndex);
+  assert.ok(prepIndex >= 0 && authoritativeSaveIndex > prepIndex, 'activation preparation must return before authoritative edit save');
 });

@@ -358,6 +358,20 @@ export async function saveSopToLocal(sop: SopDocument, options?: { allocateOffic
   if (next.signedScanUrl) delete next.signedScanDataUrl;
   if (next.oldFileUrl) delete next.oldFileDataUrl;
 
+  // Activation preparation is asset-only. The DRAFT -> AKTIF lifecycle and
+  // activation metadata are committed by the trusted sop-activate transaction.
+  // Do not perform a separate sop-edit/Firestore write here: that extra boundary
+  // can fail independently and must never block an otherwise valid activation.
+  const isActivationPreparation = Boolean(
+    options?.editActor &&
+    next.status === 'DRAFT' &&
+    next.activatedAt &&
+    (next.activatedBy || next.activationNotes)
+  );
+  if (isActivationPreparation) {
+    return next;
+  }
+
   const index = all.findIndex((s) => s.id === next.id);
   const previous = index >= 0 ? all[index] : undefined;
   if (index >= 0) all[index] = next; else all.push(next);

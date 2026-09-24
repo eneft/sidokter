@@ -68,3 +68,26 @@ test('unresolved revision workflow blocks activation', () => {
     actor: admin,
   }), /REVIEW_NOT_COMPLETE/);
 });
+
+
+test('activation carries durable uploaded scan metadata without DataURL', () => {
+  const result = buildSopActivationTransition({
+    storedSuccessor: baseDraft,
+    submitted: {
+      ...baseDraft,
+      activatedAt: '2026-09-24',
+      signedScanFileName: 'scan-final.pdf',
+      signedScanFileType: 'application/pdf',
+      signedScanFileSize: 1234,
+      signedScanUrl: '/api/storage/files/successor_signedScan',
+      signedScanStoragePath: 'sidokter/spo/successor_signedScan.pdf',
+      signedScanDataUrl: 'data:application/pdf;base64,AAAA',
+    },
+    actor: admin,
+  });
+  assert.equal(result.successor.signedScanFileName, 'scan-final.pdf');
+  assert.equal(result.successor.signedScanFileSize, 1234);
+  assert.equal(result.successor.signedScanUrl, '/api/storage/files/successor_signedScan');
+  assert.equal(result.successor.signedScanStoragePath, 'sidokter/spo/successor_signedScan.pdf');
+  assert.equal(Object.prototype.hasOwnProperty.call(result.successor, 'signedScanDataUrl'), false);
+});
