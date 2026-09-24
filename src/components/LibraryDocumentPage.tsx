@@ -950,19 +950,6 @@ export const LibraryDocumentPage: React.FC<Props> = ({
             )}
 
             <form onSubmit={submitUpload} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-              {/* Informative alert for SK Perubahan */}
-              {type === 'SK' && uploadMode === 'PERUBAHAN' && (
-                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200/90 text-amber-950 text-xs space-y-1">
-                  <div className="flex items-center gap-2 font-black text-amber-900">
-                    <Scale className="w-4 h-4 text-amber-700 shrink-0" />
-                    <span>Dokumen SK Perubahan Kebijakan & Aturan</span>
-                  </div>
-                  <p className="text-[11px] text-amber-800 leading-relaxed">
-                    Gunakan opsi ini jika SK ini merevisi, mengubah klausul, mengganti susunan lampiran, atau menyesuaikan aturan dari SK terdahulu karena kebijakan baru atau regulasi Kemenkes.
-                  </p>
-                </div>
-              )}
-
               {/* Revision link section */}
               {type === 'SK' && uploadMode === 'PERUBAHAN' && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
@@ -1059,32 +1046,10 @@ export const LibraryDocumentPage: React.FC<Props> = ({
                       required={uploadMode === 'PERUBAHAN'}
                       value={revisionReason}
                       onChange={(e) => setRevisionReason(e.target.value)}
-                      placeholder="Jelaskan alasan perubahan, contoh: Penyesuaian Permenkes No. 24/2022 tentang Rekam Medis, perubahan alur rujukan, atau penyesuaian susunan tim..."
+                      placeholder="Jelaskan dasar atau alasan perubahan SK secara singkat dan spesifik..."
                       className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-amber-500 outline-none resize-none"
                     />
 
-                    {/* Quick suggestion chips */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
-                      <span className="text-slate-400 font-semibold mr-0.5">Saran Cepat:</span>
-                      {[
-                        'Penyesuaian Permenkes / Regulasi Baru',
-                        'Perubahan Struktur Organisasi & Tim',
-                        'Evaluasi SOP & Alur Pelayanan Klinis',
-                        'Pembaruan Ketentuan Tarif & Fasilitas',
-                        'Efisiensi & Rekomendasi Akreditasi RS'
-                      ].map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => {
-                            setRevisionReason((prev) => (prev ? `${prev}; ${tag}` : tag));
-                          }}
-                          className="px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:border-amber-400 hover:text-amber-900 text-slate-600 transition-colors cursor-pointer"
-                        >
-                          + {tag}
-                        </button>
-                      ))}
-                    </div>
                   </div>
 
                   {/* Sifat / Ruang Lingkup Perubahan */}
