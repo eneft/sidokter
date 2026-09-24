@@ -39,3 +39,15 @@ test('versioned system mail is admitted without pretending to be human mail', ()
     metadata: { internalMailVersion: INTERNAL_MAIL_VERSION, mailKind: 'system' }
   }), true);
 });
+
+
+test('automatic periodic SPO review reminders are excluded but human correction mail remains visible', () => {
+  assert.equal(isVisibleMailboxItem(workflow('review', {
+    title: 'Perlu Riviu Berkala',
+    metadata: { eventKey: 'review:spo-1:2026-12-31' }
+  })), false);
+  assert.equal(isVisibleMailboxItem(workflow('review', {
+    title: 'Perlu Perbaikan SPO',
+    metadata: { eventKey: 'sop-revision-requested-spo-1-1', mailKind: 'human', senderUid: 'reviewer' }
+  })), true);
+});

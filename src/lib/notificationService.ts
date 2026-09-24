@@ -1,8 +1,8 @@
 /**
  * NOTIFICATION SERVICE - SIDOKTER SOEGIRI
  * Sistem Pesan real-time berbasis notification center
- * untuk penugasan dokumen ke divisi, pengingat riviu berkala,
- * aktivasi SPO oleh Admin bagi User, dan usulan aktivasi bagi Admin.
+ * untuk penugasan dokumen ke divisi, aktivasi SPO oleh Admin bagi User,
+ * usulan aktivasi bagi Admin, dan pesan alur perbaikan/verifikasi SPO.
  */
 import { collection, onSnapshot, query, where, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db, functions, auth } from './firebase';
@@ -984,8 +984,8 @@ export interface RealtimeWatcherOptions {
 }
 
 /**
- * Initializes real-time listener for document assignments, periodic reviews,
- * admin activation alerts for users in that hierarchy, and user proposals for admin.
+ * Initializes real-time listener for document assignments, admin activation alerts
+ * for users in that hierarchy, and user proposals for admin.
  * Combines Firestore onSnapshot and local event listeners.
  */
 export function setupDocumentRealtimeWatcher({
@@ -1175,20 +1175,6 @@ export function setupDocumentRealtimeWatcher({
             }
           }
 
-          // EVENT 4: PERIODIC REVIEW ALERT
-          if ((change.type === 'added' || change.type === 'modified') && inUserHierarchy && sop.status === 'AKTIF') {
-            const reviewStatus = evaluatePeriodicReview(sop);
-            if (reviewStatus.isDue) {
-              const reviewEventKey = getReviewEventKey(sop, reviewStatus.dueDate);
-              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber}): ${reviewStatus.reason}`;
-              processNotificationEvent({
-                type: 'review', sop, eventKey: reviewEventKey,
-                title: 'Perlu Riviu Berkala', message: notifMsg,
-                actionLabel: 'Tinjau Sekarang', dueDate: reviewStatus.dueDate,
-                isOverdue: reviewStatus.isOverdue, onAction: () => onSelectDocument?.(sop)
-              }, onToast);
-            }
-          }
         });
       },
       (error) => {
@@ -1261,14 +1247,10 @@ export function setupDocumentRealtimeWatcher({
       return;
     }
 
-    if (type === 'review') {
-      if (!inUserHierarchy) return;
-      const status = evaluatePeriodicReview(sop);
-      if (!status.isDue) return;
-      const eventKey = getReviewEventKey(sop, status.dueDate);
-      const message = reason || `SPO "${sop.title}" (${sop.sopNumber}): ${status.reason || 'Memerlukan peninjauan berkala.'}`;
-      processNotificationEvent({ type, sop, eventKey, title: 'Perlu Riviu Berkala', message, actionLabel: 'Tinjau Sekarang', dueDate: status.dueDate, isOverdue: status.isOverdue, onAction: () => onSelectDocument?.(sop) }, onToast);
-    }
+    // Legacy client periodic-review events are intentionally ignored. Human
+    // correction/review messages are created authoritatively by sopReviewWorkflow.
+    if (type === 'review') return;
+
   };
 
   const handleBroadcastMessage = (event: MessageEvent) => {
@@ -1455,53 +1437,14 @@ export function scanDocumentsForActivations(
 }
 
 /**
- * Evaluates all existing documents in memory on login/session mount and alerts if any
- * document assigned to user's division requires periodic review.
+ * Backward-compatible no-op. Automatic periodic/annual SPO review reminders were
+ * retired from Pesan; review dates may still exist as document metadata.
  */
 export function scanDocumentsForPeriodicReviews(
-  sops: SopDocument[],
-  userSession: UserSession | null,
+  _sops: SopDocument[],
+  _userSession: UserSession | null,
   _onToast: RealtimeWatcherOptions['onToast'],
-  onSelectDocument?: (doc: SopDocument) => void
+  _onSelectDocument?: (doc: SopDocument) => void
 ): void {
-  if (!userSession || !Array.isArray(sops) || sops.length === 0) return;
-  setNotificationUserSession(userSession);
-
-  const dueDocs: Array<{ sop: SopDocument; status: ReviewStatus }> = [];
-
-  for (const sop of sops) {
-    if (!sop || sop.status === 'DIARSIPKAN') continue;
-    if (!userCanAccessSop(sop, userSession)) continue;
-
-    const status = evaluatePeriodicReview(sop);
-    if (status.isDue) {
-      dueDocs.push({ sop, status });
-    }
-  }
-
-  if (dueDocs.length === 0) return;
-
-  // Add items to Notification Center so they are readily browsable
-  dueDocs.forEach(({ sop, status }) => {
-    const key = getReviewEventKey(sop, status.dueDate);
-    if (!notifiedReviewDocIds.has(key)) {
-      notifiedReviewDocIds.add(key);
-      addNotification({
-        type: 'review',
-        title: 'Perlu Riviu Berkala',
-        message: `SPO "${sop.title}" (${sop.sopNumber}): ${status.reason}`,
-        documentId: sop.id,
-        documentNumber: sop.sopNumber,
-        documentType: 'SPO',
-        divisionCode: sop.divisionCode,
-        dueDate: status.dueDate,
-        isOverdue: status.isOverdue,
-        metadata: { eventKey: getReviewEventKey(sop, status.dueDate) },
-        actionLabel: 'Tinjau Sekarang',
-        onAction: () => onSelectDocument?.(sop)
-      });
-    }
-  });
-
-  // Periodic review discovery is represented by Pesan only.
+  return;
 }

@@ -13,6 +13,12 @@ export interface MailboxCandidate {
   hidden?: unknown;
   metadata?: Record<string, unknown>;
 }
+/** Legacy automatic periodic/annual SPO review reminders are no longer mailbox items. */
+export function isPeriodicReviewReminder(item: MailboxCandidate): boolean {
+  const eventKey = String(item?.metadata?.eventKey || item?.id || '').trim().toLowerCase();
+  const title = String(item?.title || '').trim().toLowerCase();
+  return eventKey.startsWith('review:') || title === 'perlu riviu berkala';
+}
 
 /**
  * Unified mailbox admission policy.
@@ -24,6 +30,7 @@ export interface MailboxCandidate {
  */
 export function isInternalMailItem(item: MailboxCandidate): boolean {
   if (!item || typeof item.id !== 'string' || !item.id.trim()) return false;
+  if (isPeriodicReviewReminder(item)) return false;
   if (item.metadata?.obsoleteDuplicate === true) return false;
   if (!Number.isFinite(Number(item.timestamp)) || Number(item.timestamp) <= 0) return false;
   if (typeof item.title !== 'string' || typeof item.message !== 'string') return false;

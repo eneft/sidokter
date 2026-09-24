@@ -83,12 +83,10 @@ import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { 
   setupDocumentRealtimeWatcher, 
-  scanDocumentsForPeriodicReviews, 
   scanDocumentsForActivations,
   scanDocumentsForProposals,
   setNotificationUsers,
   dispatchDocumentEvent, 
-  evaluatePeriodicReview,
   NotificationType
 } from './lib/notificationService';
 import { LoginPage } from './components/LoginPage';
@@ -521,7 +519,7 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Real-time document assignment & review watcher
+  // Real-time document workflow watcher
   useEffect(() => {
     if (!userSession) return;
 
@@ -544,21 +542,11 @@ export default function App() {
     }
   }, [users]);
 
-  // Periodic review and proposal scanning on session start / data load
+  // Activation and proposal scanning on session start / data load
   useEffect(() => {
     if (!userSession || !sops || sops.length === 0) return;
 
     const timer = setTimeout(() => {
-      scanDocumentsForPeriodicReviews(
-        sops,
-        userSession,
-        (type, title, message, opts) => {
-          addToast(type, title, message, opts);
-        },
-        (sop) => {
-          setSelectedSopForDetail(sop);
-        }
-      );
       scanDocumentsForActivations(
         sops,
         userSession,
@@ -1672,10 +1660,6 @@ export default function App() {
 
     addToast('success', 'Perubahan Disimpan', `Dokumen ${finalUpdatedSop.sopNumber} berhasil diperbarui.`);
 
-    const reviewStatus = evaluatePeriodicReview(finalUpdatedSop);
-    if (reviewStatus.isDue) {
-      dispatchDocumentEvent('review', finalUpdatedSop, `Dokumen ${finalUpdatedSop.sopNumber}: ${reviewStatus.reason}`);
-    }
   };
 
   const handleReviewWorkflow = async (sop: SopDocument, action: SopReviewAction, note?: string) => {
