@@ -1,4 +1,4 @@
-export const INTERNAL_MAIL_VERSION = 1;
+export const INTERNAL_MAIL_VERSION = 2;
 
 const WORKFLOW_TYPES = new Set(['activation', 'proposal', 'assignment', 'review']);
 const VERSIONED_SYSTEM_TYPES = new Set(['success', 'info', 'warning', 'error']);
@@ -6,11 +6,14 @@ const VERSIONED_SYSTEM_TYPES = new Set(['success', 'info', 'warning', 'error']);
 export interface MailboxCandidate {
   id?: unknown;
   type?: unknown;
+  eventType?: unknown;
   title?: unknown;
   message?: unknown;
   documentId?: unknown;
   timestamp?: unknown;
   hidden?: unknown;
+  actionable?: unknown;
+  resolvedAt?: unknown;
   metadata?: Record<string, unknown>;
 }
 /** Legacy automatic periodic/annual SPO review reminders are no longer mailbox items. */
@@ -23,10 +26,8 @@ export function isPeriodicReviewReminder(item: MailboxCandidate): boolean {
 /**
  * Unified mailbox admission policy.
  *
- * Workflow records predate `internalMailVersion`, so version is capability
- * metadata—not an eligibility gate. Only explicitly obsolete duplicates and
- * malformed/non-mail records are rejected here. Per-user tombstones are
- * handled separately by `isVisibleMailboxItem`.
+ * Legacy workflow records remain readable during migration. New workflow records
+ * carry eventType/actionable/resolved metadata and are authored by the backend.
  */
 export function isInternalMailItem(item: MailboxCandidate): boolean {
   if (!item || typeof item.id !== 'string' || !item.id.trim()) return false;
@@ -42,9 +43,13 @@ export function isInternalMailItem(item: MailboxCandidate): boolean {
   }
   if (WORKFLOW_TYPES.has(type)) return Boolean(item.documentId);
   if (mailKind === 'system') return true;
-  return Number(item.metadata?.internalMailVersion || 0) === INTERNAL_MAIL_VERSION && VERSIONED_SYSTEM_TYPES.has(type);
+  return Number(item.metadata?.internalMailVersion || 0) >= 1 && VERSIONED_SYSTEM_TYPES.has(type);
 }
 
 export function isVisibleMailboxItem(item: MailboxCandidate): boolean {
   return item.hidden !== true && isInternalMailItem(item);
+}
+
+export function isMailboxItemActionable(item: MailboxCandidate): boolean {
+  return item.actionable === true && !item.resolvedAt && item.hidden !== true;
 }
