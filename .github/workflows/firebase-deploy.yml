@@ -37,8 +37,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/App.tsx src/utils/riviuRevision.ts tests/riviu-revision-authority.test.ts
-          git commit -m "fix: allow activation of external legacy Riviu source"
+          git add src/App.tsx src/components/UploadSopModal.tsx src/utils/riviuRevision.ts tests/riviu-revision-authority.test.ts
+          git commit -m "fix: accept manual legacy SPO numbers in Riviu"
           git push origin HEAD:main
 
   verify:
