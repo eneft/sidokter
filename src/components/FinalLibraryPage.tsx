@@ -126,8 +126,34 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
     });
   }, [documents, filterType, selectedYear, q, canAccessProtectedDocs]);
 
-  const totalCount = (filterType === 'ALL' || filterType === 'SPO' ? filteredSops.length : 0) + filteredLibraryDocs.length;
-  const grandTotalFinalDocs = activeSops.length + documents.length;
+  const combinedRows = useMemo(() => {
+    const sopRows = filteredSops.map((sop) => ({
+      id: sop.id,
+      type: 'SPO' as const,
+      number: sop.sopNumber || '',
+      title: sop.title || 'Tanpa Judul SPO',
+      meta: sop.divisionName || sop.hierarchyDescription || '',
+      date: sop.effectiveDate || sop.createdAt || '',
+      fileName: sop.fileName || `${sop.sopNumber || 'SPO'}.pdf`,
+      sopData: sop,
+      libraryDoc: undefined as LibraryDocument | undefined,
+    }));
+    const libraryRows = filteredLibraryDocs.map((doc) => ({
+      id: doc.id,
+      type: doc.type,
+      number: doc.documentNumber || '',
+      title: doc.title || 'Tanpa Judul',
+      meta: doc.type === 'MOU' ? (doc.partnerName || '') : ((doc.isRevisionSK || doc.skCategory === 'PERUBAHAN') ? 'SK Perubahan' : 'SK Pokok'),
+      date: doc.effectiveDate || doc.createdAt || '',
+      fileName: doc.fileName,
+      sopData: undefined as SopDocument | undefined,
+      libraryDoc: doc,
+    }));
+    return [...sopRows, ...libraryRows].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [filteredSops, filteredLibraryDocs]);
+
+  const totalCount = combinedRows.length;
+  const grandTotalFinalDocs = activeSops.length + (canAccessProtectedDocs ? skDocs.length + mouDocs.length : 0);
 
   const handleOpenDocViewer = async (item: {
     id: string; type: 'SPO' | 'SK' | 'MOU'; title: string; documentNumber?: string; fileName: string; url?: string; storagePath?: string; sopData?: SopDocument;
@@ -145,368 +171,146 @@ export const FinalLibraryPage: React.FC<FinalLibraryPageProps> = ({
   };
 
   return (
-    <section className="space-y-5 animate-in fade-in duration-200">
-      {/* Header Banner */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-700">
-              <BookOpen className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                  Library Dokumen
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-200">
-                  {grandTotalFinalDocs} Dokumen Sah
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                Repository arsip resmi seluruh dokumen regulasi (SPO, SK Direktur, MOU) yang telah disahkan dan berlaku di RSUD Dr. Soegiri.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Dokumen Sah & Berlaku</span>
+    <section className="space-y-3 animate-in fade-in duration-200">
+      <div className="bg-white rounded-xl border border-slate-200 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-black text-slate-900">Arsip Digital</h1>
+              <span className="text-[11px] font-bold text-slate-500">{grandTotalFinalDocs} dokumen</span>
             </div>
           </div>
         </div>
 
         {!canAccessProtectedDocs && (
-          <div className="mt-4 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
-            <ShieldAlert className="w-4 h-4 shrink-0" />
-            <span>Anda tidak punya akses ke dokumen SK dan MOU. Akses tersebut memerlukan badge STRUKTURAL.</span>
+          <div className="mt-2.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold flex items-center gap-2">
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+            <span>SK dan MOU memerlukan badge STRUKTURAL.</span>
           </div>
         )}
 
-        {/* Filter Bar & Search */}
-        <div className="mt-5 space-y-3">
-          <div className="flex flex-col md:flex-row items-center gap-3">
-            <div className="relative flex-1 w-full">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari dokumen berdasarkan judul, nomor SK/MOU/SPO, atau unit..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {/* Type Filter Buttons */}
-            <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-              {(canAccessProtectedDocs
-                ? [
-                    { id: 'ALL' as const, label: 'Semua Dokumen', count: grandTotalFinalDocs },
-                    { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
-                    { id: 'SK' as const, label: 'SK Direktur', count: skDocs.length },
-                    { id: 'MOU' as const, label: 'MOU / PKS', count: mouDocs.length },
-                  ]
-                : [
-                    { id: 'ALL' as const, label: 'Semua Dokumen', count: activeSops.length },
-                    { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
-                  ]
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setFilterType(tab.id)}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                    filterType === tab.id
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-extrabold ${
-                    filterType === tab.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {tab.count}
-                  </span>
-                </button>
-              ))}
-            </div>
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col xl:flex-row xl:items-center gap-2.5">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari nomor, judul, unit, atau mitra..."
+              className="w-full pl-9 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Year Filter */}
-          {availableYears.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pt-1">
-              <span className="text-[11px] font-bold text-slate-500 shrink-0">Tahun Terbit:</span>
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {(canAccessProtectedDocs
+              ? [
+                  { id: 'ALL' as const, label: 'Semua', count: grandTotalFinalDocs },
+                  { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
+                  { id: 'SK' as const, label: 'SK', count: skDocs.length },
+                  { id: 'MOU' as const, label: 'MOU', count: mouDocs.length },
+                ]
+              : [
+                  { id: 'ALL' as const, label: 'Semua', count: activeSops.length },
+                  { id: 'SPO' as const, label: 'SPO', count: activeSops.length },
+                ]
+            ).map((tab) => (
               <button
+                key={tab.id}
                 type="button"
-                onClick={() => setSelectedYear('ALL')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
-                  selectedYear === 'ALL'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                onClick={() => setFilterType(tab.id)}
+                className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${filterType === tab.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
-                Semua
+                {tab.label} <span className="opacity-70">{tab.count}</span>
               </button>
-              {availableYears.map((y) => (
-                <button
-                  key={y}
-                  type="button"
-                  onClick={() => setSelectedYear(y)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
-                    selectedYear === y
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {y}
-                </button>
-              ))}
-            </div>
+            ))}
+          </div>
+
+          {availableYears.length > 0 && (
+            <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="w-full xl:w-auto px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500">
+              <option value="ALL">Semua Tahun</option>
+              {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
           )}
         </div>
       </div>
 
-      {/* Main Results */}
       {totalCount === 0 ? (
-        <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center shadow-xs">
-          <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
-            <BookOpen className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-extrabold text-slate-800">
-            Tidak ada dokumen yang ditemukan
-          </h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            {search
-              ? 'Silakan gunakan kata kunci pencarian yang lain atau sesuaikan filter kategori dan tahun.'
-              : 'Belum ada dokumen yang berstatus aktif di dalam library sistem.'}
-          </p>
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setSelectedYear('ALL'); }}
-              className="mt-4 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"
-            >
-              Reset Pencarian
-            </button>
-          )}
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <BookOpen className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+          <h3 className="text-sm font-bold text-slate-800">Tidak ada dokumen yang ditemukan</h3>
+          <p className="text-xs text-slate-500 mt-1">Coba kata kunci atau filter yang lain.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* 1. SECTION SPO */}
-          {filteredSops.length > 0 && (
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-800">
-                    <FileText className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-black text-slate-900">
-                      Standar Prosedur Operasional (SPO)
-                    </h2>
-                    <p className="text-[11px] text-slate-500">
-                      Dokumen SPO yang telah bertanda tangan Direktur dan berstatus AKTIF
-                    </p>
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="hidden md:grid grid-cols-[92px_minmax(180px,1.15fr)_minmax(280px,2fr)_minmax(150px,1fr)_110px_92px] items-center gap-3 bg-slate-50 border-b border-slate-200 px-4 py-2.5 text-[10px] uppercase tracking-wider font-black text-slate-500">
+            <div>Jenis</div>
+            <div>Nomor</div>
+            <div>Judul</div>
+            <div>Unit / Mitra</div>
+            <div>Tanggal</div>
+            <div className="text-right">Aksi</div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {combinedRows.map((row) => {
+              const formattedDate = row.date
+                ? new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+                : '—';
+              const openRow = () => handleOpenDocViewer({
+                id: row.id,
+                type: row.type,
+                title: row.title,
+                documentNumber: row.number,
+                fileName: row.fileName,
+                url: row.libraryDoc?.downloadUrl,
+                storagePath: row.libraryDoc?.storagePath,
+                sopData: row.sopData,
+              });
+
+              return (
+                <div key={`${row.type}-${row.id}`} className="px-3.5 sm:px-4 py-2.5 hover:bg-slate-50/70 transition-colors">
+                  <div className="grid grid-cols-1 md:grid-cols-[92px_minmax(180px,1.15fr)_minmax(280px,2fr)_minmax(150px,1fr)_110px_92px] items-center gap-2 md:gap-3">
+                    <div className="flex items-center justify-between gap-2 md:block">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                        row.type === 'SPO' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : row.type === 'SK' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-violet-50 text-violet-700 border-violet-200'
+                      }`}>
+                        {row.type}
+                      </span>
+                      <span className="md:hidden text-[10px] text-slate-400">{formattedDate}</span>
+                    </div>
+
+                    <div className="font-mono text-xs font-black text-slate-700 break-all md:break-normal md:whitespace-normal">{row.number || '—'}</div>
+
+                    <div className="min-w-0">
+                      <button type="button" onClick={openRow} className="block text-left text-[13px] font-semibold text-slate-900 hover:text-emerald-700 hover:underline underline-offset-2 leading-snug">
+                        {row.title}
+                      </button>
+                      {row.meta && <div className="md:hidden mt-0.5 text-[10px] text-slate-500 truncate">{row.meta}</div>}
+                    </div>
+
+                    <div className="hidden md:block text-[11px] text-slate-500 truncate">{row.meta || '—'}</div>
+                    <div className="hidden md:block text-[11px] text-slate-500">{formattedDate}</div>
+
+                    <div className="flex items-center gap-1 md:justify-end">
+                      <button type="button" onClick={openRow} className="p-2 rounded-lg text-emerald-700 hover:bg-emerald-50" title="Buka dokumen">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {row.libraryDoc && (
+                        <button type="button" onClick={() => handleDownloadLibraryDoc(row.libraryDoc!)} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Download PDF">
+                          <Download className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <span className="text-xs font-extrabold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  {filteredSops.length} SPO
-                </span>
-              </div>
-
-              <div className="divide-y divide-slate-100">
-                {filteredSops.map((sop) => {
-                  const hasAttachment = Boolean(
-                    sop.fileUrl || sop.signedScanUrl || sop.fileName
-                  );
-                  return (
-                    <div
-                      key={sop.id}
-                      className="p-4 sm:p-5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="font-mono text-[11px] font-black text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                            {sop.sopNumber || 'Tanpa Nomor'}
-                          </span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                            {sop.divisionName}
-                          </span>
-                          {sop.effectiveDate && (
-                            <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {new Date(sop.effectiveDate).toLocaleDateString('id-ID', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
-                            </span>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenDocViewer({
-                            id: sop.id,
-                            type: 'SPO',
-                            title: sop.title,
-                            documentNumber: sop.sopNumber,
-                            fileName: sop.fileName || `${sop.sopNumber}.pdf`,
-                            sopData: sop,
-                          })}
-                          className="text-left font-bold text-sm text-slate-900 hover:text-emerald-700 hover:underline leading-snug cursor-pointer block"
-                          title="Buka Preview SPO"
-                        >
-                          {sop.title}
-                        </button>
-
-                        {sop.hierarchyDescription && (
-                          <p className="text-xs text-slate-500 mt-1 line-clamp-1">
-                            {sop.hierarchyDescription}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenDocViewer({
-                            id: sop.id,
-                            type: 'SPO',
-                            title: sop.title,
-                            documentNumber: sop.sopNumber,
-                            fileName: sop.fileName || `${sop.sopNumber}.pdf`,
-                            sopData: sop,
-                          })}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Buka SPO</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* 2. SECTION SK & MOU FINAL */}
-          {filteredLibraryDocs.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-emerald-600" />
-                  <span>Dokumen SK & MOU Resmi</span>
-                </h2>
-                <span className="text-xs font-bold text-slate-500">
-                  {filteredLibraryDocs.length} Berkas PDF
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredLibraryDocs.map((doc) => {
-                  const formattedDate = doc.effectiveDate
-                    ? new Date(doc.effectiveDate).toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })
-                    : new Date(doc.createdAt).toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      });
-
-                  return (
-                    <div
-                      key={doc.id}
-                      className="bg-white rounded-3xl border border-slate-200 p-5 flex flex-col justify-between shadow-2xs hover:shadow-md hover:border-emerald-200 transition-all group"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                              doc.type === 'SK'
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                : 'bg-blue-50 text-blue-800 border border-blue-200'
-                            }`}
-                          >
-                            {doc.type}
-                          </span>
-                          <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {formattedDate}
-                          </span>
-                        </div>
-
-                        {doc.documentNumber && (
-                          <div className="mt-2.5 font-mono text-[11px] font-bold text-emerald-700 bg-emerald-50/60 px-2 py-0.5 rounded border border-emerald-100 inline-block max-w-full truncate">
-                            {doc.documentNumber}
-                          </div>
-                        )}
-
-                        {doc.partnerName && (
-                          <div className="mt-2 flex items-center gap-1 text-xs font-bold text-slate-700">
-                            <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                            <span className="truncate">{doc.partnerName}</span>
-                          </div>
-                        )}
-
-                        <h3 className="mt-2 text-sm font-black text-slate-900 leading-snug line-clamp-2 group-hover:text-emerald-800 transition-colors">
-                          {doc.title}
-                        </h3>
-
-                        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                          <span className="truncate max-w-[170px]">{doc.fileName}</span>
-                          <span className="font-semibold">{formatBytes(doc.fileSize)}</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenDocViewer({
-                            id: doc.id,
-                            type: doc.type,
-                            title: doc.title,
-                            documentNumber: doc.documentNumber,
-                            fileName: doc.fileName,
-                            url: doc.downloadUrl,
-                          })}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Lihat PDF</span>
-                        </button>
-
-                        <a
-                          href={doc.downloadUrl}
-                          onClick={async (e) => { e.preventDefault(); await handleDownloadLibraryDoc(doc); }}
-                          download={doc.fileName}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       )}
 

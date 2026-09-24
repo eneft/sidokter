@@ -98,139 +98,73 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
   });
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      
-      {/* Filter & Search Bar */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        
-        {/* Search Field */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+    <div className="space-y-3 animate-fade-in">
+      <div className="bg-white rounded-xl p-3 border border-slate-200 flex flex-col lg:flex-row lg:items-center gap-2.5">
+        <div className="relative flex-1 min-w-0">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Cari judul atau nomor SPO..."
-            className="w-full text-xs pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+            className="w-full text-xs pl-9 pr-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Kewenangan Filter - multi-hierarchy aware */}
-          <AdminTooltip
-            title="Filter Kewenangan Unit"
-            content="Saring daftar SPO berdasarkan bidang kewenangan atau unit kerja yang ditugaskan ke akun Anda."
-            side="bottom"
-          >
-            <div className="relative w-full sm:min-w-[240px] sm:w-auto">
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                disabled={isRestricted && assignedDivCodes.length <= 1}
-                className={`w-full text-xs border rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                  isRestricted && assignedDivCodes.length <= 1
-                    ? 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed'
-                    : 'bg-white border-slate-300 text-slate-700'
-                }`}
-              >
-                <option value="ALL">Semua Kewenangan ({assignmentSummary.length || assignedDivCodes.length})</option>
-                {assignedDivCodes.map((code) => {
-                  const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
-                  return (
-                    <option key={code} value={code}>
-                      [{code}] {cat?.name || code}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </AdminTooltip>
+        <select
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          disabled={isRestricted && assignedDivCodes.length <= 1}
+          className={`w-full lg:w-auto lg:min-w-[210px] text-xs border rounded-lg px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+            isRestricted && assignedDivCodes.length <= 1
+              ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+              : 'bg-white border-slate-200 text-slate-700'
+          }`}
+        >
+          <option value="ALL">Semua Kewenangan ({assignmentSummary.length || assignedDivCodes.length})</option>
+          {assignedDivCodes.map((code) => {
+            const cat = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === code);
+            return <option key={code} value={code}>[{code}] {cat?.name || code}</option>;
+          })}
+        </select>
 
-          {/* Status Filter */}
-          <AdminTooltip
-            title="Filter Status Dokumen"
-            content="Filter berdasarkan status: Draft (belum aktif), Aktif (telah diverifikasi dan berlaku), atau Diarsipkan."
-            side="bottom"
-          >
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-700 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="ALL">Semua Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="AKTIF">Aktif</option>
-              {userSession.role === 'admin' && <option value="DIARSIPKAN">Diarsipkan</option>}
-            </select>
-          </AdminTooltip>
-
-        </div>
+        <select
+          value={selectedStatus}
+          onChange={(e) => setSelectedStatus(e.target.value)}
+          className="w-full lg:w-auto text-xs border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        >
+          <option value="ALL">Semua Status</option>
+          <option value="DRAFT">Draft</option>
+          <option value="AKTIF">Aktif</option>
+          {userSession.role === 'admin' && <option value="DIARSIPKAN">Diarsipkan</option>}
+        </select>
       </div>
 
-      {/* Results Counter & Access Summary */}
-      <div className="flex items-center justify-between text-xs text-slate-500 px-1 flex-wrap gap-2">
-        <div className="flex items-center gap-1.5">
-          <span>
-            <strong>{filteredSops.length} Dokumen SPO</strong> yang dapat diakses oleh akun Anda
-          </span>
-          {isRestricted && (
-            <span className="text-[11px] text-slate-400">
-              (Total dalam database: {sops.length} dokumen)
-            </span>
-          )}
-        </div>
-
+      <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500">
+        <span><strong className="text-slate-700">{filteredSops.length} SPO</strong> ditampilkan</span>
         {searchQuery && (
-          <AdminTooltip
-            title="Bersihkan Pencarian"
-            content="Kembalikan daftar untuk menampilkan seluruh naskah SPO tanpa filter kata kunci."
-            side="top"
-          >
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="text-emerald-700 hover:underline font-medium cursor-pointer"
-            >
-              Reset Pencarian
-            </button>
-          </AdminTooltip>
+          <button type="button" onClick={() => setSearchQuery('')} className="text-emerald-700 font-semibold hover:underline">Reset pencarian</button>
         )}
       </div>
 
-      {/* Main Content: Baseline SPO Table */}
       {filteredSops.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-xs space-y-4">
-          <div className="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
-            {isRestricted ? <Lock className="w-8 h-8 text-amber-500" /> : <FileText className="w-8 h-8" />}
+        <div className="bg-white rounded-xl p-8 text-center border border-slate-200">
+          <div className="w-10 h-10 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-2">
+            {isRestricted ? <Lock className="w-5 h-5 text-amber-500" /> : <FileText className="w-5 h-5" />}
           </div>
-          <div className="space-y-1">
-            <h3 className="text-sm font-bold text-slate-800">Tidak ada dokumen SPO yang dapat ditampilkan</h3>
-            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              {searchQuery
-                ? `Tidak ditemukan naskah dengan kata kunci "${searchQuery}" di unit Anda. Coba kata kunci lain atau ubah filter.`
-                : isRestricted
-                ? `Belum ada naskah SPO yang dapat diakses dari seluruh kewenangan akun Anda (${lockedPathLabels}). Sistem hanya menampilkan dokumen sesuai hirarki yang ditugaskan.`
-                : 'Belum ada naskah SPO yang terdaftar dalam sistem.'}
-            </p>
-          </div>
-          <AdminTooltip
-            title="Input SPO Baru"
-            content="Mulai susun naskah SPO baru atau unggah scan arsip SPO lama untuk unit Anda."
-            side="top"
-          >
-            <button
-              type="button"
-              onClick={onSwitchToInputTab}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm inline-flex items-center gap-2 cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Input SPO Baru Sekarang</span>
+          <h3 className="text-sm font-bold text-slate-800">Tidak ada dokumen SPO</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            {searchQuery ? `Tidak ditemukan naskah dengan kata kunci "${searchQuery}".` : 'Belum ada naskah SPO yang dapat ditampilkan.'}
+          </p>
+          {!searchQuery && (
+            <button type="button" onClick={onSwitchToInputTab} className="mt-3 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5">
+              <PlusCircle className="w-3.5 h-3.5" /> Input SPO Baru
             </button>
-          </AdminTooltip>
+          )}
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-          <div className="hidden md:grid grid-cols-[minmax(150px,1fr)_minmax(220px,2fr)_minmax(110px,0.8fr)_120px] bg-slate-50 border-b border-slate-200 px-5 py-3 text-[10px] uppercase tracking-wider font-black text-slate-500">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="hidden md:grid grid-cols-[minmax(185px,1fr)_minmax(280px,2fr)_minmax(125px,0.8fr)_70px] bg-slate-50 border-b border-slate-200 px-4 py-2.5 text-[10px] uppercase tracking-wider font-black text-slate-500">
             <div>Nomor SPO</div>
             <div>Judul SPO</div>
             <div>Status</div>
@@ -242,66 +176,40 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
               const isReview = sop.documentType === 'REVIEW' || sop.jenis_spo === 'RIVIU';
               const isExisting = sop.documentType === 'LAMA' || sop.jenis_spo === 'EXISTING';
               return (
-                <div
-                  key={sop.id}
-                  className="px-4 sm:px-5 py-4 hover:bg-slate-50/70 transition-colors"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-[minmax(150px,1fr)_minmax(220px,2fr)_minmax(110px,0.8fr)_120px] items-center gap-3 md:gap-4">
+                <div key={sop.id} className="px-3.5 sm:px-4 py-2.5 hover:bg-slate-50/70 transition-colors">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(185px,1fr)_minmax(280px,2fr)_minmax(125px,0.8fr)_70px] items-center gap-2 md:gap-3">
+                    <div className="min-w-0 flex items-center justify-between gap-2 md:block">
+                      <span className="font-mono text-xs font-black text-emerald-800 break-words md:whitespace-normal">{sop.sopNumber || '—'}</span>
+                      <span className={`md:hidden px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                        sop.status === 'AKTIF' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : sop.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : sop.status}
+                      </span>
+                    </div>
+
                     <div className="min-w-0">
-                      <div className="font-mono text-xs sm:text-sm font-black text-emerald-800 break-words md:whitespace-nowrap">
-                        {sop.sopNumber || '-'}
+                      <button type="button" onClick={() => onViewDetail(sop)} className="block max-w-full text-left font-semibold text-[13px] text-slate-900 hover:text-emerald-700 hover:underline underline-offset-2 leading-snug">
+                        {sop.title || 'Tanpa Judul SPO'}
+                      </button>
+                      <div className="mt-0.5 text-[10px] text-slate-400 md:hidden">
+                        {[isReview ? 'Riviu' : null, isExisting ? 'Existing' : null].filter(Boolean).join(' · ')}
                       </div>
                     </div>
 
-                    <div className="min-w-0">
-                      <AdminTooltip
-                        title="Buka Lembar SPO"
-                        content={`Klik untuk melihat naskah lengkap, riwayat revisi, dan lembar pengesahan ${sop.title}.`}
-                        side="top"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onViewDetail(sop)}
-                          className="block max-w-full text-left font-semibold text-sm text-slate-800 hover:text-emerald-700 hover:underline underline-offset-2 truncate md:whitespace-normal md:overflow-visible cursor-pointer"
-                        >
-                          {sop.title || 'Tanpa Judul SPO'}
-                        </button>
-                      </AdminTooltip>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {isReview && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-50 text-violet-700 border border-violet-200">Riviu</span>
-                      )}
-                      {isExisting && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200">Existing</span>
-                      )}
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                        sop.status === 'AKTIF'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : sop.status === 'DRAFT'
-                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    <div className="hidden md:flex flex-wrap items-center gap-1">
+                      {isReview && <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-violet-50 text-violet-700 border border-violet-200">Riviu</span>}
+                      {isExisting && <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-50 text-sky-700 border border-sky-200">Existing</span>}
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                        sop.status === 'AKTIF' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : sop.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
                       }`}>
-                        {sop.status === 'DRAFT' ? 'Draft' : sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : 'Aktif'}
+                        {sop.status === 'DIARSIPKAN' ? 'Diarsipkan' : sop.status}
                       </span>
                     </div>
 
                     <div className="flex md:justify-end">
-                      <AdminTooltip
-                        title="Buka SPO"
-                        content="Tinjau detail naskah, cetak register, verifikasi status, atau unduh berkas."
-                        side="left"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onViewDetail(sop)}
-                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs w-full md:w-auto"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Buka SPO</span>
-                        </button>
-                      </AdminTooltip>
+                      <button type="button" onClick={() => onViewDetail(sop)} className="p-2 rounded-lg text-emerald-700 hover:bg-emerald-50" title="Buka SPO">
+                        <Eye className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>

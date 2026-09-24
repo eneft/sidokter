@@ -451,428 +451,223 @@ export const LibraryDocumentPage: React.FC<Props> = ({
   }
 
   return (
-    <section className="space-y-5 animate-in fade-in duration-200">
-      {/* Top Banner / Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
+    <section className="space-y-3 animate-in fade-in duration-200">
+      <div className="bg-white rounded-xl border border-slate-200 p-3 sm:p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
-                className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
                 title="Kembali"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <div className={`p-3 rounded-2xl ${type === 'SK' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
-              {type === 'SK' ? <FileCheck className="w-6 h-6" /> : <Handshake className="w-6 h-6" />}
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                {type === 'SK' ? 'Surat Keputusan (SK)' : 'Dokumen Kerja Sama (MOU / PKS)'}
-              </h1>
-              <p className="text-xs text-slate-500 mt-1">
-                {type === 'SK'
-                  ? 'Arsip Surat Keputusan Direktur RSUD Dr. Soegiri Lamongan.'
-                  : 'Perjanjian Kerja Sama & Nota Kesepahaman RSUD Dr. Soegiri dengan instansi mitra.'}
-              </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-lg font-black text-slate-900">
+                  {type === 'SK' ? 'Surat Keputusan (SK)' : 'MOU / PKS'}
+                </h1>
+                <span className="text-[11px] font-bold text-slate-500">{filtered.length} dokumen</span>
+              </div>
             </div>
           </div>
 
-          {/* Satu entry point upload; tipe SK dipilih di dalam modal agar header tetap ringkas. */}
           {canUpload && (
-            <AdminTooltip
-              title={type === 'SK' ? 'Upload Surat Keputusan' : `Upload ${type} Baru`}
-              content={type === 'SK' ? 'Unggah SK Pokok atau SK Perubahan.' : `Unggah berkas ${type} resmi baru.`}
+            <button
+              type="button"
+              onClick={() => openUpload('POKOK')}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shrink-0"
             >
-              <button
-                type="button"
-                onClick={() => openUpload('POKOK')}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{type === 'SK' ? 'Upload SK' : `Upload ${type} Baru`}</span>
-              </button>
-            </AdminTooltip>
+              <Plus className="w-3.5 h-3.5" />
+              <span>{type === 'SK' ? 'Upload SK' : 'Upload MOU / PKS'}</span>
+            </button>
           )}
         </div>
 
-        {/* SK Category Tabs (for SK only) */}
-        {type === 'SK' && (
-          <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-500 mr-1">Kategori SK:</span>
-            <button
-              type="button"
-              onClick={() => setSkCategoryFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                skCategoryFilter === 'ALL'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <span>Semua</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
-                skCategoryFilter === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
-              }`}>
-                {skCounts.total}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSkCategoryFilter('POKOK')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                skCategoryFilter === 'POKOK'
-                  ? 'bg-emerald-700 text-white shadow-xs'
-                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200/80 hover:bg-emerald-100'
-              }`}
-            >
-              <FileCheck className="w-3.5 h-3.5" />
-              <span>SK Pokok</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
-                skCategoryFilter === 'POKOK' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-900'
-              }`}>
-                {skCounts.pokok}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSkCategoryFilter('PERUBAHAN')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                skCategoryFilter === 'PERUBAHAN'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-xs border border-amber-600/30'
-                  : 'bg-amber-50 text-amber-900 border border-amber-200/80 hover:bg-amber-100'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
-              <span>SK Perubahan</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
-                skCategoryFilter === 'PERUBAHAN' ? 'bg-amber-600 text-white' : 'bg-amber-200 text-amber-950'
-              }`}>
-                {skCounts.perubahan}
-              </span>
-            </button>
-          </div>
-        )}
-
-        {/* Filter and Search Bar */}
-        <div className="mt-4 flex flex-col md:flex-row items-center gap-3">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center gap-2.5">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={type === 'SK' ? 'Cari nomor atau judul SK...' : 'Cari judul MOU, nama mitra kerja sama, nomor MOU...'}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder={type === 'SK' ? 'Cari nomor atau judul SK...' : 'Cari nomor, judul, atau mitra...'}
+              className="w-full pl-9 pr-9 py-2 rounded-lg border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
             />
             {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {availableYears.length > 0 && (
-            <div className="flex items-center gap-1.5 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-              <span className="text-[11px] font-bold text-slate-500 shrink-0 ml-1">Tahun:</span>
-              <button
-                type="button"
-                onClick={() => setSelectedYear('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
-                  selectedYear === 'ALL'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                Semua
-              </button>
-              {availableYears.map((year) => (
+          {type === 'SK' && (
+            <div className="flex items-center gap-1 overflow-x-auto">
+              {([
+                { id: 'ALL' as const, label: 'Semua', count: skCounts.total },
+                { id: 'POKOK' as const, label: 'SK Pokok', count: skCounts.pokok },
+                { id: 'PERUBAHAN' as const, label: 'SK Perubahan', count: skCounts.perubahan },
+              ]).map((tab) => (
                 <button
-                  key={year}
+                  key={tab.id}
                   type="button"
-                  onClick={() => setSelectedYear(year)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
-                    selectedYear === year
+                  onClick={() => setSkCategoryFilter(tab.id)}
+                  className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
+                    skCategoryFilter === tab.id
                       ? 'bg-slate-900 text-white'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {year}
+                  {tab.label} <span className="opacity-70">{tab.count}</span>
                 </button>
               ))}
             </div>
           )}
+
+          {availableYears.length > 0 && (
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full lg:w-auto px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="ALL">Semua Tahun</option>
+              {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
-      {/* Documents Grid */}
+      {/* Compact document register */}
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center shadow-xs">
-          <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
-            <FileText className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-extrabold text-slate-800">
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+          <h3 className="text-sm font-bold text-slate-800">
             {search ? 'Tidak ada dokumen yang sesuai pencarian' : `Belum ada dokumen ${type}`}
           </h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            {search
-              ? 'Coba gunakan kata kunci pencarian yang lain atau reset filter tahun.'
-              : canUpload
-              ? `Klik tombol "Upload ${type}" di atas untuk menambahkan berkas PDF resmi.`
-              : `Belum ada dokumen ${type} yang dipublikasikan ke sistem.`}
+          <p className="text-xs text-slate-500 mt-1">
+            {search ? 'Coba kata kunci lain atau ubah filter.' : 'Belum ada dokumen yang terdaftar.'}
           </p>
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setSelectedYear('ALL'); }}
-              className="mt-4 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"
-            >
-              Reset Pencarian
-            </button>
-          )}
         </div>
       ) : (
-        <div className={`grid grid-cols-1 ${type === 'SK' ? 'xl:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
-          {filtered.map((doc) => {
-            const formattedDate = doc.effectiveDate
-              ? new Date(doc.effectiveDate).toLocaleDateString('id-ID', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })
-              : new Date(doc.createdAt).toLocaleDateString('id-ID', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                });
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="hidden md:grid grid-cols-[minmax(190px,1.15fr)_minmax(280px,2fr)_minmax(130px,0.8fr)_110px_152px] items-center gap-3 bg-slate-50 border-b border-slate-200 px-4 py-2.5 text-[10px] uppercase tracking-wider font-black text-slate-500">
+            <div>Nomor</div>
+            <div>{type === 'SK' ? 'Judul SK' : 'Judul / Mitra'}</div>
+            <div>{type === 'SK' ? 'Kategori' : 'Masa Berlaku'}</div>
+            <div>Tanggal</div>
+            <div className="text-right">Aksi</div>
+          </div>
 
-            const isPerubahan = type === 'SK' && (doc.isRevisionSK || doc.skCategory === 'PERUBAHAN');
-            const revisionsForDoc = getRevisionsForDoc(doc);
-            const originalDoc = isPerubahan ? getOriginalDoc(doc) : undefined;
+          <div className="divide-y divide-slate-100">
+            {filtered.map((doc) => {
+              const formattedDate = new Date(doc.effectiveDate || doc.createdAt).toLocaleDateString('id-ID', {
+                day: '2-digit', month: 'short', year: 'numeric'
+              });
+              const expiryLabel = doc.expiryDate
+                ? new Date(doc.expiryDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+                : '—';
+              const isPerubahan = type === 'SK' && (doc.isRevisionSK || doc.skCategory === 'PERUBAHAN');
+              const revisionsForDoc = getRevisionsForDoc(doc);
+              const originalDoc = isPerubahan ? getOriginalDoc(doc) : undefined;
 
-            return (
-              <div
-                key={doc.id}
-                className={`bg-white rounded-2xl border p-5 flex flex-col justify-between shadow-2xs hover:shadow-sm transition-all group ${
-                  isPerubahan 
-                    ? 'border-amber-200/90 hover:border-amber-300 ring-1 ring-amber-100' 
-                    : 'border-slate-200 hover:border-emerald-200'
-                }`}
-              >
-                <div>
-                  {/* Top Badges */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    {isPerubahan ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
-                        <RefreshCw className="w-3 h-3 text-amber-700" />
-                        <span>SK PERUBAHAN</span>
+              return (
+                <div key={doc.id} className="px-3.5 sm:px-4 py-2.5 hover:bg-slate-50/70 transition-colors">
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(190px,1.15fr)_minmax(280px,2fr)_minmax(130px,0.8fr)_110px_152px] items-center gap-2 md:gap-3">
+                    <div className="min-w-0 flex items-center justify-between gap-2 md:block">
+                      <span className="font-mono text-xs font-black text-slate-700 break-all md:break-normal md:whitespace-normal">
+                        {doc.documentNumber || '—'}
                       </span>
-                    ) : (
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                        type === 'SK' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-blue-50 text-blue-800 border border-blue-200'
+                      <span className={`md:hidden shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                        isPerubahan ? 'bg-amber-50 text-amber-800 border border-amber-200' : type === 'SK' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                       }`}>
-                        {type === 'SK' ? 'SK POKOK' : type}
+                        {isPerubahan ? 'Perubahan' : type === 'SK' ? 'SK Pokok' : 'MOU'}
                       </span>
-                    )}
-
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{formattedDate}</span>
-                    </span>
-                  </div>
-
-                  {/* Document Number */}
-                  {doc.documentNumber && (
-                    <div className={`mt-3 font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg border inline-block max-w-full truncate ${
-                      isPerubahan 
-                        ? 'text-amber-900 bg-amber-50/80 border-amber-200'
-                        : 'text-emerald-700 bg-emerald-50/60 border-emerald-100'
-                    }`}>
-                      {doc.documentNumber}
                     </div>
-                  )}
 
-                  {/* Partner Name for MOU */}
-                  {type === 'MOU' && doc.partnerName && (
-                    <div className="mt-2.5 flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                      <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="truncate">{doc.partnerName}</span>
-                    </div>
-                  )}
-
-                  {/* Title */}
-                  <h3 className={`mt-2.5 text-sm font-black leading-snug line-clamp-2 transition-colors ${
-                    isPerubahan 
-                      ? 'text-slate-900 group-hover:text-amber-900' 
-                      : 'text-slate-900 group-hover:text-emerald-800'
-                  }`}>
-                    {doc.title}
-                  </h3>
-
-                  {/* Description if available */}
-                  {doc.description && (
-                    <p className="mt-1.5 text-xs text-slate-500 line-clamp-2">
-                      {doc.description}
-                    </p>
-                  )}
-
-                  {/* Context for SK Perubahan */}
-                  {isPerubahan && (
-                    <div className="mt-3 p-3 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-1.5">
-                      <div className="flex items-center justify-between gap-1 text-[11px] font-black text-amber-950">
-                        <span className="flex items-center gap-1">
-                          <Scale className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                          <span>Merevisi SK Terdahulu:</span>
-                        </span>
-                        {originalDoc && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              resolveAndSetViewer(originalDoc);
-                            }}
-                            className="text-[10px] font-extrabold text-amber-800 hover:text-amber-950 underline inline-flex items-center gap-0.5 cursor-pointer"
-                          >
-                            <span>Lihat SK Asli</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="text-xs font-bold text-amber-900 line-clamp-1">
-                        {doc.originalSkNumber ? <span className="font-mono">{doc.originalSkNumber} - </span> : ''}
-                        <span>{doc.originalSkTitle || 'SK Terdahulu'}</span>
-                      </div>
-
-                      {doc.revisionReason && (
-                        <div className="text-[11px] text-amber-800 line-clamp-2 leading-relaxed">
-                          <span className="font-bold text-amber-950">Dasar Perubahan: </span>
-                          {doc.revisionReason}
-                        </div>
-                      )}
-
-
-                    </div>
-                  )}
-
-                  {/* Notice on Base SK if revisions exist */}
-                  {!isPerubahan && revisionsForDoc.length > 0 && (
-                    <div className="mt-3 p-2.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-xs text-amber-900">
-                      <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-950">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>Telah Diterbitkan SK Perubahan:</span>
-                      </div>
-                      <div className="mt-1.5 space-y-1">
-                        {revisionsForDoc.map((rev) => (
-                          <div key={rev.id} className="flex items-center justify-between gap-1 text-[11px]">
-                            <span className="truncate text-amber-800 font-medium">
-                              {rev.documentNumber || rev.title}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                resolveAndSetViewer(rev);
-                              }}
-                              className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-black text-[10px] shrink-0 cursor-pointer"
-                            >
-                              Buka
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Detail nama file/ukuran tidak diperlukan pada register SK utama. */}
-                  {type === 'MOU' && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                      <span className="truncate max-w-[170px]">{doc.fileName}</span>
-                      <span className="font-semibold">{formatBytes(doc.fileSize)}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <AdminTooltip
-                      title="Lihat PDF"
-                      content={`Buka dan tinjau berkas PDF ${doc.title} langsung di pratinjau.`}
-                    >
+                    <div className="min-w-0">
                       <button
                         type="button"
                         onClick={() => resolveAndSetViewer(doc)}
-                        className={`w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-white text-xs font-bold shadow-xs transition-colors cursor-pointer ${
-                          isPerubahan 
-                            ? 'bg-amber-600 hover:bg-amber-700'
-                            : 'bg-emerald-600 hover:bg-emerald-700'
-                        }`}
+                        className="block text-left text-[13px] font-semibold text-slate-900 hover:text-emerald-700 hover:underline underline-offset-2 leading-snug"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Lihat PDF</span>
+                        {doc.title}
                       </button>
-                    </AdminTooltip>
-
-                    <AdminTooltip
-                      title="Download PDF"
-                      content="Unduh salinan berkas PDF resmi ke perangkat Anda."
-                    >
-                      <button
-                        type="button"
-                        onClick={() => downloadLibraryDoc(doc)}
-                        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download</span>
-                      </button>
-                    </AdminTooltip>
-                  </div>
-
-                  {/* Admin Manage Actions */}
-                  {isAdmin && (
-                    <div className="flex items-center justify-end gap-1 pt-1">
-                      <AdminTooltip
-                        title="Edit Dokumen"
-                        content="Ubah metadata seperti judul, nomor, atau informasi perubahan."
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEdit(doc)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 text-[11px] font-bold transition-colors cursor-pointer"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Edit</span>
-                        </button>
-                      </AdminTooltip>
-
-                      <AdminTooltip
-                        title="Hapus Dokumen"
-                        content="Hapus berkas dan metadata dokumen ini dari sistem."
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setDeleteConfirmDoc(doc)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-[11px] font-bold transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Hapus</span>
-                        </button>
-                      </AdminTooltip>
+                      {type === 'MOU' && doc.partnerName && (
+                        <div className="mt-0.5 text-[11px] text-slate-500 truncate">{doc.partnerName}</div>
+                      )}
+                      {isPerubahan && (
+                        <div className="mt-0.5 text-[10px] text-amber-800 flex flex-wrap items-center gap-1">
+                          <span>Merevisi:</span>
+                          {originalDoc ? (
+                            <button type="button" onClick={() => resolveAndSetViewer(originalDoc)} className="font-bold hover:underline">
+                              {doc.originalSkNumber || doc.originalSkTitle || 'SK terdahulu'}
+                            </button>
+                          ) : (
+                            <span className="font-bold">{doc.originalSkNumber || doc.originalSkTitle || 'SK terdahulu'}</span>
+                          )}
+                        </div>
+                      )}
+                      {!isPerubahan && revisionsForDoc.length > 0 && (
+                        <div className="mt-0.5 text-[10px] text-amber-700 flex flex-wrap items-center gap-1">
+                          <span>Perubahan:</span>
+                          {revisionsForDoc.map((rev, index) => (
+                            <React.Fragment key={rev.id}>
+                              {index > 0 && <span>·</span>}
+                              <button type="button" onClick={() => resolveAndSetViewer(rev)} className="font-bold hover:underline">
+                                {rev.documentNumber || rev.title}
+                              </button>
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      )}
+                      <div className="md:hidden mt-1 text-[10px] text-slate-400 flex items-center gap-2">
+                        <span>{formattedDate}</span>
+                        {type === 'MOU' && doc.expiryDate && <span>• s.d. {expiryLabel}</span>}
+                      </div>
                     </div>
-                  )}
+
+                    <div className="hidden md:flex items-center">
+                      {type === 'SK' ? (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          isPerubahan
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        }`}>
+                          {isPerubahan ? 'SK Perubahan' : 'SK Pokok'}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-600">{expiryLabel}</span>
+                      )}
+                    </div>
+
+                    <div className="hidden md:block text-[11px] text-slate-500">{formattedDate}</div>
+
+                    <div className="flex items-center gap-1 md:justify-end">
+                      <button type="button" onClick={() => resolveAndSetViewer(doc)} className="p-2 rounded-lg text-emerald-700 hover:bg-emerald-50" title="Lihat PDF">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => downloadLibraryDoc(doc)} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Download PDF">
+                        <Download className="w-4 h-4" />
+                      </button>
+                      {isAdmin && (
+                        <>
+                          <button type="button" onClick={() => handleOpenEdit(doc)} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" title="Edit dokumen">
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => setDeleteConfirmDoc(doc)} className="p-2 rounded-lg text-rose-600 hover:bg-rose-50" title="Hapus dokumen">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
