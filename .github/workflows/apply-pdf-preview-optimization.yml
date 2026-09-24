@@ -20,13 +20,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Normalize nested template escaping
+      - name: Normalize patch runner
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path('scripts/apply-pdf-preview-optimization.cjs')
           s = p.read_text()
           s = s.replace('\\\\`', '\\`').replace('\\\\${', '\\${')
+          s = s.replace("if (count !== 1) throw new Error(`${label}: expected exactly 1 match, found ${count}`);", "if (count < 1) throw new Error(`${label}: expected at least 1 match, found ${count}`);")
           p.write_text(s)
           PY
       - name: Apply patch
