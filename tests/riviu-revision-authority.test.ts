@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAuthoritativeRiviuRevision, findAuthoritativeRiviuPredecessor } from '../src/utils/riviuRevision';
+import { getAuthoritativeRiviuRevision, findAuthoritativeRiviuPredecessor, hasDurableExternalRiviuSource } from '../src/utils/riviuRevision';
 import { SopDocument } from '../src/types';
 
 test('Riviu revision mandatory case: 00 -> 01', () => {
@@ -81,4 +81,25 @@ test('Riviu manual input: calculates revision when predecessor is null or undefi
   const resEmpty = getAuthoritativeRiviuRevision(null, '');
   assert.equal(resEmpty.previousRevisionNumber, '');
   assert.equal(resEmpty.revisionNumber, '');
+});
+
+
+test('Riviu activation accepts only durable external Riviu source metadata', () => {
+  assert.equal(hasDurableExternalRiviuSource({
+    oldFileName: 'spo-lama.pdf',
+    oldFileType: 'application/pdf',
+    oldFileUrl: '/api/storage/files/sop-oldFile',
+    oldStoragePath: 'sidokter/spo/sop-oldFile.pdf',
+  }), true);
+  assert.equal(hasDurableExternalRiviuSource({
+    oldFileName: 'spo-lama.pdf',
+    oldFileType: 'application/pdf',
+    oldFileUrl: '/api/storage/files/sop-oldFile',
+  }), false);
+  assert.equal(hasDurableExternalRiviuSource({
+    oldFileName: 'spo-lama.docx',
+    oldFileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    oldFileUrl: '/api/storage/files/sop-oldFile',
+    oldStoragePath: 'sidokter/spo/sop-oldFile.docx',
+  }), false);
 });

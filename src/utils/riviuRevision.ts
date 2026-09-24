@@ -21,6 +21,14 @@ export const findAuthoritativeRiviuPredecessor = (
   return matches.find((s) => s.status === 'AKTIF') || matches[0];
 };
 
+export const hasDurableExternalRiviuSource = (sop?: Partial<SopDocument> | null): boolean => {
+  if (!sop) return false;
+  const name = String(sop.oldFileName || '').trim().toLowerCase();
+  const type = String(sop.oldFileType || '').trim().toLowerCase();
+  const isPdf = type === 'application/pdf' || name.endsWith('.pdf');
+  return Boolean(isPdf && sop.oldFileUrl && sop.oldStoragePath);
+};
+
 export const getAuthoritativeRiviuRevision = (
   predecessor?: SopDocument | null,
   fallbackPreviousRevisionNumber?: string

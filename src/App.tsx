@@ -34,7 +34,7 @@ import { getUserHierarchyAccessKeys, isSopAccessibleByUser, canUserActivateSop, 
 import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage';
 import { validateSupportingEvidence } from './utils/supportingEvidence';
 import { isSopInReviewHierarchy } from './utils/sopReviewSource';
-import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from './utils/riviuRevision';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision, hasDurableExternalRiviuSource } from './utils/riviuRevision';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -1844,12 +1844,19 @@ export default function App() {
         oldSopNumber: target.oldSopNumber,
       });
 
-      if (!reviewedSource || reviewedSource.status !== 'AKTIF') {
-        addToast('error', 'Aktivasi Ditolak', 'SPO pendahulu Riviu tidak ditemukan atau tidak lagi AKTIF.');
+      if (reviewedSource && reviewedSource.status !== 'AKTIF') {
+        addToast('error', 'Aktivasi Ditolak', 'SPO pendahulu Riviu tidak lagi AKTIF.');
+        return;
+      }
+      if (!reviewedSource && !hasDurableExternalRiviuSource(target)) {
+        addToast('error', 'Aktivasi Ditolak', 'SPO pendahulu Riviu tidak ditemukan dan PDF sumber Riviu belum tersimpan di Firebase Storage.');
         return;
       }
       try {
         const resolved = getAuthoritativeRiviuRevision(reviewedSource, target.previousRevisionNumber);
+        if (!resolved.previousRevisionNumber || !resolved.revisionNumber) {
+          throw new Error('Nomor revisi pendahulu wajib diisi untuk Riviu dari dokumen legacy/eksternal.');
+        }
         reviewRevisionNumber = resolved.revisionNumber;
       } catch (error) {
         addToast('error', 'Aktivasi Ditolak', error instanceof Error ? error.message : 'Nomor revisi pendahulu tidak valid.');
