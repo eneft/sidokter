@@ -4,7 +4,6 @@ const crypto = require('crypto');
 const { initializeApp, getApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 
 const FIRESTORE_DATABASE_ID = 'ai-studio-sidokter-1b8a631d-522f-4a38-abec-2ee76aefa2c3';
 const REGION = 'asia-southeast2';
@@ -440,16 +439,6 @@ async function processSopWrite(before, after, sopId) {
   }
 }
 
-const sopMailboxWorkflow = onDocumentWritten({
-  document: 'sops/{sopId}',
-  database: FIRESTORE_DATABASE_ID,
-  region: REGION,
-  retry: false
-}, async (event) => {
-  const before = event.data?.before?.exists ? event.data.before.data() : null;
-  const after = event.data?.after?.exists ? event.data.after.data() : null;
-  await processSopWrite(before, after, clean(event.params?.sopId));
-});
 
 const clearNotificationMailbox = onCall({ region: REGION, timeoutSeconds: 30, memory: '256MiB' }, async (request) => {
   const uid = clean(request.auth?.uid);
@@ -488,7 +477,6 @@ module.exports = {
   TOMBSTONE_RETENTION_MS,
   deriveSopMailboxEvents,
   processSopWrite,
-  sopMailboxWorkflow,
   clearNotificationMailbox,
   createNotificationBlocked
 };

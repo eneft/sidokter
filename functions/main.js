@@ -12,4 +12,3 @@ exports.allocateSopNumber = require('./sopNumberAllocator').allocateSopNumber;
 const mailboxWorkflow = require('./mailboxWorkflow');
 exports.createNotification = mailboxWorkflow.createNotificationBlocked;
 exports.clearNotificationMailbox = mailboxWorkflow.clearNotificationMailbox;
-exports.sopMailboxWorkflow = mailboxWorkflow.sopMailboxWorkflow;

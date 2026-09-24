@@ -14,6 +14,7 @@ const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevi
 const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
 const { buildTrustedSopContentUpdate } = require('./sopEditContentPolicy');
 const { buildSopActivationTransition } = require('./sopActivationPolicy');
+const { processSopWrite } = require('./mailboxWorkflow');
 const { sendPdf } = require('./pdfBinary');
 
 if (!process.env.AWS_EXECUTION_ENV) {
@@ -848,11 +849,13 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
   const sopRef = db.collection('sops').doc(sopId);
   let notification = null;
   let resultingSop;
+  let previousReviewSop = null;
 
   await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(sopRef);
     if (!snapshot.exists) throw new HttpsError('not-found', 'SPO tidak ditemukan.');
     const sop = snapshot.data() || {};
+    previousReviewSop = { ...sop, id: snapshot.id };
     if (sop.status !== 'DRAFT') throw new HttpsError('failed-precondition', 'Permintaan perbaikan hanya berlaku untuk SPO DRAFT.');
     let usersDirectoryPromise;
     const owner = await resolveSopOwner(sop, {
@@ -913,6 +916,14 @@ exports.sopReviewWorkflow = onCall({ region: 'asia-southeast2', timeoutSeconds: 
       transaction.set(db.collection('notifications').doc(notification.uid).collection('items').doc(notifId), notificationData);
     }
   });
+  try {
+    await processSopWrite(previousReviewSop, resultingSop, sopId);
+  } catch (mailError) {
+    logger.error('Trusted mailbox lifecycle update failed after SPO review transition', {
+      requestId, action, sopId, actorUid, code: mailError?.code, message: mailError?.message || String(mailError)
+    });
+  }
+
   // Audit is deliberately outside the workflow transaction: audit failure is
   // non-fatal, while transition, history, and notification commit atomically.
   await audit({ actorUid, username: actor.username, name: actor.name, role: actor.role, event: `SOP_${action}`, details: `SPO ${sopId}: ${resultingSop.reviewState}` });
@@ -1206,6 +1217,7 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
       const sopRef = db.collection('sops').doc(sopId);
       const hierarchyClaims = getUserHierarchyClaims(context.user);
       let resultingSop = null;
+      let previousSop = null;
 
       try {
         await db.runTransaction(async (transaction) => {
@@ -1236,6 +1248,8 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
                 : getSopAccessKeysServer(storedRaw),
             };
           }
+
+          previousSop = snapshot.exists ? { ...storedRaw } : null;
 
           let next;
           try {
@@ -1307,6 +1321,14 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         throw error;
       }
 
+      try {
+        await processSopWrite(previousSop, resultingSop, sopId);
+      } catch (mailError) {
+        console.error('Trusted mailbox delivery failed after SOP edit', {
+          sopId, actorUid: context.decoded.uid, code: mailError?.code, message: mailError?.message || String(mailError)
+        });
+      }
+
       return json(res, 200, { success: true, sop: resultingSop, source: 'trusted-session' });
     }
 
@@ -1328,11 +1350,13 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
       const successorRef = db.collection('sops').doc(sopId);
       let transitionResult = null;
+      let activationPreviousSop = null;
       try {
         await db.runTransaction(async (transaction) => {
           const successorSnapshot = await transaction.get(successorRef);
           if (!successorSnapshot.exists) throw new Error('SOP_NOT_FOUND');
           const storedSuccessor = { id: successorSnapshot.id, ...successorSnapshot.data() };
+          activationPreviousSop = { ...storedSuccessor };
 
           const authoritativePredecessorId = String(storedSuccessor.existingSopId || '').trim();
           if (requestedPredecessorId && authoritativePredecessorId !== requestedPredecessorId) {
@@ -1403,6 +1427,14 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         const [status, code, message] = mapping[reason] || [500, 'ACTIVATION_FAILED', 'Aktivasi SPO gagal diproses secara atomik.'];
         console.error('Trusted SOP activation failed', { sopId, actorUid: context.decoded.uid, reason, code: error?.code });
         return json(res, status, { success: false, code, message });
+      }
+
+      try {
+        await processSopWrite(activationPreviousSop, transitionResult.successor, sopId);
+      } catch (mailError) {
+        console.error('Trusted mailbox delivery failed after SPO activation', {
+          sopId, actorUid: context.decoded.uid, code: mailError?.code, message: mailError?.message || String(mailError)
+        });
       }
 
       return json(res, 200, {
