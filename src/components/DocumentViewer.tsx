@@ -229,7 +229,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         </div>
       )}
 
-      <div className={`${singleScroll ? '' : 'flex-1 min-h-0 overflow-auto'} bg-slate-50/80 flex flex-col items-center p-0 relative`}>
+      <div className={`${singleScroll ? '' : 'flex-1 min-h-0 overflow-auto'} bg-white flex flex-col items-center p-0 relative`}>
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400 py-12">
             <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
@@ -240,7 +240,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         {!loading && detectedType === 'pdf' && previewUrl && (
           <iframe
             title={`Pratinjau ${effectiveFileName}`}
-            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&zoom=100`}
             className={`w-full border-0 bg-white ${singleScroll ? '' : 'h-full min-h-[420px]'}`}
             style={singleScroll ? { height: `${naturalPdfHeight || 600}px` } : undefined}
           />
