@@ -63,6 +63,12 @@ function requiresProtectedHeaders(url: string): boolean {
     url.startsWith('/api/storage/sop/');
 }
 
+function withOptimizedPreviewIntent(url: string, fileName: string): string {
+  if (!requiresProtectedHeaders(url) || documentTypeFor(fileName) !== 'pdf') return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}preview=1`;
+}
+
 /**
  * Displays document binaries using browser-native viewers. Protected Firebase
  * Storage files are fetched with the existing session headers first, then
@@ -146,10 +152,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             if (!resolvedUrl || resolvedUrl.startsWith('local://')) {
               throw new Error('Dokumen belum memiliki referensi Firebase Storage yang dapat diakses.');
             }
+            const previewRequestUrl = withOptimizedPreviewIntent(resolvedUrl, effectiveFileName);
             const headers = requiresProtectedHeaders(resolvedUrl)
               ? await getProtectedStorageHeaders()
               : undefined;
-            const response = await fetch(resolvedUrl, { headers });
+            const response = await fetch(previewRequestUrl, { headers, cache: 'default' });
             if (!response.ok) {
               throw new Error(`Dokumen tidak ditemukan di server (HTTP ${response.status}).`);
             }

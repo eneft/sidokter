@@ -10,6 +10,12 @@ function classifyStorageRequest(method, pathName) {
     normalizedPath.endsWith('/upload')
   )) return 'upload';
 
+  if (normalizedMethod === 'POST' && (
+    normalizedPath === '/optimize' ||
+    normalizedPath === '/storageapi/optimize' ||
+    normalizedPath.endsWith('/optimize')
+  )) return 'optimize';
+
   if ((normalizedMethod === 'GET' || normalizedMethod === 'HEAD') && normalizedPath.includes('/path/')) {
     return 'download-path';
   }

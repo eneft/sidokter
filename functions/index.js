@@ -1973,6 +1973,7 @@ async function requirePdfSession(req) {
 const STORAGE_COLLECTION = 'storage_files';
 const { resolveStorageObjectPath } = require('./storageMetadata');
 const { classifyStorageRequest } = require('./storageRouting');
+const { ensurePdfPreview } = require('./pdfPreviewOptimizer');
 const STORAGE_MAX_BYTES = 15 * 1024 * 1024;
 const STORAGE_MIME = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 let cachedStorageBucket = null;
@@ -2071,8 +2072,43 @@ async function storageUpload(req, res) {
     sopId: extractSopIdFromStorageRef(id) || extractSopIdFromStorageRef(objectPath),
     accessKeys:Array.from(storageAccessKeys(context.user))
   };
-  await db.collection(STORAGE_COLLECTION).doc(id).set(meta, { merge:true });
-  return json(res, 200, { success:true, fileId:id, url:`/api/storage/files/${id}`, storagePath:objectPath, fileName:safeName, fileSize:buffer.length, mimeType:mime });
+  const metaRef = db.collection(STORAGE_COLLECTION).doc(id);
+  await metaRef.set(meta, { merge:true });
+  let previewMeta = {};
+  if (mime === 'application/pdf') {
+    try {
+      previewMeta = await ensurePdfPreview({ bucket:getStorageBucket(), metaRef, meta, originalPath:objectPath });
+    } catch (previewError) {
+      console.warn('[storage] PDF preview optimization failed:', previewError?.message || previewError);
+      previewMeta = { previewStatus:'FAILED' };
+      await metaRef.set({ previewStatus:'FAILED', previewOptimizedAt:new Date().toISOString() }, { merge:true });
+    }
+  }
+  return json(res, 200, { success:true, fileId:id, url:`/api/storage/files/${id}`, storagePath:objectPath, fileName:safeName, fileSize:buffer.length, mimeType:mime, previewStatus:previewMeta.previewStatus || undefined });
+}
+
+function wantsOptimizedPreview(req) {
+  const raw = String(req.query?.preview || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+async function resolvePreviewStreamTarget(req, objectPath, meta, metaRef) {
+  if (!wantsOptimizedPreview(req) || String(meta?.mimeType || '').toLowerCase() !== 'application/pdf') {
+    return { file:getStorageBucket().file(objectPath), meta };
+  }
+  try {
+    const preview = await ensurePdfPreview({ bucket:getStorageBucket(), metaRef, meta, originalPath:objectPath });
+    if (preview.previewStatus === 'READY' && preview.previewObjectPath) {
+      return {
+        file:getStorageBucket().file(preview.previewObjectPath),
+        meta:{ ...meta, ...preview, mimeType:'application/pdf', size:preview.previewStoredSize, transportEncoding:preview.previewEncoding, isOptimizedPreview:true }
+      };
+    }
+  } catch (error) {
+    console.warn('[storage] on-demand preview optimization failed:', error?.message || error);
+    if (metaRef) await metaRef.set({ previewStatus:'FAILED', previewOptimizedAt:new Date().toISOString() }, { merge:true }).catch(() => {});
+  }
+  return { file:getStorageBucket().file(objectPath), meta };
 }
 
 async function streamStorageObject(req, res, file, fallbackMeta = {}) {
@@ -2080,11 +2116,43 @@ async function streamStorageObject(req, res, file, fallbackMeta = {}) {
   if (!exists) return false;
 
   const [fm] = await file.getMetadata();
-  res.set('Content-Type', fm.contentType || fallbackMeta.mimeType || 'application/pdf');
-  res.set('Content-Length', String(fm.size || fallbackMeta.size || 0));
+  const totalSize = Number(fm.size || fallbackMeta.size || 0);
+  const isGzipPreview = fallbackMeta.transportEncoding === 'gzip';
+  const contentType = isGzipPreview ? 'application/pdf' : (fm.contentType || fallbackMeta.mimeType || 'application/pdf');
+  res.set('Content-Type', contentType);
   res.set('Content-Disposition', `inline; filename="${encodeURIComponent(fallbackMeta.originalName || path.basename(file.name || 'dokumen.pdf'))}"`);
-  res.set('Cache-Control', 'private, no-store, max-age=0');
+  res.set('Cache-Control', fallbackMeta.isOptimizedPreview ? 'private, max-age=3600' : 'private, max-age=900');
   res.set('X-Content-Type-Options', 'nosniff');
+  if (isGzipPreview) res.set('Content-Encoding', 'gzip');
+  else res.set('Accept-Ranges', 'bytes');
+
+  const range = !isGzipPreview ? String(req.headers.range || '') : '';
+  const match = range.match(/^bytes=(\d*)-(\d*)$/i);
+  if (match && totalSize > 0) {
+    let start = match[1] ? Number(match[1]) : 0;
+    let end = match[2] ? Number(match[2]) : totalSize - 1;
+    if (!match[1] && match[2]) {
+      const suffix = Number(match[2]);
+      start = Math.max(0, totalSize - suffix);
+      end = totalSize - 1;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= totalSize) {
+      res.status(416).set('Content-Range', `bytes */${totalSize}`).end();
+      return true;
+    }
+    end = Math.min(end, totalSize - 1);
+    res.status(206);
+    res.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+    res.set('Content-Length', String(end - start + 1));
+    if (req.method === 'HEAD') return res.end(), true;
+    file.createReadStream({ start, end }).on('error', err => {
+      console.error('[storage] range stream error', err);
+      if (!res.headersSent) res.status(500);
+    }).pipe(res);
+    return true;
+  }
+
+  if (totalSize > 0) res.set('Content-Length', String(totalSize));
   if (req.method === 'HEAD') {
     res.status(200).end();
     return true;
@@ -2176,7 +2244,8 @@ async function storageDownload(req, res) {
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-    const served = await streamStorageObject(req, res, getStorageBucket().file(objectPath), meta);
+    const target = await resolvePreviewStreamTarget(req, objectPath, meta, snap.ref);
+    const served = await streamStorageObject(req, res, target.file, target.meta);
     if (served) return;
     return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
   }
@@ -2234,7 +2303,9 @@ async function storageDownloadBySop(req, res) {
     if (!allowed) allowed = await canReadSopBinaryForUser(context, sopId);
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-    const served = await streamStorageObject(req, res, getStorageBucket().file(objectPath), meta);
+    const metaRef = db.collection(STORAGE_COLLECTION).doc(meta.id);
+    const target = await resolvePreviewStreamTarget(req, objectPath, meta, metaRef);
+    const served = await streamStorageObject(req, res, target.file, target.meta);
     if (served) return;
     return json(res, 404, { success:false, message:'File metadata tidak ditemukan di Firebase Storage.' });
   }
@@ -2293,7 +2364,8 @@ async function storageDownloadByPath(req, res) {
     }
     if (!allowed) return json(res, 403, { success:false, message:'Akses dokumen ditolak.' });
 
-    const served = await streamStorageObject(req, res, getStorageBucket().file(metadataObjectPath), meta);
+    const target = await resolvePreviewStreamTarget(req, metadataObjectPath, meta, metaDoc.ref);
+    const served = await streamStorageObject(req, res, target.file, target.meta);
     if (served) return;
     return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
   }
@@ -2326,6 +2398,36 @@ async function storageDownloadByPath(req, res) {
   }
 
   return json(res, 404, { success:false, message:'File tidak ditemukan di Firebase Storage.' });
+}
+
+async function storageOptimize(req, res) {
+  const context = await requireStorageAuth(req);
+  if (normalizeRole(context.user.role) !== 'admin') {
+    return json(res, 403, { success:false, message:'Optimasi massal PDF hanya dapat dijalankan Admin.' });
+  }
+  const requestedLimit = Number(req.body?.limit || 10);
+  const limit = Math.max(1, Math.min(20, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 10));
+  const force = req.body?.force === true;
+  const snap = await db.collection(STORAGE_COLLECTION).where('mimeType', '==', 'application/pdf').limit(Math.max(limit * 3, limit)).get();
+  const result = { processed:0, ready:0, skipped:0, failed:0 };
+  for (const doc of snap.docs) {
+    if (result.processed >= limit) break;
+    const meta = doc.data() || {};
+    if (!force && meta.previewVersion === 1 && ['READY', 'SKIPPED'].includes(String(meta.previewStatus || ''))) continue;
+    const objectPath = resolveStorageObjectPath(meta);
+    if (!objectPath) continue;
+    result.processed += 1;
+    try {
+      const preview = await ensurePdfPreview({ bucket:getStorageBucket(), metaRef:doc.ref, meta, originalPath:objectPath, force });
+      if (preview.previewStatus === 'READY') result.ready += 1;
+      else result.skipped += 1;
+    } catch (error) {
+      result.failed += 1;
+      await doc.ref.set({ previewStatus:'FAILED', previewOptimizedAt:new Date().toISOString() }, { merge:true }).catch(() => {});
+      console.warn('[storage] batch PDF optimization failed:', doc.id, error?.message || error);
+    }
+  }
+  return json(res, 200, { success:true, ...result });
 }
 
 async function storageDelete(req, res) {
@@ -2487,6 +2589,10 @@ exports.storageApi = onRequest({ region:'asia-southeast2', invoker:'public', cor
 
     if (storageRoute === 'upload') {
       return await storageUpload(req, res);
+    }
+
+    if (storageRoute === 'optimize') {
+      return await storageOptimize(req, res);
     }
 
     if (storageRoute === 'download-path') {
