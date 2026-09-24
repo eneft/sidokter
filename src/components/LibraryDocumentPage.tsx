@@ -453,7 +453,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
   return (
     <section className="space-y-5 animate-in fade-in duration-200">
       {/* Top Banner / Header */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             {onBack && (
@@ -470,60 +470,32 @@ export const LibraryDocumentPage: React.FC<Props> = ({
               {type === 'SK' ? <FileCheck className="w-6 h-6" /> : <Handshake className="w-6 h-6" />}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                  {type === 'SK' ? 'Dokumen Surat Keputusan (SK)' : 'Dokumen Kerja Sama (MOU / PKS)'}
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-700 border border-slate-200">
-                  {filtered.length} Dokumen
-                </span>
-              </div>
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+                {type === 'SK' ? 'Surat Keputusan (SK)' : 'Dokumen Kerja Sama (MOU / PKS)'}
+              </h1>
               <p className="text-xs text-slate-500 mt-1">
                 {type === 'SK'
-                  ? 'Surat Keputusan Direktur RSUD Dr. Soegiri Lamongan yang sah dan aktif.'
+                  ? 'Arsip Surat Keputusan Direktur RSUD Dr. Soegiri Lamongan.'
                   : 'Perjanjian Kerja Sama & Nota Kesepahaman RSUD Dr. Soegiri dengan instansi mitra.'}
               </p>
             </div>
           </div>
 
-          {/* Upload Trigger: Admin & User */}
-          {canUpload ? (
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {type === 'SK' && (
-                <AdminTooltip
-                  title="Upload SK Perubahan"
-                  content="Unggah SK revisi karena perubahan kebijakan, regulasi Kemenkes, atau ketentuan operasional rumah sakit."
-                >
-                  <button
-                    type="button"
-                    onClick={() => openUpload('PERUBAHAN')}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 text-xs font-black shadow-sm shadow-amber-200 transition-all cursor-pointer border border-amber-400"
-                  >
-                    <RefreshCw className="w-4 h-4 text-slate-950" />
-                    <span>Upload SK Perubahan</span>
-                  </button>
-                </AdminTooltip>
-              )}
-
-              <AdminTooltip
-                title={type === 'SK' ? 'Upload SK Pokok' : `Upload ${type} Baru`}
-                content={type === 'SK' ? 'Unggah SK penetapan awal baru ke dalam sistem tata naskah.' : `Unggah berkas ${type} resmi baru.`}
+          {/* Satu entry point upload; tipe SK dipilih di dalam modal agar header tetap ringkas. */}
+          {canUpload && (
+            <AdminTooltip
+              title={type === 'SK' ? 'Upload Surat Keputusan' : `Upload ${type} Baru`}
+              content={type === 'SK' ? 'Unggah SK Pokok atau SK Perubahan.' : `Unggah berkas ${type} resmi baru.`}
+            >
+              <button
+                type="button"
+                onClick={() => openUpload('POKOK')}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer shrink-0"
               >
-                <button
-                  type="button"
-                  onClick={() => openUpload('POKOK')}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-sm shadow-emerald-200 transition-all cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{type === 'SK' ? 'Upload SK Baru' : `Upload ${type} Baru`}</span>
-                </button>
-              </AdminTooltip>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium shrink-0">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Akses User: Lihat & Download</span>
-            </div>
+                <Plus className="w-4 h-4" />
+                <span>{type === 'SK' ? 'Upload SK' : `Upload ${type} Baru`}</span>
+              </button>
+            </AdminTooltip>
           )}
         </div>
 
@@ -540,7 +512,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              <span>Semua SK</span>
+              <span>Semua</span>
               <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
                 skCategoryFilter === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
               }`}>
@@ -558,7 +530,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
               }`}
             >
               <FileCheck className="w-3.5 h-3.5" />
-              <span>SK Pokok / Penetapan Awal</span>
+              <span>SK Pokok</span>
               <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
                 skCategoryFilter === 'POKOK' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-900'
               }`}>
@@ -576,7 +548,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
               }`}
             >
               <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
-              <span>SK Perubahan (Revisi Kebijakan)</span>
+              <span>SK Perubahan</span>
               <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
                 skCategoryFilter === 'PERUBAHAN' ? 'bg-amber-600 text-white' : 'bg-amber-200 text-amber-950'
               }`}>
@@ -594,7 +566,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={type === 'SK' ? 'Cari judul SK, nomor SK, SK terdahulu, alasan perubahan, atau file...' : 'Cari judul MOU, nama mitra kerja sama, nomor MOU...'}
+              placeholder={type === 'SK' ? 'Cari nomor atau judul SK...' : 'Cari judul MOU, nama mitra kerja sama, nomor MOU...'}
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
             />
             {search && (
@@ -654,7 +626,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
             {search
               ? 'Coba gunakan kata kunci pencarian yang lain atau reset filter tahun.'
               : canUpload
-              ? `Klik tombol "Upload ${type} Baru" di atas untuk menambahkan berkas PDF resmi.`
+              ? `Klik tombol "Upload ${type}" di atas untuk menambahkan berkas PDF resmi.`
               : `Belum ada dokumen ${type} yang dipublikasikan ke sistem.`}
           </p>
           {search && (
@@ -668,7 +640,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={`grid grid-cols-1 ${type === 'SK' ? 'xl:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
           {filtered.map((doc) => {
             const formattedDate = doc.effectiveDate
               ? new Date(doc.effectiveDate).toLocaleDateString('id-ID', {
@@ -689,7 +661,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
             return (
               <div
                 key={doc.id}
-                className={`bg-white rounded-3xl border p-5 flex flex-col justify-between shadow-2xs hover:shadow-md transition-all group ${
+                className={`bg-white rounded-2xl border p-5 flex flex-col justify-between shadow-2xs hover:shadow-sm transition-all group ${
                   isPerubahan 
                     ? 'border-amber-200/90 hover:border-amber-300 ring-1 ring-amber-100' 
                     : 'border-slate-200 hover:border-emerald-200'
@@ -787,13 +759,7 @@ export const LibraryDocumentPage: React.FC<Props> = ({
                         </div>
                       )}
 
-                      {doc.revisionType && (
-                        <div className="pt-0.5">
-                          <span className="inline-block px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[10px] font-bold border border-amber-300/70">
-                            {doc.revisionType}
-                          </span>
-                        </div>
-                      )}
+
                     </div>
                   )}
 
@@ -826,11 +792,13 @@ export const LibraryDocumentPage: React.FC<Props> = ({
                     </div>
                   )}
 
-                  {/* File info */}
-                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="truncate max-w-[170px]">{doc.fileName}</span>
-                    <span className="font-semibold">{formatBytes(doc.fileSize)}</span>
-                  </div>
+                  {/* Detail nama file/ukuran tidak diperlukan pada register SK utama. */}
+                  {type === 'MOU' && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="truncate max-w-[170px]">{doc.fileName}</span>
+                      <span className="font-semibold">{formatBytes(doc.fileSize)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
