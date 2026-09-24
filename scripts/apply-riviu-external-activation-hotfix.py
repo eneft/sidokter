@@ -189,5 +189,144 @@ test('Riviu activation accepts only durable external Riviu source metadata', () 
 """
 test.write_text(t)
 
+# Activation permission hotfix: preparation may upload final scan/assets, but it
+# must not make a separate Draft Firestore write before the authoritative
+# sop-activate transaction. This removes the client/trusted-edit permission
+# boundary from activation while keeping binary uploads durable.
+sop_service = Path('src/lib/sopService.ts')
+ss = sop_service.read_text()
+old_prep_boundary = """  if (next.fileUrl) delete next.fileDataUrl;
+  if (next.signedScanUrl) delete next.signedScanDataUrl;
+  if (next.oldFileUrl) delete next.oldFileDataUrl;
+
+  const index = all.findIndex((s) => s.id === next.id);"""
+new_prep_boundary = """  if (next.fileUrl) delete next.fileDataUrl;
+  if (next.signedScanUrl) delete next.signedScanDataUrl;
+  if (next.oldFileUrl) delete next.oldFileDataUrl;
+
+  // Activation preparation is asset-only. The DRAFT -> AKTIF lifecycle and
+  // activation metadata are committed by the trusted sop-activate transaction.
+  // Do not perform a separate sop-edit/Firestore write here: that extra boundary
+  // can fail independently and must never block an otherwise valid activation.
+  const isActivationPreparation = Boolean(
+    options?.editActor &&
+    next.status === 'DRAFT' &&
+    next.activatedAt &&
+    (next.activatedBy || next.activationNotes)
+  );
+  if (isActivationPreparation) {
+    return next;
+  }
+
+  const index = all.findIndex((s) => s.id === next.id);"""
+if old_prep_boundary in ss:
+    ss = ss.replace(old_prep_boundary, new_prep_boundary, 1)
+elif new_prep_boundary not in ss:
+    raise RuntimeError('SPO activation preparation boundary not found')
+sop_service.write_text(ss)
+
+policy = Path('functions/sopActivationPolicy.js')
+p = policy.read_text()
+old_activation_fields = """  const activationFields = {
+    status: 'AKTIF',
+    everActivated: true,
+    updatedAt,
+    activatedAt: submitted.activatedAt || updatedAt.slice(0, 10),
+    activatedBy: String(submitted.activatedBy || actor?.name || actor?.username || 'Administrator').trim(),
+    activationNotes: String(submitted.activationNotes || '').trim(),
+  };
+
+  const riviu = isRiviu(storedSuccessor);"""
+new_activation_fields = """  const activationFields = {
+    status: 'AKTIF',
+    everActivated: true,
+    updatedAt,
+    activatedAt: submitted.activatedAt || updatedAt.slice(0, 10),
+    activatedBy: String(submitted.activatedBy || actor?.name || actor?.username || 'Administrator').trim(),
+    activationNotes: String(submitted.activationNotes || '').trim(),
+  };
+
+  // Asset upload happens before this transaction. Carry only durable file
+  // metadata into the authoritative activation write; never carry DataURLs.
+  const durableStringFields = [
+    'fileName', 'fileType', 'fileUrl', 'storagePath',
+    'signedScanFileName', 'signedScanFileType', 'signedScanUrl', 'signedScanStoragePath',
+    'oldFileName', 'oldFileType', 'oldFileUrl', 'oldStoragePath',
+    'existingSourceFormat',
+  ];
+  for (const key of durableStringFields) {
+    const value = String(submitted?.[key] || '').trim();
+    if (value) activationFields[key] = value;
+  }
+  for (const key of ['fileSize', 'signedScanFileSize', 'oldFileSize']) {
+    const value = Number(submitted?.[key]);
+    if (Number.isFinite(value) && value >= 0) activationFields[key] = value;
+  }
+  if (Array.isArray(submitted?.supportingEvidence)) {
+    activationFields.supportingEvidence = submitted.supportingEvidence;
+  }
+
+  const riviu = isRiviu(storedSuccessor);"""
+if old_activation_fields in p:
+    p = p.replace(old_activation_fields, new_activation_fields, 1)
+elif new_activation_fields not in p:
+    raise RuntimeError('Trusted activation metadata block not found')
+policy.write_text(p)
+
+policy_test = Path('functions/sopActivationPolicy.test.js')
+pt = policy_test.read_text()
+if 'activation carries durable uploaded scan metadata without DataURL' not in pt:
+    pt += """
+
+test('activation carries durable uploaded scan metadata without DataURL', () => {
+  const result = buildSopActivationTransition({
+    storedSuccessor: baseDraft,
+    submitted: {
+      ...baseDraft,
+      activatedAt: '2026-09-24',
+      signedScanFileName: 'scan-final.pdf',
+      signedScanFileType: 'application/pdf',
+      signedScanFileSize: 1234,
+      signedScanUrl: '/api/storage/files/successor_signedScan',
+      signedScanStoragePath: 'sidokter/spo/successor_signedScan.pdf',
+      signedScanDataUrl: 'data:application/pdf;base64,AAAA',
+    },
+    actor: admin,
+  });
+  assert.equal(result.successor.signedScanFileName, 'scan-final.pdf');
+  assert.equal(result.successor.signedScanFileSize, 1234);
+  assert.equal(result.successor.signedScanUrl, '/api/storage/files/successor_signedScan');
+  assert.equal(result.successor.signedScanStoragePath, 'sidokter/spo/successor_signedScan.pdf');
+  assert.equal(Object.prototype.hasOwnProperty.call(result.successor, 'signedScanDataUrl'), false);
+});
+"""
+policy_test.write_text(pt)
+
+regression = Path('tests/sop-mutation-regression.test.cjs')
+r = regression.read_text()
+old_sources = """const indexSource = fs.readFileSync('functions/index.js', 'utf8');
+const rulesSource = fs.readFileSync('firestore.rules', 'utf8');
+const mainSource = fs.readFileSync('src/main.tsx', 'utf8');"""
+new_sources = """const indexSource = fs.readFileSync('functions/index.js', 'utf8');
+const rulesSource = fs.readFileSync('firestore.rules', 'utf8');
+const mainSource = fs.readFileSync('src/main.tsx', 'utf8');
+const sopServiceSource = fs.readFileSync('src/lib/sopService.ts', 'utf8');"""
+if old_sources in r:
+    r = r.replace(old_sources, new_sources, 1)
+elif new_sources not in r:
+    raise RuntimeError('SOP mutation regression source block not found')
+if 'activation preparation is asset-only before trusted lifecycle commit' not in r:
+    r += """
+
+test('activation preparation is asset-only before trusted lifecycle commit', () => {
+  assert.match(sopServiceSource, /const isActivationPreparation = Boolean\(/);
+  assert.match(sopServiceSource, /if \(isActivationPreparation\) \{\s*return next;\s*\}/);
+  const prepIndex = sopServiceSource.indexOf('const isActivationPreparation');
+  const authoritativeSaveIndex = sopServiceSource.indexOf('const saved = options?.editActor', prepIndex);
+  assert.ok(prepIndex >= 0 && authoritativeSaveIndex > prepIndex, 'activation preparation must return before authoritative edit save');
+});
+"""
+regression.write_text(r)
+
 changed = subprocess.run(['git', 'diff', '--quiet']).returncode != 0
 print('changed=true' if changed else 'changed=false')

@@ -15,7 +15,7 @@ permissions:
 jobs:
   # The hotfix step is idempotent; when the source is already patched it makes no commit.
   hotfix:
-    name: Apply Riviu activation hotfix
+    name: Apply SIDOKTER activation hotfix
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.patch.outputs.changed }}
@@ -38,8 +38,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/App.tsx src/components/UploadSopModal.tsx src/utils/riviuRevision.ts tests/riviu-revision-authority.test.ts
-          git commit -m "fix: accept manual legacy SPO numbers in Riviu"
+          git add src/App.tsx src/components/UploadSopModal.tsx src/utils/riviuRevision.ts src/lib/sopService.ts functions/sopActivationPolicy.js functions/sopActivationPolicy.test.js tests/riviu-revision-authority.test.ts tests/sop-mutation-regression.test.cjs
+          git commit -m "fix: harden trusted SPO activation boundary"
           git push origin HEAD:main
 
   verify:
