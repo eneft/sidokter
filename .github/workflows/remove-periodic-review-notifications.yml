@@ -96,14 +96,6 @@ jobs:
           pkg = json.loads(pkg_path.read_text())
           pkg['scripts']['test:mail'] = 'node --test functions/internalMailPolicy.test.js tests/internal-mail-ui.test.cjs tests/periodic-review-notification-disabled.test.cjs && tsx --test tests/mailbox-filter.test.ts'
           pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n')
-
-          ci_path = Path('.github/workflows/firebase-deploy.yml')
-          ci = ci_path.read_text()
-          if 'name: Test Notification & Mail' not in ci:
-              anchor = '      - name: Verify Functions\n        run: npm run verify:functions\n\n'
-              require(ci, anchor, 'production CI mail test insertion')
-              ci = ci.replace(anchor, anchor + '      - name: Test Notification & Mail\n        run: npm run test:mail\n\n', 1)
-          ci_path.write_text(ci)
           PY
 
       - name: Install dependencies
@@ -115,11 +107,10 @@ jobs:
       - name: Verify client build
         run: npm run build:client
 
-      - name: Commit source changes and remove temporary workflow
+      - name: Commit source changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/remove-periodic-review-notifications.yml
-          git add src/App.tsx src/lib/notificationService.ts src/lib/mailboxPolicy.ts tests/mailbox-filter.test.ts tests/periodic-review-notification-disabled.test.cjs package.json .github/workflows/firebase-deploy.yml
+          git add src/App.tsx src/lib/notificationService.ts src/lib/mailboxPolicy.ts tests/mailbox-filter.test.ts tests/periodic-review-notification-disabled.test.cjs package.json
           git commit -m "fix: remove automatic periodic SPO review notifications"
           git push
