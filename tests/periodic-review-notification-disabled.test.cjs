@@ -12,6 +12,8 @@ test('automatic periodic review notification producers are disabled', () => {
   assert.equal(service.includes("title: 'Perlu Riviu Berkala'"), false);
 });
 
-test('legacy periodic review client events are ignored', () => {
-  assert.equal(service.includes("if (type === 'review') return;"), true);
+test('legacy document events cannot create mailbox records on the client', () => {
+  assert.match(service, /export function dispatchDocumentEvent/);
+  assert.match(service, /sole producer of official workflow mailbox records/);
+  assert.doesNotMatch(service, /queuePendingAdminProposal/);
 });

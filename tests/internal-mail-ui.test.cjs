@@ -36,13 +36,11 @@ test('desktop mail control is placed in the top-right account header', () => {
   assert.match(header, /DesktopAccountHeader/);
 });
 
-test('opening unread mail keeps it visible and exposes the SPO review path', () => {
-  assert.match(ui, /!item\.read \|\| item\.id === selectedId/);
-  assert.match(ui, /Buka & Riviu SPO/);
-  assert.match(
-    ui,
-    /Pesan tetap tersimpan di tab Semua setelah dibaca/
-  );
+test('opening a thread marks unread messages read and keeps the thread in Semua', () => {
+  assert.match(ui, /const selectThread/);
+  assert.match(ui, /thread\.messages\.filter\(\(item\) => !item\.read\).*markNotificationAsRead/s);
+  assert.match(ui, /filter === 'actionable'/);
+  assert.match(ui, /Buka Dokumen|Buka & Tindaklanjuti/);
 });
 
 test('Riviu source selection keeps Live A4 body blank while retaining reference metadata', () => {
@@ -76,31 +74,11 @@ test('Riviu source selection keeps Live A4 body blank while retaining reference 
   }
 });
 
-test('workflow sound is emitted only after the same event is added to Pesan', () => {
-  const gateStart = service.indexOf(
-    'function processNotificationEvent'
-  );
-
-  const gateEnd = service.indexOf(
-    'export function addNotification',
-    gateStart
-  );
-
-  const gate = service.slice(gateStart, gateEnd);
-
-  assert.ok(
-    gate.indexOf('const item = addNotification') >= 0
-  );
-
-  assert.ok(
-    gate.indexOf('playChime(event.type)') >
-      gate.indexOf('const item = addNotification')
-  );
-
-  assert.match(
-    gate,
-    /documentId: event\.sop\.id/
-  );
+test('server-authored realtime mail chimes only for new unread records after initial snapshot', () => {
+  assert.match(service, /initialMailboxSnapshotSeen/);
+  assert.match(service, /snapshot\.docChanges\(\)/);
+  assert.match(service, /freshUnread/);
+  assert.match(service, /playChime\(chimeTypeForNotification\(newest\)\)/);
 });
 
 test('recipient writes and listener use the same per-user notification path', () => {

@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  CheckCircle2,
   ExternalLink,
+  Loader2,
   Mail,
   MoreVertical,
   Reply,
@@ -12,8 +14,10 @@ import {
 import { UserSession } from '../types';
 import {
   AppNotification,
+  canLoadMoreNotifications,
   clearNotifications,
   deleteNotification,
+  loadMoreNotifications,
   markNotificationAsRead,
   markNotificationAsUnread,
   replyToInternalMail
@@ -49,45 +53,46 @@ export const REVIEWER_REPLY_SUGGESTIONS = [
 
 function formatMessageTime(timestamp: number): string {
   const date = new Date(timestamp);
-
   return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString('id-ID', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    : date.toLocaleDateString('id-ID', {
-        day: '2-digit',
-        month: 'short'
-      });
+    ? date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
 }
 
 function documentTitle(item: AppNotification): string {
-  const explicit =
-    item.metadata?.documentTitle ||
-    item.metadata?.sopTitle;
-
-  if (typeof explicit === 'string' && explicit.trim()) {
-    return explicit.trim();
-  }
-
-  const quoted =
-    item.message?.match(/SPO\s+[“"]([^”"]+)[”"]/i)?.[1];
-
-  return quoted
-    ? `SPO ${quoted}`
-    : 'Dokumen SIDOKTER';
+  const explicit = item.metadata?.documentTitle || item.metadata?.sopTitle;
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+  const quoted = item.message?.match(/SPO\s+[“"]([^”"]+)[”"]/i)?.[1];
+  return quoted ? `SPO ${quoted}` : 'Dokumen SIDOKTER';
 }
 
 function isHumanMail(item: AppNotification): boolean {
-  return (
-    item.metadata?.mailKind === 'human' &&
-    Boolean(item.metadata?.senderUid)
-  );
+  return item.metadata?.mailKind === 'human' && Boolean(item.metadata?.senderUid);
 }
 
-export const NotificationModal: React.FC<
-  NotificationModalProps
-> = ({
+function threadKeyFor(item: AppNotification): string {
+  const explicit = String(item.metadata?.threadKey || item.metadata?.correlationId || '').trim();
+  if (explicit) return explicit;
+  if (item.documentId && item.type === 'review') return `sop-review:${item.documentId}`;
+  if (item.documentId && ['proposal', 'activation', 'assignment'].includes(item.type)) {
+    return `sop-workflow:${item.documentId}`;
+  }
+  return item.id;
+}
+
+function isActionable(item: AppNotification): boolean {
+  return item.actionable === true && !item.resolvedAt && item.hidden !== true;
+}
+
+type MailThread = {
+  key: string;
+  messages: AppNotification[];
+  latest: AppNotification;
+  unread: boolean;
+  actionable: boolean;
+  resolved: boolean;
+};
+
+export const NotificationModal: React.FC<NotificationModalProps> = ({
   isOpen,
   onClose,
   notifications,
@@ -95,653 +100,293 @@ export const NotificationModal: React.FC<
   onSelectDocument,
   onShowToast
 }) => {
-  const [filter, setFilter] =
-    useState<'all' | 'unread'>('all');
+  const [filter, setFilter] = useState<'all' | 'actionable'>('all');
+  const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
+  const [replying, setReplying] = useState(false);
+  const [replyBody, setReplyBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const [selectedId, setSelectedId] =
-    useState<string | null>(null);
+  const threads = useMemo<MailThread[]>(() => {
+    const grouped = new Map<string, AppNotification[]>();
+    notifications.forEach((item) => {
+      const key = threadKeyFor(item);
+      const current = grouped.get(key) || [];
+      current.push(item);
+      grouped.set(key, current);
+    });
+    return [...grouped.entries()].map(([key, items]) => {
+      const messages = [...items].sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+      const latest = messages[messages.length - 1];
+      const actionable = messages.some(isActionable);
+      const resolved = !actionable && messages.some((item) => Boolean(item.resolvedAt));
+      return {
+        key,
+        messages,
+        latest,
+        unread: messages.some((item) => !item.read),
+        actionable,
+        resolved
+      };
+    }).sort((a, b) => Number(b.latest.timestamp || 0) - Number(a.latest.timestamp || 0));
+  }, [notifications]);
 
-  const [replying, setReplying] =
-    useState(false);
-
-  const [replyBody, setReplyBody] =
-    useState('');
-
-  const [sending, setSending] =
-    useState(false);
-
-  const [clearingAll, setClearingAll] =
-    useState(false);
-
-  const selected =
-    notifications.find(
-      (item) => item.id === selectedId
-    ) || null;
+  const selected = threads.find((thread) => thread.key === selectedThreadKey) || null;
+  const filtered = filter === 'actionable' ? threads.filter((thread) => thread.actionable) : threads;
+  const unreadCount = notifications.filter((item) => !item.read).length;
+  const actionableCount = threads.filter((thread) => thread.actionable).length;
 
   useEffect(() => {
     if (!isOpen) {
       setFilter('all');
-      setSelectedId(null);
+      setSelectedThreadKey(null);
       setReplying(false);
       setReplyBody('');
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (selectedId && !selected) {
-      setSelectedId(null);
-    }
-  }, [selectedId, selected]);
+    if (selectedThreadKey && !selected) setSelectedThreadKey(null);
+  }, [selectedThreadKey, selected]);
 
   if (!isOpen) return null;
 
-  // Pesan yang sedang dibaca tetap terlihat di tab
-  // Belum Dibaca meskipun statusnya baru saja berubah
-  // menjadi read=true.
-  const filtered =
-    filter === 'unread'
-      ? notifications.filter(
-          (item) => !item.read || item.id === selectedId
-        )
-      : notifications;
+  const suggestions = userSession?.role === 'admin' || userSession?.badges?.some(
+    (badge) => String(badge).toUpperCase() === 'VERIFIKATOR'
+  ) ? REVIEWER_REPLY_SUGGESTIONS : CREATOR_REPLY_SUGGESTIONS;
 
-  const unreadCount =
-    notifications.filter(
-      (item) => !item.read
-    ).length;
-
-  const senderName = selected
-    ? String(
-        selected.metadata?.senderName ||
-          (isHumanMail(selected)
-            ? 'Petugas SIDOKTER'
-            : 'Sistem SIDOKTER')
-      )
-    : '';
-
-  const recipientName = selected
-    ? String(
-        selected.metadata?.recipientName ||
-          userSession?.name ||
-          userSession?.username ||
-          'Pengguna SIDOKTER'
-      )
-    : '';
-
-  const suggestions =
-    userSession?.role === 'admin' ||
-    userSession?.badges?.some(
-      (b) =>
-        String(b).toUpperCase() ===
-        'VERIFIKATOR'
-    )
-      ? REVIEWER_REPLY_SUGGESTIONS
-      : CREATOR_REPLY_SUGGESTIONS;
-
-  const selectMessage = (
-    item: AppNotification
-  ) => {
-    setSelectedId(item.id);
+  const selectThread = (thread: MailThread) => {
+    setSelectedThreadKey(thread.key);
     setReplying(false);
     setReplyBody('');
-
-    if (!item.read) {
-      markNotificationAsRead(item.id);
-    }
+    thread.messages.filter((item) => !item.read).forEach((item) => markNotificationAsRead(item.id));
   };
 
-  const openDocument = (
-    item: AppNotification
-  ) => {
-    markNotificationAsRead(item.id);
-    onClose();
+  const latestHumanMail = selected
+    ? [...selected.messages].reverse().find(isHumanMail) || null
+    : null;
 
-    if (
-      item.documentId &&
-      onSelectDocument
-    ) {
-      onSelectDocument(
-        item.documentId,
-        item.documentNumber
-      );
-    } else {
-      item.onAction?.();
-    }
-  };
-
-  const insertSuggestion = (
-    suggestion: string
-  ) => {
+  const insertSuggestion = (suggestion: string) => {
     setReplyBody((current) =>
-      `${current}${
-        current.trim() ? ' ' : ''
-      }${suggestion}.`
+      `${current}${current.trim() ? ' ' : ''}${suggestion}.`
     );
+  };
+
+  const openDocument = (item: AppNotification) => {
+    selected?.messages.filter((message) => !message.read).forEach((message) => markNotificationAsRead(message.id));
+    onClose();
+    if (item.documentId && onSelectDocument) onSelectDocument(item.documentId, item.documentNumber);
+    else item.onAction?.();
   };
 
   const clearAllMessages = async () => {
     if (!notifications.length || clearingAll) return;
     const confirmed = window.confirm(
-      'Hapus semua pesan dari mailbox Anda? Tindakan ini hanya menghapus salinan pesan akun yang sedang login.'
+      'Hapus semua pesan dari mailbox Anda? Pesan disembunyikan dari akun ini di seluruh perangkat.'
     );
     if (!confirmed) return;
-
     setClearingAll(true);
-    setSelectedId(null);
-    setReplying(false);
-    setReplyBody('');
+    setSelectedThreadKey(null);
     try {
       await clearNotifications();
-      onShowToast?.(
-        'success',
-        'Semua Pesan Dihapus',
-        'Mailbox akun ini telah dikosongkan di semua perangkat.'
-      );
+      onShowToast?.('success', 'Semua Pesan Dihapus', 'Mailbox akun ini telah dikosongkan di semua perangkat.');
     } catch (error) {
-      onShowToast?.(
-        'error',
-        'Gagal Menghapus Semua Pesan',
-        error instanceof Error ? error.message : 'Mailbox tidak dapat dikosongkan.'
-      );
+      onShowToast?.('error', 'Gagal Menghapus Semua Pesan', error instanceof Error ? error.message : 'Mailbox tidak dapat dikosongkan.');
     } finally {
       setClearingAll(false);
     }
   };
 
   const sendReply = async () => {
-    if (
-      !selected ||
-      !replyBody.trim() ||
-      sending
-    ) {
-      return;
-    }
-
+    if (!latestHumanMail || !replyBody.trim() || sending || selected?.resolved) return;
     setSending(true);
-
     try {
-      await replyToInternalMail(
-        selected.id,
-        replyBody
-      );
-
+      await replyToInternalMail(latestHumanMail.id, replyBody);
       setReplying(false);
       setReplyBody('');
-
-      onShowToast?.(
-        'success',
-        'Pesan Berhasil Dikirim',
-        'Balasan masuk ke mailbox penerima.'
-      );
+      onShowToast?.('success', 'Pesan Berhasil Dikirim', 'Balasan masuk ke thread SPO penerima.');
     } catch (error) {
-      onShowToast?.(
-        'error',
-        'Pesan Gagal Dikirim',
-        error instanceof Error
-          ? error.message
-          : 'Balasan tidak dapat dikirim.'
-      );
+      onShowToast?.('error', 'Pesan Gagal Dikirim', error instanceof Error ? error.message : 'Balasan tidak dapat dikirim.');
     } finally {
       setSending(false);
     }
   };
 
+  const handleLoadMore = async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const added = await loadMoreNotifications();
+      if (!added && !canLoadMoreNotifications()) {
+        onShowToast?.('info', 'Semua Pesan Dimuat', 'Tidak ada pesan lama lainnya.');
+      }
+    } catch (error) {
+      onShowToast?.('error', 'Gagal Memuat Pesan', error instanceof Error ? error.message : 'Pesan lama tidak dapat dimuat.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex bg-slate-950/30 sm:p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex bg-slate-950/30 sm:p-4" onClick={onClose}>
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="pesan-title"
         className="m-auto flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[78vh] sm:max-w-6xl sm:rounded-xl sm:border sm:border-slate-200"
-        onClick={(e) =>
-          e.stopPropagation()
-        }
+        onClick={(event) => event.stopPropagation()}
       >
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4 sm:px-5">
           <div className="flex items-center gap-3">
             {selected && (
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedId(null)
-                }
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
-                aria-label="Kembali ke daftar pesan"
-              >
+              <button type="button" onClick={() => setSelectedThreadKey(null)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden" aria-label="Kembali ke daftar pesan">
                 <ArrowLeft className="h-4 w-4" />
               </button>
             )}
-
             <Mail className="h-5 w-5 text-emerald-700" />
-
             <div>
-              <h2
-                id="pesan-title"
-                className="text-sm font-black tracking-wide text-slate-900"
-              >
-                PESAN
-              </h2>
-
-              <p className="text-[11px] text-slate-500">
-                Internal Mail SIDOKTER
-              </p>
+              <h2 id="pesan-title" className="text-sm font-black tracking-wide text-slate-900">PESAN</h2>
+              <p className="text-[11px] text-slate-500">Workflow Inbox SIDOKTER</p>
             </div>
-
             {unreadCount > 0 && (
-              <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                {unreadCount > 9
-                  ? '9+'
-                  : unreadCount}
-              </span>
+              <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">{unreadCount > 9 ? '9+' : unreadCount}</span>
             )}
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
-            aria-label="Tutup Pesan"
-          >
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" aria-label="Tutup Pesan">
             <X className="h-5 w-5" />
           </button>
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside
-            className={`${
-              selected
-                ? 'hidden md:flex'
-                : 'flex'
-            } w-full flex-col border-r border-slate-200 md:w-[42%]`}
-          >
+          <aside className={`${selected ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-slate-200 md:w-[42%]`}>
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
               <div className="flex gap-1">
-                {(
-                  [
-                    ['all', 'Semua'],
-                    [
-                      'unread',
-                      'Belum Dibaca'
-                    ]
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() =>
-                      setFilter(value)
-                    }
-                    className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-                      filter === value
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {label}
-                    {value === 'unread' &&
-                    unreadCount
-                      ? ` (${unreadCount})`
-                      : ''}
-                  </button>
-                ))}
+                <button type="button" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200'}`}>Semua</button>
+                <button type="button" onClick={() => setFilter('actionable')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'actionable' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}>
+                  Perlu Tindakan{actionableCount ? ` (${actionableCount})` : ''}
+                </button>
               </div>
-
               {notifications.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearAllMessages}
-                  disabled={clearingAll}
-                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Hapus semua pesan"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {clearingAll ? 'Menghapus...' : 'Hapus Semua'}
+                <button type="button" onClick={clearAllMessages} disabled={clearingAll} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50">
+                  <Trash2 className="h-3.5 w-3.5" />{clearingAll ? 'Menghapus...' : 'Hapus Semua'}
                 </button>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto">
               {!filtered.length ? (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">
-                  {filter === 'unread'
-                    ? 'Semua pesan sudah dibaca'
-                    : 'Belum ada pesan'}
-                </div>
-              ) : (
-                filtered.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`group relative border-b border-slate-100 ${
-                      selectedId === item.id
-                        ? 'bg-slate-100'
-                        : !item.read
-                          ? 'bg-emerald-50/45'
-                          : 'bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectMessage(item)
-                      }
-                      className="block w-full px-4 py-3.5 pr-11 text-left"
-                    >
+                <div className="px-6 py-16 text-center text-sm text-slate-500">{filter === 'actionable' ? 'Tidak ada pesan yang perlu ditindaklanjuti' : 'Belum ada pesan'}</div>
+              ) : filtered.map((thread) => {
+                const item = thread.latest;
+                return (
+                  <div key={thread.key} className={`group relative border-b border-slate-100 ${selectedThreadKey === thread.key ? 'bg-slate-100' : thread.unread ? 'bg-emerald-50/45' : 'bg-white hover:bg-slate-50'}`}>
+                    <button type="button" onClick={() => selectThread(thread)} className="block w-full px-4 py-3.5 pr-11 text-left">
                       <div className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            item.read
-                              ? 'bg-transparent'
-                              : 'bg-emerald-600'
-                          }`}
-                        />
-
-                        <span
-                          className={`min-w-0 flex-1 truncate text-xs ${
-                            item.read
-                              ? 'font-semibold text-slate-700'
-                              : 'font-black text-slate-900'
-                          }`}
-                        >
-                          {String(
-                            item.metadata
-                              ?.senderName ||
-                              (isHumanMail(
-                                item
-                              )
-                                ? 'Petugas SIDOKTER'
-                                : 'Sistem SIDOKTER')
-                          )}
-                        </span>
-
-                        <time className="text-[10px] text-slate-400">
-                          {formatMessageTime(
-                            item.timestamp
-                          )}
-                        </time>
+                        <span className={`h-2 w-2 rounded-full ${thread.unread ? 'bg-emerald-600' : 'bg-transparent'}`} />
+                        <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-800">{String(item.metadata?.senderName || (isHumanMail(item) ? 'Petugas SIDOKTER' : 'Sistem SIDOKTER'))}</span>
+                        <time className="text-[10px] text-slate-400">{formatMessageTime(item.timestamp)}</time>
                       </div>
-
-                      <p
-                        className={`mt-1 truncate pl-4 text-xs ${
-                          item.read
-                            ? 'font-medium'
-                            : 'font-bold'
-                        } text-slate-900`}
-                      >
-                        {item.title}
-                      </p>
-
-                      <p className="mt-0.5 truncate pl-4 text-[11px] font-medium text-slate-500">
-                        {documentTitle(item)}
-                        {item.documentNumber
-                          ? ` · ${item.documentNumber}`
-                          : ''}
-                      </p>
-
-                      <p className="mt-1 line-clamp-1 pl-4 text-xs text-slate-500">
-                        {item.message}
-                      </p>
+                      <div className="mt-1 flex items-center gap-2 pl-4">
+                        <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-900">{item.title}</p>
+                        {thread.actionable ? (
+                          <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">Perlu Tindakan</span>
+                        ) : thread.resolved ? (
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700">Selesai</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 truncate pl-4 text-[11px] font-medium text-slate-500">{documentTitle(item)}{item.documentNumber ? ` · ${item.documentNumber}` : ''}</p>
+                      {thread.messages.length > 1 && <p className="mt-1 pl-4 text-[10px] font-semibold text-slate-400">{thread.messages.length} pesan dalam thread</p>}
                     </button>
 
                     <details className="absolute right-2 top-8">
-                      <summary
-                        className="list-none rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                        aria-label="Menu pesan"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </summary>
-
+                      <summary className="list-none rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-slate-700" aria-label="Menu thread"><MoreVertical className="h-4 w-4" /></summary>
                       <div className="absolute right-0 z-10 w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            item.read
-                              ? markNotificationAsUnread(
-                                  item.id
-                                )
-                              : markNotificationAsRead(
-                                  item.id
-                                )
-                          }
-                          className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-slate-100"
-                        >
-                          Tandai{' '}
-                          {item.read
-                            ? 'belum dibaca'
-                            : 'sudah dibaca'}
+                        <button type="button" onClick={() => thread.messages.forEach((message) => thread.unread ? markNotificationAsRead(message.id) : markNotificationAsUnread(message.id))} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-slate-100">
+                          Tandai {thread.unread ? 'sudah dibaca' : 'belum dibaca'}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteNotification(
-                              item.id
-                            )
-                          }
-                          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Hapus
+                        <button type="button" onClick={() => thread.messages.forEach((message) => deleteNotification(message.id))} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50">
+                          <Trash2 className="h-3.5 w-3.5" />Hapus Thread
                         </button>
                       </div>
                     </details>
                   </div>
-                ))
+                );
+              })}
+
+              {canLoadMoreNotifications() && (
+                <div className="p-3 text-center">
+                  <button type="button" onClick={handleLoadMore} disabled={loadingMore} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                    {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{loadingMore ? 'Memuat...' : 'Muat Lebih Banyak'}
+                  </button>
+                </div>
               )}
             </div>
           </aside>
 
-          <main
-            className={`${
-              selected
-                ? 'flex'
-                : 'hidden md:flex'
-            } min-w-0 flex-1 flex-col overflow-y-auto`}
-          >
+          <main className={`${selected ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col overflow-hidden`}>
             {!selected ? (
-              <div className="m-auto text-center text-sm text-slate-400">
-                <Mail className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                Pilih pesan untuk membaca
-              </div>
+              <div className="m-auto text-center text-sm text-slate-400">Pilih pesan untuk melihat detail.</div>
             ) : (
-              <article className="p-5 sm:p-8">
-                <div className="border-b border-slate-200 pb-5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">
-                    {isHumanMail(selected)
-                      ? 'Pesan Pengguna'
-                      : 'Pesan Sistem · Hanya Baca'}
-                  </p>
-
-                  <h3 className="mt-2 text-lg font-black uppercase tracking-tight text-slate-900">
-                    {selected.title}
-                  </h3>
-
-                  <time className="mt-1 block text-xs text-slate-400">
-                    {new Date(
-                      selected.timestamp
-                    ).toLocaleString(
-                      'id-ID'
+              <>
+                <div className="border-b border-slate-200 px-5 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-black text-slate-900">{selected.latest.title}</h3>
+                        {selected.actionable ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">Perlu Tindakan</span>
+                        ) : selected.resolved ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><CheckCircle2 className="h-3 w-3" />Selesai</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{documentTitle(selected.latest)}{selected.latest.documentNumber ? ` · ${selected.latest.documentNumber}` : ''}</p>
+                    </div>
+                    {selected.latest.documentId && (
+                      <button type="button" onClick={() => openDocument(selected.latest)} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold ${selected.actionable ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                        <ExternalLink className="h-3.5 w-3.5" />{selected.actionable ? (selected.latest.actionLabel || 'Buka & Tindaklanjuti') : 'Buka Dokumen'}
+                      </button>
                     )}
-                  </time>
+                  </div>
+                  {selected.resolved && selected.latest.resolvedReason && <p className="mt-2 text-[11px] font-medium text-emerald-700">{selected.latest.resolvedReason}</p>}
                 </div>
 
-                <dl className="grid grid-cols-[5rem_1fr] gap-x-4 gap-y-2 border-b border-slate-200 py-5 text-sm">
-                  <dt className="text-slate-500">
-                    Dari
-                  </dt>
+                <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50/50 p-4 sm:p-5">
+                  {selected.messages.map((item) => (
+                    <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black text-slate-800">{String(item.metadata?.senderName || (isHumanMail(item) ? 'Petugas SIDOKTER' : 'Sistem SIDOKTER'))}</p>
+                          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{item.eventType || item.metadata?.eventType || item.title}</p>
+                        </div>
+                        <time className="shrink-0 text-[10px] text-slate-400">{new Date(item.timestamp).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</time>
+                      </div>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.message}</p>
+                    </article>
+                  ))}
+                </div>
 
-                  <dd className="font-semibold text-slate-900">
-                    {senderName}
-                  </dd>
-
-                  <dt className="text-slate-500">
-                    Kepada
-                  </dt>
-
-                  <dd className="font-semibold text-slate-900">
-                    {recipientName}
-                  </dd>
-
-                  <dt className="text-slate-500">
-                    Dokumen
-                  </dt>
-
-                  <dd>
-                    <div className="font-bold text-slate-900">
-                      {documentTitle(
-                        selected
-                      )}
-                    </div>
-
-                    {selected.documentNumber && (
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        {
-                          selected.documentNumber
-                        }
+                {latestHumanMail && !selected.resolved && (
+                  <div className="border-t border-slate-200 bg-white p-4">
+                    {!replying ? (
+                      <button type="button" onClick={() => setReplying(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Reply className="h-3.5 w-3.5" />Balas</button>
+                    ) : (
+                      <div>
+                        <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} rows={3} maxLength={2000} placeholder="Tulis balasan..." className="w-full resize-none rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-emerald-600" />
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {suggestions.map((suggestion) => (
+                            <button key={suggestion} type="button" onClick={() => insertSuggestion(suggestion)} className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-200">{suggestion}</button>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex justify-end gap-2">
+                          <button type="button" onClick={() => { setReplying(false); setReplyBody(''); }} className="rounded-lg px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100">Batal</button>
+                          <button type="button" onClick={sendReply} disabled={!replyBody.trim() || sending} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><Send className="h-3.5 w-3.5" />{sending ? 'Mengirim...' : 'Kirim'}</button>
+                        </div>
                       </div>
                     )}
-                  </dd>
-                </dl>
-
-                <p className="whitespace-pre-wrap py-6 text-sm leading-7 text-slate-700">
-                  {selected.message}
-                </p>
-
-                {!replying ? (
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      {isHumanMail(
-                        selected
-                      ) && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setReplying(
-                              true
-                            )
-                          }
-                          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white"
-                        >
-                          <Reply className="h-4 w-4" />
-                          Balas
-                        </button>
-                      )}
-
-                      {selected.documentId && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openDocument(
-                              selected
-                            )
-                          }
-                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-
-                          {userSession?.role ===
-                            'admin' ||
-                          userSession?.badges?.some(
-                            (b) =>
-                              String(
-                                b
-                              ).toUpperCase() ===
-                              'VERIFIKATOR'
-                          )
-                            ? 'Buka & Riviu SPO'
-                            : 'Buka & Perbaiki SPO'}
-                        </button>
-                      )}
-                    </div>
-
-                    <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-                      Pesan tetap tersimpan di tab Semua setelah dibaca.
-                      Buka SPO untuk
-                      menggunakan tindakan
-                      edit atau verifikasi
-                      yang tersedia sesuai
-                      wewenang Anda.
-                    </p>
                   </div>
-                ) : (
-                  <section className="border-t border-slate-200 pt-5">
-                    <h4 className="text-sm font-bold text-slate-900">
-                      Balas kepada{' '}
-                      {senderName}
-                    </h4>
-
-                    <textarea
-                      value={replyBody}
-                      onChange={(e) =>
-                        setReplyBody(
-                          e.target.value
-                        )
-                      }
-                      maxLength={2000}
-                      rows={5}
-                      autoFocus
-                      className="mt-3 w-full resize-y rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-emerald-600"
-                      placeholder="Tulis balasan..."
-                    />
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {suggestions.map(
-                        (suggestion) => (
-                          <button
-                            key={
-                              suggestion
-                            }
-                            type="button"
-                            onClick={() => insertSuggestion(
-                              suggestion
-                            )}
-                            className="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"
-                          >
-                            {
-                              suggestion
-                            }
-                          </button>
-                        )
-                      )}
-                    </div>
-
-                    <div className="mt-5 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReplying(
-                            false
-                          );
-                          setReplyBody(
-                            ''
-                          );
-                        }}
-                        className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
-                      >
-                        Batal
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={
-                          !replyBody.trim() ||
-                          sending
-                        }
-                        onClick={sendReply}
-                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-                      >
-                        <Send className="h-4 w-4" />
-
-                        {sending
-                          ? 'Mengirim...'
-                          : 'Kirim'}
-                      </button>
-                    </div>
-                  </section>
                 )}
-              </article>
+              </>
             )}
           </main>
         </div>

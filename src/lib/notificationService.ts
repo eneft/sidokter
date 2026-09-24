@@ -4,7 +4,7 @@
  * untuk penugasan dokumen ke divisi, aktivasi SPO oleh Admin bagi User,
  * usulan aktivasi bagi Admin, dan pesan alur perbaikan/verifikasi SPO.
  */
-import { collection, onSnapshot, query, where, doc, setDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, getDocs, orderBy, limit as firestoreLimit, startAfter } from 'firebase/firestore';
 import { db, functions, auth } from './firebase';
 import { httpsCallable } from 'firebase/functions';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -27,6 +27,7 @@ export type NotificationType =
 export interface AppNotification {
   id: string;
   type: NotificationType;
+  eventType?: string;
   title: string;
   message: string;
   documentId?: string;
@@ -39,6 +40,9 @@ export interface AppNotification {
   isOverdue?: boolean;
   timestamp: number;
   read: boolean;
+  actionable?: boolean;
+  resolvedAt?: number | null;
+  resolvedReason?: string | null;
   actionLabel?: string;
   onAction?: () => void;
   metadata?: Record<string, any>;
@@ -59,7 +63,6 @@ const notifiedAssignmentDocIds = new Set<string>();
 const notifiedActivationDocIds = new Set<string>();
 const notifiedProposalDocIds = new Set<string>();
 
-const NOTIF_STORAGE_PREFIX = 'soegiri_active_notifications_v3';
 const NOTIF_MUTE_PREFIX = 'soegiri_notification_muted_v3';
 let notificationScopeKey = 'anonymous';
 let notificationAuthUid = '';
@@ -67,6 +70,29 @@ let unsubscribeNotificationCloud: (() => void) | null = null;
 let cloudNotificationReady = false;
 const pendingCloudWrites = new Set<string>();
 const emittedSideEffectEventKeys = new Set<string>();
+const MAILBOX_PAGE_SIZE = 50;
+let notificationCursor: any = null;
+let notificationHasMore = false;
+let initialMailboxSnapshotSeen = false;
+let olderCloudItems: AppNotification[] = [];
+const knownCloudNotificationIds = new Set<string>();
+
+function mergeMailboxItems(...groups: AppNotification[][]): AppNotification[] {
+  const byId = new Map<string, AppNotification>();
+  groups.flat().forEach((item) => {
+    if (!item?.id) return;
+    const previous = byId.get(item.id);
+    if (!previous || Number(item.timestamp || 0) >= Number(previous.timestamp || 0)) byId.set(item.id, item);
+  });
+  return [...byId.values()]
+    .filter(isVisibleMailboxItem)
+    .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+function chimeTypeForNotification(item: AppNotification): 'activation' | 'proposal' | 'assignment' | 'review' | 'default' {
+  if (item.type === 'activation' || item.type === 'proposal' || item.type === 'assignment' || item.type === 'review') return item.type;
+  return 'default';
+}
 
 export function sanitizeEventKey(eventKey: string): string {
   // A Firestore document ID cannot contain forward slash '/' or exceed 1500 bytes.
@@ -93,10 +119,6 @@ function getNotificationScopeKey(userSession?: UserSession | null): string {
   return normalizeScopePart(stable) || 'anonymous';
 }
 
-function getNotificationStorageKey(): string {
-  return `${NOTIF_STORAGE_PREFIX}:${notificationScopeKey}`;
-}
-
 function getNotificationMuteKey(): string {
   return `${NOTIF_MUTE_PREFIX}:${notificationScopeKey}`;
 }
@@ -114,26 +136,12 @@ function notificationCollectionRef() {
 }
 
 function loadPersistedNotifications(): AppNotification[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(getNotificationStorageKey());
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((n) => isVisibleMailboxItem(n))
-        .slice(0, 50);
-    }
-  } catch {}
+  // Delivery state is cloud-authoritative; browser storage is never a mailbox source.
   return [];
 }
 
-function persistNotifications(notifications: AppNotification[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const serializable = notifications.slice(0, 50).map(({ onAction, ...rest }) => rest);
-    localStorage.setItem(getNotificationStorageKey(), JSON.stringify(serializable));
-  } catch {}
+function persistNotifications(_notifications: AppNotification[]): void {
+  // Intentionally no-op. Only user preferences such as mute remain in localStorage.
 }
 
 function clearNotificationDedupeSets(): void {
@@ -166,34 +174,73 @@ function syncNotificationCloudListener(): void {
     return;
   }
 
-  unsubscribeNotificationCloud = onSnapshot(ref, (snapshot) => {
-    const cloudItemsAll = snapshot.docs
+  const mailboxQuery = query(ref, orderBy('timestamp', 'desc'), firestoreLimit(MAILBOX_PAGE_SIZE));
+  unsubscribeNotificationCloud = onSnapshot(mailboxQuery, (snapshot) => {
+    const pageItems = snapshot.docs
       .map((d) => d.data() as AppNotification)
       .filter((n) => n && typeof n.id === 'string' && typeof n.type === 'string');
 
-    // Seed dedupe from ALL cloud records, including hidden tombstones. This prevents
-    // a cleared event from being recreated by a second producer after reload or across devices.
-    seedDedupeSetsFromNotifications(cloudItemsAll);
+    seedDedupeSetsFromNotifications(pageItems);
 
-    const cloudItems = cloudItemsAll
-      .filter(isVisibleMailboxItem)
-      .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
-      .slice(0, 50);
+    if (initialMailboxSnapshotSeen) {
+      const freshUnread = snapshot.docChanges()
+        .filter((change) => change.type === 'added')
+        .map((change) => change.doc.data() as AppNotification)
+        .filter((item) => isVisibleMailboxItem(item) && !item.read && !knownCloudNotificationIds.has(item.id));
+      if (freshUnread.length > 0) {
+        const newest = freshUnread.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))[0];
+        playChime(chimeTypeForNotification(newest));
+      }
+    }
 
-    const pending = activeNotifications.filter((n) => pendingCloudWrites.has(n.metadata?.eventKey || n.id));
-    const byKey = new Map<string, AppNotification>();
-    [...cloudItems, ...pending].forEach((n) => {
-      const key = n.metadata?.eventKey || n.id;
-      if (!byKey.has(key) || Number(n.timestamp || 0) > Number(byKey.get(key)?.timestamp || 0)) byKey.set(key, n);
-    });
-    activeNotifications = [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+    snapshot.docs.forEach((entry) => knownCloudNotificationIds.add(entry.id));
+    initialMailboxSnapshotSeen = true;
+    notificationCursor = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null;
+    notificationHasMore = snapshot.size === MAILBOX_PAGE_SIZE;
+    const visiblePage = pageItems.filter(isVisibleMailboxItem);
+    activeNotifications = mergeMailboxItems(visiblePage, olderCloudItems);
     cloudNotificationReady = true;
-    persistNotifications(activeNotifications);
     notifySubscribers();
   }, (error) => {
     cloudNotificationReady = false;
     console.warn('Notification Firestore listener note:', error?.message || error);
   });
+}
+
+export function canLoadMoreNotifications(): boolean {
+  return notificationHasMore && Boolean(notificationCursor);
+}
+
+export async function loadMoreNotifications(): Promise<number> {
+  const ref = notificationCollectionRef();
+  if (!ref || !notificationCursor || !notificationHasMore) return 0;
+  let addedVisible = 0;
+  let rounds = 0;
+
+  while (notificationHasMore && notificationCursor && addedVisible === 0 && rounds < 5) {
+    const nextQuery = query(
+      ref,
+      orderBy('timestamp', 'desc'),
+      startAfter(notificationCursor),
+      firestoreLimit(MAILBOX_PAGE_SIZE)
+    );
+    const snapshot = await getDocs(nextQuery);
+    rounds += 1;
+    notificationCursor = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : notificationCursor;
+    notificationHasMore = snapshot.size === MAILBOX_PAGE_SIZE;
+    const nextItems = snapshot.docs
+      .map((entry) => entry.data() as AppNotification)
+      .filter((item) => item && typeof item.id === 'string' && typeof item.type === 'string');
+    snapshot.docs.forEach((entry) => knownCloudNotificationIds.add(entry.id));
+    seedDedupeSetsFromNotifications(nextItems);
+    const visible = nextItems.filter(isVisibleMailboxItem);
+    addedVisible += visible.length;
+    olderCloudItems = mergeMailboxItems(olderCloudItems, visible);
+  }
+
+  activeNotifications = mergeMailboxItems(activeNotifications, olderCloudItems);
+  notifySubscribers();
+  return addedVisible;
 }
 
 /** Switches notification state to the Firebase Auth UID of the authenticated account. */
@@ -208,98 +255,25 @@ export function setNotificationUserSession(userSession: UserSession | null): voi
   }
   cloudNotificationReady = false;
   pendingCloudWrites.clear();
+  notificationCursor = null;
+  notificationHasMore = false;
+  initialMailboxSnapshotSeen = false;
+  olderCloudItems = [];
+  knownCloudNotificationIds.clear();
   notificationScopeKey = nextScope;
   notificationAuthUid = nextAuthUid;
   clearNotificationDedupeSets();
   emittedSideEffectEventKeys.clear();
-  activeNotifications = loadPersistedNotifications();
+  activeNotifications = [];
   seedDedupeSetsFromNotifications(activeNotifications);
 
-  if (userSession?.role === 'admin' || hasVerificatorBadge(userSession)) {
-    ingestQueuedAdminProposals();
-  }
 
   notifySubscribers();
 
   syncNotificationCloudListener();
 }
 
-const ADMIN_PROPOSALS_QUEUE_KEY = 'soegiri_pending_admin_proposals_v2';
-
-export function queuePendingAdminProposal(sop: SopDocument, reason?: string): void {
-  if (typeof window === 'undefined' || !sop) return;
-  try {
-    const meta = getProposalNotificationMeta(sop, currentUsersList);
-    const eventKey = getProposalEventKey(sop);
-    const docId = getNotificationDocId(eventKey, undefined);
-    const notifItem: AppNotification = {
-      id: docId,
-      type: 'proposal',
-      title: meta.title,
-      message: reason || meta.message,
-      documentId: sop.id,
-      documentNumber: sop.sopNumber,
-      documentType: 'SPO',
-      divisionCode: sop.divisionCode,
-      divisionName: sop.divisionName,
-      timestamp: Date.now(),
-      read: false,
-      hidden: false,
-      metadata: { eventKey, internalMailVersion: INTERNAL_MAIL_VERSION },
-      actionLabel: 'Tinjau & Sahkan'
-    };
-
-    const raw = localStorage.getItem(ADMIN_PROPOSALS_QUEUE_KEY);
-    const list: AppNotification[] = raw ? JSON.parse(raw) : [];
-    const filtered = list.filter((n) => n.id !== docId && n.metadata?.eventKey !== eventKey);
-    localStorage.setItem(ADMIN_PROPOSALS_QUEUE_KEY, JSON.stringify([notifItem, ...filtered].slice(0, 40)));
-  } catch (err) {
-    console.warn('Unable to queue admin proposal notification:', err);
-  }
-}
-
-export function removeQueuedAdminProposal(sopId: string): void {
-  if (typeof window === 'undefined' || !sopId) return;
-  try {
-    const raw = localStorage.getItem(ADMIN_PROPOSALS_QUEUE_KEY);
-    if (!raw) return;
-    const list: AppNotification[] = JSON.parse(raw);
-    if (!Array.isArray(list)) return;
-    const filtered = list.filter((n) => n.documentId !== sopId);
-    localStorage.setItem(ADMIN_PROPOSALS_QUEUE_KEY, JSON.stringify(filtered));
-  } catch {}
-}
-
-export function ingestQueuedAdminProposals(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    const raw = localStorage.getItem(ADMIN_PROPOSALS_QUEUE_KEY);
-    if (!raw) return false;
-    const queued: AppNotification[] = JSON.parse(raw);
-    if (!Array.isArray(queued) || queued.length === 0) return false;
-
-    let modified = false;
-    queued.filter(isInternalMailItem).forEach((item) => {
-      const exists = activeNotifications.some(
-        (n) => n.id === item.id || (n.metadata?.eventKey && n.metadata.eventKey === item.metadata?.eventKey)
-      );
-      if (!exists) {
-        activeNotifications = [item, ...activeNotifications.filter((n) => n.id !== item.id)].slice(0, 50);
-        modified = true;
-      }
-    });
-
-    if (modified) {
-      persistNotifications(activeNotifications);
-      notifySubscribers();
-    }
-    return modified;
-  } catch {
-    return false;
-  }
-}
-
-let activeNotifications: AppNotification[] = loadPersistedNotifications();
+let activeNotifications: AppNotification[] = [];
 const notificationListeners = new Set<(notifications: AppNotification[]) => void>();
 
 if (typeof window !== 'undefined') {
@@ -313,54 +287,6 @@ if (typeof window !== 'undefined') {
     }
   });
 
-  window.addEventListener('storage', (event) => {
-    if (event.key !== getNotificationStorageKey()) return;
-    activeNotifications = loadPersistedNotifications();
-    notifySubscribers();
-  });
-}
-
-async function persistNotificationToCloud(item: AppNotification): Promise<void> {
-  const ref = notificationCollectionRef();
-  if (!ref) return;
-  const eventKey = String(item.metadata?.eventKey || item.id || '').trim();
-  const docId = getNotificationDocId(eventKey, item.id);
-  pendingCloudWrites.add(eventKey || docId);
-  try {
-    const { onAction, ...serializable } = item;
-    const fallbackRef = doc(ref, docId);
-    const payload = {
-      id: docId,
-      type: serializable.type,
-      title: String(serializable.title || '').slice(0, 200),
-      message: String(serializable.message || '').slice(0, 2000),
-      documentId: serializable.documentId || null,
-      documentNumber: serializable.documentNumber || null,
-      documentType: serializable.documentType || null,
-      divisionCode: serializable.divisionCode || null,
-      divisionName: serializable.divisionName || null,
-      subHierarchyCode: serializable.subHierarchyCode || null,
-      dueDate: serializable.dueDate || null,
-      isOverdue: Boolean(serializable.isOverdue),
-      timestamp: Number(serializable.timestamp || Date.now()),
-      read: false,
-      hidden: false,
-      metadata: { ...(serializable.metadata || {}), eventKey: eventKey || docId, internalMailVersion: INTERNAL_MAIL_VERSION }
-    };
-
-    const createNotification = httpsCallable(functions, 'createNotification');
-    try {
-      await createNotification({ item: { ...payload, id: docId } });
-    } catch {
-      // Constrained direct Firestore fallback: path notifications/{UID}/items/{eventKey}
-      // Using merge: true guarantees idempotent writes and prevents permission-denied
-      await setDoc(fallbackRef, payload, { merge: true });
-    }
-  } catch (error) {
-    console.warn('Could not persist notification to Firestore:', error);
-  } finally {
-    pendingCloudWrites.delete(eventKey || docId);
-  }
 }
 
 async function persistNotificationReadToCloud(item: AppNotification): Promise<void> {
@@ -372,7 +298,6 @@ async function persistNotificationReadToCloud(item: AppNotification): Promise<vo
     await setDoc(
       doc(ref, docId),
       {
-        id: docId,
         read: Boolean(item.read),
         readAt: item.read ? Date.now() : null
       },
@@ -389,7 +314,7 @@ async function persistNotificationDeleteToCloud(item: AppNotification): Promise<
   const eventKey = String(item.metadata?.eventKey || item.id || '').trim();
   const id = getNotificationDocId(eventKey, item.id);
   try {
-    await setDoc(doc(ref, id), { id, hidden: true, deletedAt: Date.now() }, { merge: true });
+    await setDoc(doc(ref, id), { hidden: true, deletedAt: Date.now() }, { merge: true });
   } catch (error) {
     console.warn('Could not hide notification:', error);
   }
@@ -727,7 +652,6 @@ export function addNotification(
   activeNotifications = [item, ...activeNotifications.filter((n) => n.id !== item.id).slice(0, 49)];
   persistNotifications(activeNotifications);
   notifySubscribers();
-  void persistNotificationToCloud(item);
   return item;
 }
 
@@ -766,32 +690,14 @@ export function markAllNotificationsAsRead(): void {
 }
 
 export async function clearNotifications(): Promise<void> {
-  const ref = notificationCollectionRef();
+  const clearMailbox = httpsCallable(functions, 'clearNotificationMailbox');
+  await clearMailbox({});
   activeNotifications = [];
-  persistNotifications(activeNotifications);
+  olderCloudItems = [];
+  notificationCursor = null;
+  notificationHasMore = false;
+  knownCloudNotificationIds.clear();
   notifySubscribers();
-  if (!ref) return;
-
-  try {
-    const snapshot = await getDocs(ref);
-    const visibleDocs = snapshot.docs.filter((entry) => {
-      const item = entry.data() as AppNotification;
-      return item && item.hidden !== true;
-    });
-    const now = Date.now();
-
-    // Firestore batches are capped at 500 writes. Keep margin for safety.
-    for (let offset = 0; offset < visibleDocs.length; offset += 400) {
-      const batch = writeBatch(db);
-      visibleDocs.slice(offset, offset + 400).forEach((entry) => {
-        batch.set(entry.ref, { id: entry.id, hidden: true, deletedAt: now }, { merge: true });
-      });
-      await batch.commit();
-    }
-  } catch (error) {
-    console.warn('Could not clear cloud notifications:', error);
-    throw error;
-  }
 }
 
 /* =========================================================================
@@ -995,284 +901,13 @@ export interface RealtimeWatcherOptions {
  * Combines Firestore onSnapshot and local event listeners.
  */
 export function setupDocumentRealtimeWatcher({
-  userSession,
-  onToast,
-  onSelectDocument
+  userSession
 }: RealtimeWatcherOptions): () => void {
   if (!userSession) return () => {};
   setNotificationUserSession(userSession);
-
-  let isFirstSnapshot = true;
-  const initialKnownDocIds = new Set<string>();
-  const docStatusMap = new Map<string, string>();
-  const docActivationReqMap = new Map<string, string>();
-
-  // 1. Listen to Firestore 'sops' collection in real-time
-  let unsubscribeFirestore: (() => void) | null = null;
-  try {
-    const sopsCollection = collection(db, 'sops');
-    const isAdmin = userSession.role === 'admin';
-    const hasAllHierarchyAssignment = Array.isArray(userSession?.assignments)
-      ? userSession.assignments.some((a) => String(a?.divisionCode || '').trim().toUpperCase() === 'ALL')
-      : Array.isArray(userSession?.divisionCodes)
-        ? userSession.divisionCodes.some((code) => String(code || '').trim().toUpperCase() === 'ALL')
-        : String(userSession?.divisionCode || '').trim().toUpperCase() === 'ALL';
-    const globalAccess = isAdmin || hasAllHierarchyAssignment;
-    const scopedKeys = getUserHierarchyAccessKeys(userSession);
-
-    const sopsQuery = globalAccess
-      ? sopsCollection
-      : (scopedKeys.length > 0
-          ? query(sopsCollection, where('authorizedUids', 'array-contains', auth.currentUser!.uid))
-          : null);
-
-    if (sopsQuery && auth.currentUser) {
-      unsubscribeFirestore = onSnapshot(
-        sopsQuery,
-      (snapshot) => {
-        if (isFirstSnapshot) {
-          // Record existing documents and baseline statuses
-          snapshot.docs.forEach((d) => {
-            initialKnownDocIds.add(d.id);
-            const data = d.data() as SopDocument;
-            if (data?.id) {
-              docStatusMap.set(data.id, data.status || '');
-              if (data.activationRequestedAt) {
-                docActivationReqMap.set(data.id, data.activationRequestedAt);
-              }
-
-              // Check if this document is an activated document proposed by this user that hasn't been notified yet
-              // (handles cases where admin activated the document while user was offline or in another session)
-              // NOTE: Notif pengaktifan HANYA masuk ke user pengusul, BUKAN ke semua user
-              const isAdmin = userSession.role === 'admin';
-              if (!isAdmin && data.status === 'AKTIF' && isUserPengusulSop(data, userSession)) {
-                const actKey = getActivationEventKey(data);
-                const alreadyNotified =
-                  notifiedActivationDocIds.has(actKey) ||
-                  activeNotifications.some(
-                    (n) => n.metadata?.eventKey === actKey || (n.type === 'activation' && n.documentId === data.id)
-                  );
-                if (!alreadyNotified && (data.activatedAt || data.activationRequestedAt)) {
-                  const meta = getActivationNotificationMeta(data);
-                  processNotificationEvent(
-                    {
-                      type: 'activation',
-                      sop: data,
-                      eventKey: actKey,
-                      title: meta.title,
-                      message: meta.message,
-                      actionLabel: 'Buka Dokumen',
-                      onAction: () => onSelectDocument?.(data)
-                    },
-                    onToast
-                  );
-                }
-              }
-
-              // Check if this document is an unapproved draft proposal for Admin that hasn't been notified yet
-              const canReceiveProposalNotif = isAdmin || (hasVerificatorBadge(userSession) && userCanAccessSop(data, userSession));
-              if (canReceiveProposalNotif && data.status === 'DRAFT' && (data.activationRequestedAt || data.activationRequestedBy || data.isLegacySop || data.isReviewDocument || data.jenis_spo === 'BARU')) {
-                const propKey = getProposalEventKey(data);
-                const alreadyNotified =
-                  notifiedProposalDocIds.has(propKey) ||
-                  activeNotifications.some(
-                    (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === data.id)) && !n.hidden
-                  );
-                if (!alreadyNotified) {
-                  const meta = getProposalNotificationMeta(data, currentUsersList);
-                  processNotificationEvent(
-                    {
-                      type: 'proposal',
-                      sop: data,
-                      eventKey: propKey,
-                      title: meta.title,
-                      message: meta.message,
-                      actionLabel: 'Tinjau & Sahkan',
-                      onAction: () => onSelectDocument?.(data)
-                    },
-                    onToast
-                  );
-                }
-              }
-            }
-          });
-          isFirstSnapshot = false;
-          return;
-        }
-
-        snapshot.docChanges().forEach((change) => {
-          const sop = change.doc.data() as SopDocument;
-          if (!sop || !sop.id) return;
-
-          const prevStatus = docStatusMap.get(sop.id);
-          const prevActivationReq = docActivationReqMap.get(sop.id);
-          docStatusMap.set(sop.id, sop.status || '');
-          if (sop.activationRequestedAt) {
-            docActivationReqMap.set(sop.id, sop.activationRequestedAt);
-          }
-
-          const isAdmin = userSession.role === 'admin';
-          const inUserHierarchy = userCanAccessSop(sop, userSession);
-          const isPengusul = isUserPengusulSop(sop, userSession);
-
-          // EVENT 1 (HANYA USER PENGUSUL): Notif muncul kalau SPO disetujui & diaktifkan Admin
-          // Sesuai rules: Notif pengaktifan HANYA masuk ke user pengusul, BUKAN ke semua user
-          if (!isAdmin && isPengusul && sop.status === 'AKTIF') {
-            const isJustActivated =
-              (prevStatus && prevStatus !== 'AKTIF') ||
-              (change.type === 'modified' && prevStatus === 'DRAFT') ||
-              (sop.activatedAt && (!prevStatus || prevStatus === 'DRAFT')) ||
-              (change.type === 'modified' && sop.status === 'AKTIF');
-
-            const actKey = getActivationEventKey(sop);
-            if (isJustActivated) {
-              const meta = getActivationNotificationMeta(sop);
-              processNotificationEvent({
-                type: 'activation',
-                sop,
-                eventKey: actKey,
-                title: meta.title,
-                message: meta.message,
-                actionLabel: 'Buka Dokumen',
-                onAction: () => onSelectDocument?.(sop)
-              }, onToast);
-            }
-          }
-
-          // EVENT 2 (ADMIN): Muncul kalau pengusul mengusulkan aktivasi SPO (status DRAFT baru atau ada usulan baru)
-          // Sesuai rules: Pengusul -> 🔔 Admin
-          const canReceiveProposalNotif = isAdmin || (hasVerificatorBadge(userSession) && userCanAccessSop(sop, userSession));
-          if (canReceiveProposalNotif && sop.status === 'DRAFT') {
-            const isNewDraft = change.type === 'added' && !initialKnownDocIds.has(sop.id);
-            const isActivationRequested =
-              Boolean(sop.activationRequestedAt) &&
-              sop.activationRequestedAt !== prevActivationReq;
-            const hasProposalMeta = Boolean(sop.activationRequestedAt || sop.activationRequestedBy || sop.isLegacySop || sop.isReviewDocument || sop.jenis_spo === 'BARU');
-
-            const propKey = getProposalEventKey(sop);
-            const alreadyNotified =
-              notifiedProposalDocIds.has(propKey) ||
-              activeNotifications.some(
-                (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === sop.id)) && !n.hidden
-              );
-
-            if ((isNewDraft || isActivationRequested || !alreadyNotified) && hasProposalMeta) {
-              const meta = getProposalNotificationMeta(sop, currentUsersList);
-              processNotificationEvent({
-                type: 'proposal',
-                sop,
-                eventKey: propKey,
-                title: meta.title,
-                message: meta.message,
-                actionLabel: 'Tinjau & Sahkan',
-                onAction: () => onSelectDocument?.(sop)
-              }, onToast);
-            }
-          }
-
-          // EVENT 3: NEW DOCUMENT ASSIGNMENT (Untuk divisi terkait saat dokumen aktif baru terbit)
-          if (change.type === 'added' && !initialKnownDocIds.has(sop.id)) {
-            initialKnownDocIds.add(sop.id);
-            const assignmentKey = getAssignmentEventKey(sop);
-            if (inUserHierarchy && sop.status === 'AKTIF') {
-              const divLabel = sop.divisionName || sop.divisionCode || 'Divisi Anda';
-              const notifMsg = `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah disetujui & disahkan untuk ${divLabel}.`;
-              processNotificationEvent({ type: 'assignment', sop, eventKey: assignmentKey, title: 'Dokumen Baru Disetujui', message: notifMsg, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
-            }
-          }
-
-        });
-      },
-      (error) => {
-        if (error?.code !== 'permission-denied') {
-          console.info('Firestore real-time notification listener note:', error?.message || error);
-        }
-      }
-    );
-    }
-  } catch (err) {
-    console.warn('Could not attach Firestore realtime listener:', err);
-  }
-
-  // 2. Local window & cross-tab event listener for immediate same-client / multi-tab responsiveness
-  const handleLocalEvent = (e: Event) => {
-    const customEvent = e as CustomEvent<{
-      type: 'assignment' | 'review' | 'activation' | 'proposal';
-      document: SopDocument;
-      reason?: string;
-    }>;
-    const detail = customEvent.detail;
-    if (!detail?.document) return;
-
-    const { type, document: sop, reason } = detail;
-    const isAdmin = userSession.role === 'admin';
-    const inUserHierarchy = userCanAccessSop(sop, userSession);
-    const isPengusul = isUserPengusulSop(sop, userSession);
-
-    if (type === 'activation') {
-      // NOTE: Notifikasi pengaktifan HANYA untuk user pengusul, bukan semua user
-      if (isAdmin || !isPengusul) return;
-      const eventKey = getActivationEventKey(sop);
-      const meta = getActivationNotificationMeta(sop);
-      const message = reason || meta.message;
-      processNotificationEvent({
-        type,
-        sop,
-        eventKey,
-        title: meta.title,
-        message,
-        actionLabel: 'Buka Dokumen',
-        onAction: () => onSelectDocument?.(sop)
-      }, onToast);
-      return;
-    }
-
-    if (type === 'proposal') {
-      if (!isAdmin) return;
-      const eventKey = getProposalEventKey(sop);
-      const meta = getProposalNotificationMeta(sop, currentUsersList);
-      const message = reason || meta.message;
-      processNotificationEvent({
-        type,
-        sop,
-        eventKey,
-        title: meta.title,
-        message,
-        actionLabel: 'Tinjau & Sahkan',
-        onAction: () => onSelectDocument?.(sop)
-      }, onToast);
-      return;
-    }
-
-    if (type === 'assignment') {
-      if (!inUserHierarchy) return;
-      const eventKey = getAssignmentEventKey(sop);
-      const divLabel = sop.divisionName || sop.divisionCode || 'Divisi Anda';
-      const message = reason || `SPO "${sop.title}" (${sop.sopNumber || 'Baru'}) telah disetujui & disahkan untuk ${divLabel}.`;
-      processNotificationEvent({ type, sop, eventKey, title: 'Dokumen Baru Disetujui', message, actionLabel: 'Buka Dokumen', onAction: () => onSelectDocument?.(sop) }, onToast);
-      return;
-    }
-
-    // Legacy client periodic-review events are intentionally ignored. Human
-    // correction/review messages are created authoritatively by sopReviewWorkflow.
-    if (type === 'review') return;
-
-  };
-
-  const handleBroadcastMessage = (event: MessageEvent) => {
-    if (event?.data?.type && event?.data?.document) {
-      handleLocalEvent(new CustomEvent('soegiri_document_event', { detail: event.data }));
-    }
-  };
-
-  window.addEventListener('soegiri_document_event', handleLocalEvent);
-  documentBroadcastChannel?.addEventListener('message', handleBroadcastMessage);
-
-  return () => {
-    if (unsubscribeFirestore) unsubscribeFirestore();
-    window.removeEventListener('soegiri_document_event', handleLocalEvent);
-    documentBroadcastChannel?.removeEventListener('message', handleBroadcastMessage);
-  };
+  // Workflow notification production is backend-authoritative. This watcher now
+  // only binds the authenticated mailbox listener; it never creates messages.
+  return () => {};
 }
 
 /**
@@ -1280,25 +915,13 @@ export function setupDocumentRealtimeWatcher({
  * Broadcasts across same-window and cross-tab BroadcastChannel.
  */
 export function dispatchDocumentEvent(
-  type: 'assignment' | 'review' | 'activation' | 'proposal',
-  document: SopDocument,
-  reason?: string
+  _type: 'assignment' | 'review' | 'activation' | 'proposal',
+  _document: SopDocument,
+  _reason?: string
 ): void {
-  if (typeof window === 'undefined') return;
-  const detail = { type, document, reason };
-
-  if (type === 'proposal') {
-    queuePendingAdminProposal(document, reason);
-  } else if (type === 'activation') {
-    removeQueuedAdminProposal(document.id);
-  }
-
-  window.dispatchEvent(
-    new CustomEvent('soegiri_document_event', { detail })
-  );
-  try {
-    documentBroadcastChannel?.postMessage(detail);
-  } catch {}
+  // Kept for call-site compatibility. The server Firestore workflow trigger is
+  // the sole producer of official workflow mailbox records.
+  return;
 }
 
 /**
@@ -1306,59 +929,13 @@ export function dispatchDocumentEvent(
  * document is a pending proposal (DRAFT) waiting for Admin approval/activation.
  */
 export function scanDocumentsForProposals(
-  sops: SopDocument[],
-  userSession: UserSession | null,
-  users: UserAccount[] | undefined,
+  _sops: SopDocument[],
+  _userSession: UserSession | null,
+  _users: UserAccount[] | undefined,
   _onToast: RealtimeWatcherOptions['onToast'],
-  onSelectDocument?: (doc: SopDocument) => void
+  _onSelectDocument?: (doc: SopDocument) => void
 ): void {
-  if (!userSession || userSession.role !== 'admin' || !Array.isArray(sops) || sops.length === 0) return;
-  setNotificationUserSession(userSession);
-  if (users) setNotificationUsers(users);
-
-  // Ingest any queued proposals from previous session / cross-session actions
-  ingestQueuedAdminProposals();
-
-  const pendingProposals: SopDocument[] = [];
-
-  for (const sop of sops) {
-    if (!sop || sop.status !== 'DRAFT') continue;
-    if ((sop as any).isNumberReservation) continue;
-
-    const propKey = getProposalEventKey(sop);
-    const alreadyNotified =
-      notifiedProposalDocIds.has(propKey) ||
-      activeNotifications.some(
-        (n) => (n.metadata?.eventKey === propKey || (n.type === 'proposal' && n.documentId === sop.id)) && !n.hidden
-      );
-
-    if (!alreadyNotified) {
-      pendingProposals.push(sop);
-    }
-  }
-
-  if (pendingProposals.length === 0) return;
-
-  pendingProposals.forEach((sop) => {
-    const propKey = getProposalEventKey(sop);
-    notifiedProposalDocIds.add(propKey);
-    const meta = getProposalNotificationMeta(sop, users || currentUsersList);
-    addNotification({
-      type: 'proposal',
-      title: meta.title,
-      message: meta.message,
-      documentId: sop.id,
-      documentNumber: sop.sopNumber,
-      documentType: 'SPO',
-      divisionCode: sop.divisionCode,
-      divisionName: sop.divisionName,
-      metadata: { eventKey: propKey },
-      actionLabel: 'Tinjau & Sahkan',
-      onAction: () => onSelectDocument?.(sop)
-    });
-  });
-
-  // Session discovery is represented by Pesan only; it must not create a workflow toast.
+  return;
 }
 
 /**
@@ -1366,80 +943,12 @@ export function scanDocumentsForProposals(
  * proposed by this user (or in user's hierarchy) have generated notifications.
  */
 export function scanDocumentsForActivations(
-  sops: SopDocument[],
-  userSession: UserSession | null,
+  _sops: SopDocument[],
+  _userSession: UserSession | null,
   _onToast: RealtimeWatcherOptions['onToast'],
-  onSelectDocument?: (doc: SopDocument) => void
+  _onSelectDocument?: (doc: SopDocument) => void
 ): void {
-  if (!userSession || !Array.isArray(sops) || sops.length === 0) return;
-  if (userSession.role === 'admin') return;
-
-  setNotificationUserSession(userSession);
-
-  // Prune any legacy or invalid activation notifications for documents this user did not propose
-  if (sops.length > 0 && activeNotifications.some((n) => n.type === 'activation')) {
-    const sopsMap = new Map<string, SopDocument>();
-    sops.forEach((s) => {
-      if (s?.id) sopsMap.set(s.id, s);
-    });
-
-    const cleaned = activeNotifications.filter((n) => {
-      if (n.type !== 'activation' || !n.documentId) return true;
-      const targetSop = sopsMap.get(n.documentId);
-      if (!targetSop) return true;
-      return isUserPengusulSop(targetSop, userSession);
-    });
-
-    if (cleaned.length !== activeNotifications.length) {
-      activeNotifications = cleaned;
-      persistNotifications(activeNotifications);
-      notifySubscribers();
-    }
-  }
-
-  const newlyActivatedDocs: SopDocument[] = [];
-
-  for (const sop of sops) {
-    if (!sop || sop.status !== 'AKTIF') continue;
-    // NOTE: Notifikasi pengaktifan HANYA masuk ke user pengusul, bukan ke semua user
-    const isPengusul = isUserPengusulSop(sop, userSession);
-    if (!isPengusul) continue;
-    if (!sop.activatedAt && !sop.activationRequestedAt) continue;
-
-    const actKey = getActivationEventKey(sop);
-    const alreadyNotified =
-      notifiedActivationDocIds.has(actKey) ||
-      activeNotifications.some(
-        (n) => n.metadata?.eventKey === actKey || (n.type === 'activation' && n.documentId === sop.id)
-      );
-
-    if (!alreadyNotified) {
-      newlyActivatedDocs.push(sop);
-    }
-  }
-
-  if (newlyActivatedDocs.length === 0) return;
-
-  newlyActivatedDocs.forEach((sop) => {
-    const actKey = getActivationEventKey(sop);
-    notifiedActivationDocIds.add(actKey);
-    const meta = getActivationNotificationMeta(sop);
-    addNotification({
-      type: 'activation',
-      title: meta.title,
-      message: meta.message,
-      documentId: sop.id,
-      documentNumber: sop.sopNumber,
-      documentType: 'SPO',
-      divisionCode: sop.divisionCode,
-      divisionName: sop.divisionName,
-      metadata: { eventKey: actKey },
-      actionLabel: 'Buka Dokumen',
-      onAction: () => onSelectDocument?.(sop)
-    });
-  });
-
-  // Session discovery is represented by Pesan only; it must not create a workflow toast.
+  return;
 }
 
 /**
