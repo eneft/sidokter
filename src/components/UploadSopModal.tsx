@@ -36,7 +36,7 @@ import { subscribeToHierarchyMaster } from '../lib/hierarchyService';
 import { RichTextEditor } from './RichTextEditor';
 import { HierarchyPicker } from './HierarchyPicker';
 import { SopLiveTemplate } from './SopLiveTemplate';
-import { SupportingEvidenceInput, createPendingEvidence, PendingEvidence } from './SupportingEvidenceInput';
+import { SupportingEvidenceInput, PendingEvidence } from './SupportingEvidenceInput';
 
 interface UploadSopModalProps {
   isOpen: boolean;
@@ -171,7 +171,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
   const [selectedOldFile, setSelectedOldFile] = useState<File | null>(null);
   const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [oldFileDataUrl, setOldFileDataUrl] = useState<string | undefined>(undefined);
-  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([createPendingEvidence(1)]);
+  const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([]);
 
   const [activeTab, setActiveTab] = useState<'info' | 'konten' | 'lampiran'>('info');
   const [missingSections, setMissingSections] = useState<string[]>([]);
@@ -359,7 +359,7 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
     setRevisionNumber('01');
     setAdminManualSequence('');
     setReviewReason('');
-    setSupportingEvidence([createPendingEvidence(1)]);
+    setSupportingEvidence([]);
     setActiveTab('info');
     setMissingSections([]);
     setLatestCreatedSop(null);
@@ -502,8 +502,8 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
           return;
         }
       }
-      if (!supportingEvidence[0]?.file || supportingEvidence.some((item) => !item.file)) {
-        alert('Minimal satu Bukti Dukung Riviu wajib diunggah; hapus baris tambahan yang kosong.');
+      if (supportingEvidence.some((item) => !item.file)) {
+        alert('Pilih berkas pada setiap baris lampiran opsional, atau hapus baris yang masih kosong.');
         return;
       }
     }
@@ -1527,7 +1527,13 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                 )}
                 {documentType === 'REVIEW' && (
                   <div className="mt-3">
-                    <SupportingEvidenceInput value={supportingEvidence} onChange={setSupportingEvidence} showPrimary={false} />
+                    <SupportingEvidenceInput
+                      value={supportingEvidence}
+                      onChange={setSupportingEvidence}
+                      showPrimary={false}
+                      title="Lampiran Pendukung Opsional"
+                      description="Boleh dikosongkan. Tambahkan hanya bila ada notulen, pedoman, hasil audit, surat, atau dokumen pendukung lain."
+                    />
                   </div>
                 )}
               </div>

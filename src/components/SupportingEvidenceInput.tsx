@@ -10,13 +10,16 @@ export interface PendingEvidence {
   file: File | null;
 }
 
-const categories: Array<[SupportingEvidenceCategory, string]> = [
+export const SUPPORTING_EVIDENCE_CATEGORIES: Array<[SupportingEvidenceCategory, string]> = [
   ['NOTULEN_BA', 'Notulen / Berita Acara'],
   ['PERATURAN_PEDOMAN', 'Peraturan / Pedoman'],
   ['EVALUASI_AUDIT', 'Evaluasi / Audit / Monitoring'],
   ['SURAT_INSTRUKSI', 'Surat / Instruksi / Disposisi'],
   ['LAINNYA', 'Dokumen Lainnya'],
 ];
+
+export const getSupportingEvidenceCategoryLabel = (category: SupportingEvidenceCategory): string =>
+  SUPPORTING_EVIDENCE_CATEGORIES.find(([key]) => key === category)?.[1] || 'Dokumen Lainnya';
 
 export const createPendingEvidence = (number: number): PendingEvidence => ({
   id: `evidence-${number}`,
@@ -33,15 +36,29 @@ export const SupportingEvidenceInput: React.FC<{
   onManualSourceFileChange?: (file: File | null) => void;
   onViewSource?: () => void;
   showPrimary?: boolean;
-}> = ({ value, onChange, source, manualSourceFile = null, onManualSourceFileChange = (_file: File | null) => undefined, onViewSource = () => undefined, showPrimary = true }) => {
+  title?: string;
+  description?: string;
+  acceptedFileTypes?: string;
+}> = ({
+  value,
+  onChange,
+  source,
+  manualSourceFile = null,
+  onManualSourceFileChange = (_file: File | null) => undefined,
+  onViewSource = () => undefined,
+  showPrimary = true,
+  title = 'Bukti Dukung Riviu',
+  description = 'Bukti #1 adalah SPO yang diriviu. Bukti tambahan bersifat opsional.',
+  acceptedFileTypes = '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png',
+}) => {
   const update = (index: number, patch: Partial<PendingEvidence>) =>
     onChange(value.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2.5">
       <div>
-        <div className="text-xs font-black uppercase tracking-wider text-slate-800">Bukti Dukung Riviu</div>
-        <p className="text-[10px] text-slate-500">Bukti #1 adalah SPO yang diriviu. Bukti tambahan bersifat opsional.</p>
+        <div className="text-xs font-black uppercase tracking-wider text-slate-800">{title}</div>
+        <p className="text-[10px] text-slate-500">{description}</p>
       </div>
       {showPrimary && <div className="grid grid-cols-1 sm:grid-cols-[30px_150px_minmax(0,1fr)_auto] gap-2 items-center rounded-lg border border-emerald-200 bg-emerald-50/40 p-2">
         <span className="text-xs font-black text-emerald-800 text-center">1.</span>
@@ -69,14 +86,14 @@ export const SupportingEvidenceInput: React.FC<{
           <div key={item.id} className="grid grid-cols-1 sm:grid-cols-[30px_180px_minmax(0,1fr)_auto] gap-2 items-center rounded-lg border border-slate-200 bg-white p-2">
             <span className="text-xs font-black text-slate-600 text-center">{index + (showPrimary ? 2 : 1)}.</span>
             <select value={item.category} onChange={(e) => update(index, { category: e.target.value as SupportingEvidenceCategory })} className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-[11px]">
-              {categories.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              {SUPPORTING_EVIDENCE_CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
             <div className="min-w-0 flex flex-col gap-1">
               <input type="text" value={item.description} onChange={(e) => update(index, { description: e.target.value })} placeholder="Keterangan (opsional)" className="w-full rounded-lg border border-slate-300 px-2 py-1 text-[11px]" />
               <label className="flex min-w-0 cursor-pointer items-center gap-2 text-[10px]">
                 <span className="shrink-0 rounded-md border border-slate-300 bg-slate-50 px-2 py-1 font-bold text-slate-700">Pilih Berkas</span>
                 <span className="truncate font-semibold text-slate-600">{item.file ? `${item.file.name} (${formatBytes(item.file.size)})` : 'Belum ada berkas'}</span>
-                <input type="file" onChange={(e) => update(index, { file: e.target.files?.[0] || null })} className="hidden" />
+                <input type="file" accept={acceptedFileTypes} onChange={(e) => update(index, { file: e.target.files?.[0] || null })} className="hidden" />
               </label>
             </div>
             <div className="flex gap-1 justify-end">
@@ -87,7 +104,7 @@ export const SupportingEvidenceInput: React.FC<{
         ))}
       </div>
       <button type="button" onClick={() => onChange([...value, createPendingEvidence(Math.max(0, ...value.map((item) => Number(item.id.split('-').pop()) || 0)) + 1)])} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50">
-        <Plus className="w-3.5 h-3.5" /> Tambah Bukti Dukung
+        <Plus className="w-3.5 h-3.5" /> Tambah Lampiran Opsional
       </button>
     </section>
   );

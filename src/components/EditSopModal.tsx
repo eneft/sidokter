@@ -15,8 +15,6 @@ import {
   RotateCcw,
   Lock,
   ShieldCheck,
-  ArrowRight,
-  ArrowLeft,
   Layers,
   Check,
   Clock,
@@ -51,12 +49,17 @@ import { HierarchyPicker } from './HierarchyPicker';
 import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
 import { canEditExistingSop } from '../lib/sopEditPolicy';
 import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
+import {
+  SupportingEvidenceInput,
+  PendingEvidence,
+  getSupportingEvidenceCategoryLabel,
+} from './SupportingEvidenceInput';
 
 export interface EditSopModalProps {
   isOpen: boolean;
   sop: SopDocument | null;
   onClose: () => void;
-  onSubmit: (updatedSop: SopDocument) => void;
+  onSubmit: (updatedSop: SopDocument) => void | Promise<void>;
   divisions: Division[];
   categories: SopCategory[];
   userSession?: UserSession | null;
@@ -117,6 +120,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
   const [reuploadRiviuScanSize, setReuploadRiviuScanSize] = useState<number>(0);
   const [isProcessingRiviuScanFile, setIsProcessingRiviuScanFile] = useState<boolean>(false);
   const [isDraggingRiviuScan, setIsDraggingRiviuScan] = useState<boolean>(false);
+  const [newSupportingEvidence, setNewSupportingEvidence] = useState<PendingEvidence[]>([]);
 
   const currentExistingFileName = sop.signedScanFileName || sop.fileName || sop.oldFileName || 'Dokumen_SPO_Eksisting.pdf';
   const currentExistingFileSize = sop.signedScanFileSize || sop.fileSize || sop.oldFileSize;
@@ -358,6 +362,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
     setReuploadRiviuScanSize(0);
     setIsProcessingRiviuScanFile(false);
     setIsDraggingRiviuScan(false);
+    setNewSupportingEvidence([]);
   }, [sop, isOpen]);
 
   // Content checkers
@@ -402,6 +407,14 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
     : undefined;
   const requiresExternalReviewPdf = isReview && !matchedReviewSource;
   const hasDurableOrPendingOldFile = hasCurrentOldFile || Boolean(reuploadOldDataUrl);
+  const reviewRevisionPreview = (() => {
+    if (!isReview) return version;
+    try {
+      return getAuthoritativeRiviuRevision(matchedReviewSource, previousRevisionNumber).revisionNumber || version;
+    } catch {
+      return version;
+    }
+  })();
   const reviewRequiredItems = isReview ? [
     { label: 'Nomor SPO lama', complete: Boolean(normalizedOldSopNumber) },
     { label: 'Nomor revisi dokumen lama', complete: /^\d+$/.test(previousRevisionNumber.trim()) },
@@ -468,7 +481,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
   };
 
   // Submit Handler
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title.trim()) {
@@ -518,6 +531,12 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
         setActiveTab('konten');
         return;
       }
+    }
+
+    if (isReview && newSupportingEvidence.some((item) => !item.file)) {
+      setValidationMessage(['Pilih berkas pada setiap lampiran opsional, atau hapus baris yang masih kosong.']);
+      setActiveTab('berkas');
+      return;
     }
 
     setValidationMessage([]);
@@ -604,6 +623,35 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       updatedAt: new Date().toISOString()
     };
 
+    if (isReview && newSupportingEvidence.length > 0) {
+      try {
+        const uploadBatchId = Date.now();
+        const appendedEvidence = await Promise.all(newSupportingEvidence.map(async (item, index) => {
+          const file = item.file!;
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error(`Gagal membaca lampiran ${file.name}.`));
+            reader.readAsDataURL(file);
+          });
+          return {
+            id: `evidence-${uploadBatchId}-${index + 1}`,
+            category: item.category,
+            description: item.description.trim() || undefined,
+            originalName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            size: file.size,
+            dataUrl,
+          };
+        }));
+        updated.supportingEvidence = [...(sop.supportingEvidence || []), ...appendedEvidence];
+      } catch (error) {
+        setValidationMessage([error instanceof Error ? error.message : 'Gagal membaca lampiran pendukung.']);
+        setActiveTab('berkas');
+        return;
+      }
+    }
+
     // =========================================================
     // PEMROSESAN BERKAS UPLOAD ULANG (KHUSUS ROLE ADMIN)
     // =========================================================
@@ -670,7 +718,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       updated.revisionHistory = updatedHistory;
     }
 
-    onSubmit(updated);
+    await onSubmit(updated);
     onClose();
   };
 
@@ -693,6 +741,15 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                 </h2>
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
                   Rev {version || '00'}
+                </span>
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  sop.status === 'AKTIF'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : sop.status === 'DIARSIPKAN'
+                      ? 'bg-slate-100 text-slate-600 border-slate-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {sop.status || 'DRAFT'}
                 </span>
                 {isAdmin ? (
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -848,7 +905,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">
                         Nomor SPO Lama <span className="text-rose-500">*</span>
@@ -875,6 +932,14 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                         placeholder="00"
                         className="w-full text-xs font-mono font-bold border border-slate-300 rounded-xl px-3 py-2.5 text-slate-900 bg-white read-only:bg-slate-100 read-only:text-slate-600 focus:ring-2 focus:ring-amber-500 outline-none"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Revisi Hasil Riviu
+                      </label>
+                      <div className="w-full text-xs font-mono font-bold border border-slate-200 rounded-xl px-3 py-2.5 text-teal-800 bg-teal-50">
+                        {reviewRevisionPreview || '—'}
+                      </div>
                     </div>
                   </div>
 
@@ -923,7 +988,8 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                 </div>
               )}
               
-              {/* Card 1: Identitas & Registrasi Nomor SPO */}
+              {/* Nomor resmi sudah tampil di header. Kontrol registrasi hanya relevan untuk Admin saat Riviu. */}
+              {(!isReview || isAdmin) && (
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2">
@@ -1048,6 +1114,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   </div>
                 )}
               </div>
+              )}
 
               {/* Card 2: Informasi Judul & Data Pokok */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
@@ -1072,7 +1139,8 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   />
                 </div>
 
-                {/* Grid Baris: Revisi, Status, Kerahasiaan */}
+                {/* Metadata ini tidak perlu diulang pada Riviu: revisi ada di identitas, status ada di header, kerahasiaan tetap mengikuti dokumen. */}
+                {!isReview && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -1111,6 +1179,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     </select>
                   </div>
                 </div>
+                )}
 
                 {/* Grid Baris: Tanggal & Penyusun */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -1140,7 +1209,8 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   </div>
                 </div>
 
-                {/* Lokasi Fisik Arsip */}
+                {/* Lokasi fisik bukan data proses Riviu; tetap tersedia untuk jenis dokumen lain. */}
+                {!isReview && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     Lokasi Fisik / Binder Penyimpanan (Opsional)
@@ -1153,37 +1223,6 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 text-slate-800 bg-white focus:ring-2 focus:ring-teal-500 outline-none"
                   />
                 </div>
-
-                {/* Admin Quick Action: Upload Ulang PDF */}
-                {(isReview || (isAdmin && isExisting)) && (
-                  <div className="mt-4 p-4 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-indigo-50/50 to-purple-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
-                        <Upload className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-indigo-950">
-                            {isExisting ? 'Pembaruan Berkas PDF SPO Eksisting' : 'Kelengkapan Berkas SPO Riviu'}
-                          </span>
-                          {isAdmin && <span className="px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 rounded border border-indigo-200">Fitur Admin</span>}
-                        </div>
-                        <p className="text-[11px] text-slate-600 mt-0.5">
-                          {isExisting
-                            ? `Dokumen terlampir: ${currentExistingFileName} (${formatBytes(currentExistingFileSize)}). Ingin mengganti atau memperbarui berkas PDF asli?`
-                            : `PDF sumber SPO lama dapat dilengkapi selama masih Draft. Scan final tetap dikelola Admin.`}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('berkas')}
-                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>{isReview ? 'Buka Berkas Riviu' : 'Upload Ulang PDF'}</span>
-                    </button>
-                  </div>
                 )}
               </div>
             </div>
@@ -1344,8 +1383,8 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                     </div>
                     <p className="text-xs text-indigo-900/80 leading-relaxed">
                       {isExisting
-                        ? 'Fitur ini memungkinkan Administrator untuk mengganti file PDF asli dokumen SPO Eksisting dengan versi perbaikan atau digitalisasi pindaian yang lebih bersih dan lengkap.'
-                        : 'PDF sumber SPO lama wajib tersedia untuk Riviu eksternal/legacy. Selama masih Draft, pengusul dapat melengkapi berkas sumber yang belum terunggah; scan final tetap dikelola Administrator.'}
+                        ? 'Administrator dapat mengganti PDF asli SPO Eksisting dengan hasil digitalisasi yang lebih bersih dan lengkap.'
+                        : 'Wajib hanya untuk sumber eksternal/legacy: PDF SPO lama resmi bertanda tangan. Sumber internal SIDOKTER tidak perlu diunggah ulang. Notulen, pedoman, audit, surat, dan dokumen lain dapat ditambahkan sebagai lampiran opsional.'}
                     </p>
                   </div>
                 </div>
@@ -1533,7 +1572,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                       <div className="flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-teal-600" />
                         <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                          1. Berkas Pindaian SPO Bertanda Tangan (Format Baru)
+                          Scan Final SPO Bertanda Tangan (Opsional — Admin)
                         </span>
                       </div>
                       {hasCurrentRiviuScanFile ? (
@@ -1653,13 +1692,14 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                   </div>
                   )}
 
-                  {/* Bagian B: PDF sumber SPO lama */}
+                  {/* PDF sumber hanya perlu diunggah untuk pendahulu eksternal/legacy. */}
+                  {requiresExternalReviewPdf ? (
                   <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
                       <div className="flex items-center gap-2">
                         <History className="w-4 h-4 text-amber-600" />
                         <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                          PDF Sumber SPO Lama {requiresExternalReviewPdf ? '(Wajib)' : '(Opsional untuk Rujukan Internal)'}
+                          PDF Sumber SPO Lama (Wajib)
                         </span>
                       </div>
                       {hasCurrentOldFile ? (
@@ -1777,20 +1817,63 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                       </div>
                     )}
 
-                    {requiresExternalReviewPdf && (
-                      <label className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
-                        <input
-                          type="checkbox"
-                          checked={externalReviewSignedConfirmed}
-                          onChange={(e) => setExternalReviewSignedConfirmed(e.target.checked)}
-                          className="mt-0.5 accent-amber-600"
-                        />
-                        <span>
-                          Saya memastikan PDF sumber SPO lama merupakan dokumen resmi yang telah ditandatangani Direktur. <strong>Wajib untuk Riviu eksternal/legacy.</strong>
-                        </span>
-                      </label>
-                    )}
+                    <label className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+                      <input
+                        type="checkbox"
+                        checked={externalReviewSignedConfirmed}
+                        onChange={(e) => setExternalReviewSignedConfirmed(e.target.checked)}
+                        className="mt-0.5 accent-amber-600"
+                      />
+                      <span>
+                        Saya memastikan PDF sumber SPO lama merupakan dokumen resmi yang telah ditandatangani Direktur. <strong>Wajib untuk Riviu eksternal/legacy.</strong>
+                      </span>
+                    </label>
                   </div>
+                  ) : (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-2xs">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                        <div>
+                          <p className="text-xs font-extrabold text-emerald-950">Sumber SPO internal sudah terhubung</p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-emerald-800">
+                            {matchedReviewSource?.sopNumber || normalizedOldSopNumber} — {matchedReviewSource?.title || 'Dokumen SIDOKTER'}. PDF sumber tidak perlu diunggah ulang karena arsip internal menjadi rujukan resmi.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {(sop.supportingEvidence?.length || 0) > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs">
+                      <div className="mb-3 text-xs font-extrabold uppercase tracking-wider text-slate-800">
+                        Lampiran Pendukung Tersimpan
+                      </div>
+                      <div className="space-y-2">
+                        {sop.supportingEvidence?.map((evidence) => (
+                          <div key={evidence.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-slate-800">{evidence.originalName}</p>
+                              <p className="text-[10px] text-slate-500">
+                                {getSupportingEvidenceCategoryLabel(evidence.category)} · {formatBytes(evidence.size)}
+                                {evidence.description ? ` · ${evidence.description}` : ''}
+                              </p>
+                            </div>
+                            <span className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                              Tersimpan
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <SupportingEvidenceInput
+                    value={newSupportingEvidence}
+                    onChange={setNewSupportingEvidence}
+                    showPrimary={false}
+                    title="Tambah Lampiran Pendukung (Opsional)"
+                    description="Boleh dikosongkan. Format: PDF, Word, Excel, JPG, atau PNG. Pilih kategori Notulen/BA, Peraturan/Pedoman, Evaluasi/Audit, Surat/Instruksi, atau Dokumen Lainnya."
+                  />
 
                 </div>
               )}
@@ -1801,50 +1884,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
           {/* =============================================== */}
           {/* MODAL STICKY FOOTER                             */}
           {/* =============================================== */}
-          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/40">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {activeTab === 'info' && !isExisting && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('konten')}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors cursor-pointer border border-teal-200"
-                >
-                  <span>Batang Tubuh SPO</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-              {activeTab === 'info' && (isReview || (isAdmin && isExisting)) && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('berkas')}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors cursor-pointer border border-indigo-200"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isReview ? 'Berkas Riviu' : 'Upload Ulang PDF'}</span>
-                </button>
-              )}
-              {activeTab === 'konten' && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('info')}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Kembali ke Info</span>
-                </button>
-              )}
-              {activeTab === 'berkas' && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('info')}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Kembali ke Info</span>
-                </button>
-              )}
-            </div>
-
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3 bg-slate-50/40">
             <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
               <button
                 type="button"

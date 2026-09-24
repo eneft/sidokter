@@ -58,6 +58,20 @@ test('Edit Draft Riviu exposes required identity and missing external source con
   assert.match(source, /isReview && reuploadOldDataUrl/);
 });
 
+test('Riviu edit keeps additional evidence optional and removes duplicate navigation', () => {
+  const edit = read('src/components/EditSopModal.tsx');
+  const upload = read('src/components/UploadSopModal.tsx');
+
+  assert.match(edit, /Tambah Lampiran Pendukung \(Opsional\)/);
+  assert.match(edit, /updated\.supportingEvidence = \[\.\.\.\(sop\.supportingEvidence \|\| \[\]\), \.\.\.appendedEvidence\]/);
+  assert.match(edit, /Sumber SPO internal sudah terhubung/);
+  assert.doesNotMatch(edit, /Buka Berkas Riviu/);
+  assert.doesNotMatch(edit, /<span>Batang Tubuh SPO<\/span>/);
+
+  assert.match(upload, /const \[supportingEvidence, setSupportingEvidence\] = useState<PendingEvidence\[]>\(\[\]\)/);
+  assert.doesNotMatch(upload, /Minimal satu Bukti Dukung Riviu wajib diunggah/);
+});
+
 test('activation uses a dedicated lifecycle transaction after Draft metadata is persisted', () => {
   const app = read('src/App.tsx');
   const firestore = read('src/lib/firestoreService.ts');
