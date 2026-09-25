@@ -595,7 +595,8 @@ export function splitElementPreservingMarkup(
 export function splitHtmlForCapacity(
   html: string,
   maxHeight: number,
-  template: HTMLElement | null
+  template: HTMLElement | null,
+  allowOversizedListItemSplit = false
 ): string[] {
   const source = (html || '').trim();
   if (!source || maxHeight <= 0 || typeof DOMParser === 'undefined')
@@ -895,9 +896,44 @@ export function splitHtmlForCapacity(
               ];
             }
           }
-          // A list item is a semantic unit. Never bisect it merely to fill the
-          // bottom of a page: that duplicates its marker and makes numbering
-          // renderer-dependent. Nested tables above retain their row-safe path.
+
+          // Keep list items whole when they can fit on a fresh page, but an
+          // item taller than maxHeight has no whole-item boundary available.
+          // Split that pathological item with the same markup-preserving range
+          // logic used for prose and mark every later fragment as a logical
+          // continuation so it cannot render a duplicate marker.
+          const splitItemParts = allowOversizedListItemSplit
+            ? splitElementPreservingMarkup(
+                item,
+                maxHeight,
+                (fragment, isFirstChunk) => {
+                  const clonedItem = item.cloneNode(false) as HTMLElement;
+                  clonedItem.removeAttribute('id');
+                  clonedItem.removeAttribute('data-sop-continuation-li');
+                  clonedItem.innerHTML = '';
+                  clonedItem.appendChild(fragment);
+                  return makeList(
+                    [clonedItem.outerHTML],
+                    0,
+                    !isFirstChunk,
+                    explicitStart
+                  );
+                },
+                template
+              )
+            : [item.outerHTML];
+          if (splitItemParts.length > 1) {
+            const remainingItems = items.slice(1).map((el) => el.outerHTML);
+            const remainingList = remainingItems.length
+              ? makeList(remainingItems, 1, false, explicitStart + 1)
+              : '';
+            host.remove();
+            return [...splitItemParts, remainingList].filter(Boolean);
+          }
+
+          // Ordinary list items remain semantic units and are never bisected
+          // merely to fill the bottom of a page. Nested tables above retain
+          // their row-safe path.
           host.remove();
           return [source];
         }
@@ -1384,7 +1420,12 @@ export function computeCanonicalA4Pages(
       // <li> items; long text uses markup-preserving text ranges.
       if (currentPageBlocks.length === 0 && capacity >= 40) {
         const pageRemaining = Math.max(1, capacity - chrome);
-        const parts = splitHtmlForCapacity(block.html, pageRemaining, null);
+        const parts = splitHtmlForCapacity(
+          block.html,
+          pageRemaining,
+          null,
+          true
+        );
         if (parts.length > 1) {
           const firstPart = parts[0];
           const restParts = parts.slice(1);

@@ -231,14 +231,17 @@ test('canonical paginator measures raw flow blocks and applies the editor floor 
   assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\s\S]{0,260}Math\.max\(\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);
 });
 
-test('ordered and bullet lists split only at whole list-item boundaries', () => {
+test('ordered and bullet lists prefer whole items and retain an oversized-item fallback', () => {
   const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
   const wholeItems = source.indexOf('if (fitCount > 0 && fitCount < items.length)');
   const fallback = source.indexOf('const firstPart = makeList(prefixItemHtmls, 0);', wholeItems);
   assert.ok(wholeItems >= 0);
   assert.ok(fallback > wholeItems, 'whole list items must be the pagination boundary');
-  assert.doesNotMatch(source, /const partialNextItem = splitElementPreservingMarkup/);
-  assert.match(source, /A list item is a semantic unit/);
+  assert.match(source, /const splitItemParts = allowOversizedListItemSplit[\s\S]{0,80}splitElementPreservingMarkup/);
+  assert.match(source, /item taller than maxHeight has no whole-item boundary available/);
+  assert.match(source, /clonedItem\.appendChild\(fragment\)/, 'split fragments must preserve nested markup');
+  assert.match(source, /!isFirstChunk/, 'only continuation chunks suppress their list marker');
+  assert.match(source, /return \[\.\.\.splitItemParts, remainingList\]\.filter\(Boolean\)/, 'later list items must remain in the flow');
 });
 
 
