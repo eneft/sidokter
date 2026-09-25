@@ -424,7 +424,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 value={title}
                 onChange={(e) => onTitleChange(e.target.value)}
                 placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
-                className="w-full min-h-[20px] text-center font-extrabold uppercase text-xs sm:text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
+                className="w-full min-h-[20px] text-center font-extrabold uppercase text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
                   target.style.height = 'auto';
@@ -432,7 +432,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 }}
               />
             ) : (
-              <div className="text-center font-extrabold uppercase text-xs sm:text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
+              <div className="text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
                 {title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
               </div>
             )}
@@ -490,24 +490,24 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
         </td>
         <td colSpan={2} className="border border-black p-2 text-center align-top bg-white relative overflow-visible w-[48%]">
           <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-          <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
+          <div className="font-bold text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
             Direktur RSUD Dr. Soegiri Lamongan
           </div>
           {showSignatureAndStamp ? (
-            <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
-              <DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" />
+            <div className="relative -my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none">
+              <DirectorSignature className="h-[106px] w-auto max-w-[260px]" />
             </div>
           ) : (
             <div className="h-[36px] my-1" aria-hidden="true" />
           )}
           <div className="relative z-0 space-y-0.5">
-            <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
+            <div className="font-bold text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
               {approverName || SOEGIRI_HOSPITAL_INFO.director.name}
             </div>
-            <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
+            <div className="text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
               {SOEGIRI_HOSPITAL_INFO.director.rank}
             </div>
-            <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
+            <div className="font-bold text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">
               NIP. {SOEGIRI_HOSPITAL_INFO.director.nip}
             </div>
           </div>

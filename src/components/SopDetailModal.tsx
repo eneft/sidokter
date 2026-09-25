@@ -791,14 +791,28 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         const header = root.querySelector<HTMLElement>('[data-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-measure-publication]');
         if (!header || !publication) return;
-        const headerHeightPx = header.getBoundingClientRect().height;
-        const publicationHeightPx = publication.getBoundingClientRect().height;
+        // IMPORTANT: this hidden measurement tree sits inside the preview viewer,
+        // whose parent is visually transformed by the mobile/desktop zoom control.
+        // getBoundingClientRect() therefore reports SCALED pixels on mobile Safari.
+        // offsetHeight is layout-space CSS pixels and is unaffected by transforms,
+        // which is exactly the coordinate system used by computeCanonicalA4Pages().
+        const measurementScale = Number.isFinite(calculatedPreviewScale) && calculatedPreviewScale > 0
+          ? calculatedPreviewScale
+          : 1;
+        const toPhysicalCssHeight = (element: HTMLElement) => {
+          const layoutHeight = element.offsetHeight;
+          if (layoutHeight > 0) return layoutHeight;
+          // Defensive fallback for unusual table-part implementations.
+          return element.getBoundingClientRect().height / measurementScale;
+        };
+        const headerHeightPx = toPhysicalCssHeight(header);
+        const publicationHeightPx = toPhysicalCssHeight(publication);
         if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
 
         const pages = computeCanonicalA4Pages(layoutBlocks, {
           headerHeightPx,
           publicationHeightPx,
-          safetyBufferPx: 4
+          safetyBufferPx: 12
         });
         if (!cancelled) {
           setOfficialPages(pages as OfficialBlock[][]);
@@ -814,7 +828,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     };
     run();
     return () => { cancelled = true; };
-  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf]);
+  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf, calculatedPreviewScale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1065,7 +1079,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           <div className="font-extrabold text-[11px] leading-tight uppercase text-black">LAMONGAN</div>
         </th>
         <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
-          <div className="text-center font-extrabold uppercase text-xs sm:text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
+          <div className="text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
             {sop.title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
           </div>
         </th>
@@ -1098,16 +1112,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       </td>
       <td colSpan={2} className="border border-black p-2 text-center align-top bg-white relative overflow-visible w-[48%]">
         <div className="text-[11px] font-bookman text-black leading-tight">Ditetapkan,</div>
-        <div className="font-bold text-xs sm:text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
+        <div className="font-bold text-[13px] font-bookman text-black leading-tight mt-0.5 relative z-0 whitespace-normal [word-break:normal] [overflow-wrap:break-word]">Direktur RSUD Dr. Soegiri Lamongan</div>
         {showSignatureAndStamp ? (
-          <div className="relative -my-5 sm:-my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none"><DirectorSignature className="h-[96px] sm:h-[106px] w-auto max-w-[260px]" /></div>
+          <div className="relative -my-6 flex items-center justify-center w-full max-w-[260px] mx-auto z-10 pointer-events-none"><DirectorSignature className="h-[106px] w-auto max-w-[260px]" /></div>
         ) : (
           <div className="h-[36px] my-1" aria-hidden="true" />
         )}
         <div className="relative z-0 space-y-0.5">
-          <div className="font-bold text-xs sm:text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
-          <div className="text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}</div>
-          <div className="font-bold text-[10px] sm:text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
+          <div className="font-bold text-sm underline font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{sop.direkturNama || SOEGIRI_HOSPITAL_INFO.director.name}</div>
+          <div className="text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">{(!sop.direkturPangkat || sop.direkturPangkat.toLowerCase().includes('direktur')) ? SOEGIRI_HOSPITAL_INFO.director.rank : sop.direkturPangkat}</div>
+          <div className="font-bold text-[11px] font-bookman text-black leading-tight whitespace-normal [word-break:normal] [overflow-wrap:break-word]">NIP. {sop.direkturNip || SOEGIRI_HOSPITAL_INFO.director.nip}</div>
         </div>
       </td>
     </tr>

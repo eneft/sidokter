@@ -18,3 +18,28 @@ test('canonical paginator reserves rounding room and has no intentional overflow
   assert.match(paginator, /data-sop-page-fit-block/);
   assert.doesNotMatch(paginator, /data-sop-unsplittable-overflow/);
 });
+
+
+test('mobile viewer scale never contaminates physical A4 pagination metrics', () => {
+  const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  assert.match(detail, /const measurementScale = Number\.isFinite\(calculatedPreviewScale\)/);
+  assert.match(detail, /const layoutHeight = element\.offsetHeight;/);
+  assert.match(detail, /getBoundingClientRect\(\)\.height \/ measurementScale/);
+  assert.match(detail, /safetyBufferPx:\s*12/);
+  assert.match(detail, /calculatedPreviewScale\]\);/);
+});
+
+test('physical A4 chrome is viewport-invariant in Preview and LiveSPO', () => {
+  const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+
+  const detailStart = detail.indexOf('const renderOfficialHeader = (pageNumber: number, pageTotal: number)');
+  const detailEnd = detail.indexOf('const pageGroups = officialPages;', detailStart);
+  assert.ok(detailStart >= 0 && detailEnd > detailStart);
+  assert.doesNotMatch(detail.slice(detailStart, detailEnd), /\bsm:/);
+
+  const liveStart = live.indexOf('const renderOfficialHeader = (pageNumber: number, total: number)');
+  const liveEnd = live.indexOf('// Helper to map OfficialSectionKey to active state and callbacks', liveStart);
+  assert.ok(liveStart >= 0 && liveEnd > liveStart);
+  assert.doesNotMatch(live.slice(liveStart, liveEnd), /\bsm:/);
+});
