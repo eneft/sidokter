@@ -1,0 +1,220 @@
+name: Enforce Strict A4 Page Boundary
+
+on:
+  push:
+    branches:
+      - fix/mobile-a4-pagination-overflow
+    paths:
+      - '.github/workflows/strict-a4-page-boundary.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/mobile-a4-pagination-overflow
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Strengthen physical A4 overflow invariant
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/SopDetailModal.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              'const [paginationSafetyBufferPx, setPaginationSafetyBufferPx] = useState(8);',
+              'const [paginationSafetyBufferPx, setPaginationSafetyBufferPx] = useState(12);',
+              1
+          )
+          text = text.replace(
+              '    setPaginationSafetyBufferPx(8);',
+              '    setPaginationSafetyBufferPx(12);',
+              1
+          )
+
+          start_marker = "  useEffect(() => {\n    if (\n      !isOpen ||\n      isExistingPdf ||\n      isPaginatingOfficial ||\n      !officialPages.length ||\n      (isReviewDoc && riviuPreviewTab !== 'document')\n    ) return;"
+          end_marker = "  useEffect(() => {\n    let cancelled = false;\n    if (!isOpen || !sop || isExisting || isPaginatingOfficial || !officialPages.length) {"
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('strict A4 overflow guard anchors not found')
+
+          guard = r'''  useEffect(() => {
+    if (
+      !isOpen ||
+      isExistingPdf ||
+      isPaginatingOfficial ||
+      !officialPages.length ||
+      (isReviewDoc && riviuPreviewTab !== 'document')
+    ) return;
+
+    let cancelled = false;
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    const auditPhysicalA4Boundary = () => {
+      if (cancelled) return;
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+
+      // Every comparison below is made against the INNER physical A4 content
+      // frame (the page already owns 20 mm padding). Therefore even content
+      // that is still inside the white paper but has entered the bottom margin
+      // counts as overflow and is repaginated to the next sheet.
+      const pageNodes = Array.from(viewport.querySelectorAll<HTMLElement>('.sop-preview-page'));
+      const visualScale = Math.max(
+        0.01,
+        Number.isFinite(calculatedPreviewScale) ? calculatedPreviewScale : 1
+      );
+      let maxOverflowLayoutPx = 0;
+
+      pageNodes.forEach((pageNode) => {
+        const frame = pageNode.querySelector<HTMLElement>('.sop-a4-content-frame');
+        const table = frame?.querySelector<HTMLElement>('.sop-official-table');
+        if (!frame || !table || frame.clientHeight <= 0) return;
+
+        // Layout-space overflow catches normal table growth.
+        const scrollOverflow = Math.max(
+          0,
+          table.scrollHeight - frame.clientHeight,
+          frame.scrollHeight - frame.clientHeight
+        );
+
+        // Safari can let descendants visually escape a table cell without
+        // increasing the table's scrollHeight. Audit the actual painted bottom
+        // of every authored-content node against the 20 mm safe boundary too.
+        const frameRect = frame.getBoundingClientRect();
+        const contentNodes: HTMLElement[] = [
+          table,
+          ...Array.from(
+            frame.querySelectorAll<HTMLElement>(
+              'tr,td,th,.rich-text-output,.rich-text-document-content,p,li,ol,ul,table,img,figure,.figure-wrapper'
+            )
+          )
+        ];
+        let maxVisualOverflow = 0;
+        contentNodes.forEach((node) => {
+          const rect = node.getBoundingClientRect();
+          if (rect.height <= 0 || rect.width <= 0) return;
+          maxVisualOverflow = Math.max(maxVisualOverflow, rect.bottom - frameRect.bottom);
+        });
+
+        // getBoundingClientRect() includes fit-to-screen scaling. Convert that
+        // visual delta back to canonical 96-DPI A4 layout pixels before feeding
+        // it into the paginator safety buffer.
+        const rectOverflowLayout = Math.max(0, maxVisualOverflow / visualScale);
+        maxOverflowLayoutPx = Math.max(
+          maxOverflowLayoutPx,
+          scrollOverflow,
+          rectOverflowLayout
+        );
+      });
+
+      if (maxOverflowLayoutPx > 0.75 && paginationSafetyBufferPx < 320) {
+        const nextSafety = Math.min(
+          320,
+          Math.max(
+            paginationSafetyBufferPx + 6,
+            paginationSafetyBufferPx + Math.ceil(maxOverflowLayoutPx) + 6
+          )
+        );
+        // Do not allow PDF generation or a stable preview from an invalid page.
+        // Rebuild page boundaries until every descendant is inside the A4 safe box.
+        setIsPaginatingOfficial(true);
+        setPaginationSafetyBufferPx(nextSafety);
+      }
+    };
+
+    // Two frames ensure React layout, table layout and iOS Safari paint metrics
+    // have settled before the physical-boundary audit runs.
+    firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(auditPhysicalA4Boundary);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [
+    isOpen,
+    sop?.id,
+    isExistingPdf,
+    isPaginatingOfficial,
+    officialPages,
+    paginationSafetyBufferPx,
+    isReviewDoc,
+    riviuPreviewTab,
+    calculatedPreviewScale
+  ]);
+
+'''
+          text = text[:start] + guard + text[end:]
+
+          # Make the safe frame explicit for both humans and regression tests.
+          old_frame = 'data-sop-a4-content-frame="true"\n                        style={{ height: \'100%\', display: \'flex\', flexDirection: \'column\' }}'
+          new_frame = 'data-sop-a4-content-frame="true"\n                        data-sop-a4-safe-area="20mm"\n                        style={{ height: \'100%\', display: \'flex\', flexDirection: \'column\' }}'
+          if old_frame not in text:
+              raise SystemExit('safe frame marker not found')
+          text = text.replace(old_frame, new_frame, 1)
+
+          path.write_text(text, encoding='utf-8')
+
+          test = Path('tests/sop-preview-a4-boundary.test.cjs')
+          test.write_text(r'''const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const source = fs.readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+
+test('A4 preview treats the 20mm inner frame as a hard page boundary', () => {
+  assert.match(source, /data-sop-a4-safe-area="20mm"/);
+  assert.match(source, /frame\.scrollHeight\s*-\s*frame\.clientHeight/);
+  assert.match(source, /rect\.bottom\s*-\s*frameRect\.bottom/);
+});
+
+test('painted descendant overflow is converted back to canonical layout pixels', () => {
+  assert.match(source, /maxVisualOverflow\s*\/\s*visualScale/);
+  assert.match(source, /calculatedPreviewScale/);
+  assert.match(source, /paginationSafetyBufferPx\s*<\s*320/);
+});
+
+test('invalid A4 page is repaginated before it can stabilize', () => {
+  assert.match(source, /setIsPaginatingOfficial\(true\)/);
+  assert.match(source, /setPaginationSafetyBufferPx\(nextSafety\)/);
+  assert.match(source, /requestAnimationFrame\(auditPhysicalA4Boundary\)/);
+});
+''', encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run A4 pagination regression tests
+        run: |
+          node --test tests/sop-preview-mobile-pagination.test.cjs
+          node --test tests/sop-preview-a4-boundary.test.cjs
+
+      - name: Verify client build
+        run: npm run build:client
+
+      - name: Commit strict A4 fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/strict-a4-page-boundary.yml
+          git add src/components/SopDetailModal.tsx tests/sop-preview-a4-boundary.test.cjs
+          git commit -m 'fix: keep SPO content inside physical A4 safe area'
+          git push origin fix/mobile-a4-pagination-overflow
