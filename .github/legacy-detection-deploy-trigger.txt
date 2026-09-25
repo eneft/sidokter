@@ -1,1 +1,0 @@
-Trigger verification/deploy for legacy SPO number detection patch.
