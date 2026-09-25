@@ -1,5 +1,31 @@
 import { SopDocument } from '../types';
-import { getNextRevisionNumber, normalizeSopNumberInput } from './numbering';
+import { getNextRevisionNumber, normalizeSopNumberInput, isNewSopFormat } from './numbering';
+
+
+const sopNumberComparisonKey = (value?: string | null): string =>
+  normalizeSopNumberInput(value || '')
+    .replace(/[‐‑‒–—−]/g, '-')
+    .replace(/\s+/g, '');
+
+/**
+ * Recognizes legacy/external SPO number shapes without forcing them into the
+ * current SIDOKTER hierarchy format. Legacy numbers remain historical source
+ * identifiers; they are never converted into a new-format document number.
+ */
+export const isRecognizedLegacySopNumber = (value?: string | null): boolean => {
+  const normalized = normalizeSopNumberInput(value || '');
+  if (!normalized || isNewSopFormat(normalized)) return false;
+
+  const parts = normalized.split('/').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 3) return false;
+
+  const year = parts[parts.length - 1];
+  if (!/^(?:19|20)\d{2}$/.test(year)) return false;
+
+  // Historical formats vary (e.g. SOEGIRI-KEP / 001 / 568 / 2024 or
+  // 440 / 102 / SPO / PEL / 2023), but they still carry a numeric identity.
+  return parts.slice(0, -1).some((part) => /\d/.test(part));
+};
 
 export const findAuthoritativeRiviuPredecessor = (
   sops: SopDocument[],
@@ -11,11 +37,12 @@ export const findAuthoritativeRiviuPredecessor = (
   if (byId) return byId;
 
   const normalizedOldNumber = normalizeSopNumberInput(params.oldSopNumber || '');
-  if (!normalizedOldNumber) return undefined;
+  const oldNumberKey = sopNumberComparisonKey(normalizedOldNumber);
+  if (!oldNumberKey) return undefined;
 
   const matches = sops.filter((sop) =>
-    normalizeSopNumberInput(sop.sopNumber || '') === normalizedOldNumber
-    || normalizeSopNumberInput(sop.legacySopNumber || '') === normalizedOldNumber
+    sopNumberComparisonKey(sop.sopNumber || '') === oldNumberKey
+    || sopNumberComparisonKey(sop.legacySopNumber || '') === oldNumberKey
   );
 
   return matches.find((s) => s.status === 'AKTIF') || matches[0];

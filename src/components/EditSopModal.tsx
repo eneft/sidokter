@@ -48,7 +48,7 @@ import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegi
 import { HierarchyPicker } from './HierarchyPicker';
 import { saveFileToLocalCache, openDocumentPreview } from '../utils/fileStorage';
 import { canEditExistingSop } from '../lib/sopEditPolicy';
-import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision, isRecognizedLegacySopNumber } from '../utils/riviuRevision';
 import { parseSopFromDocx } from '../utils/docxParser';
 import {
   SupportingEvidenceInput,
@@ -454,6 +454,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
       })
     : undefined;
   const requiresExternalReviewPdf = isReview && !matchedReviewSource;
+  const isLegacyReviewNumber = isReview && isRecognizedLegacySopNumber(normalizedOldSopNumber);
   const hasDurableOrPendingOldFile = hasCurrentOldFile || Boolean(reuploadOldDataUrl);
   const reviewRevisionPreview = (() => {
     if (!isReview) return version;
@@ -967,6 +968,21 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                         placeholder="Contoh: PEL / 1.1.3 / 015 / 2023"
                         className="w-full text-xs font-mono font-bold border border-slate-300 rounded-xl px-3 py-2.5 text-slate-900 bg-white read-only:bg-slate-100 read-only:text-slate-600 focus:ring-2 focus:ring-amber-500 outline-none"
                       />
+                      {normalizedOldSopNumber && (
+                        matchedReviewSource ? (
+                          <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-medium text-emerald-800">
+                            ✓ Terdeteksi sebagai SPO SIDOKTER: {matchedReviewSource.sopNumber || matchedReviewSource.legacySopNumber} — status {matchedReviewSource.status}.
+                          </div>
+                        ) : isLegacyReviewNumber ? (
+                          <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
+                            ✓ Terdeteksi sebagai format nomor SPO legacy/eksternal: {normalizedOldSopNumber}.
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800">
+                            Nomor belum ditemukan di register dan format legacy belum dikenali otomatis. Jika ini dokumen lama resmi, lengkapi PDF sumber pada tab Berkas.
+                          </div>
+                        )
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">

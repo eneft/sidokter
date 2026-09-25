@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getAuthoritativeRiviuRevision, findAuthoritativeRiviuPredecessor, hasDurableExternalRiviuSource } from '../src/utils/riviuRevision';
+import { getAuthoritativeRiviuRevision, findAuthoritativeRiviuPredecessor, hasDurableExternalRiviuSource, isRecognizedLegacySopNumber } from '../src/utils/riviuRevision';
 import { SopDocument } from '../src/types';
 
 test('Riviu revision mandatory case: 00 -> 01', () => {
@@ -102,4 +102,28 @@ test('Riviu activation accepts only durable external Riviu source metadata', () 
     oldFileUrl: '/api/storage/files/sop-oldFile',
     oldStoragePath: 'sidokter/spo/sop-oldFile.docx',
   }), false);
+});
+
+
+test('recognizes historical legacy SPO number formats without treating current SIDOKTER numbers as legacy', () => {
+  assert.equal(isRecognizedLegacySopNumber('SOEGIRI-KEP / 001 / 568 / 2024'), true);
+  assert.equal(isRecognizedLegacySopNumber('440/102/SPO/PEL/2023'), true);
+  assert.equal(isRecognizedLegacySopNumber('PEL / 1.1.3 / 001 / 2026'), false);
+});
+
+test('Riviu predecessor lookup detects a registered legacySopNumber and tolerates unicode dash variants', () => {
+  const sops = [
+    {
+      id: 'legacy-existing',
+      sopNumber: 'PEN / 2.1.1 / 001 / 2026',
+      legacySopNumber: 'SOEGIRI-KEP / 001 / 568 / 2024',
+      status: 'AKTIF',
+      revisionNumber: '01',
+    },
+  ] as SopDocument[];
+
+  const found = findAuthoritativeRiviuPredecessor(sops, {
+    oldSopNumber: 'SOEGIRI–KEP/001/568/2024',
+  });
+  assert.equal(found?.id, 'legacy-existing');
 });

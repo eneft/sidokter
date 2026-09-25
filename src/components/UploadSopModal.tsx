@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Division, SopCategory, SopDocument, NumberingConfig, SopStatus, UserSession } from '../types';
 import { generateSopNumber, getNextSequenceNumber, getNextRevisionNumber, formatBytes, standardizeSopDocument, getUsedSequencesForUnit, checkDuplicateSopNumber, isNewSopFormat, normalizeSopNumberInput, matchMasterHierarchyPattern } from '../utils/numbering';
-import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision } from '../utils/riviuRevision';
+import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision, isRecognizedLegacySopNumber } from '../utils/riviuRevision';
 import { parseSopFromDocx } from '../utils/docxParser';
 import { 
   SOEGIRI_MASTER_CATEGORIES, 
@@ -1177,9 +1177,13 @@ export const UploadSopModal: React.FC<UploadSopModalProps> = ({
                             <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-medium text-emerald-800">
                               ✓ Terdeteksi sebagai SPO SIDOKTER: {detected.sopNumber} — status {detected.status}.
                             </div>
+                          ) : isRecognizedLegacySopNumber(normalized) ? (
+                            <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
+                              ✓ Terdeteksi sebagai format nomor SPO legacy/eksternal: {normalized}. PDF SPO lama resmi + konfirmasi dokumen sumber wajib diunggah.
+                            </div>
                           ) : (
                             <div className="mt-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-800">
-                              Nomor tidak ditemukan di register SIDOKTER — diperlakukan sebagai SPO legacy/eksternal. PDF SPO lama resmi + konfirmasi dokumen sumber wajib diunggah.
+                              Nomor tidak ditemukan di register SIDOKTER dan format legacy belum dikenali secara otomatis. Nomor tetap dapat dipakai sebagai rujukan eksternal dengan PDF SPO lama resmi + konfirmasi dokumen sumber.
                             </div>
                           );
                         })()}
