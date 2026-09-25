@@ -1582,17 +1582,45 @@ button, a, input, select, textarea {
   box-sizing: border-box !important;
 }
 
-/* Eradicate any accidental nested scrollbars, clipping, or height caps inside official SOP documents */
+/* Rich text may flow naturally inside its table cell, but the physical A4
+sheet itself must remain the final paint/height boundary. Never apply the
+old #printable-sop-official-document * overflow override to page shells. */
 .sop-batang-tubuh-content,
 .sop-batang-tubuh-content *,
 .rich-text-output,
 .rich-text-output *,
 .rich-text-document-content,
-.rich-text-document-content *,
-#printable-sop-official-document,
-#printable-sop-official-document * {
+.rich-text-document-content * {
   overflow: visible !important;
   max-height: none !important;
+}
+
+/* HARD A4 BOUNDARY CONTRACT — desktop, mobile Safari, print and PDF.
+   Pagination owns page membership; the physical sheet is the final paint
+   guard, including transformed/absolute media imported from DOCX. */
+#printable-sop-official-document .sop-preview-page,
+#printable-sop-official-document.pdf-export-document .sop-preview-page,
+.sop-live-a4-page,
+.sop-measure-root [data-measure-page] {
+  overflow: hidden !important;
+  max-height: 297mm !important;
+  box-sizing: border-box !important;
+  contain: paint;
+  isolation: isolate;
+}
+
+#printable-sop-official-document .sop-preview-page > .sop-a4-content-frame,
+.sop-live-a4-page > .sop-a4-content-frame {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+[data-sop-page-fit-block="true"] {
+  overflow: hidden !important;
+  contain: paint;
+  max-width: 100% !important;
 }
 
 .sop-batang-tubuh-title {

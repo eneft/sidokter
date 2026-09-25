@@ -50,10 +50,19 @@ export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 24;
 export const SOP_SECTION_CELL_PADDING_MM = 3;
 const CSS_PX_PER_MM = 96 / 25.4;
 const OFFICIAL_CELL_HORIZONTAL_BORDER_PX = 2;
+export const MIN_A4_SAFETY_BUFFER_PX = 8;
+const OFFICIAL_BODY_FONT_PX = 12 * (96 / 72);
+const OFFICIAL_SECTION_LABEL_LINE_HEIGHT_PX = OFFICIAL_BODY_FONT_PX * 1.4;
 
 /** 3mm top + 3mm bottom + the collapsed official-table border. */
 export function getCanonicalSectionRowChromePx(): number {
   return SOP_SECTION_CELL_PADDING_MM * 2 * CSS_PX_PER_MM + 1;
+}
+
+/** Minimum text height of the official left-hand section label. */
+export function getCanonicalSectionLabelMinimumHeightPx(section: OfficialSectionKey): number {
+  const lineCount = section === 'ALUR / BAGAN ALIR' || section === 'UNIT TERKAIT' ? 2 : 1;
+  return Math.ceil(lineCount * OFFICIAL_SECTION_LABEL_LINE_HEIGHT_PX);
 }
 
 /**
@@ -64,15 +73,17 @@ export function getCanonicalSectionRowChromePx(): number {
 export function sectionFlowContributionPx(
   previousRawHeightPx: number,
   nextRawHeightPx: number,
-  startsNewSectionFragment: boolean
+  startsNewSectionFragment: boolean,
+  minimumContentHeightPx: number = LIVE_SOP_SECTION_MIN_HEIGHT_PX
 ): number {
   const previous = Number.isFinite(previousRawHeightPx) ? Math.max(0, previousRawHeightPx) : 0;
   const next = Number.isFinite(nextRawHeightPx) ? Math.max(0, nextRawHeightPx) : 0;
-  if (startsNewSectionFragment) {
-    return Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, next);
-  }
-  const before = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous);
-  const after = Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, previous + next);
+  const floor = Number.isFinite(minimumContentHeightPx)
+    ? Math.max(LIVE_SOP_SECTION_MIN_HEIGHT_PX, minimumContentHeightPx)
+    : LIVE_SOP_SECTION_MIN_HEIGHT_PX;
+  if (startsNewSectionFragment) return Math.max(floor, next);
+  const before = Math.max(floor, previous);
+  const after = Math.max(floor, previous + next);
   return Math.max(0, after - before);
 }
 
@@ -170,6 +181,25 @@ export function constrainAtomicMediaHtml(
   } catch {
     return html;
   }
+}
+
+/**
+ * Last-resort fit for a truly unsplittable authored unit, e.g. one rowspan
+ * group taller than an entire body area. Normal text/list/table/media split
+ * paths run first. The fallback preserves the complete unit inside A4.
+ */
+export function fitOversizedBlockHtmlToPage(
+  html: string,
+  measuredHeightPx: number,
+  maxHeightPx: number
+): string {
+  const measured = Number.isFinite(measuredHeightPx) ? Math.max(0, measuredHeightPx) : 0;
+  const limit = Number.isFinite(maxHeightPx) ? Math.max(1, maxHeightPx) : 1;
+  if (!html || measured <= 0 || measured <= limit + 0.5) return html;
+  const scale = Math.max(0.001, Math.min(1, limit / measured));
+  const fittedHeight = Math.max(1, Math.floor(measured * scale));
+  const expandedWidth = 100 / scale;
+  return `<div data-sop-page-fit-block="true" style="position:relative;width:100%;height:${fittedHeight}px;box-sizing:border-box"><div data-sop-page-fit-block-inner="true" style="position:absolute;left:0;top:0;width:${expandedWidth.toFixed(4)}%;transform:scale(${scale.toFixed(6)});transform-origin:top left">${html}</div></div>`;
 }
 
 /** Check if an HTML string contains HTML tags */
@@ -1151,7 +1181,7 @@ export function computeCanonicalA4Pages(
   }
   const headerHeight = Math.max(0, options.headerHeightPx!);
   const publicationHeight = Math.max(0, options.publicationHeightPx!);
-  const safety = options?.safetyBufferPx ?? 4;
+  const safety = Math.max(MIN_A4_SAFETY_BUFFER_PX, options?.safetyBufferPx ?? MIN_A4_SAFETY_BUFFER_PX);
 
   const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
   const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
@@ -1211,10 +1241,15 @@ export function computeCanonicalA4Pages(
     const startsNewSectionRow =
       currentPageBlocks.length === 0 || block.section !== currentSection;
     const chrome = startsNewSectionRow ? baseRowPadding : 0;
+    const sectionMinimumContentHeight = Math.max(
+      LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+      getCanonicalSectionLabelMinimumHeightPx(block.section)
+    );
     const contentContribution = sectionFlowContributionPx(
       currentSectionRawHeight,
       flowHeights[index],
-      startsNewSectionRow
+      startsNewSectionRow,
+      sectionMinimumContentHeight
     );
     const needed = contentContribution + chrome;
 
@@ -1241,10 +1276,11 @@ export function computeCanonicalA4Pages(
           const firstHeight = measureFlowPart(firstPart);
           const firstNeeded =
             sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+    currentSectionRawHeight,
+    firstHeight,
+    startsNewSectionRow,
+    sectionMinimumContentHeight
+  ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1295,10 +1331,11 @@ export function computeCanonicalA4Pages(
           const firstHeight = measureFlowPart(firstPart);
           const firstNeeded =
             sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+    currentSectionRawHeight,
+    firstHeight,
+    startsNewSectionRow,
+    sectionMinimumContentHeight
+  ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1373,10 +1410,11 @@ export function computeCanonicalA4Pages(
           const firstHeight = measureFlowPart(firstPart);
           const firstNeeded =
             sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+    currentSectionRawHeight,
+    firstHeight,
+    startsNewSectionRow,
+    sectionMinimumContentHeight
+  ) + chrome;
 
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
@@ -1429,10 +1467,11 @@ export function computeCanonicalA4Pages(
           const firstHeight = measureFlowPart(firstPart);
           const firstNeeded =
             sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+    currentSectionRawHeight,
+    firstHeight,
+    startsNewSectionRow,
+    sectionMinimumContentHeight
+  ) + chrome;
 
           const fittedFirstBlock: OfficialBlock = {
             ...block,
@@ -1465,20 +1504,23 @@ export function computeCanonicalA4Pages(
           continue;
         }
 
-        // An unsplittable block must NEVER fall through and be clipped by the
-        // physical A4 page. This should only be reachable for pathological
-        // authored content (for example one table row taller than a full page).
-        // Keep it visible instead of silently cropping it; the normal table and
-        // media paths above prevent this for valid content.
-        const unsplittable: OfficialBlock = {
-          ...block,
-          html: block.html.replace(
-            /^(<(?:table|ol|ul|p|div|blockquote)\b)/i,
-            '$1 data-sop-unsplittable-overflow="true"'
-          )
+        // Pathological fresh-page monolith: every ordinary split strategy has
+        // failed. Fit the complete authored unit proportionally. Never emit a
+        // block that is allowed to paint beyond the 297mm paper boundary.
+        const fittedPageRemaining = Math.max(1, capacity - chrome);
+        const fittedHtml = fitOversizedBlockHtmlToPage(block.html, flowHeights[index], fittedPageRemaining);
+        const fittedHeight = Math.min(fittedPageRemaining, measureFlowPart(fittedHtml));
+        const fittedBlock: OfficialBlock = {
+...block,
+id: `${block.id}-page-fit`,
+html: fittedHtml
         };
-        currentPageBlocks.push(unsplittable);
-        used = capacity;
+        currentPageBlocks.push(fittedBlock);
+        used = Math.min(
+capacity,
+sectionFlowContributionPx(0, fittedHeight, true, sectionMinimumContentHeight) + chrome
+        );
+        currentSectionRawHeight = fittedHeight;
         currentSection = block.section;
         index += 1;
         commitCurrentPageAndStartNext();
