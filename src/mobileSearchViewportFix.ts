@@ -2,9 +2,9 @@ const DASHBOARD_SEARCH_SELECTOR = 'input[placeholder^="Cari nomor, judul, kode s
 const ACTIVE_ATTRIBUTE = 'data-sidokter-mobile-search';
 
 /**
- * Keeps the dashboard quick-search usable when the iOS virtual keyboard opens.
- * This only changes mobile viewport/focus behaviour; search/filter business logic
- * remains owned by DashboardOverviewPage.
+ * iOS Safari shrinks the visual viewport when the keyboard opens. Keep the
+ * dashboard quick-search near the top of that viewport without rewriting the
+ * dashboard layout or moving the suggestion panel into normal document flow.
  */
 export function installDashboardMobileSearchViewportFix(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -12,7 +12,9 @@ export function installDashboardMobileSearchViewportFix(): () => void {
   }
 
   let activeSection: HTMLElement | null = null;
+  let activeSearchShell: HTMLElement | null = null;
   let alignFrame = 0;
+  const timers: number[] = [];
 
   const isMobile = () => window.matchMedia('(max-width: 639px)').matches;
 
@@ -24,13 +26,30 @@ export function installDashboardMobileSearchViewportFix(): () => void {
     );
   };
 
-  const alignActiveSearch = (behavior: ScrollBehavior = 'auto') => {
-    if (!activeSection || !isMobile()) return;
+  const clearTimers = () => {
+    while (timers.length > 0) {
+      const timer = timers.pop();
+      if (timer) window.clearTimeout(timer);
+    }
+  };
+
+  const alignSearchShell = (behavior: ScrollBehavior = 'auto') => {
+    if (!activeSearchShell || !isMobile()) return;
     syncVisualViewportHeight();
     window.cancelAnimationFrame(alignFrame);
     alignFrame = window.requestAnimationFrame(() => {
-      activeSection?.scrollIntoView({ block: 'start', inline: 'nearest', behavior });
+      activeSearchShell?.scrollIntoView({
+        block: 'start',
+        inline: 'nearest',
+        behavior,
+      });
     });
+  };
+
+  const scheduleAlignment = () => {
+    clearTimers();
+    timers.push(window.setTimeout(() => alignSearchShell('smooth'), 60));
+    timers.push(window.setTimeout(() => alignSearchShell('auto'), 320));
   };
 
   const handleFocusIn = (event: FocusEvent) => {
@@ -39,19 +58,16 @@ export function installDashboardMobileSearchViewportFix(): () => void {
     if (!target.matches(DASHBOARD_SEARCH_SELECTOR) || !isMobile()) return;
 
     activeSection = target.closest('section');
-    if (!activeSection) return;
+    activeSearchShell = target.closest('div.mt-6.max-w-3xl');
+    if (!activeSection || !activeSearchShell) return;
 
     activeSection.setAttribute(ACTIVE_ATTRIBUTE, 'true');
     syncVisualViewportHeight();
-
-    // First move the compacted search shell into view, then align it again after
-    // Safari finishes animating the virtual keyboard / visual viewport.
-    window.setTimeout(() => alignActiveSearch('smooth'), 40);
-    window.setTimeout(() => alignActiveSearch('auto'), 280);
+    scheduleAlignment();
   };
 
   const handleFocusOut = () => {
-    window.setTimeout(() => {
+    timers.push(window.setTimeout(() => {
       const focused = document.activeElement;
       if (focused instanceof HTMLInputElement && focused.matches(DASHBOARD_SEARCH_SELECTOR)) {
         return;
@@ -59,29 +75,44 @@ export function installDashboardMobileSearchViewportFix(): () => void {
 
       activeSection?.removeAttribute(ACTIVE_ATTRIBUTE);
       activeSection = null;
-    }, 180);
+      activeSearchShell = null;
+    }, 220));
   };
 
-  const handleViewportChange = () => {
+  const handleViewportResize = () => {
     syncVisualViewportHeight();
-    if (activeSection && isMobile()) {
-      alignActiveSearch('auto');
+    if (activeSearchShell && isMobile()) {
+      alignSearchShell('auto');
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (!target.matches(DASHBOARD_SEARCH_SELECTOR) || !isMobile()) return;
+
+    // DashboardOverviewPage already handles Enter/Escape for suggestion state.
+    // Blurring here only closes the iOS keyboard so the normal result section
+    // becomes fully visible after the user confirms/cancels the search.
+    if (event.key === 'Enter' || event.key === 'Escape') {
+      window.setTimeout(() => target.blur(), 0);
     }
   };
 
   document.addEventListener('focusin', handleFocusIn);
   document.addEventListener('focusout', handleFocusOut);
-  window.visualViewport?.addEventListener('resize', handleViewportChange);
-  window.visualViewport?.addEventListener('scroll', handleViewportChange);
-  window.addEventListener('orientationchange', handleViewportChange);
+  document.addEventListener('keydown', handleKeyDown);
+  window.visualViewport?.addEventListener('resize', handleViewportResize);
+  window.addEventListener('orientationchange', handleViewportResize);
   syncVisualViewportHeight();
 
   return () => {
+    clearTimers();
     document.removeEventListener('focusin', handleFocusIn);
     document.removeEventListener('focusout', handleFocusOut);
-    window.visualViewport?.removeEventListener('resize', handleViewportChange);
-    window.visualViewport?.removeEventListener('scroll', handleViewportChange);
-    window.removeEventListener('orientationchange', handleViewportChange);
+    document.removeEventListener('keydown', handleKeyDown);
+    window.visualViewport?.removeEventListener('resize', handleViewportResize);
+    window.removeEventListener('orientationchange', handleViewportResize);
     window.cancelAnimationFrame(alignFrame);
     activeSection?.removeAttribute(ACTIVE_ATTRIBUTE);
     document.documentElement.style.removeProperty('--sidokter-mobile-search-vvh');
