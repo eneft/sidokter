@@ -36,6 +36,10 @@ function normalizeKey(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+function isBlankWorkflowValue(value) {
+  return value === undefined || value === null || (typeof value === 'string' && !value.trim());
+}
+
 function assertTrustedSopEditAllowed({ stored, actor, hierarchyClaims }) {
   if (!stored || !stored.id) throw new Error('INVALID_SOP');
   if (!actor) throw new Error('UNAUTHENTICATED');
@@ -79,16 +83,34 @@ function buildTrustedSopContentUpdate({ stored, submitted, actor, hierarchyClaim
     'previousSopNumber',
     'oldSopNumber',
   ]);
-  const canRepairRiviuRevision = isDraftRiviu && !String(stored.previousRevisionNumber || '').trim();
+  const canRepairRiviuRevision = isDraftRiviu && isBlankWorkflowValue(stored.previousRevisionNumber);
+
   for (const field of IMMUTABLE_WORKFLOW_FIELDS) {
-    if (canRepairRiviuRevision && (field === 'revisionNumber' || field === 'version') && Object.prototype.hasOwnProperty.call(submitted, field)) {
+    const submittedHasField = Object.prototype.hasOwnProperty.call(submitted, field);
+    const storedHasField = Object.prototype.hasOwnProperty.call(stored, field);
+
+    if (canRepairRiviuRevision && (field === 'revisionNumber' || field === 'version') && submittedHasField) {
       next[field] = submitted[field];
     }
-    else if (Object.prototype.hasOwnProperty.call(stored, field)) next[field] = stored[field];
-    else if (isDraftRiviu && repairableRiviuFields.has(field) && Object.prototype.hasOwnProperty.call(submitted, field)) {
+    // Legacy Draft Riviu records may already contain these keys as empty
+    // strings. Empty is not an authoritative workflow identity. Permit a
+    // one-time repair from the trusted edit payload, then freeze the value on
+    // subsequent edits exactly like any other immutable workflow field.
+    else if (
+      isDraftRiviu
+      && repairableRiviuFields.has(field)
+      && isBlankWorkflowValue(stored[field])
+      && submittedHasField
+      && !isBlankWorkflowValue(submitted[field])
+    ) {
       next[field] = submitted[field];
     }
-    else delete next[field];
+    else if (storedHasField) {
+      next[field] = stored[field];
+    }
+    else {
+      delete next[field];
+    }
   }
 
   // Binary DataURLs are never authoritative Firestore data. Durable binaries
