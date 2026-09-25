@@ -88,6 +88,7 @@ test('external Riviu repairs missing stored metadata from trusted activation pay
 
   assert.equal(result.successor.status, 'AKTIF');
   assert.equal(result.successor.oldSopNumber, submitted.oldSopNumber);
+  assert.equal(result.successor.previousSopNumber, submitted.oldSopNumber);
   assert.equal(result.successor.reviewReason, submitted.reviewReason);
   assert.equal(result.successor.previousRevisionNumber, '01');
   assert.equal(result.successor.revisionNumber, '02');
@@ -96,6 +97,32 @@ test('external Riviu repairs missing stored metadata from trusted activation pay
   assert.equal(result.successor.oldStoragePath, submitted.oldStoragePath);
   assert.equal(result.successor.oldFileSize, 4321);
   assert.equal(result.successor.externalReviewSignedConfirmed, true);
+});
+
+test('external Riviu accepts previousSopNumber as legacy alias and canonicalizes oldSopNumber', () => {
+  const stored = {
+    ...baseDraft,
+    jenis_spo: 'RIVIU',
+    isReviewDocument: true,
+    sopNumber: 'PEN / 2.1.1 / 002 / 2026',
+    revisionNumber: '01',
+    version: '01',
+    previousSopNumber: 'SOEGIRI-KEP / 001 / 568 / 2024',
+    reviewReason: 'UMUR DOKUMEN HABIS',
+    previousRevisionNumber: '00',
+    oldFileName: 'legacy.pdf',
+    oldFileType: 'application/pdf',
+    oldFileUrl: '/api/storage/files/legacy',
+    oldStoragePath: 'sidokter/spo/legacy.pdf',
+  };
+
+  const result = buildSopActivationTransition({ storedSuccessor: stored, submitted: stored, actor: admin });
+
+  assert.equal(result.successor.status, 'AKTIF');
+  assert.equal(result.successor.oldSopNumber, stored.previousSopNumber);
+  assert.equal(result.successor.previousSopNumber, stored.previousSopNumber);
+  assert.equal(result.successor.previousRevisionNumber, '00');
+  assert.equal(result.successor.revisionNumber, '01');
 });
 
 test('external Riviu keeps stored source metadata authoritative when submitted values differ', () => {
