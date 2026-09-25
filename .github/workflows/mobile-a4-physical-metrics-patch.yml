@@ -1,0 +1,178 @@
+name: Apply Mobile A4 Physical Metrics Fix
+
+on:
+  push:
+    branches:
+      - fix/mobile-a4-physical-metrics-20260925
+    paths:
+      - '.github/workflows/mobile-a4-physical-metrics-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/mobile-a4-physical-metrics-20260925
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Patch canonical mobile A4 metrics and LiveSPO chrome
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 occurrence, found {count}')
+              return text.replace(old, new, 1)
+
+          def rewrite_segment(text: str, start_marker: str, end_marker: str, replacements, label: str) -> str:
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'{label}: start marker not found')
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f'{label}: end marker not found')
+              segment = text[start:end]
+              for old, new in replacements:
+                  if old not in segment:
+                      raise SystemExit(f'{label}: missing expected token {old!r}')
+                  segment = segment.replace(old, new)
+              if 'sm:' in segment:
+                  raise SystemExit(f'{label}: responsive sm: class remains in physical A4 chrome')
+              return text[:start] + segment + text[end:]
+
+          detail_path = Path('src/components/SopDetailModal.tsx')
+          detail = detail_path.read_text(encoding='utf-8')
+
+          old_metrics = '''        const headerHeightPx = header.getBoundingClientRect().height;
+          const publicationHeightPx = publication.getBoundingClientRect().height;
+          if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
+          '''
+          new_metrics = '''        // IMPORTANT: this hidden measurement tree sits inside the preview viewer,
+          // whose parent is visually transformed by the mobile/desktop zoom control.
+          // getBoundingClientRect() therefore reports SCALED pixels on mobile Safari.
+          // offsetHeight is layout-space CSS pixels and is unaffected by transforms,
+          // which is exactly the coordinate system used by computeCanonicalA4Pages().
+          const measurementScale = Number.isFinite(calculatedPreviewScale) && calculatedPreviewScale > 0
+            ? calculatedPreviewScale
+            : 1;
+          const toPhysicalCssHeight = (element: HTMLElement) => {
+            const layoutHeight = element.offsetHeight;
+            if (layoutHeight > 0) return layoutHeight;
+            // Defensive fallback for unusual table-part implementations.
+            return element.getBoundingClientRect().height / measurementScale;
+          };
+          const headerHeightPx = toPhysicalCssHeight(header);
+          const publicationHeightPx = toPhysicalCssHeight(publication);
+          if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
+          '''
+          detail = replace_once(detail, old_metrics, new_metrics, 'SopDetail physical metrics')
+          detail = replace_once(detail, '          safetyBufferPx: 4\n', '          safetyBufferPx: 12\n', 'SopDetail safety buffer')
+          detail = replace_once(
+              detail,
+              '  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf]);\n',
+              '  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf, calculatedPreviewScale]);\n',
+              'SopDetail pagination dependencies'
+          )
+
+          detail = rewrite_segment(
+              detail,
+              '  const renderOfficialHeader = (pageNumber: number, pageTotal: number) => (',
+              '\n  const pageGroups = officialPages;',
+              [
+                  ('text-xs sm:text-sm', 'text-sm'),
+                  ('text-xs sm:text-[13px]', 'text-[13px]'),
+                  ('relative -my-5 sm:-my-6', 'relative -my-6'),
+                  ('h-[96px] sm:h-[106px]', 'h-[106px]'),
+                  ('text-[10px] sm:text-[11px]', 'text-[11px]'),
+              ],
+              'SopDetail physical A4 header/publication'
+          )
+          detail_path.write_text(detail, encoding='utf-8')
+
+          live_path = Path('src/components/SopLiveTemplate.tsx')
+          live = live_path.read_text(encoding='utf-8')
+          live = rewrite_segment(
+              live,
+              '  const renderOfficialHeader = (pageNumber: number, total: number) => {',
+              '  // ---------------------------------------------------------------------------\n  // Helper to map OfficialSectionKey to active state and callbacks',
+              [
+                  ('text-xs sm:text-sm', 'text-sm'),
+                  ('text-xs sm:text-[13px]', 'text-[13px]'),
+                  ('relative -my-5 sm:-my-6', 'relative -my-6'),
+                  ('h-[96px] sm:h-[106px]', 'h-[106px]'),
+                  ('text-[10px] sm:text-[11px]', 'text-[11px]'),
+              ],
+              'SopLive physical A4 header/publication'
+          )
+          live_path.write_text(live, encoding='utf-8')
+
+          test_path = Path('tests/a4-page-boundary-contract.test.ts')
+          test_text = test_path.read_text(encoding='utf-8')
+          marker = "test('mobile viewer scale never contaminates physical A4 pagination metrics'"
+          if marker not in test_text:
+              test_text += r'''
+
+          test('mobile viewer scale never contaminates physical A4 pagination metrics', () => {
+            const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+            assert.match(detail, /const measurementScale = Number\.isFinite\(calculatedPreviewScale\)/);
+            assert.match(detail, /const layoutHeight = element\.offsetHeight;/);
+            assert.match(detail, /getBoundingClientRect\(\)\.height \/ measurementScale/);
+            assert.match(detail, /safetyBufferPx:\s*12/);
+            assert.match(detail, /calculatedPreviewScale\]\);/);
+          });
+
+          test('physical A4 chrome is viewport-invariant in Preview and LiveSPO', () => {
+            const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+            const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+
+            const detailStart = detail.indexOf('const renderOfficialHeader = (pageNumber: number, pageTotal: number)');
+            const detailEnd = detail.indexOf('const pageGroups = officialPages;', detailStart);
+            assert.ok(detailStart >= 0 && detailEnd > detailStart);
+            assert.doesNotMatch(detail.slice(detailStart, detailEnd), /\bsm:/);
+
+            const liveStart = live.indexOf('const renderOfficialHeader = (pageNumber: number, total: number)');
+            const liveEnd = live.indexOf('// Helper to map OfficialSectionKey to active state and callbacks', liveStart);
+            assert.ok(liveStart >= 0 && liveEnd > liveStart);
+            assert.doesNotMatch(live.slice(liveStart, liveEnd), /\bsm:/);
+          });
+          '''.replace(/^          /gm, '')
+              test_path.write_text(test_text, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run A4 and table regression suite
+        run: npm run test:tables
+
+      - name: Build web client
+        run: npm run build:client
+
+      - name: Verify physical metric contract
+        shell: bash
+        run: |
+          grep -q 'const layoutHeight = element.offsetHeight' src/components/SopDetailModal.tsx
+          grep -q 'safetyBufferPx: 12' src/components/SopDetailModal.tsx
+          grep -q 'mobile viewer scale never contaminates physical A4 pagination metrics' tests/a4-page-boundary-contract.test.ts
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/mobile-a4-physical-metrics-patch.yml
+          git add src/components/SopDetailModal.tsx src/components/SopLiveTemplate.tsx tests/a4-page-boundary-contract.test.ts
+          git commit -m 'fix: decouple mobile preview scale from A4 pagination'
+          git push origin HEAD:fix/mobile-a4-physical-metrics-20260925
