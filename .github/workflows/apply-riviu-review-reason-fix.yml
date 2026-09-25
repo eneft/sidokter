@@ -1,0 +1,122 @@
+name: Apply Riviu Review Reason Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-riviu-review-reason-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch UserView Riviu reason state and payload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/UserView.tsx')
+          text = path.read_text()
+
+          old = """  const [oldSopNumber, setOldSopNumber] = useState('');\n  const [reviewReason, setReviewReason] = useState('');\n  const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);"""
+          new = """  const [oldSopNumber, setOldSopNumber] = useState('');\n  const [reviewReason, setReviewReason] = useState('');\n  const reviewReasonRef = useRef<HTMLTextAreaElement>(null);\n  const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);"""
+          if old not in text:
+              raise SystemExit('reviewReason state anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """    const isLegacy = documentType === 'LAMA';\n    const isReview = documentType === 'REVIEW';\n"""
+          new = """    const isLegacy = documentType === 'LAMA';\n    const isReview = documentType === 'REVIEW';\n    // Browser autofill/session restoration can visually populate a controlled\n    // textarea without dispatching React's onChange. Reconcile the live DOM\n    // value at submit so a visibly filled Riviu reason is never rejected.\n    const reviewReasonFromDom = String(reviewReasonRef.current?.value || '').trim();\n    const normalizedReviewReason = isReview\n      ? (reviewReason.trim() || reviewReasonFromDom)\n      : '';\n    if (isReview && normalizedReviewReason && normalizedReviewReason !== reviewReason.trim()) {\n      setReviewReason(normalizedReviewReason);\n    }\n"""
+          if old not in text:
+              raise SystemExit('handleSubmit anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """        if (!reviewReason.trim()) {\n          setSubmitError('Alasan Riviu dan catatan perubahan wajib diisi.');\n          return;\n        }"""
+          new = """        if (!normalizedReviewReason) {\n          setSubmitError('Alasan Riviu dan catatan perubahan wajib diisi.');\n          return;\n        }"""
+          if old not in text:
+              raise SystemExit('reviewReason validation anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """        summary: isReview && reviewReason ? `Riviu SPO: ${reviewReason}` : summary.trim() || `Standar Prosedur Operasional ${finalTitle}`,"""
+          new = """        summary: isReview && normalizedReviewReason ? `Riviu SPO: ${normalizedReviewReason}` : summary.trim() || `Standar Prosedur Operasional ${finalTitle}`,"""
+          if old not in text:
+              raise SystemExit('summary anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """        oldSopNumber: isReview ? oldSopNumber.trim() : undefined,\n        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || referencedForSave?.id || undefined) : undefined,"""
+          new = """        oldSopNumber: isReview ? oldSopNumber.trim() : undefined,\n        reviewReason: isReview ? normalizedReviewReason : undefined,\n        existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || referencedForSave?.id || undefined) : undefined,"""
+          if old not in text:
+              raise SystemExit('sopData review identity anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """                              <textarea\n                                rows={2}\n                                required={documentType === 'REVIEW'}\n                                value={reviewReason}\n                                onChange={(e) => setReviewReason(e.target.value)}\n                                placeholder=\"Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026.\""""
+          new = """                              <textarea\n                                ref={reviewReasonRef}\n                                name=\"reviewReason\"\n                                rows={2}\n                                required={documentType === 'REVIEW'}\n                                value={reviewReason}\n                                onChange={(e) => {\n                                  setReviewReason(e.target.value);\n                                  if (submitError?.includes('Alasan Riviu')) setSubmitError(null);\n                                }}\n                                placeholder=\"Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026.\""""
+          if old not in text:
+              raise SystemExit('textarea anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Add regression test
+        shell: bash
+        run: |
+          cat > tests/riviu-review-reason-ui.test.cjs <<'EOF'
+          'use strict';
+
+          const test = require('node:test');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const source = fs.readFileSync(path.join(process.cwd(), 'src/components/UserView.tsx'), 'utf8');
+
+          test('Riviu submit reconciles visible review reason and persists it', () => {
+            assert.match(source, /const reviewReasonRef = useRef<HTMLTextAreaElement>\(null\)/);
+            assert.match(source, /const reviewReasonFromDom = String\(reviewReasonRef\.current\?\.value \|\| ''\)\.trim\(\)/);
+            assert.match(source, /if \(!normalizedReviewReason\)/);
+            assert.match(source, /reviewReason: isReview \? normalizedReviewReason : undefined/);
+          });
+
+          test('Riviu reason input clears stale validation feedback', () => {
+            assert.match(source, /ref=\{reviewReasonRef\}/);
+            assert.match(source, /name="reviewReason"/);
+            assert.match(source, /submitError\?\.includes\('Alasan Riviu'\)/);
+          });
+          EOF
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('package.json')
+          data = json.loads(p.read_text())
+          script = data['scripts']['test:sop-edit']
+          marker = 'tests/riviu-review-reason-ui.test.cjs'
+          if marker not in script:
+              script = script.replace('tests/sop-alur-image-delete.test.cjs', 'tests/sop-alur-image-delete.test.cjs tests/riviu-review-reason-ui.test.cjs')
+              data['scripts']['test:sop-edit'] = script
+              p.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+
+      - name: Verify targeted tests and build
+        run: |
+          npm ci
+          npm run test:sop-edit
+          npm run build:client
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-riviu-review-reason-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/UserView.tsx tests/riviu-review-reason-ui.test.cjs package.json package-lock.json .github/workflows/apply-riviu-review-reason-fix.yml
+          git commit -m 'fix: recognize and persist Riviu review reason on submit'
+          git push origin HEAD:main
