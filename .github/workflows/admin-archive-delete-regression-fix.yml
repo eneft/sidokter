@@ -6,6 +6,7 @@ on:
       - fix/admin-delete-archived-sop-20260925
     paths:
       - '.github/workflows/admin-archive-delete-regression-fix.yml'
+      - 'scripts/fix-sop-delete-admin-invariant.py'
 
 permissions:
   contents: write
@@ -25,45 +26,7 @@ jobs:
           cache: npm
 
       - name: Preserve explicit ever-active Admin guard
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('functions/index.js')
-          text = path.read_text(encoding='utf-8')
-          old = """          const isCreator = Boolean(
-            (creatorUid && userUid && creatorUid === userUid) ||
-            (createdBy && actorUsername && createdBy === actorUsername)
-          );
-
-          const deleteDecision = decideSopDeleteAction({
-"""
-          new = """          const isCreator = Boolean(
-            (creatorUid && userUid && creatorUid === userUid) ||
-            (createdBy && actorUsername && createdBy === actorUsername)
-          );
-
-          // Preserve the long-standing fail-closed invariant explicitly at the
-          // trusted boundary: any SPO that has ever been official requires Admin.
-          // The pure policy below still owns the detailed archive/draft decision.
-          const wasEverActive = stored.everActivated === true ||
-            stored.status === 'AKTIF' ||
-            stored.status === 'DIARSIPKAN' ||
-            Boolean(stored.activatedAt);
-          if (wasEverActive && !isAdmin) {
-            const accessError = new Error('PERMISSION_DENIED');
-            accessError.sopDeleteStatus = 403;
-            accessError.sopDeleteCode = 'PERMISSION_DENIED';
-            accessError.sopDeleteMessage = 'SPO yang pernah aktif hanya dapat dikelola penghapusannya oleh Administrator.';
-            throw accessError;
-          }
-
-          const deleteDecision = decideSopDeleteAction({
-"""
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one delete guard insertion point, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+        run: python scripts/fix-sop-delete-admin-invariant.py
 
       - name: Install dependencies
         run: npm ci
@@ -92,7 +55,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/admin-archive-delete-regression-fix.yml
+          git rm .github/workflows/admin-archive-delete-regression-fix.yml scripts/fix-sop-delete-admin-invariant.py
           git add functions/index.js
           git commit -m 'fix: preserve trusted SPO delete admin invariant'
           git push origin HEAD:fix/admin-delete-archived-sop-20260925
