@@ -1,0 +1,142 @@
+name: Apply Dashboard Top Search Removal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-remove-dashboard-top-search.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Remove redundant hero search and obsolete mobile workaround
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          dashboard = Path('src/components/DashboardOverviewPage.tsx')
+          text = dashboard.read_text(encoding='utf-8')
+
+          text = text.replace(
+              "import React, { useMemo, useState, useEffect, useRef } from 'react';",
+              "import React, { useMemo, useState } from 'react';",
+              1,
+          )
+
+          for line in [
+              "  const [globalSearch, setGlobalSearch] = useState('');\n",
+              "  const [selectedSubDivision, setSelectedSubDivision] = useState<string>('ALL');\n",
+              "  const [showSuggestions, setShowSuggestions] = useState(false);\n",
+          ]:
+              if line not in text:
+                  raise SystemExit(f'Missing expected top-search state: {line.strip()}')
+              text = text.replace(line, '', 1)
+
+          refs_start = "  const searchContainerRef = useRef<HTMLDivElement>(null);\n"
+          refs_end = "  }, []);\n\n"
+          if refs_start not in text:
+              raise SystemExit('Top-search refs block not found')
+          start = text.index(refs_start)
+          end = text.index(refs_end, start) + len(refs_end)
+          text = text[:start] + text[end:]
+
+          suggestions_start = "  // Real-time suggestions for quick search (matching sub-divisions and top matching documents)\n"
+          suggestions_end = "  }, [globalSearch, selectedSubDivision, availableSubDivisions, sops, documents]);\n\n"
+          if suggestions_start not in text or suggestions_end not in text:
+              raise SystemExit('Realtime top-search suggestions block not found')
+          start = text.index(suggestions_start)
+          end = text.index(suggestions_end, start) + len(suggestions_end)
+          text = text[:start] + text[end:]
+
+          results_logic_start = "  // Global search & sub-division filter results\n"
+          results_logic_end = "  }, [globalSearch, selectedSubDivision, sops, documents]);\n\n"
+          if results_logic_start not in text or results_logic_end not in text:
+              raise SystemExit('Top-search results logic block not found')
+          start = text.index(results_logic_start)
+          end = text.index(results_logic_end, start) + len(results_logic_end)
+          text = text[:start] + text[end:]
+
+          text = text.replace(
+              "      {/* 1. Hero Greeting & Global Search */}",
+              "      {/* 1. Hero Greeting */}",
+              1,
+          )
+
+          quick_ui_start = "          {/* Quick Search with Real-time Suggestions & Sub-division filtering */}\n"
+          hero_close = "\n        </div>\n      </section>"
+          if quick_ui_start not in text:
+              raise SystemExit('Top hero quick-search UI marker not found')
+          start = text.index(quick_ui_start)
+          end = text.index(hero_close, start)
+          text = text[:start] + text[end:]
+
+          results_ui_start = "      {/* Search Results */}\n"
+          archive_marker = "      {/* 2. Dokumen Digital Soegiri — embedded dashboard repository */}"
+          if results_ui_start not in text or archive_marker not in text:
+              raise SystemExit('Top-search results UI markers not found')
+          start = text.index(results_ui_start)
+          end = text.index(archive_marker, start)
+          text = text[:start] + text[end:]
+
+          if 'Cari nomor, judul, kode sub-divisi' in text:
+              raise SystemExit('Redundant hero search input still exists')
+          if 'Saran Real-Time' in text:
+              raise SystemExit('Redundant realtime suggestion UI still exists')
+          if 'Cari arsip berdasarkan judul, nomor, kode sub-divisi, atau unit...' not in text:
+              raise SystemExit('Primary Dokumen Digital search was accidentally removed')
+          if "const [archiveSearch, setArchiveSearch]" not in text:
+              raise SystemExit('Archive search state was accidentally removed')
+
+          dashboard.write_text(text, encoding='utf-8')
+
+          main = Path('src/main.tsx')
+          main_text = main.read_text(encoding='utf-8')
+          main_text = main_text.replace("import { installDashboardMobileSearchViewportFix } from './mobileSearchViewportFix';\n", '', 1)
+          main_text = main_text.replace("import './mobile-search-fix.css';\n", '', 1)
+          main_text = main_text.replace("  installDashboardMobileSearchViewportFix();\n\n", '', 1)
+          main.write_text(main_text, encoding='utf-8')
+
+          for obsolete in [Path('src/mobileSearchViewportFix.ts'), Path('src/mobile-search-fix.css')]:
+              if obsolete.exists():
+                  obsolete.unlink()
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify client build
+        run: npm run build:client
+
+      - name: Verify intended search remains
+        shell: bash
+        run: |
+          grep -q 'Cari arsip berdasarkan judul, nomor, kode sub-divisi, atau unit' src/components/DashboardOverviewPage.tsx
+          ! grep -q 'Cari nomor, judul, kode sub-divisi' src/components/DashboardOverviewPage.tsx
+          ! grep -q 'Saran Real-Time' src/components/DashboardOverviewPage.tsx
+          test ! -e src/mobileSearchViewportFix.ts
+          test ! -e src/mobile-search-fix.css
+
+      - name: Commit source cleanup and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-remove-dashboard-top-search.yml
+          git add src/components/DashboardOverviewPage.tsx src/main.tsx
+          git add -u src/mobileSearchViewportFix.ts src/mobile-search-fix.css || true
+          git commit -m 'ui: remove redundant dashboard hero search'
+          git push origin main
