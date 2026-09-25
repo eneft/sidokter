@@ -1,0 +1,70 @@
+name: Apply Dashboard Digital Library Cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-dashboard-digital-library-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Remove metric cards and uppercase digital library title
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/DashboardOverviewPage.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          start_marker = '      {/* 2. Key Metrics Statistics */}'
+          end_marker = '      {/* 3. Dokumen Digital Soegiri — embedded dashboard repository */}'
+          if start_marker not in text or end_marker not in text:
+              raise SystemExit('Dashboard metric-card markers not found')
+
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          text = text[:start] + '      {/* 2. Dokumen Digital Soegiri — embedded dashboard repository */}\n' + text[end + len(end_marker):]
+
+          old_title = '<h2 className="text-xl font-black text-slate-900">Dokumen Digital Soegiri</h2>'
+          new_title = '<h2 className="text-xl font-black text-slate-900">DOKUMEN DIGITAL SOEGIRI</h2>'
+          if old_title not in text:
+              raise SystemExit('Dokumen Digital Soegiri heading not found')
+          text = text.replace(old_title, new_title, 1)
+
+          if start_marker in text:
+              raise SystemExit('Metric card section still present')
+          if 'DOKUMEN DIGITAL SOEGIRI</h2>' not in text:
+              raise SystemExit('Uppercase digital library title missing')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify client build
+        run: npm run build:client
+
+      - name: Commit source changes and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-dashboard-digital-library-cleanup.yml
+          git add src/components/DashboardOverviewPage.tsx
+          git commit -m 'ui: simplify Dokumen Digital dashboard summary'
+          git push origin main
