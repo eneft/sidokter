@@ -23,7 +23,7 @@
     "test:hierarchy": "node --test tests/hierarchy-cloud-boundary.test.cjs",
     "test:pdf-binary": "tsx --test tests/pdf-binary-download.test.ts",
     "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts && node --test tests/sop-number-allocation-boundary.test.cjs",
-    "test:live-pagination": "tsx --test tests/live-sop-content-integrity.test.ts"
+    "test:live-pagination": "tsx --test tests/live-sop-content-integrity.test.ts tests/canonical-a4-overflow.browser.test.ts"
   },
   "dependencies": {
     "@sparticuz/chromium": "149.0.0",

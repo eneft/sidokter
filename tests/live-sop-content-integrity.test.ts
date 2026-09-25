@@ -227,7 +227,9 @@ test('canonical paginator measures raw flow blocks and applies the editor floor 
   const source = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
   assert.match(source, /let currentSectionRawHeight = 0/);
   assert.match(source, /const contentContribution = sectionFlowContributionPx/);
-  assert.match(source, /currentSectionRawHeight = startsNewSectionRow/);
+  assert.match(source, /const nextSectionRawHeight = startsNewSectionRow/);
+  assert.match(source, /measureCanonicalFlowHtml\(\[\.\.\.currentSectionHtml, block\.html\]\)/);
+  assert.match(source, /currentSectionRawHeight = nextSectionRawHeight/);
   assert.doesNotMatch(source, /const measuredHeights = blocks\.map\([\s\S]{0,260}Math\.max\(\s*LIVE_SOP_SECTION_MIN_HEIGHT_PX/);
 });
 
