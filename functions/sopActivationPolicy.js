@@ -15,6 +15,14 @@ function isRiviu(sop) {
   return jenis === 'RIVIU' || jenis === 'REVIEW' || sop?.isReviewDocument === true;
 }
 
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
 function buildSopActivationTransition({ storedSuccessor, submitted, predecessor, actor }) {
   if (normalizeRole(actor?.role) !== 'admin') throw new Error('ADMIN_REQUIRED');
   if (!storedSuccessor?.id || String(submitted?.id || '') !== String(storedSuccessor.id)) {
@@ -95,23 +103,56 @@ function buildSopActivationTransition({ storedSuccessor, submitted, predecessor,
 
   if (riviu) {
     if (storedSuccessor.existingSopId) throw new Error('PREDECESSOR_REQUIRED');
-    const sourceName = String(storedSuccessor.oldFileName || '').trim().toLowerCase();
-    const sourceType = String(storedSuccessor.oldFileType || '').trim().toLowerCase();
-    const sourceIsPdf = sourceType === 'application/pdf' || sourceName.endsWith('.pdf');
-    if (!storedSuccessor.oldSopNumber || !storedSuccessor.reviewReason || !storedSuccessor.previousRevisionNumber) {
+
+    // Older external/legacy Riviu drafts can predate the first-write metadata
+    // fix. During trusted Admin activation, repair only fields that are missing
+    // from the stored Draft by falling back to the submitted Draft snapshot.
+    // Existing stored values remain authoritative and cannot be overwritten.
+    const oldSopNumber = firstNonEmptyString(storedSuccessor.oldSopNumber, submitted?.oldSopNumber);
+    const reviewReason = firstNonEmptyString(storedSuccessor.reviewReason, submitted?.reviewReason);
+    const previousRevisionRaw = firstNonEmptyString(storedSuccessor.previousRevisionNumber, submitted?.previousRevisionNumber);
+
+    const sourceName = firstNonEmptyString(storedSuccessor.oldFileName, submitted?.oldFileName);
+    const sourceType = firstNonEmptyString(storedSuccessor.oldFileType, submitted?.oldFileType);
+    const sourceUrl = firstNonEmptyString(storedSuccessor.oldFileUrl, submitted?.oldFileUrl);
+    const sourceStoragePath = firstNonEmptyString(storedSuccessor.oldStoragePath, submitted?.oldStoragePath);
+    const sourceIsPdf = sourceType.toLowerCase() === 'application/pdf' || sourceName.toLowerCase().endsWith('.pdf');
+
+    if (!oldSopNumber || !reviewReason || !previousRevisionRaw) {
       throw new Error('EXTERNAL_METADATA_REQUIRED');
     }
-    if (!sourceIsPdf || !storedSuccessor.oldFileUrl || !storedSuccessor.oldStoragePath) {
+    if (!sourceIsPdf || !sourceUrl || !sourceStoragePath) {
       throw new Error('EXTERNAL_PDF_REQUIRED');
     }
-    const previousRevision = normalizeRevision(storedSuccessor.previousRevisionNumber);
+
+    const previousRevision = normalizeRevision(previousRevisionRaw);
     const nextRevision = String(Number(previousRevision) + 1).padStart(2, '0');
     if (normalizeRevision(storedSuccessor.revisionNumber || storedSuccessor.version) !== nextRevision) {
       throw new Error('SUCCESSOR_REVISION_MISMATCH');
     }
+
+    // Persist repaired metadata atomically together with DRAFT -> AKTIF.
+    activationFields.oldSopNumber = oldSopNumber;
+    activationFields.reviewReason = reviewReason;
     activationFields.previousRevisionNumber = previousRevision;
     activationFields.revisionNumber = nextRevision;
     activationFields.version = nextRevision;
+    activationFields.oldFileName = sourceName;
+    activationFields.oldFileType = sourceType;
+    activationFields.oldFileUrl = sourceUrl;
+    activationFields.oldStoragePath = sourceStoragePath;
+
+    const storedOldFileSize = Number(storedSuccessor.oldFileSize);
+    const submittedOldFileSize = Number(submitted?.oldFileSize);
+    if (Number.isFinite(storedOldFileSize) && storedOldFileSize >= 0) {
+      activationFields.oldFileSize = storedOldFileSize;
+    } else if (Number.isFinite(submittedOldFileSize) && submittedOldFileSize >= 0) {
+      activationFields.oldFileSize = submittedOldFileSize;
+    }
+
+    if (storedSuccessor.externalReviewSignedConfirmed === true || submitted?.externalReviewSignedConfirmed === true) {
+      activationFields.externalReviewSignedConfirmed = true;
+    }
   }
 
   return {
