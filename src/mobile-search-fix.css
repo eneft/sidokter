@@ -1,0 +1,52 @@
+/* Mobile dashboard quick-search viewport fix.
+   Keeps iOS Safari's keyboard from hiding the active search and suggestions. */
+
+@media (max-width: 639px) {
+  section[data-sidokter-mobile-search='true'] {
+    padding: 0.75rem !important;
+    border-radius: 1rem !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    scroll-margin-top: 0.5rem;
+  }
+
+  section[data-sidokter-mobile-search='true'] > div.absolute {
+    display: none !important;
+  }
+
+  section[data-sidokter-mobile-search='true'] > div.relative.z-10.max-w-4xl > div:first-child,
+  section[data-sidokter-mobile-search='true'] > div.relative.z-10.max-w-4xl > h1,
+  section[data-sidokter-mobile-search='true'] > div.relative.z-10.max-w-4xl > p {
+    display: none !important;
+  }
+
+  section[data-sidokter-mobile-search='true'] > div.relative.z-10.max-w-4xl > div.mt-6 {
+    margin-top: 0 !important;
+    max-width: none !important;
+  }
+
+  section[data-sidokter-mobile-search='true'] input[placeholder^='Cari nomor, judul, kode sub-divisi'] {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+    min-height: 44px;
+  }
+
+  section[data-sidokter-mobile-search='true'] .absolute.top-full {
+    position: static !important;
+    inset: auto !important;
+    margin-top: 0.5rem !important;
+    max-height: calc(var(--sidokter-mobile-search-vvh, 100dvh) - 9rem);
+    border-radius: 1rem !important;
+  }
+
+  section[data-sidokter-mobile-search='true'] .absolute.top-full > .max-h-80 {
+    max-height: max(10rem, calc(var(--sidokter-mobile-search-vvh, 100dvh) - 13rem)) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  section[data-sidokter-mobile-search='true'] + section {
+    scroll-margin-top: 0.75rem;
+  }
+}
