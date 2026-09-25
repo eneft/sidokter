@@ -797,8 +797,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
         const pages = computeCanonicalA4Pages(layoutBlocks, {
           headerHeightPx,
-          publicationHeightPx,
-          safetyBufferPx: 4
+          publicationHeightPx
         });
         if (!cancelled) {
           setOfficialPages(pages as OfficialBlock[][]);

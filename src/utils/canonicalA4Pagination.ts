@@ -36,7 +36,6 @@ export interface BuildOfficialBlocksOptions {
 export interface CanonicalPaginationOptions {
   headerHeightPx?: number;
   publicationHeightPx?: number;
-  safetyBufferPx?: number;
 }
 
 /**
@@ -596,7 +595,8 @@ export function splitElementPreservingMarkup(
 export function splitHtmlForCapacity(
   html: string,
   maxHeight: number,
-  template: HTMLElement | null
+  template: HTMLElement | null,
+  allowOversizedListItemSplit = false
 ): string[] {
   const source = (html || '').trim();
   if (!source || maxHeight <= 0 || typeof DOMParser === 'undefined')
@@ -844,58 +844,6 @@ export function splitHtmlForCapacity(
           const prefixItemHtmls = items
             .slice(0, fitCount)
             .map((el) => el.outerHTML);
-          const nextItem = items[fitCount];
-
-          // Strict pack-first: after whole list items have filled most of the
-          // page, use the remaining space for as much of the next text item as
-          // safely fits. Nested tables keep the dedicated V2 safe-row path.
-          if (nextItem && !nextItem.querySelector('table')) {
-            const partialNextItem = splitElementPreservingMarkup(
-              nextItem,
-              maxHeight,
-              (fragment, isFirstChunk) => {
-                const li = nextItem.cloneNode(false) as HTMLElement;
-                li.removeAttribute('id');
-                li.innerHTML = '';
-                li.appendChild(fragment);
-                if (isFirstChunk) {
-                  return makeList(
-                    [...prefixItemHtmls, li.outerHTML],
-                    0,
-                    false,
-                    explicitStart
-                  );
-                }
-                return makeList(
-                  [li.outerHTML],
-                  fitCount,
-                  true,
-                  explicitStart + fitCount
-                );
-              },
-              template
-            );
-
-            if (partialNextItem.length > 1) {
-              host.remove();
-              const laterItems = items
-                .slice(fitCount + 1)
-                .map((el) => el.outerHTML);
-              const laterList = laterItems.length
-                ? makeList(
-                    laterItems,
-                    fitCount + 1,
-                    false,
-                    explicitStart + fitCount + 1
-                  )
-                : '';
-              return [
-                partialNextItem[0],
-                [...partialNextItem.slice(1), laterList].filter(Boolean).join('')
-              ];
-            }
-          }
-
           host.remove();
           const firstPart = makeList(prefixItemHtmls, 0);
           const remainingPart = makeList(
@@ -948,31 +896,44 @@ export function splitHtmlForCapacity(
               ];
             }
           }
-          const itemParts = splitElementPreservingMarkup(
-            item,
-            maxHeight,
-            (fragment, isFirstChunk) => {
-              const li = item.cloneNode(false) as HTMLElement;
-              li.removeAttribute('id');
-              li.innerHTML = '';
-              li.appendChild(fragment);
-              return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
-            },
-            template
-          );
-          if (itemParts.length > 1) {
-            const firstPart = itemParts[0];
-            const restItemParts = itemParts.slice(1);
+
+          // Keep list items whole when they can fit on a fresh page, but an
+          // item taller than maxHeight has no whole-item boundary available.
+          // Split that pathological item with the same markup-preserving range
+          // logic used for prose and mark every later fragment as a logical
+          // continuation so it cannot render a duplicate marker.
+          const splitItemParts = allowOversizedListItemSplit
+            ? splitElementPreservingMarkup(
+                item,
+                maxHeight,
+                (fragment, isFirstChunk) => {
+                  const clonedItem = item.cloneNode(false) as HTMLElement;
+                  clonedItem.removeAttribute('id');
+                  clonedItem.removeAttribute('data-sop-continuation-li');
+                  clonedItem.innerHTML = '';
+                  clonedItem.appendChild(fragment);
+                  return makeList(
+                    [clonedItem.outerHTML],
+                    0,
+                    !isFirstChunk,
+                    explicitStart
+                  );
+                },
+                template
+              )
+            : [item.outerHTML];
+          if (splitItemParts.length > 1) {
             const remainingItems = items.slice(1).map((el) => el.outerHTML);
-            const continuation = [
-              ...restItemParts,
-              ...(remainingItems.length
-                ? [makeList(remainingItems, 1, false, explicitStart + 1)]
-                : [])
-            ].join('');
+            const remainingList = remainingItems.length
+              ? makeList(remainingItems, 1, false, explicitStart + 1)
+              : '';
             host.remove();
-            return [firstPart, continuation];
+            return [...splitItemParts, remainingList].filter(Boolean);
           }
+
+          // Ordinary list items remain semantic units and are never bisected
+          // merely to fill the bottom of a page. Nested tables above retain
+          // their row-safe path.
           host.remove();
           return [source];
         }
@@ -1131,13 +1092,9 @@ export function computeCanonicalA4Pages(
     return [blocks];
   }
 
-  // Canonical page dimensions at 96 DPI:
-  // 297mm = 1122.5px
-  // Margins: 20mm top + 20mm bottom = 40mm = 151.2px
-  // Available height inside margin box = 1122.5 - 151.2 = 971.3px
-  const pageHeightPx = 1122.5;
-  const marginVerticalPx = 151.2;
-  const availableHeight = pageHeightPx - marginVerticalPx; // 971.3px
+  // Canonical 257 mm content safe-area (297 mm minus physical 20 mm margins)
+  // at CSS's mandated 96 DPI conversion.
+  const availableHeight = SPO_A4.contentHeightMm * CSS_PX_PER_MM;
 
   // Header/publication measurements MUST be supplied by the renderer that owns
   // the current SPO. Never query the global document here: another Preview,
@@ -1151,9 +1108,9 @@ export function computeCanonicalA4Pages(
   }
   const headerHeight = Math.max(0, options.headerHeightPx!);
   const publicationHeight = Math.max(0, options.publicationHeightPx!);
-  const safety = options?.safetyBufferPx ?? 4;
-
-  const bodyCapacity = Math.max(1, availableHeight - headerHeight - safety);
+  // Do not make a guessed buffer part of pagination. Every candidate page is
+  // measured and admitted only when it fits the real 257 mm safe-area.
+  const bodyCapacity = Math.max(1, availableHeight - headerHeight);
   const firstCapacity = Math.max(1, bodyCapacity - publicationHeight);
   const normalCapacity = bodyCapacity;
 
@@ -1181,6 +1138,38 @@ export function computeCanonicalA4Pages(
     return Math.max(0, h);
   };
 
+  /**
+   * Validate the complete fragment, rather than trusting the incremental
+   * accumulator. This is the final admission gate shared by Live, Preview and
+   * PDF and catches section floors/chrome as well as sub-pixel DOM rounding.
+   */
+  const pageFragmentHeight = (pageBlocks: OfficialBlock[]): number => {
+    let total = 0;
+    let section: OfficialBlock['section'] | null = null;
+    let sectionRawHeight = 0;
+    pageBlocks.forEach((pageBlock) => {
+      const rawHeight = measureFlowPart(pageBlock.html);
+      const startsSection = section !== pageBlock.section;
+      total += sectionFlowContributionPx(sectionRawHeight, rawHeight, startsSection);
+      if (startsSection) total += baseRowPadding;
+      sectionRawHeight = startsSection ? rawHeight : sectionRawHeight + rawHeight;
+      section = pageBlock.section;
+    });
+    return total;
+  };
+
+  const fitsPhysicalSafeArea = (
+    pageBlocks: OfficialBlock[],
+    pageCapacity: number
+  ): boolean => pageFragmentHeight(pageBlocks) <= pageCapacity + 0.01;
+
+  const appendValidated = (pageBlock: OfficialBlock): boolean => {
+    const candidate = [...currentPageBlocks, pageBlock];
+    if (!fitsPhysicalSafeArea(candidate, capacity)) return false;
+    currentPageBlocks.push(pageBlock);
+    return true;
+  };
+
   const pages: OfficialBlock[][] = [];
   let currentPageBlocks: OfficialBlock[] = [];
   let used = 0;
@@ -1193,6 +1182,9 @@ export function computeCanonicalA4Pages(
 
   const commitCurrentPageAndStartNext = () => {
     if (currentPageBlocks.length) {
+      if (!fitsPhysicalSafeArea(currentPageBlocks, capacity)) {
+        throw new Error('Canonical A4 invariant: page fragment exceeds physical safe-area');
+      }
       // Structural empty sections are real editable rows, not blank pages.
       pages.push(currentPageBlocks);
     }
@@ -1267,7 +1259,9 @@ export function computeCanonicalA4Pages(
             flowBlocks.splice(index + 1, 0, ...continuationBlocks);
             flowHeights.splice(index + 1, 0, ...continuationHeights);
 
-            currentPageBlocks.push(fittedFirstBlock);
+            if (!appendValidated(fittedFirstBlock)) {
+              throw new Error(`Canonical A4 rejected fitted fragment "${block.id}"`);
+            }
             used += firstNeeded;
             currentSectionRawHeight = startsNewSectionRow
               ? firstHeight
@@ -1321,7 +1315,9 @@ export function computeCanonicalA4Pages(
             flowBlocks.splice(index + 1, 0, ...continuationBlocks);
             flowHeights.splice(index + 1, 0, ...continuationHeights);
 
-            currentPageBlocks.push(fittedFirstBlock);
+            if (!appendValidated(fittedFirstBlock)) {
+              throw new Error(`Canonical A4 rejected fitted fragment "${block.id}"`);
+            }
             used += firstNeeded;
             currentSectionRawHeight = startsNewSectionRow
               ? firstHeight
@@ -1400,7 +1396,9 @@ export function computeCanonicalA4Pages(
             flowBlocks.splice(index + 1, 0, ...continuationBlocks);
             flowHeights.splice(index + 1, 0, ...continuationHeights);
 
-            currentPageBlocks.push(fittedFirstBlock);
+            if (!appendValidated(fittedFirstBlock)) {
+              throw new Error(`Canonical A4 rejected fitted fragment "${block.id}"`);
+            }
             used += firstNeeded;
             currentSectionRawHeight = startsNewSectionRow
               ? firstHeight
@@ -1422,7 +1420,12 @@ export function computeCanonicalA4Pages(
       // <li> items; long text uses markup-preserving text ranges.
       if (currentPageBlocks.length === 0 && capacity >= 40) {
         const pageRemaining = Math.max(1, capacity - chrome);
-        const parts = splitHtmlForCapacity(block.html, pageRemaining, null);
+        const parts = splitHtmlForCapacity(
+          block.html,
+          pageRemaining,
+          null,
+          true
+        );
         if (parts.length > 1) {
           const firstPart = parts[0];
           const restParts = parts.slice(1);
@@ -1455,7 +1458,9 @@ export function computeCanonicalA4Pages(
           flowBlocks.splice(index + 1, 0, ...continuationBlocks);
           flowHeights.splice(index + 1, 0, ...continuationHeights);
 
-          currentPageBlocks.push(fittedFirstBlock);
+          if (!appendValidated(fittedFirstBlock)) {
+            throw new Error(`Canonical A4 rejected fitted fragment "${block.id}"`);
+          }
           used += firstNeeded;
           currentSectionRawHeight = startsNewSectionRow
             ? firstHeight
@@ -1477,7 +1482,11 @@ export function computeCanonicalA4Pages(
             '$1 data-sop-unsplittable-overflow="true"'
           )
         };
-        currentPageBlocks.push(unsplittable);
+        // Invalid authored atoms are kept visible for diagnosis, but never
+        // admitted into the canonical page model where they would be clipped.
+        if (!appendValidated(unsplittable)) {
+          throw new Error(`Canonical A4 cannot safely paginate block "${block.id}"`);
+        }
         used = capacity;
         currentSection = block.section;
         index += 1;
@@ -1487,7 +1496,15 @@ export function computeCanonicalA4Pages(
     }
 
     // Block fits on current page
-    currentPageBlocks.push(block);
+    if (!appendValidated(block)) {
+      // A sub-pixel/layout difference was found by whole-page validation.
+      // Re-enter the overflow path without advancing or losing the block.
+      if (currentPageBlocks.length > 0) {
+        commitCurrentPageAndStartNext();
+        continue;
+      }
+      throw new Error(`Canonical A4 cannot safely paginate block "${block.id}"`);
+    }
     used += needed;
     currentSectionRawHeight = startsNewSectionRow
       ? flowHeights[index]
@@ -1497,6 +1514,9 @@ export function computeCanonicalA4Pages(
   }
 
   if (currentPageBlocks.length) {
+    if (!fitsPhysicalSafeArea(currentPageBlocks, capacity)) {
+      throw new Error('Canonical A4 invariant: final page exceeds physical safe-area');
+    }
     pages.push(currentPageBlocks);
   }
 
