@@ -428,6 +428,7 @@ export const UserView: React.FC<UserViewProps> = ({
   const [existingSopId, setExistingSopId] = useState('');
   const [oldSopNumber, setOldSopNumber] = useState('');
   const [reviewReason, setReviewReason] = useState('');
+  const reviewReasonRef = useRef<HTMLTextAreaElement>(null);
   const [externalReviewSignedConfirmed, setExternalReviewSignedConfirmed] = useState(false);
   const [selectedExistingSopIdForReview, setSelectedExistingSopIdForReview] = useState('');
   const [supportingEvidence, setSupportingEvidence] = useState<PendingEvidence[]>([]);
@@ -836,6 +837,16 @@ export const UserView: React.FC<UserViewProps> = ({
 
     const isLegacy = documentType === 'LAMA';
     const isReview = documentType === 'REVIEW';
+    // Browser autofill/session restoration can visually populate a controlled
+    // textarea without dispatching React's onChange. Reconcile the live DOM
+    // value at submit so a visibly filled Riviu reason is never rejected.
+    const reviewReasonFromDom = String(reviewReasonRef.current?.value || '').trim();
+    const normalizedReviewReason = isReview
+      ? (reviewReason.trim() || reviewReasonFromDom)
+      : '';
+    if (isReview && normalizedReviewReason && normalizedReviewReason !== reviewReason.trim()) {
+      setReviewReason(normalizedReviewReason);
+    }
 
     // Validasi hirarki hanya untuk SPO Baru dan SPO Riviu (SPO Eksisting tidak wajib isi hirarki/unit)
     if (!isLegacy) {
@@ -871,7 +882,7 @@ export const UserView: React.FC<UserViewProps> = ({
           setSubmitError('Nomor / Judul Rujukan SPO Lama wajib diisi.');
           return;
         }
-        if (!reviewReason.trim()) {
+        if (!normalizedReviewReason) {
           setSubmitError('Alasan Riviu dan catatan perubahan wajib diisi.');
           return;
         }
@@ -1044,7 +1055,7 @@ export const UserView: React.FC<UserViewProps> = ({
         creatorUid: userSession.authUid || userSession.id,
         creatorUnit: userSession.unitName || finalDivName,
         approverName: isLegacy ? (legacyApprover || matchedExistingDoc?.approverName || SOEGIRI_HOSPITAL_INFO.director.name) : SOEGIRI_HOSPITAL_INFO.director.name,
-        summary: isReview && reviewReason ? `Riviu SPO: ${reviewReason}` : summary.trim() || `Standar Prosedur Operasional ${finalTitle}`,
+        summary: isReview && normalizedReviewReason ? `Riviu SPO: ${normalizedReviewReason}` : summary.trim() || `Standar Prosedur Operasional ${finalTitle}`,
         tags: [finalDivCode, finalSubHierarchy, isReview ? 'riviu' : isLegacy ? 'eksisting' : ''].filter(Boolean),
         subHierarchyCode: finalSubHierarchy,
         subCode: finalSubCode,
@@ -1064,6 +1075,7 @@ export const UserView: React.FC<UserViewProps> = ({
         legacySopNumber: isLegacy ? cleanNum : undefined,
         sopNumber: isLegacy ? cleanNum : (finalIssuedNumber || oldSopNumber || ''),
         oldSopNumber: isReview ? oldSopNumber.trim() : undefined,
+        reviewReason: isReview ? normalizedReviewReason : undefined,
         existingSopId: isReview ? (selectedExistingSopIdForReview || existingSopId || referencedForSave?.id || undefined) : undefined,
         previousRevisionNumber: isReview ? authPrevRev : undefined,
         // Preserve the distinction: Existing replacement of a DRAFT is still a BARU document type,
@@ -2182,10 +2194,15 @@ export const UserView: React.FC<UserViewProps> = ({
                                 Dasar Kebijakan / Alasan Riviu & Catatan Perubahan <span className="text-rose-500">*</span>
                               </label>
                               <textarea
+                                ref={reviewReasonRef}
+                                name="reviewReason"
                                 rows={2}
                                 required={documentType === 'REVIEW'}
                                 value={reviewReason}
-                                onChange={(e) => setReviewReason(e.target.value)}
+                                onChange={(e) => {
+                                  setReviewReason(e.target.value);
+                                  if (submitError?.includes('Alasan Riviu')) setSubmitError(null);
+                                }}
                                 placeholder="Contoh: Penyesuaian regulasi berdasarkan Permenkes terbaru dan SK Direktur RSUD Dr. Soegiri tahun 2026."
                                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
                               />
