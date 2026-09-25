@@ -108,3 +108,38 @@ test('trusted edit can repair absent identity on a legacy DRAFT Riviu but cannot
   assert.equal(immutable.previousRevisionNumber, '01');
   assert.equal(immutable.revisionNumber, '02');
 });
+
+test('trusted edit repairs legacy Riviu identity when Firestore keys exist but are blank', () => {
+  const legacyDraft = {
+    ...base,
+    jenis_spo: 'RIVIU',
+    documentType: 'RIVIU',
+    isReviewDocument: true,
+    oldSopNumber: '',
+    previousSopNumber: '',
+    previousRevisionNumber: '',
+  };
+  const submitted = {
+    ...legacyDraft,
+    oldSopNumber: 'SOEGIRI-KEP / 001 / 568 / 2024',
+    previousSopNumber: 'SOEGIRI-KEP / 001 / 568 / 2024',
+    previousRevisionNumber: '00',
+    revisionNumber: '01',
+    version: '01',
+    reviewReason: 'Umur dokumen habis',
+  };
+
+  const repaired = buildTrustedSopContentUpdate({
+    stored: legacyDraft,
+    submitted,
+    actor: { role: 'user' },
+    hierarchyClaims: { hierarchyKeys: ['PEN|2.1.1'], globalHierarchyAccess: false },
+  });
+
+  assert.equal(repaired.oldSopNumber, 'SOEGIRI-KEP / 001 / 568 / 2024');
+  assert.equal(repaired.previousSopNumber, 'SOEGIRI-KEP / 001 / 568 / 2024');
+  assert.equal(repaired.previousRevisionNumber, '00');
+  assert.equal(repaired.revisionNumber, '01');
+  assert.equal(repaired.version, '01');
+  assert.equal(repaired.reviewReason, 'Umur dokumen habis');
+});
