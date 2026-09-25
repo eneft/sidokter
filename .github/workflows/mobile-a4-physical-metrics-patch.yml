@@ -29,6 +29,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           import textwrap
 
           def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -56,29 +57,34 @@ jobs:
           detail_path = Path('src/components/SopDetailModal.tsx')
           detail = detail_path.read_text(encoding='utf-8')
 
-          old_metrics = '''        const headerHeightPx = header.getBoundingClientRect().height;
-          const publicationHeightPx = publication.getBoundingClientRect().height;
-          if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
-          '''
-          new_metrics = '''        // IMPORTANT: this hidden measurement tree sits inside the preview viewer,
-          // whose parent is visually transformed by the mobile/desktop zoom control.
-          // getBoundingClientRect() therefore reports SCALED pixels on mobile Safari.
-          // offsetHeight is layout-space CSS pixels and is unaffected by transforms,
-          // which is exactly the coordinate system used by computeCanonicalA4Pages().
-          const measurementScale = Number.isFinite(calculatedPreviewScale) && calculatedPreviewScale > 0
-            ? calculatedPreviewScale
-            : 1;
-          const toPhysicalCssHeight = (element: HTMLElement) => {
-            const layoutHeight = element.offsetHeight;
-            if (layoutHeight > 0) return layoutHeight;
-            // Defensive fallback for unusual table-part implementations.
-            return element.getBoundingClientRect().height / measurementScale;
-          };
-          const headerHeightPx = toPhysicalCssHeight(header);
-          const publicationHeightPx = toPhysicalCssHeight(publication);
-          if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
-          '''
-          detail = replace_once(detail, old_metrics, new_metrics, 'SopDetail physical metrics')
+          metrics_pattern = re.compile(
+              r'(?m)^\s*const headerHeightPx = header\.getBoundingClientRect\(\)\.height;\n'
+              r'\s*const publicationHeightPx = publication\.getBoundingClientRect\(\)\.height;\n'
+              r'\s*if \(headerHeightPx <= 0 \|\| publicationHeightPx <= 0\) return;$'
+          )
+          metrics_lines = [
+              '        // IMPORTANT: this hidden measurement tree sits inside the preview viewer,',
+              '        // whose parent is visually transformed by the mobile/desktop zoom control.',
+              '        // getBoundingClientRect() therefore reports SCALED pixels on mobile Safari.',
+              '        // offsetHeight is layout-space CSS pixels and is unaffected by transforms,',
+              '        // which is exactly the coordinate system used by computeCanonicalA4Pages().',
+              '        const measurementScale = Number.isFinite(calculatedPreviewScale) && calculatedPreviewScale > 0',
+              '          ? calculatedPreviewScale',
+              '          : 1;',
+              '        const toPhysicalCssHeight = (element: HTMLElement) => {',
+              '          const layoutHeight = element.offsetHeight;',
+              '          if (layoutHeight > 0) return layoutHeight;',
+              '          // Defensive fallback for unusual table-part implementations.',
+              '          return element.getBoundingClientRect().height / measurementScale;',
+              '        };',
+              '        const headerHeightPx = toPhysicalCssHeight(header);',
+              '        const publicationHeightPx = toPhysicalCssHeight(publication);',
+              '        if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;',
+          ]
+          detail, metrics_count = metrics_pattern.subn('\n'.join(metrics_lines), detail, count=1)
+          if metrics_count != 1:
+              raise SystemExit(f'SopDetail physical metrics replacement count={metrics_count}')
+
           detail = replace_once(detail, '          safetyBufferPx: 4\n', '          safetyBufferPx: 12\n', 'SopDetail safety buffer')
           detail = replace_once(
               detail,
