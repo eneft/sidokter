@@ -107,8 +107,14 @@ function buildSopActivationTransition({ storedSuccessor, submitted, predecessor,
     // Older external/legacy Riviu drafts can predate the first-write metadata
     // fix. During trusted Admin activation, repair only fields that are missing
     // from the stored Draft by falling back to the submitted Draft snapshot.
-    // Existing stored values remain authoritative and cannot be overwritten.
-    const oldSopNumber = firstNonEmptyString(storedSuccessor.oldSopNumber, submitted?.oldSopNumber);
+    // previousSopNumber is accepted as a legacy alias for oldSopNumber so older
+    // drafts can still be recovered safely.
+    const oldSopNumber = firstNonEmptyString(
+      storedSuccessor.oldSopNumber,
+      storedSuccessor.previousSopNumber,
+      submitted?.oldSopNumber,
+      submitted?.previousSopNumber,
+    );
     const reviewReason = firstNonEmptyString(storedSuccessor.reviewReason, submitted?.reviewReason);
     const previousRevisionRaw = firstNonEmptyString(storedSuccessor.previousRevisionNumber, submitted?.previousRevisionNumber);
 
@@ -133,6 +139,7 @@ function buildSopActivationTransition({ storedSuccessor, submitted, predecessor,
 
     // Persist repaired metadata atomically together with DRAFT -> AKTIF.
     activationFields.oldSopNumber = oldSopNumber;
+    activationFields.previousSopNumber = oldSopNumber;
     activationFields.reviewReason = reviewReason;
     activationFields.previousRevisionNumber = previousRevision;
     activationFields.revisionNumber = nextRevision;
