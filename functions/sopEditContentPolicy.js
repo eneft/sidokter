@@ -83,13 +83,30 @@ function buildTrustedSopContentUpdate({ stored, submitted, actor, hierarchyClaim
     'previousSopNumber',
     'oldSopNumber',
   ]);
+  const editableExternalDraftRiviuFields = new Set([
+    'previousRevisionNumber',
+    'previousSopNumber',
+    'oldSopNumber',
+  ]);
+  const isExternalDraftRiviu = isDraftRiviu && isBlankWorkflowValue(stored.existingSopId);
   const canRepairRiviuRevision = isDraftRiviu && isBlankWorkflowValue(stored.previousRevisionNumber);
 
   for (const field of IMMUTABLE_WORKFLOW_FIELDS) {
     const submittedHasField = Object.prototype.hasOwnProperty.call(submitted, field);
     const storedHasField = Object.prototype.hasOwnProperty.call(stored, field);
 
-    if (canRepairRiviuRevision && (field === 'revisionNumber' || field === 'version') && submittedHasField) {
+    if (
+      isExternalDraftRiviu
+      && editableExternalDraftRiviuFields.has(field)
+      && submittedHasField
+      && !isBlankWorkflowValue(submitted[field])
+    ) {
+      // External/legacy Riviu identity is still editable while the document is
+      // DRAFT. This permits correcting legacy number/revision metadata before
+      // activation; once ACTIVE, the normal immutable workflow rules apply.
+      next[field] = submitted[field];
+    }
+    else if (canRepairRiviuRevision && (field === 'revisionNumber' || field === 'version') && submittedHasField) {
       next[field] = submitted[field];
     }
     // Legacy Draft Riviu records may already contain these keys as empty
@@ -110,6 +127,24 @@ function buildTrustedSopContentUpdate({ stored, submitted, actor, hierarchyClaim
     }
     else {
       delete next[field];
+    }
+  }
+
+  if (isExternalDraftRiviu) {
+    const canonicalOldNumber = String(next.oldSopNumber || next.previousSopNumber || '').trim();
+    if (canonicalOldNumber) {
+      next.oldSopNumber = canonicalOldNumber;
+      next.previousSopNumber = canonicalOldNumber;
+    }
+
+    const rawPreviousRevision = String(next.previousRevisionNumber || '').trim();
+    if (rawPreviousRevision) {
+      if (!/^\d+$/.test(rawPreviousRevision)) throw new Error('INVALID_REVISION');
+      const previousRevision = rawPreviousRevision.padStart(2, '0');
+      const nextRevision = String(Number(previousRevision) + 1).padStart(2, '0');
+      next.previousRevisionNumber = previousRevision;
+      next.revisionNumber = nextRevision;
+      next.version = nextRevision;
     }
   }
 

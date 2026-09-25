@@ -136,7 +136,7 @@ const PreviewMetadata: React.FC<{ sop: SopDocument; kind: 'BARU' | 'EKSISTING' |
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 mt-3 pt-2.5 border-t border-slate-100">
             <div className="min-w-0">
               <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">SPO Lama yang Diriviu</span>
-              <span className="mt-0.5 block text-[10px] font-mono font-bold text-blue-900 break-words leading-tight">{sop.oldSopNumber || '-'}</span>
+              <span className="mt-0.5 block text-[10px] font-mono font-bold text-blue-900 break-words leading-tight">{sop.oldSopNumber || sop.previousSopNumber || '-'}</span>
             </div>
             <div className="min-w-0">
               <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">Alasan Riviu</span>

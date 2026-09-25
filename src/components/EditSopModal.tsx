@@ -962,7 +962,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                       <input
                         type="text"
                         value={oldSopNumber}
-                        readOnly={sop.status !== 'DRAFT' || Boolean(sop.oldSopNumber)}
+                        readOnly={sop.status !== 'DRAFT'}
                         onChange={(e) => setOldSopNumber(e.target.value)}
                         onBlur={() => setOldSopNumber(normalizeSopNumberInput(oldSopNumber))}
                         placeholder="Contoh: PEL / 1.1.3 / 015 / 2023"
@@ -991,7 +991,7 @@ const EditSopModalContent: React.FC<EditSopModalProps> = ({
                       <input
                         type="text"
                         value={previousRevisionNumber}
-                        readOnly={sop.status !== 'DRAFT' || Boolean(sop.previousRevisionNumber)}
+                        readOnly={sop.status !== 'DRAFT'}
                         onChange={(e) => setPreviousRevisionNumber(e.target.value)}
                         placeholder="00"
                         className="w-full text-xs font-mono font-bold border border-slate-300 rounded-xl px-3 py-2.5 text-slate-900 bg-white read-only:bg-slate-100 read-only:text-slate-600 focus:ring-2 focus:ring-amber-500 outline-none"

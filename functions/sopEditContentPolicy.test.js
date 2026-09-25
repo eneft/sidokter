@@ -73,7 +73,7 @@ test('content edit cannot change registered number', () => {
   }), /NUMBER_CHANGE_REQUIRES_CORRECTION/);
 });
 
-test('trusted edit can repair absent identity on a legacy DRAFT Riviu but cannot overwrite it later', () => {
+test('trusted edit can repair and correct external legacy DRAFT Riviu identity before activation', () => {
   const legacyDraft = {
     ...base,
     jenis_spo: 'RIVIU',
@@ -98,15 +98,24 @@ test('trusted edit can repair absent identity on a legacy DRAFT Riviu but cannot
   assert.equal(repaired.previousRevisionNumber, '01');
   assert.equal(repaired.revisionNumber, '02');
 
-  const immutable = buildTrustedSopContentUpdate({
+  const corrected = buildTrustedSopContentUpdate({
     stored: repaired,
-    submitted: { ...repaired, oldSopNumber: 'MUTATED', previousRevisionNumber: '99', revisionNumber: '100' },
+    submitted: {
+      ...repaired,
+      oldSopNumber: 'SOEGIRI / 648 / PENUNJANG / 2024',
+      previousSopNumber: 'SOEGIRI / 648 / PENUNJANG / 2024',
+      previousRevisionNumber: '02',
+      revisionNumber: '99',
+      version: '99',
+    },
     actor: { role: 'user' },
     hierarchyClaims: { hierarchyKeys: ['PEN|2.1.1'], globalHierarchyAccess: false },
   });
-  assert.equal(immutable.oldSopNumber, submitted.oldSopNumber);
-  assert.equal(immutable.previousRevisionNumber, '01');
-  assert.equal(immutable.revisionNumber, '02');
+  assert.equal(corrected.oldSopNumber, 'SOEGIRI / 648 / PENUNJANG / 2024');
+  assert.equal(corrected.previousSopNumber, corrected.oldSopNumber);
+  assert.equal(corrected.previousRevisionNumber, '02');
+  assert.equal(corrected.revisionNumber, '03');
+  assert.equal(corrected.version, '03');
 });
 
 test('trusted edit repairs legacy Riviu identity when Firestore keys exist but are blank', () => {
