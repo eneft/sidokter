@@ -1,4 +1,4 @@
-import { SPO_A4 } from './a4Layout';
+import { normalizeStructuredHtml, SPO_A4 } from './a4Layout';
 import { splitStructuredTableV2 } from './structuredTablePaginationV2';
 
 export type OfficialSectionKey =
@@ -455,6 +455,11 @@ export function createMeasureHost(template?: HTMLElement | null): HTMLElement {
   host.style.padding = '0';
   host.style.margin = '0';
   host.style.border = 'none';
+  // Physical A4 typography must not participate in mobile text autosizing.
+  // Otherwise Chromium can enlarge an off-screen 116.4mm measurement host on
+  // narrow viewports and produce different page boundaries for the same SPO.
+  host.style.setProperty('text-size-adjust', 'none');
+  host.style.setProperty('-webkit-text-size-adjust', 'none');
 
   const canonicalWidth = getCanonicalContentWidthPx();
   const measuredWidth = template ? template.getBoundingClientRect().width : 0;
@@ -477,6 +482,24 @@ export function createMeasureHost(template?: HTMLElement | null): HTMLElement {
     document.body.appendChild(host);
   }
   return host;
+}
+
+/**
+ * Measure a complete rendered section fragment, rather than adding the heights
+ * of its extracted blocks. CSS such as `p:last-child` makes those operations
+ * observably different: every separately measured paragraph loses its bottom
+ * margin, while only the final paragraph loses it in the composed preview.
+ */
+export function measureCanonicalFlowHtml(
+  htmlFragments: readonly string[],
+  template?: HTMLElement | null
+): number {
+  if (typeof document === 'undefined') return 0;
+  const host = createMeasureHost(template);
+  host.innerHTML = normalizeStructuredHtml(htmlFragments.join(''));
+  const height = host.getBoundingClientRect().height;
+  host.remove();
+  return Math.max(0, height);
 }
 
 /**
@@ -1160,7 +1183,7 @@ export function computeCanonicalA4Pages(
   // Measure all source blocks using canonical measurement host
   const host = createMeasureHost();
   const measuredHeights = blocks.map((block) => {
-    host.innerHTML = block.html;
+    host.innerHTML = normalizeStructuredHtml(block.html);
     // Raw content height only. The section minimum is accounted once per
     // rendered section fragment by sectionFlowContributionPx below.
     return Math.max(0, host.getBoundingClientRect().height);
@@ -1174,11 +1197,7 @@ export function computeCanonicalA4Pages(
 
   const measureFlowPart = (html: string): number => {
     if (!html) return 0;
-    const mHost = createMeasureHost();
-    mHost.innerHTML = html;
-    const h = mHost.getBoundingClientRect().height;
-    mHost.remove();
-    return Math.max(0, h);
+    return measureCanonicalFlowHtml([html]);
   };
 
   const pages: OfficialBlock[][] = [];
@@ -1187,6 +1206,7 @@ export function computeCanonicalA4Pages(
   let capacity = firstCapacity;
   let currentSection: OfficialBlock['section'] | null = null;
   let currentSectionRawHeight = 0;
+  let currentSectionHtml: string[] = [];
 
   const flowBlocks: OfficialBlock[] = [...blocks];
   const flowHeights: number[] = [...measuredHeights];
@@ -1201,6 +1221,7 @@ export function computeCanonicalA4Pages(
     capacity = normalCapacity;
     currentSection = null;
     currentSectionRawHeight = 0;
+    currentSectionHtml = [];
   };
 
   let index = 0;
@@ -1211,9 +1232,14 @@ export function computeCanonicalA4Pages(
     const startsNewSectionRow =
       currentPageBlocks.length === 0 || block.section !== currentSection;
     const chrome = startsNewSectionRow ? baseRowPadding : 0;
+    const nextSectionRawHeight = startsNewSectionRow
+      ? flowHeights[index]
+      : measureCanonicalFlowHtml([...currentSectionHtml, block.html]);
     const contentContribution = sectionFlowContributionPx(
       currentSectionRawHeight,
-      flowHeights[index],
+      startsNewSectionRow
+        ? nextSectionRawHeight
+        : Math.max(0, nextSectionRawHeight - currentSectionRawHeight),
       startsNewSectionRow
     );
     const needed = contentContribution + chrome;
@@ -1239,12 +1265,16 @@ export function computeCanonicalA4Pages(
           const firstPart = textParts[0];
           const restParts = textParts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded =
-            sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+          const firstAggregateHeight = startsNewSectionRow
+            ? firstHeight
+            : measureCanonicalFlowHtml([...currentSectionHtml, firstPart]);
+          const firstNeeded = sectionFlowContributionPx(
+            currentSectionRawHeight,
+            startsNewSectionRow
+              ? firstAggregateHeight
+              : Math.max(0, firstAggregateHeight - currentSectionRawHeight),
+            startsNewSectionRow
+          ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1269,9 +1299,8 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
-            currentSectionRawHeight = startsNewSectionRow
-              ? firstHeight
-              : currentSectionRawHeight + firstHeight;
+            currentSectionRawHeight = firstAggregateHeight;
+            currentSectionHtml = startsNewSectionRow ? [firstPart] : [...currentSectionHtml, firstPart];
             currentSection = block.section;
             index += 1;
             continue;
@@ -1293,12 +1322,16 @@ export function computeCanonicalA4Pages(
           const firstPart = tableParts[0];
           const restParts = tableParts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded =
-            sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+          const firstAggregateHeight = startsNewSectionRow
+            ? firstHeight
+            : measureCanonicalFlowHtml([...currentSectionHtml, firstPart]);
+          const firstNeeded = sectionFlowContributionPx(
+            currentSectionRawHeight,
+            startsNewSectionRow
+              ? firstAggregateHeight
+              : Math.max(0, firstAggregateHeight - currentSectionRawHeight),
+            startsNewSectionRow
+          ) + chrome;
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
               ...block,
@@ -1323,9 +1356,8 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
-            currentSectionRawHeight = startsNewSectionRow
-              ? firstHeight
-              : currentSectionRawHeight + firstHeight;
+            currentSectionRawHeight = firstAggregateHeight;
+            currentSectionHtml = startsNewSectionRow ? [firstPart] : [...currentSectionHtml, firstPart];
             currentSection = block.section;
             index += 1;
             continue;
@@ -1371,12 +1403,16 @@ export function computeCanonicalA4Pages(
           const firstPart = parts[0];
           const restParts = parts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded =
-            sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+          const firstAggregateHeight = startsNewSectionRow
+            ? firstHeight
+            : measureCanonicalFlowHtml([...currentSectionHtml, firstPart]);
+          const firstNeeded = sectionFlowContributionPx(
+            currentSectionRawHeight,
+            startsNewSectionRow
+              ? firstAggregateHeight
+              : Math.max(0, firstAggregateHeight - currentSectionRawHeight),
+            startsNewSectionRow
+          ) + chrome;
 
           if (firstHeight > 0 && used + firstNeeded <= capacity) {
             const fittedFirstBlock: OfficialBlock = {
@@ -1402,9 +1438,8 @@ export function computeCanonicalA4Pages(
 
             currentPageBlocks.push(fittedFirstBlock);
             used += firstNeeded;
-            currentSectionRawHeight = startsNewSectionRow
-              ? firstHeight
-              : currentSectionRawHeight + firstHeight;
+            currentSectionRawHeight = firstAggregateHeight;
+            currentSectionHtml = startsNewSectionRow ? [firstPart] : [...currentSectionHtml, firstPart];
             currentSection = block.section;
             index += 1;
             continue;
@@ -1427,12 +1462,12 @@ export function computeCanonicalA4Pages(
           const firstPart = parts[0];
           const restParts = parts.slice(1);
           const firstHeight = measureFlowPart(firstPart);
-          const firstNeeded =
-            sectionFlowContributionPx(
-              currentSectionRawHeight,
-              firstHeight,
-              startsNewSectionRow
-            ) + chrome;
+          const firstAggregateHeight = firstHeight;
+          const firstNeeded = sectionFlowContributionPx(
+            currentSectionRawHeight,
+            firstAggregateHeight,
+            startsNewSectionRow
+          ) + chrome;
 
           const fittedFirstBlock: OfficialBlock = {
             ...block,
@@ -1457,9 +1492,8 @@ export function computeCanonicalA4Pages(
 
           currentPageBlocks.push(fittedFirstBlock);
           used += firstNeeded;
-          currentSectionRawHeight = startsNewSectionRow
-            ? firstHeight
-            : currentSectionRawHeight + firstHeight;
+          currentSectionRawHeight = firstAggregateHeight;
+          currentSectionHtml = [firstPart];
           currentSection = block.section;
           index += 1;
           continue;
@@ -1489,9 +1523,8 @@ export function computeCanonicalA4Pages(
     // Block fits on current page
     currentPageBlocks.push(block);
     used += needed;
-    currentSectionRawHeight = startsNewSectionRow
-      ? flowHeights[index]
-      : currentSectionRawHeight + flowHeights[index];
+    currentSectionRawHeight = nextSectionRawHeight;
+    currentSectionHtml = startsNewSectionRow ? [block.html] : [...currentSectionHtml, block.html];
     currentSection = block.section;
     index += 1;
   }
