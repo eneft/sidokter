@@ -8,6 +8,7 @@ test('archived SPO permanent delete is explicit and trusted-backend only', () =>
   const backend = readFileSync('functions/index.js', 'utf8');
   assert.match(firestore, /intent:\s*'PERMANENT_ARCHIVE_DELETE'/);
   assert.match(app, /permanentArchived = status === 'DIARSIPKAN'/);
+  assert.match(backend, /wasEverActive && !isAdmin/);
   assert.match(backend, /deleteDecision === 'DELETE_ARCHIVE'/);
   assert.match(backend, /action:\s*'SOP_ARCHIVE_DELETED'/);
   assert.match(backend, /referencesPreserved:\s*true/);
