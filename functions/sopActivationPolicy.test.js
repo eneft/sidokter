@@ -61,6 +61,100 @@ test('external Riviu requires a durable official source PDF', () => {
   assert.throws(() => buildSopActivationTransition({ storedSuccessor: successor, submitted: successor, actor: admin }), /EXTERNAL_PDF_REQUIRED/);
 });
 
+test('external Riviu repairs missing stored metadata from trusted activation payload', () => {
+  const stored = {
+    ...baseDraft,
+    jenis_spo: 'RIVIU',
+    isReviewDocument: true,
+    sopNumber: 'PEN / 2.1.1 / 002 / 2026',
+    revisionNumber: '02',
+    version: '02',
+  };
+  const submitted = {
+    ...stored,
+    oldSopNumber: 'SOEGIRI-KEP / 001 / 568 / 2024',
+    reviewReason: 'Penyesuaian prosedur dan pembaruan dokumen.',
+    previousRevisionNumber: '01',
+    oldFileName: 'spo-lama.pdf',
+    oldFileType: 'application/pdf',
+    oldFileSize: 4321,
+    oldFileUrl: '/api/storage/files/successor_oldFile',
+    oldStoragePath: 'sidokter/spo/successor_oldFile.pdf',
+    externalReviewSignedConfirmed: true,
+    activatedAt: '2026-09-25',
+  };
+
+  const result = buildSopActivationTransition({ storedSuccessor: stored, submitted, actor: admin });
+
+  assert.equal(result.successor.status, 'AKTIF');
+  assert.equal(result.successor.oldSopNumber, submitted.oldSopNumber);
+  assert.equal(result.successor.reviewReason, submitted.reviewReason);
+  assert.equal(result.successor.previousRevisionNumber, '01');
+  assert.equal(result.successor.revisionNumber, '02');
+  assert.equal(result.successor.version, '02');
+  assert.equal(result.successor.oldFileUrl, submitted.oldFileUrl);
+  assert.equal(result.successor.oldStoragePath, submitted.oldStoragePath);
+  assert.equal(result.successor.oldFileSize, 4321);
+  assert.equal(result.successor.externalReviewSignedConfirmed, true);
+});
+
+test('external Riviu keeps stored source metadata authoritative when submitted values differ', () => {
+  const stored = {
+    ...baseDraft,
+    jenis_spo: 'RIVIU',
+    isReviewDocument: true,
+    revisionNumber: '02',
+    version: '02',
+    oldSopNumber: 'LEGACY / ORIGINAL',
+    reviewReason: 'Alasan tersimpan',
+    previousRevisionNumber: '01',
+    oldFileName: 'original.pdf',
+    oldFileType: 'application/pdf',
+    oldFileSize: 100,
+    oldFileUrl: '/api/storage/files/original',
+    oldStoragePath: 'sidokter/spo/original.pdf',
+  };
+  const submitted = {
+    ...stored,
+    oldSopNumber: 'LEGACY / CHANGED',
+    reviewReason: 'Alasan diganti',
+    previousRevisionNumber: '99',
+    oldFileName: 'changed.pdf',
+    oldFileUrl: '/api/storage/files/changed',
+    oldStoragePath: 'sidokter/spo/changed.pdf',
+    oldFileSize: 999,
+  };
+
+  const result = buildSopActivationTransition({ storedSuccessor: stored, submitted, actor: admin });
+
+  assert.equal(result.successor.oldSopNumber, stored.oldSopNumber);
+  assert.equal(result.successor.reviewReason, stored.reviewReason);
+  assert.equal(result.successor.previousRevisionNumber, '01');
+  assert.equal(result.successor.oldFileName, stored.oldFileName);
+  assert.equal(result.successor.oldFileUrl, stored.oldFileUrl);
+  assert.equal(result.successor.oldStoragePath, stored.oldStoragePath);
+  assert.equal(result.successor.oldFileSize, 100);
+});
+
+test('external Riviu still rejects activation when required metadata is absent from both stored and submitted data', () => {
+  const stored = {
+    ...baseDraft,
+    jenis_spo: 'RIVIU',
+    isReviewDocument: true,
+    revisionNumber: '02',
+    version: '02',
+    oldFileName: 'legacy.pdf',
+    oldFileType: 'application/pdf',
+    oldFileUrl: '/api/storage/files/legacy',
+    oldStoragePath: 'sidokter/spo/legacy.pdf',
+  };
+  assert.throws(() => buildSopActivationTransition({
+    storedSuccessor: stored,
+    submitted: stored,
+    actor: admin,
+  }), /EXTERNAL_METADATA_REQUIRED/);
+});
+
 test('unresolved revision workflow blocks activation', () => {
   assert.throws(() => buildSopActivationTransition({
     storedSuccessor: { ...baseDraft, reviewState: 'REVISION_REQUESTED' },
