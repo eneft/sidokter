@@ -35,6 +35,7 @@ import { deleteFileFromLocalCache, getAllCachedFiles } from './utils/fileStorage
 import { validateSupportingEvidence } from './utils/supportingEvidence';
 import { isSopInReviewHierarchy } from './utils/sopReviewSource';
 import { findAuthoritativeRiviuPredecessor, getAuthoritativeRiviuRevision, hasDurableExternalRiviuSource } from './utils/riviuRevision';
+import { findArchivedSopRelations } from './utils/sopArchiveRelations';
 import {
   subscribeToSops,
   getAllSopsFromLocal,
@@ -454,7 +455,13 @@ export default function App() {
   const [selectedSopForDetail, setSelectedSopForDetail] = useState<SopDocument | null>(null);
   const [selectedSopForEdit, setSelectedSopForEdit] = useState<SopDocument | null>(null);
   const [selectedSopForActivation, setSelectedSopForActivation] = useState<SopDocument | null>(null);
-  const [sopToDelete, setSopToDelete] = useState<{ id: string; title: string; sopNumber: string } | null>(null);
+const [sopToDelete, setSopToDelete] = useState<{
+  id: string;
+  title: string;
+  sopNumber: string;
+  status: SopStatus;
+  relatedDocuments: Array<{ id: string; sopNumber: string; title: string }>;
+} | null>(null);
   const [isPrintRegisterOpen, setIsPrintRegisterOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
@@ -1674,48 +1681,96 @@ export default function App() {
     }
   };
 
-  // Delete SOP Handler (Opens Custom Confirm Modal)
-  const handleDeleteSop = (id: string, title: string) => {
-    const target = sops.find((s) => s.id === id);
-    setSopToDelete({
-      id,
-      title,
-      sopNumber: target?.sopNumber || id
-    });
-  };
+// Delete SOP Handler (Opens Custom Confirm Modal)
+const handleDeleteSop = (id: string, title: string) => {
+  const target = sops.find((s) => s.id === id);
+  if (!target) return;
 
-  const confirmDeleteSop = async () => {
-    if (!sopToDelete) return;
-    const { id, title } = sopToDelete;
+  // Permanent deletion of an archive is an Admin-only destructive action.
+  // The backend enforces this again; this guard only prevents exposing an
+  // impossible action in stale/non-admin UI state.
+  if (target.status === 'DIARSIPKAN' && userSession?.role !== 'admin') {
+    addToast('error', 'Akses Ditolak', 'Hanya Administrator yang dapat menghapus permanen SPO arsip.');
+    return;
+  }
 
-    try {
-      // Persist the delete first. This prevents a delete racing with a
-      // subsequent restore and ensures the UI only reflects confirmed state.
-      const deleteResult = await deleteSopFromLocal(id);
-      if (deleteResult === 'DELETED') deleteFileFromLocalCache(id);
-      const nextSops = sops.filter((s) => s.id !== id);
-      setSops(nextSops);
+  const relatedDocuments = target.status === 'DIARSIPKAN'
+    ? findArchivedSopRelations(target, sops).map((item) => ({
+        id: item.id,
+        sopNumber: item.sopNumber,
+        title: item.title,
+      }))
+    : [];
 
-    addToast(
-      'info',
-      deleteResult === 'ARCHIVED' ? 'SPO Diarsipkan' : 'Draft Dihapus',
-      deleteResult === 'ARCHIVED'
-        ? `SPO "${title}" dipindahkan ke Arsip SPO. Nomornya tetap terkunci permanen.`
-        : `Draft "${title}" dihapus. Nomornya tersedia kembali pada hirarki dan tahun yang sama.`
-    );
+  setSopToDelete({
+    id,
+    title: target.title || title,
+    sopNumber: target.sopNumber || id,
+    status: target.status,
+    relatedDocuments,
+  });
+};
 
-    if (selectedSopForDetail?.id === id) {
-      setSelectedSopForDetail(null);
-    }
-    if (selectedSopForEdit?.id === id) {
-      setSelectedSopForEdit(null);
-    }
+const confirmDeleteSop = async () => {
+  if (!sopToDelete) return;
+  const { id, title, status } = sopToDelete;
+  const permanentArchived = status === 'DIARSIPKAN';
+
+  if (permanentArchived && userSession?.role !== 'admin') {
+    addToast('error', 'Akses Ditolak', 'Hanya Administrator yang dapat menghapus permanen SPO arsip.');
     setSopToDelete(null);
-    } catch (error) {
-      console.error('Error deleting SOP from local database:', error);
-      addToast('error', 'Penghapusan Gagal', 'Dokumen tidak dihapus karena perubahan belum berhasil disimpan ke server.');
+    return;
+  }
+
+  try {
+    // Permanent archive deletion is opt-in. Active SPO and ordinary
+    // DRAFT deletion keep their existing lifecycle behavior.
+    const deleteResult = await deleteSopFromLocal(id, { permanentArchived });
+    if (deleteResult === 'DELETED') deleteFileFromLocalCache(id);
+
+    if (deleteResult === 'ARCHIVED') {
+      // Keep the archived record in local state immediately. This avoids
+      // a transient disappearance while the Firestore realtime snapshot
+      // catches up and does not change the authoritative server state.
+      setSops((prev) => prev.map((s) => s.id === id ? {
+        ...s,
+        status: 'DIARSIPKAN' as const,
+        everActivated: true,
+        archivedAt: s.archivedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } : s));
+    } else {
+      setSops((prev) => prev.filter((s) => s.id !== id));
     }
-  };
+
+    if (permanentArchived && deleteResult === 'DELETED') {
+      addToast(
+        'info',
+        'Arsip SPO Dihapus Permanen',
+        `Arsip "${title}" telah dihapus. Referensi historis pada SPO lain tidak diubah dan nomor resmi tidak dikembalikan ke antrean.`
+      );
+    } else {
+      addToast(
+        'info',
+        deleteResult === 'ARCHIVED' ? 'SPO Diarsipkan' : 'Draft Dihapus',
+        deleteResult === 'ARCHIVED'
+          ? `SPO "${title}" dipindahkan ke Arsip SPO. Nomornya tetap terkunci permanen.`
+          : `Draft "${title}" dihapus. Nomornya tersedia kembali pada hirarki dan tahun yang sama.`
+      );
+    }
+
+    if (selectedSopForDetail?.id === id) setSelectedSopForDetail(null);
+    if (selectedSopForEdit?.id === id) setSelectedSopForEdit(null);
+    setSopToDelete(null);
+  } catch (error) {
+    console.error('Error deleting SOP from local database:', error);
+    addToast(
+      'error',
+      'Penghapusan Gagal',
+      error instanceof Error ? error.message : 'Dokumen tidak dihapus karena perubahan belum berhasil disimpan ke server.'
+    );
+  }
+};
 
   const handleResetCountersToZero = () => {
     const resetConfig: NumberingConfig = {
@@ -2187,6 +2242,8 @@ export default function App() {
           isOpen={Boolean(sopToDelete)}
           sopNumber={sopToDelete?.sopNumber}
           title={sopToDelete?.title}
+          isArchived={sopToDelete?.status === 'DIARSIPKAN'}
+          relatedDocuments={sopToDelete?.relatedDocuments || []}
           onClose={() => setSopToDelete(null)}
           onConfirm={confirmDeleteSop}
         />
@@ -2283,6 +2340,8 @@ export default function App() {
         isOpen={Boolean(sopToDelete)}
         sopNumber={sopToDelete?.sopNumber}
         title={sopToDelete?.title}
+        isArchived={sopToDelete?.status === 'DIARSIPKAN'}
+        relatedDocuments={sopToDelete?.relatedDocuments || []}
         onClose={() => setSopToDelete(null)}
         onConfirm={confirmDeleteSop}
       />

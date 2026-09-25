@@ -14,6 +14,7 @@ const { SopOwnerResolutionError, userMatchesIdentity, resolveSopOwner, buildRevi
 const { validateNumberCorrection, buildAdminNumberUpdate } = require('./sopNumberUpdate');
 const { buildTrustedSopContentUpdate } = require('./sopEditContentPolicy');
 const { buildSopActivationTransition } = require('./sopActivationPolicy');
+const { decideSopDeleteAction } = require('./sopDeletePolicy');
 const { processSopWrite } = require('./mailboxWorkflow');
 const { sendPdf } = require('./pdfBinary');
 
@@ -1447,10 +1448,14 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
     if (action === 'sop-delete') {
       const sopId = String(req.body?.id || req.body?.sopId || '').trim();
-      if (!sopId) return json(res, 400, { success: false, code: 'INVALID_SOP_ID', message: 'ID SPO wajib diisi.' });
+if (!sopId) return json(res, 400, { success: false, code: 'INVALID_SOP_ID', message: 'ID SPO wajib diisi.' });
+const permanentArchiveDeleteRequested = String(req.body?.intent || '').trim().toUpperCase() === 'PERMANENT_ARCHIVE_DELETE';
 
-      const sopRef = db.collection('sops').doc(sopId);
-      let deletionResult = 'DELETED';
+const sopRef = db.collection('sops').doc(sopId);
+let deletionResult = 'DELETED';
+let deletionKind = 'DRAFT';
+let permanentlyDeletedArchive = null;
+let storageCleanup = null;
 
       try {
         await db.runTransaction(async (transaction) => {
@@ -1471,30 +1476,65 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
             (createdBy && actorUsername && createdBy === actorUsername)
           );
 
-          const wasEverActive = stored.everActivated === true || stored.status === 'AKTIF' || stored.status === 'DIARSIPKAN' || Boolean(stored.activatedAt);
-
+          // Preserve the long-standing fail-closed invariant explicitly at the
+          // trusted boundary: any SPO that has ever been official requires Admin.
+          // The pure policy below still owns the detailed archive/draft decision.
+          const wasEverActive = stored.everActivated === true ||
+            stored.status === 'AKTIF' ||
+            stored.status === 'DIARSIPKAN' ||
+            Boolean(stored.activatedAt);
           if (wasEverActive && !isAdmin) {
-            const error = new Error('PERMISSION_DENIED');
-            error.sopDeleteStatus = 403;
-            error.sopDeleteCode = 'PERMISSION_DENIED';
-            error.sopDeleteMessage = 'SPO yang pernah aktif hanya dapat diarsipkan oleh Administrator.';
-            throw error;
+            const accessError = new Error('PERMISSION_DENIED');
+            accessError.sopDeleteStatus = 403;
+            accessError.sopDeleteCode = 'PERMISSION_DENIED';
+            accessError.sopDeleteMessage = 'SPO yang pernah aktif hanya dapat dikelola penghapusannya oleh Administrator.';
+            throw accessError;
           }
 
-          if (!wasEverActive && !isAdmin && !isCreator) {
-            const error = new Error('PERMISSION_DENIED');
-            error.sopDeleteStatus = 403;
-            error.sopDeleteCode = 'PERMISSION_DENIED';
-            error.sopDeleteMessage = 'Anda hanya dapat menghapus permanen DRAFT yang Anda buat sendiri.';
-            throw error;
+          const deleteDecision = decideSopDeleteAction({
+            stored,
+            isAdmin,
+            isCreator,
+            permanentArchiveDeleteRequested,
+          });
+
+          if (deleteDecision === 'DELETE_ARCHIVE') {
+            // Historical relationships live on successor documents (existingSopId,
+            // oldSopNumber, previousSopNumber). Delete only this archive record;
+            // never cascade or rewrite a successor.
+            transaction.delete(sopRef);
+
+            const auditRef = db.collection('audit_logs').doc();
+            transaction.set(auditRef, {
+              id: auditRef.id,
+              action: 'SOP_ARCHIVE_DELETED',
+              documentId: stored.id,
+              documentNumber: stored.sopNumber || '',
+              documentTitle: stored.title || '',
+              documentStatus: 'DIARSIPKAN',
+              permanent: true,
+              referencesPreserved: true,
+              numberRecycled: false,
+              actorUid: context.decoded?.uid || userUid || 'unknown',
+              actorName: context.user?.name || context.user?.username || 'Administrator',
+              actorUsername: context.user?.username || '',
+              actorRole: context.user?.role || 'admin',
+              timestamp: FieldValue.serverTimestamp(),
+              boundary: 'trusted-session',
+            });
+
+            permanentlyDeletedArchive = stored;
+            deletionResult = 'DELETED';
+            deletionKind = 'ARCHIVE';
+            return;
           }
 
-          if (wasEverActive) {
+          if (deleteDecision === 'ARCHIVE') {
             transaction.set(sopRef, {
               ...stored,
               status: 'DIARSIPKAN',
               everActivated: true,
-              archivedAt: new Date().toISOString(),
+              archivedAt: stored.archivedAt || new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             }, { merge: true });
 
@@ -1514,16 +1554,12 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
             });
 
             deletionResult = 'ARCHIVED';
+            deletionKind = 'OFFICIAL';
             return;
           }
 
-          if (stored.status !== 'DRAFT') {
-            const error = new Error('CANNOT_DELETE_ACTIVE');
-            error.sopDeleteStatus = 400;
-            error.sopDeleteCode = 'CANNOT_DELETE_ACTIVE';
-            error.sopDeleteMessage = 'Hanya draft SPO yang dapat dihapus permanen.';
-            throw error;
-          }
+          // DELETE_DRAFT falls through to the existing sequence/reservation
+          // recycling logic below. Official archived numbers never reach it.
 
           const divisionCode = String(stored.divisionCode || '').trim().toUpperCase();
           const subHierarchyCode = String(stored.subHierarchyCode || '').trim();
@@ -1586,6 +1622,20 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
 
           deletionResult = 'DELETED';
         });
+
+        if (permanentlyDeletedArchive) {
+          try {
+            storageCleanup = await deleteArchivedSopStorageArtifacts(permanentlyDeletedArchive);
+          } catch (cleanupError) {
+            // Firestore deletion + audit are already committed. A storage cleanup
+            // failure must not resurrect or partially rewrite other SPO records.
+            storageCleanup = { failed: true, message: cleanupError?.message || String(cleanupError) };
+            console.warn('[SPO archive delete] storage cleanup warning', {
+              sopId,
+              error: cleanupError?.message || cleanupError,
+            });
+          }
+        }
       } catch (err) {
         if (err?.sopDeleteStatus) {
           return json(res, err.sopDeleteStatus, { success: false, code: err.sopDeleteCode, message: err.sopDeleteMessage });
@@ -1594,7 +1644,18 @@ exports.authApi = onRequest({ region: 'asia-southeast2', invoker: 'public', time
         return json(res, 500, { success: false, code: 'SOP_DELETE_ERROR', message: err?.message || 'Gagal menghapus dokumen SPO.' });
       }
 
-      return json(res, 200, { success: true, result: deletionResult, message: deletionResult === 'ARCHIVED' ? 'SPO resmi telah diarsipkan.' : 'Draft SPO berhasil dihapus.' });
+      const successMessage = deletionResult === 'ARCHIVED'
+        ? 'SPO resmi telah diarsipkan.'
+        : deletionKind === 'ARCHIVE'
+          ? 'SPO arsip berhasil dihapus permanen.'
+          : 'Draft SPO berhasil dihapus.';
+      return json(res, 200, {
+        success: true,
+        result: deletionResult,
+        deletedKind: deletionKind,
+        storageCleanup,
+        message: successMessage,
+      });
     }
 
     if (action === 'migrate-sop-access') {
@@ -2460,6 +2521,129 @@ async function storageOptimize(req, res) {
     }
   }
   return json(res, 200, { success:true, ...result });
+}
+
+function collectSopStoragePaths(sop = {}) {
+  const paths = new Set();
+  const add = value => {
+    const clean = String(value || '').trim().replace(/^\/+/, '');
+    // Archive hard-delete owns only SPO-domain files. Never touch SK/MOU or
+    // arbitrary paths even when stale metadata is present.
+    if (clean.startsWith('sidokter/spo/')) paths.add(clean);
+  };
+  add(sop.storagePath);
+  add(sop.signedScanStoragePath);
+  add(sop.oldStoragePath);
+  for (const evidence of Array.isArray(sop.supportingEvidence) ? sop.supportingEvidence : []) {
+    add(evidence?.storagePath);
+  }
+  return paths;
+}
+
+function collectSopStorageMetadataIds(sop = {}) {
+  const safe = value => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sopId = String(sop.id || '').trim();
+  if (!sopId) return new Set();
+  const ids = new Set([
+    safe(`${sopId}_file`),
+    safe(`${sopId}_signedScan`),
+    safe(`${sopId}_oldFile`),
+  ]);
+  for (const evidence of Array.isArray(sop.supportingEvidence) ? sop.supportingEvidence : []) {
+    if (evidence?.id) ids.add(safe(`${sopId}_evidence_${evidence.id}`));
+  }
+  return ids;
+}
+
+function collectReferencedStorageMetadataIds(sop = {}) {
+  const ids = new Set();
+  const add = value => {
+    const raw = String(value || '');
+    const match = raw.match(/\/api\/storage\/files\/([^/?#]+)/i);
+    if (match?.[1]) {
+      try { ids.add(decodeURIComponent(match[1])); } catch { ids.add(match[1]); }
+    }
+  };
+  add(sop.fileUrl);
+  add(sop.signedScanUrl);
+  add(sop.oldFileUrl);
+  for (const evidence of Array.isArray(sop.supportingEvidence) ? sop.supportingEvidence : []) {
+    add(evidence?.fileUrl);
+  }
+  return ids;
+}
+
+async function deleteArchivedSopStorageArtifacts(stored) {
+  const sopId = String(stored?.id || '').trim();
+  if (!sopId) return { deletedObjects: 0, deletedMetadata: 0, skippedShared: 0 };
+
+  const candidatePaths = collectSopStoragePaths(stored);
+  const candidateMeta = new Map();
+  const candidateIds = collectSopStorageMetadataIds(stored);
+
+  // Modern uploads carry sopId. Explicit IDs cover legacy metadata written
+  // before that index existed.
+  try {
+    const indexed = await db.collection(STORAGE_COLLECTION).where('sopId', '==', sopId).get();
+    indexed.docs.forEach(docSnap => candidateMeta.set(docSnap.id, docSnap));
+  } catch (error) {
+    console.warn('[SPO archive delete] storage index lookup warning', error?.message || error);
+  }
+  for (const id of candidateIds) {
+    if (candidateMeta.has(id)) continue;
+    const snap = await db.collection(STORAGE_COLLECTION).doc(id).get();
+    if (snap.exists) candidateMeta.set(id, snap);
+  }
+
+  for (const snap of candidateMeta.values()) {
+    const meta = snap.data() || {};
+    const objectPath = resolveStorageObjectPath(meta);
+    if (objectPath) candidatePaths.add(String(objectPath).replace(/^\/+/, ''));
+    if (meta.previewObjectPath) candidatePaths.add(String(meta.previewObjectPath).replace(/^\/+/, ''));
+  }
+
+  // Protect any binary still referenced by another SPO. Relationship metadata
+  // survives archive deletion; shared binaries must survive as well.
+  const retainedPaths = new Set();
+  const retainedMetaIds = new Set();
+  const remaining = await db.collection('sops').get();
+  for (const docSnap of remaining.docs) {
+    if (docSnap.id === sopId) continue;
+    const other = { id: docSnap.id, ...docSnap.data() };
+    collectSopStoragePaths(other).forEach(value => retainedPaths.add(value));
+    collectReferencedStorageMetadataIds(other).forEach(value => retainedMetaIds.add(value));
+  }
+
+  let deletedObjects = 0;
+  let deletedMetadata = 0;
+  let skippedShared = 0;
+  const bucket = getStorageBucket();
+  for (const objectPath of candidatePaths) {
+    if (!String(objectPath).startsWith('sidokter/spo/')) continue;
+    if (retainedPaths.has(objectPath)) {
+      skippedShared += 1;
+      continue;
+    }
+    try {
+      await bucket.file(objectPath).delete({ ignoreNotFound: true });
+      deletedObjects += 1;
+    } catch (error) {
+      console.warn('[SPO archive delete] object cleanup warning', objectPath, error?.message || error);
+    }
+  }
+
+  for (const [id, snap] of candidateMeta.entries()) {
+    const meta = snap.data() || {};
+    const objectPath = String(resolveStorageObjectPath(meta) || '').replace(/^\/+/, '');
+    if (retainedMetaIds.has(id) || (objectPath && retainedPaths.has(objectPath))) {
+      skippedShared += 1;
+      continue;
+    }
+    await snap.ref.delete();
+    deletedMetadata += 1;
+  }
+
+  return { deletedObjects, deletedMetadata, skippedShared };
 }
 
 async function storageDelete(req, res) {
