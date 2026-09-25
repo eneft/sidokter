@@ -1,0 +1,23 @@
+name: Cleanup Dashboard Deploy Trigger
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-deploy-trigger-top-search.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove temporary deploy trigger
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/cleanup-deploy-trigger-top-search.yml
+          git commit -m 'chore: remove dashboard deploy trigger'
+          git push origin main
