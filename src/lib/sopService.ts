@@ -470,11 +470,11 @@ export async function bulkUpdateSops(sops: SopDocument[], changedIds?: string[])
   // Never push an arbitrary local cache snapshot back to Firestore here.
 }
 
-export async function deleteSopFromLocal(id: string): Promise<'DELETED' | 'ARCHIVED'> {
+export async function deleteSopFromLocal(id: string, options?: { permanentArchived?: boolean }): Promise<'DELETED' | 'ARCHIVED'> {
   // Cloud/Firestore deletion is authoritative. Do not remove the local cache
   // first and then fire-and-forget the cloud delete; that can make one browser
   // appear deleted while another browser still sees the document.
-  const result = await deleteSopFromFirestore(id);
+  const result = await deleteSopFromFirestore(id, options);
   if (result === 'DELETED') await idbDeleteSop(id);
   notifySopSubscribers();
   return result;

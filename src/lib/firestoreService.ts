@@ -597,10 +597,31 @@ export async function restoreSopNumberReservationsToFirestore(reservations: SopN
   }
 }
 
-export async function deleteSopFromFirestore(id: string): Promise<'DELETED' | 'ARCHIVED'> {
+export async function deleteSopFromFirestore(id: string, options?: { permanentArchived?: boolean }): Promise<'DELETED' | 'ARCHIVED'> {
   try {
     if (!id) throw new Error('ID SPO tidak valid.');
     updateStatus({ isSyncing: true });
+
+// Permanent deletion of DIARSIPKAN is intentionally routed through the
+// trusted session boundary. Firestore rules continue to deny client-side
+// deletion of official history, so no security rule is weakened.
+if (options?.permanentArchived) {
+  const apiRes = await callAuthenticatedAuthApi('sop-delete', {
+    id,
+    intent: 'PERMANENT_ARCHIVE_DELETE',
+  });
+  if (!apiRes?.success) {
+    throw new Error(apiRes?.message || 'SPO arsip gagal dihapus permanen.');
+  }
+  const result = apiRes.result === 'ARCHIVED' ? 'ARCHIVED' : 'DELETED';
+  updateStatus({
+    isConnected: true,
+    isSyncing: false,
+    lastSync: new Date().toISOString(),
+    error: null,
+  });
+  return result;
+}
 
     // 1. Authoritative direct Firestore transaction (atomically updates draft status, sequence recycling, and reservation cleanup)
     const sopRef = doc(db, 'sops', id);
