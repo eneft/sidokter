@@ -3,14 +3,10 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { getPersistedClientSession, refreshUserSessionProfile } from './lib/authService';
-import { installDashboardMobileSearchViewportFix } from './mobileSearchViewportFix';
 import './index.css';
-import './mobile-search-fix.css';
 
 // Silently handle benign Vite HMR WebSocket errors in proxied sandbox container environments
 if (typeof window !== 'undefined') {
-  installDashboardMobileSearchViewportFix();
-
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;
     const msg = typeof reason === 'string' ? reason : (reason?.message || String(reason || ''));
