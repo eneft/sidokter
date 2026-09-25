@@ -168,6 +168,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [isOfficialPdfLoading, setIsOfficialPdfLoading] = useState(false);
   const [officialPdfError, setOfficialPdfError] = useState<string | null>(null);
   const [officialPages, setOfficialPages] = useState<OfficialBlock[][]>([]);
+  const [paginationSafetyBufferPx, setPaginationSafetyBufferPx] = useState(8);
   const [layoutBlocks, setLayoutBlocks] = useState<OfficialBlock[]>([]);
   const [isPaginatingOfficial, setIsPaginatingOfficial] = useState(false);
   const measureRootRef = useRef<HTMLDivElement | null>(null);
@@ -298,6 +299,10 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     }
     return 1;
   }, [previewZoomMode, previewViewportWidth]);
+
+  useEffect(() => {
+    setPaginationSafetyBufferPx(8);
+  }, [sop?.id, isOpen]);
 
   useEffect(() => {
     setShowReviewEvidencePreview(false);
@@ -791,14 +796,18 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         const header = root.querySelector<HTMLElement>('[data-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-measure-publication]');
         if (!header || !publication) return;
-        const headerHeightPx = header.getBoundingClientRect().height;
-        const publicationHeightPx = publication.getBoundingClientRect().height;
+        // offsetHeight is a layout-space measurement and is NOT affected by
+        // the mobile preview transform. getBoundingClientRect() is transformed,
+        // which previously made the header look much shorter on iPhone and
+        // let too much body content be packed into a physical A4 page.
+        const headerHeightPx = header.offsetHeight || header.getBoundingClientRect().height;
+        const publicationHeightPx = publication.offsetHeight || publication.getBoundingClientRect().height;
         if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
 
         const pages = computeCanonicalA4Pages(layoutBlocks, {
           headerHeightPx,
           publicationHeightPx,
-          safetyBufferPx: 4
+          safetyBufferPx: paginationSafetyBufferPx
         });
         if (!cancelled) {
           setOfficialPages(pages as OfficialBlock[][]);
@@ -814,7 +823,52 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     };
     run();
     return () => { cancelled = true; };
-  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf]);
+  }, [isOpen, sop?.id, activeTab, layoutBlocks, isExistingPdf, paginationSafetyBufferPx]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      isExistingPdf ||
+      isPaginatingOfficial ||
+      !officialPages.length ||
+      (isReviewDoc && riviuPreviewTab !== 'document')
+    ) return;
+
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    // clientHeight/scrollHeight are layout-space metrics and ignore CSS transform
+    // scaling, so this check is stable on desktop, Android and iOS Safari.
+    const pageNodes = Array.from(viewport.querySelectorAll<HTMLElement>('.sop-preview-page'));
+    let maxOverflowPx = 0;
+    pageNodes.forEach((pageNode) => {
+      const frame = pageNode.querySelector<HTMLElement>('.sop-a4-content-frame');
+      const table = frame?.querySelector<HTMLElement>('.sop-official-table');
+      if (!frame || !table || frame.clientHeight <= 0) return;
+      maxOverflowPx = Math.max(maxOverflowPx, table.scrollHeight - frame.clientHeight);
+    });
+
+    if (maxOverflowPx > 1 && paginationSafetyBufferPx < 192) {
+      const nextSafety = Math.min(
+        192,
+        Math.max(
+          paginationSafetyBufferPx + 4,
+          paginationSafetyBufferPx + Math.ceil(maxOverflowPx) + 4
+        )
+      );
+      setIsPaginatingOfficial(true);
+      setPaginationSafetyBufferPx(nextSafety);
+    }
+  }, [
+    isOpen,
+    sop?.id,
+    isExistingPdf,
+    isPaginatingOfficial,
+    officialPages,
+    paginationSafetyBufferPx,
+    isReviewDoc,
+    riviuPreviewTab
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1511,54 +1565,9 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Canonical A4 Preview Zoom Toolbar (No-Print) */}
-              <div className="no-print w-full max-w-[210mm] mx-auto flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-100/90 border border-slate-200 rounded-xl text-xs mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Format A4 Resmi (210 × 297 mm)</span>
-                  <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md text-[11px] font-bold">
-                    {calculatedTotalPages} Halaman
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-slate-500 font-semibold hidden sm:inline">Skala:</span>
-                  <select
-                    aria-label="Skala Tampilan A4"
-                    value={previewZoomMode}
-                    onChange={(e) => setPreviewZoomMode(e.target.value as any)}
-                    className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
-                  >
-                    <option value="fit">Otomatis (Fit Layar)</option>
-                    <option value="50%">50%</option>
-                    <option value="75%">75%</option>
-                    <option value="100%">100% (A4 Fisik)</option>
-                    <option value="125%">125% (Besar)</option>
-                    <option value="150%">150% (Sangat Besar)</option>
-                  </select>
-                  <span className="text-[10px] font-mono text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded">
-                    {Math.round(calculatedPreviewScale * 100)}%
-                  </span>
-                </div>
-              </div>
-
-              <div ref={previewViewportRef} className="w-full flex flex-col items-center overflow-x-auto overflow-y-visible">
-                <div
-                  style={{
-                    transform: calculatedPreviewScale !== 1 ? `scale(${calculatedPreviewScale})` : undefined,
-                    transformOrigin: 'top center',
-                    width: '210mm',
-                    marginBottom: calculatedPreviewScale < 1
-                      ? `-${Math.round((1 - calculatedPreviewScale) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
-                      : calculatedPreviewScale > 1
-                      ? `${Math.round((calculatedPreviewScale - 1) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
-                      : undefined
-                  }}
-                  className="transition-transform duration-150"
-                >
-                  <div 
-                    id="printable-sop-official-document" 
-                    className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
-                  >
-
+              {/* Canonical physical measurement shell. IMPORTANT: this must stay OUTSIDE
+                  the visually transformed preview tree so mobile fit-to-screen scaling
+                  can never change pagination metrics. */}
                 {/* ==========================================================
                     MEASUREMENT CANVAS
                     Hidden off-screen, but rendered by the browser exactly with
@@ -1613,6 +1622,55 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                   </div>
                 </div>
 
+
+              {/* Canonical A4 Preview Zoom Toolbar (No-Print) */}
+              <div className="no-print w-full max-w-[210mm] mx-auto flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-100/90 border border-slate-200 rounded-xl text-xs mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Format A4 Resmi (210 × 297 mm)</span>
+                  <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md text-[11px] font-bold">
+                    {calculatedTotalPages} Halaman
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 font-semibold hidden sm:inline">Skala:</span>
+                  <select
+                    aria-label="Skala Tampilan A4"
+                    value={previewZoomMode}
+                    onChange={(e) => setPreviewZoomMode(e.target.value as any)}
+                    className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="fit">Otomatis (Fit Layar)</option>
+                    <option value="50%">50%</option>
+                    <option value="75%">75%</option>
+                    <option value="100%">100% (A4 Fisik)</option>
+                    <option value="125%">125% (Besar)</option>
+                    <option value="150%">150% (Sangat Besar)</option>
+                  </select>
+                  <span className="text-[10px] font-mono text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded">
+                    {Math.round(calculatedPreviewScale * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              <div ref={previewViewportRef} className="w-full flex flex-col items-center overflow-x-auto overflow-y-visible">
+                <div
+                  style={{
+                    transform: calculatedPreviewScale !== 1 ? `scale(${calculatedPreviewScale})` : undefined,
+                    transformOrigin: 'top center',
+                    width: '210mm',
+                    marginBottom: calculatedPreviewScale < 1
+                      ? `-${Math.round((1 - calculatedPreviewScale) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
+                      : calculatedPreviewScale > 1
+                      ? `${Math.round((calculatedPreviewScale - 1) * (pageGroups.length * 1123 + (pageGroups.length - 1) * 24))}px`
+                      : undefined
+                  }}
+                  className="transition-transform duration-150"
+                >
+                  <div 
+                    id="printable-sop-official-document" 
+                    className={`font-bookman flex flex-col items-center gap-6 mt-2 ${isReviewDoc && riviuPreviewTab === 'evidence' ? 'hidden' : ''}`}
+                  >
+
                 {isPaginatingOfficial && officialPages.length === 0 && (
                   <div className="no-print text-xs text-slate-500 py-2">Menyiapkan pagination A4…</div>
                 )}
@@ -1646,6 +1704,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                     >
                       <div
                         className="sop-a4-content-frame"
+                        data-sop-a4-content-frame="true"
                         style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
                       >
                       <table
