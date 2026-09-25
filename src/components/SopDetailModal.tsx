@@ -168,7 +168,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   const [isOfficialPdfLoading, setIsOfficialPdfLoading] = useState(false);
   const [officialPdfError, setOfficialPdfError] = useState<string | null>(null);
   const [officialPages, setOfficialPages] = useState<OfficialBlock[][]>([]);
-  const [paginationSafetyBufferPx, setPaginationSafetyBufferPx] = useState(8);
+  const [paginationSafetyBufferPx, setPaginationSafetyBufferPx] = useState(12);
   const [layoutBlocks, setLayoutBlocks] = useState<OfficialBlock[]>([]);
   const [isPaginatingOfficial, setIsPaginatingOfficial] = useState(false);
   const measureRootRef = useRef<HTMLDivElement | null>(null);
@@ -301,7 +301,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
   }, [previewZoomMode, previewViewportWidth]);
 
   useEffect(() => {
-    setPaginationSafetyBufferPx(8);
+    setPaginationSafetyBufferPx(12);
   }, [sop?.id, isOpen]);
 
   useEffect(() => {
@@ -834,31 +834,86 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       (isReviewDoc && riviuPreviewTab !== 'document')
     ) return;
 
-    const viewport = previewViewportRef.current;
-    if (!viewport) return;
+    let cancelled = false;
+    let firstFrame = 0;
+    let secondFrame = 0;
 
-    // clientHeight/scrollHeight are layout-space metrics and ignore CSS transform
-    // scaling, so this check is stable on desktop, Android and iOS Safari.
-    const pageNodes = Array.from(viewport.querySelectorAll<HTMLElement>('.sop-preview-page'));
-    let maxOverflowPx = 0;
-    pageNodes.forEach((pageNode) => {
-      const frame = pageNode.querySelector<HTMLElement>('.sop-a4-content-frame');
-      const table = frame?.querySelector<HTMLElement>('.sop-official-table');
-      if (!frame || !table || frame.clientHeight <= 0) return;
-      maxOverflowPx = Math.max(maxOverflowPx, table.scrollHeight - frame.clientHeight);
+    const auditPhysicalA4Boundary = () => {
+      if (cancelled) return;
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+
+      // Compare against the INNER physical A4 content frame. The page already
+      // owns 20 mm padding, so content entering the bottom margin is overflow.
+      const pageNodes = Array.from(viewport.querySelectorAll<HTMLElement>('.sop-preview-page'));
+      const visualScale = Math.max(
+        0.01,
+        Number.isFinite(calculatedPreviewScale) ? calculatedPreviewScale : 1
+      );
+      let maxOverflowLayoutPx = 0;
+
+      pageNodes.forEach((pageNode) => {
+        const frame = pageNode.querySelector<HTMLElement>('.sop-a4-content-frame');
+        const table = frame?.querySelector<HTMLElement>('.sop-official-table');
+        if (!frame || !table || frame.clientHeight <= 0) return;
+
+        const scrollOverflow = Math.max(
+          0,
+          table.scrollHeight - frame.clientHeight,
+          frame.scrollHeight - frame.clientHeight
+        );
+
+        // iOS Safari may paint descendants outside a cell without increasing
+        // the table scrollHeight. Audit actual painted descendant bottoms too.
+        const frameRect = frame.getBoundingClientRect();
+        const contentNodes: HTMLElement[] = [
+          table,
+          ...Array.from(
+            frame.querySelectorAll<HTMLElement>(
+              'tr,td,th,.rich-text-output,.rich-text-document-content,p,li,ol,ul,table,img,figure,.figure-wrapper'
+            )
+          )
+        ];
+        let maxVisualOverflow = 0;
+        contentNodes.forEach((node) => {
+          const rect = node.getBoundingClientRect();
+          if (rect.height <= 0 || rect.width <= 0) return;
+          maxVisualOverflow = Math.max(maxVisualOverflow, rect.bottom - frameRect.bottom);
+        });
+
+        // Convert transformed visual pixels back to canonical A4 layout pixels.
+        const rectOverflowLayout = Math.max(0, maxVisualOverflow / visualScale);
+        maxOverflowLayoutPx = Math.max(
+          maxOverflowLayoutPx,
+          scrollOverflow,
+          rectOverflowLayout
+        );
+      });
+
+      if (maxOverflowLayoutPx > 0.75 && paginationSafetyBufferPx < 320) {
+        const nextSafety = Math.min(
+          320,
+          Math.max(
+            paginationSafetyBufferPx + 6,
+            paginationSafetyBufferPx + Math.ceil(maxOverflowLayoutPx) + 6
+          )
+        );
+        // An invalid page may never stabilize or be used for PDF generation.
+        setIsPaginatingOfficial(true);
+        setPaginationSafetyBufferPx(nextSafety);
+      }
+    };
+
+    // Wait two frames so React/table/Safari layout has settled before auditing.
+    firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(auditPhysicalA4Boundary);
     });
 
-    if (maxOverflowPx > 1 && paginationSafetyBufferPx < 192) {
-      const nextSafety = Math.min(
-        192,
-        Math.max(
-          paginationSafetyBufferPx + 4,
-          paginationSafetyBufferPx + Math.ceil(maxOverflowPx) + 4
-        )
-      );
-      setIsPaginatingOfficial(true);
-      setPaginationSafetyBufferPx(nextSafety);
-    }
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
   }, [
     isOpen,
     sop?.id,
@@ -867,7 +922,8 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     officialPages,
     paginationSafetyBufferPx,
     isReviewDoc,
-    riviuPreviewTab
+    riviuPreviewTab,
+    calculatedPreviewScale
   ]);
 
   useEffect(() => {
@@ -1705,6 +1761,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
                       <div
                         className="sop-a4-content-frame"
                         data-sop-a4-content-frame="true"
+                        data-sop-a4-safe-area="20mm"
                         style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
                       >
                       <table
