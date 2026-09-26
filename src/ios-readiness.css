@@ -147,8 +147,8 @@ body,
 }
 
 /* Mobile login is deliberately more compact than the desktop two-column login.
-   It uses the existing official SIDOKTER brand asset instead of rebuilding the
-   wordmark from the RSUD emblem + text, and keeps the form comfortably tappable. */
+   It uses the existing colored SIDOKTER wordmark on the white mobile card and
+   keeps the form comfortably tappable. */
 @media (max-width: 820px) {
   #login-page-container.login-page-shell {
     min-height: 100vh !important;
@@ -203,12 +203,12 @@ body,
     width: 100% !important;
     min-height: 0 !important;
     margin: 0 0 18px !important;
-    padding: 60px 8px 15px !important;
+    padding: 68px 8px 15px !important;
     border-bottom: 1px solid #edf2f7 !important;
-    background-image: url('/sidokter-logo-login.webp') !important;
+    background-image: url('/sidokter-logo-v2.webp.webp') !important;
     background-repeat: no-repeat !important;
     background-position: center top !important;
-    background-size: 190px auto !important;
+    background-size: 220px auto !important;
     text-align: center !important;
   }
 
@@ -344,9 +344,9 @@ body,
 
   #login-auth-panel .login-mobile-brand-header {
     margin-bottom: 14px !important;
-    padding-top: 52px !important;
+    padding-top: 60px !important;
     padding-bottom: 12px !important;
-    background-size: 170px auto !important;
+    background-size: 195px auto !important;
   }
 
   #login-card-header.login-card-header {
