@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildSequentialSyncPlan } = require('./sopNumberSyncPolicy');
+const { getScopesNeedingReconciliation } = require('./sopNumberSync');
 
 const base = {
   divisionCode: 'PEL',
@@ -174,4 +175,34 @@ test('blank stored subHierarchyCode falls back to the hierarchy encoded in the S
     'UPH / 1.1 / 003 / 2026',
   ]);
   assert.equal(plan.scopes.some((row) => row.scopeKey === '2026|UPH|ROOT' && row.docs.length > 0), false);
+});
+
+test('scope isolation selects changed scope without being blocked by unrelated global conflicts', () => {
+  const preflight = {
+    lockedConflictCount: 1,
+    warnings: [],
+    scopes: [
+      { scopeKey: '2026|UPH|1.1', changedCount: 2 },
+      { scopeKey: '2026|PEL|9.9', changedCount: 0 },
+    ],
+  };
+
+  const selected = getScopesNeedingReconciliation(preflight);
+  assert.deepEqual(selected.map((row) => row.scopeKey), ['2026|UPH|1.1']);
+});
+
+test('scope isolation still selects a scope that only needs stale USED cleanup', () => {
+  const preflight = {
+    lockedConflictCount: 0,
+    warnings: [
+      { type: 'STALE_USED_RESERVATION', scopeKey: '2026|UPH|1.1', reservationId: 'old-used' },
+    ],
+    scopes: [
+      { scopeKey: '2026|UPH|1.1', changedCount: 0 },
+      { scopeKey: '2026|PEL|1.1', changedCount: 0 },
+    ],
+  };
+
+  const selected = getScopesNeedingReconciliation(preflight);
+  assert.deepEqual(selected.map((row) => row.scopeKey), ['2026|UPH|1.1']);
 });

@@ -143,6 +143,25 @@ function buildMetadataMaps(storageSnapshot, notificationSnapshots) {
   return { storageBySopId, notificationsByDocumentId };
 }
 
+function getScopesNeedingReconciliation(preflight) {
+  const warnings = Array.isArray(preflight?.warnings) ? preflight.warnings : [];
+  const staleScopeKeys = new Set(
+    warnings
+      .filter((row) => row?.type === 'STALE_USED_RESERVATION')
+      .map((row) => cleanString(row?.scopeKey))
+      .filter(Boolean)
+  );
+  return (Array.isArray(preflight?.scopes) ? preflight.scopes : []).filter((scope) =>
+    Number(scope?.changedCount || 0) > 0 || staleScopeKeys.has(cleanString(scope?.scopeKey))
+  );
+}
+
+function blockedScopeFromError(scopeKey, error) {
+  const code = error instanceof HttpsError ? cleanString(error.code) : 'internal';
+  const reason = cleanString(error?.message) || 'Scope gagal diproses.';
+  return { scopeKey: cleanString(scopeKey), code, reason };
+}
+
 exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
   const actor = await resolveAdmin(request);
   const db = getDb();
@@ -162,187 +181,209 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
     const allDocumentIds = new Set(allSops.map((row) => cleanString(row.id)).filter(Boolean));
     const preflight = buildSequentialSyncPlan(allSops, allReservations);
 
-    if (preflight.lockedConflictCount > 0) {
-      throw new HttpsError(
-        'failed-precondition',
-        `Ditemukan ${preflight.lockedConflictCount} konflik pada nomor yang terkunci (DIARSIPKAN/RESERVED). Sinkronisasi dihentikan agar histori nomor tidak berubah.`
-      );
-    }
-
+    // IMPORTANT: synchronization is scope-isolated. A conflict in an unrelated
+    // unit/year must not prevent a valid scope (for example UPH / 1.1 / 2026)
+    // from being repaired. Only scopes that actually need a document change or
+    // stale reservation cleanup are executed.
+    const scopesToProcess = getScopesNeedingReconciliation(preflight);
     const totalChanges = [];
+    const blockedScopes = [];
     let reconciledScopes = 0;
     let duplicateCount = preflight.duplicateCount;
     let cleanedReservationCount = 0;
 
-    for (const preScope of preflight.scopes) {
-      await refreshLock(lock, actor);
-      const sopRefs = preScope.docs.map((row) => db.collection('sops').doc(String(row.id)));
-      const reservationRefs = preScope.reservations.map((row) => db.collection('sop_number_reservations').doc(String(row.id)));
-      const sequenceRef = db.collection('system_config').doc(`spo_sequence_${encodeURIComponent(preScope.scopeKey)}`);
-      const auditRef = db.collection('audit_logs').doc();
+    for (const preScope of scopesToProcess) {
+      try {
+        await refreshLock(lock, actor);
+        const sopRefs = preScope.docs.map((row) => db.collection('sops').doc(String(row.id)));
+        const reservationRefs = preScope.reservations.map((row) => db.collection('sop_number_reservations').doc(String(row.id)));
+        const sequenceRef = db.collection('system_config').doc(`spo_sequence_${encodeURIComponent(preScope.scopeKey)}`);
+        const auditRef = db.collection('audit_logs').doc();
 
-      const scopeResult = await db.runTransaction(async (transaction) => {
-        const sequenceSnapshot = await transaction.get(sequenceRef);
-        const allRefs = [...sopRefs, ...reservationRefs];
-        const snapshots = allRefs.length ? await transaction.getAll(...allRefs) : [];
-        const currentSops = [];
-        const currentReservations = [];
-        for (const snapshot of snapshots) {
-          if (!snapshot.exists) continue;
-          if (snapshot.ref.parent.id === 'sops') currentSops.push(snapshotData(snapshot));
-          if (snapshot.ref.parent.id === 'sop_number_reservations') currentReservations.push(snapshotData(snapshot));
-        }
+        const scopeResult = await db.runTransaction(async (transaction) => {
+          const sequenceSnapshot = await transaction.get(sequenceRef);
+          const allRefs = [...sopRefs, ...reservationRefs];
+          const snapshots = allRefs.length ? await transaction.getAll(...allRefs) : [];
+          const currentSops = [];
+          const currentReservations = [];
+          for (const snapshot of snapshots) {
+            if (!snapshot.exists) continue;
+            if (snapshot.ref.parent.id === 'sops') currentSops.push(snapshotData(snapshot));
+            if (snapshot.ref.parent.id === 'sop_number_reservations') currentReservations.push(snapshotData(snapshot));
+          }
 
-        // Preserve awareness of documents outside this scope (legacy/Existing or
-        // another scope) so a USED claim that still references a real document is
-        // not mistaken for stale metadata.
-        const policySops = [
-          ...currentSops,
-          ...Array.from(allDocumentIds)
-            .filter((id) => !currentSops.some((row) => cleanString(row.id) === id))
-            .map((id) => ({ id, isLegacySop: true })),
-        ];
-        const currentPlan = buildSequentialSyncPlan(policySops, currentReservations);
-        const scope = currentPlan.scopes.find((row) => row.scopeKey === preScope.scopeKey);
-        if (!scope) return { changes: [], duplicateCount: 0, cleanedReservationCount: 0 };
-        if (currentPlan.lockedConflictCount > 0) {
-          throw new HttpsError('failed-precondition', `Scope ${preScope.scopeKey} memiliki konflik nomor terkunci.`);
-        }
+          // Preserve awareness of documents outside this scope (legacy/Existing or
+          // another scope) so a USED claim that still references a real document is
+          // not mistaken for stale metadata.
+          const policySops = [
+            ...currentSops,
+            ...Array.from(allDocumentIds)
+              .filter((id) => !currentSops.some((row) => cleanString(row.id) === id))
+              .map((id) => ({ id, isLegacySop: true })),
+          ];
+          const currentPlan = buildSequentialSyncPlan(policySops, currentReservations);
+          const scope = currentPlan.scopes.find((row) => row.scopeKey === preScope.scopeKey);
+          if (!scope) return { changes: [], duplicateCount: 0, cleanedReservationCount: 0 };
+          if (currentPlan.lockedConflictCount > 0) {
+            throw new HttpsError('failed-precondition', `Scope ${preScope.scopeKey} memiliki konflik nomor terkunci.`);
+          }
 
-        const staleReservationIds = new Set(
-          currentPlan.warnings
-            .filter((row) => row?.type === 'STALE_USED_RESERVATION' && cleanString(row?.scopeKey) === preScope.scopeKey)
-            .map((row) => cleanString(row?.reservationId))
-            .filter(Boolean)
-        );
-        const desiredReservationIds = new Set(scope.desiredReservations.map((row) => row.id));
-        const standardDocumentIds = new Set(scope.finalDocuments.map((row) => cleanString(row.id)));
-        const changedById = new Map(scope.finalDocuments.filter((row) => row.changed).map((row) => [cleanString(row.id), row]));
+          const staleReservationIds = new Set(
+            currentPlan.warnings
+              .filter((row) => row?.type === 'STALE_USED_RESERVATION' && cleanString(row?.scopeKey) === preScope.scopeKey)
+              .map((row) => cleanString(row?.reservationId))
+              .filter(Boolean)
+          );
+          const desiredReservationIds = new Set(scope.desiredReservations.map((row) => row.id));
+          const standardDocumentIds = new Set(scope.finalDocuments.map((row) => cleanString(row.id)));
+          const changedById = new Map(scope.finalDocuments.filter((row) => row.changed).map((row) => [cleanString(row.id), row]));
 
-        let writeEstimate = 2 + scope.desiredReservations.length;
-        for (const row of currentReservations) {
-          const reservationId = cleanString(row.id);
-          const status = cleanString(row.status).toUpperCase();
-          const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
-          const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
-          if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
+          let writeEstimate = 2 + scope.desiredReservations.length;
+          for (const row of currentReservations) {
+            const reservationId = cleanString(row.id);
+            const status = cleanString(row.status).toUpperCase();
+            const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
+            const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
+            if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
+              writeEstimate += 1;
+            }
+          }
+          for (const [documentId] of changedById) {
             writeEstimate += 1;
+            writeEstimate += (metadataMaps.storageBySopId.get(documentId) || []).length;
+            writeEstimate += (metadataMaps.notificationsByDocumentId.get(documentId) || []).length;
           }
-        }
-        for (const [documentId] of changedById) {
-          writeEstimate += 1;
-          writeEstimate += (metadataMaps.storageBySopId.get(documentId) || []).length;
-          writeEstimate += (metadataMaps.notificationsByDocumentId.get(documentId) || []).length;
-        }
-        if (writeEstimate > 450) {
-          throw new HttpsError('resource-exhausted', `Scope ${preScope.scopeKey} terlalu besar untuk disinkronkan dalam satu transaksi (${writeEstimate} operasi).`);
-        }
+          if (writeEstimate > 450) {
+            throw new HttpsError('resource-exhausted', `Scope ${preScope.scopeKey} terlalu besar untuk disinkronkan dalam satu transaksi (${writeEstimate} operasi).`);
+          }
 
-        const nowIso = new Date().toISOString();
-        for (const [documentId, row] of changedById) {
-          transaction.set(db.collection('sops').doc(documentId), {
-            sopNumber: row.newNumber,
-            sequenceNumber: row.sequenceNumber,
-            updatedAt: nowIso,
-            _syncedAt: nowIso,
+          const nowIso = new Date().toISOString();
+          for (const [documentId, row] of changedById) {
+            transaction.set(db.collection('sops').doc(documentId), {
+              sopNumber: row.newNumber,
+              sequenceNumber: row.sequenceNumber,
+              updatedAt: nowIso,
+              _syncedAt: nowIso,
+            }, { merge: true });
+            for (const ref of metadataMaps.storageBySopId.get(documentId) || []) {
+              transaction.set(ref, { documentNumber: row.newNumber }, { merge: true });
+            }
+            for (const ref of metadataMaps.notificationsByDocumentId.get(documentId) || []) {
+              transaction.set(ref, { documentNumber: row.newNumber }, { merge: true });
+            }
+          }
+
+          const cleanedStaleIds = new Set();
+          for (const row of currentReservations) {
+            const reservationId = cleanString(row.id);
+            const status = cleanString(row.status).toUpperCase();
+            const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
+            const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
+            if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
+              transaction.delete(db.collection('sop_number_reservations').doc(String(row.id)));
+              if (isStaleUsed) cleanedStaleIds.add(reservationId);
+            }
+          }
+
+          for (const desired of scope.desiredReservations) {
+            if (staleReservationIds.has(cleanString(desired.id))) cleanedStaleIds.add(cleanString(desired.id));
+            const sourceDocument = scope.finalDocuments.find((row) => cleanString(row.id) === cleanString(desired.usedDocumentId));
+            transaction.set(db.collection('sop_number_reservations').doc(desired.id), {
+              ...desired,
+              reservedAt: desired.reservedAt && desired.reservedAt !== new Date(0).toISOString() ? desired.reservedAt : nowIso,
+              usedAt: desired.usedAt && desired.usedAt !== new Date(0).toISOString() ? desired.usedAt : nowIso,
+              title: desired.title || sourceDocument?.title || '',
+              effectiveDate: desired.effectiveDate || sourceDocument?.effectiveDate || `${scope.year}-01-01`,
+              reservedBy: desired.reservedBy || actor.name,
+              updatedAt: nowIso,
+            }, { merge: false });
+          }
+
+          const currentSequence = sequenceSnapshot.exists ? (sequenceSnapshot.data() || {}) : {};
+          transaction.set(sequenceRef, {
+            id: sequenceRef.id,
+            divisionCode: scope.divisionCode,
+            subHierarchyCode: scope.subHierarchyCode,
+            year: scope.year,
+            lastSequence: scope.lastSequence,
+            reusableSequences: scope.reusableSequences,
+            synchronizedAt: nowIso,
+            synchronizedBy: actor.name,
+            previousLastSequence: Number(currentSequence.lastSequence || 0),
+            updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true });
-          for (const ref of metadataMaps.storageBySopId.get(documentId) || []) {
-            transaction.set(ref, { documentNumber: row.newNumber }, { merge: true });
-          }
-          for (const ref of metadataMaps.notificationsByDocumentId.get(documentId) || []) {
-            transaction.set(ref, { documentNumber: row.newNumber }, { merge: true });
-          }
-        }
 
-        const cleanedStaleIds = new Set();
-        for (const row of currentReservations) {
-          const reservationId = cleanString(row.id);
-          const status = cleanString(row.status).toUpperCase();
-          const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
-          const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
-          if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
-            transaction.delete(db.collection('sop_number_reservations').doc(String(row.id)));
-            if (isStaleUsed) cleanedStaleIds.add(reservationId);
-          }
-        }
-
-        for (const desired of scope.desiredReservations) {
-          if (staleReservationIds.has(cleanString(desired.id))) cleanedStaleIds.add(cleanString(desired.id));
-          const sourceDocument = scope.finalDocuments.find((row) => cleanString(row.id) === cleanString(desired.usedDocumentId));
-          transaction.set(db.collection('sop_number_reservations').doc(desired.id), {
-            ...desired,
-            reservedAt: desired.reservedAt && desired.reservedAt !== new Date(0).toISOString() ? desired.reservedAt : nowIso,
-            usedAt: desired.usedAt && desired.usedAt !== new Date(0).toISOString() ? desired.usedAt : nowIso,
-            title: desired.title || sourceDocument?.title || '',
-            effectiveDate: desired.effectiveDate || sourceDocument?.effectiveDate || `${scope.year}-01-01`,
-            reservedBy: desired.reservedBy || actor.name,
-            updatedAt: nowIso,
-          }, { merge: false });
-        }
-
-        const currentSequence = sequenceSnapshot.exists ? (sequenceSnapshot.data() || {}) : {};
-        transaction.set(sequenceRef, {
-          id: sequenceRef.id,
-          divisionCode: scope.divisionCode,
-          subHierarchyCode: scope.subHierarchyCode,
-          year: scope.year,
-          lastSequence: scope.lastSequence,
-          reusableSequences: scope.reusableSequences,
-          synchronizedAt: nowIso,
-          synchronizedBy: actor.name,
-          previousLastSequence: Number(currentSequence.lastSequence || 0),
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-
-        transaction.set(auditRef, {
-          id: auditRef.id,
-          action: 'SOP_NUMBER_SEQUENCE_SYNCHRONIZED',
-          actorUid: actor.uid,
-          actorUsername: actor.username,
-          actorName: actor.name,
-          scopeKey: scope.scopeKey,
-          changedCount: changedById.size,
-          duplicateCount: currentPlan.duplicateCount,
-          staleReservationCleanupCount: cleanedStaleIds.size,
-          archivedLockedCount: scope.archivedCount,
-          reusableSequences: scope.reusableSequences,
-          changes: Array.from(changedById.values()).slice(0, 50).map((row) => ({
-            documentId: row.id,
-            oldNumber: row.oldNumber,
-            newNumber: row.newNumber,
-          })),
-          timestamp: nowIso,
-        }, { merge: false });
-
-        return {
-          changes: Array.from(changedById.values()).map((row) => ({
-            id: row.id,
-            title: row.title || '',
-            status: row.status || 'DRAFT',
-            oldNumber: row.oldNumber || '-',
-            newNumber: row.newNumber,
-            sequenceNumber: row.sequenceNumber,
+          transaction.set(auditRef, {
+            id: auditRef.id,
+            action: 'SOP_NUMBER_SEQUENCE_SYNCHRONIZED',
+            actorUid: actor.uid,
+            actorUsername: actor.username,
+            actorName: actor.name,
             scopeKey: scope.scopeKey,
-          })),
-          duplicateCount: currentPlan.duplicateCount,
-          cleanedReservationCount: cleanedStaleIds.size,
-        };
-      });
+            changedCount: changedById.size,
+            duplicateCount: currentPlan.duplicateCount,
+            staleReservationCleanupCount: cleanedStaleIds.size,
+            archivedLockedCount: scope.archivedCount,
+            reusableSequences: scope.reusableSequences,
+            changes: Array.from(changedById.values()).slice(0, 50).map((row) => ({
+              documentId: row.id,
+              oldNumber: row.oldNumber,
+              newNumber: row.newNumber,
+            })),
+            timestamp: nowIso,
+          }, { merge: false });
 
-      reconciledScopes += 1;
-      totalChanges.push(...scopeResult.changes);
-      duplicateCount = Math.max(duplicateCount, scopeResult.duplicateCount);
-      cleanedReservationCount += Number(scopeResult.cleanedReservationCount || 0);
+          return {
+            changes: Array.from(changedById.values()).map((row) => ({
+              id: row.id,
+              title: row.title || '',
+              status: row.status || 'DRAFT',
+              oldNumber: row.oldNumber || '-',
+              newNumber: row.newNumber,
+              sequenceNumber: row.sequenceNumber,
+              scopeKey: scope.scopeKey,
+            })),
+            duplicateCount: currentPlan.duplicateCount,
+            cleanedReservationCount: cleanedStaleIds.size,
+          };
+        });
+
+        reconciledScopes += 1;
+        totalChanges.push(...scopeResult.changes);
+        duplicateCount = Math.max(duplicateCount, scopeResult.duplicateCount);
+        cleanedReservationCount += Number(scopeResult.cleanedReservationCount || 0);
+      } catch (error) {
+        const blocked = blockedScopeFromError(preScope.scopeKey, error);
+        blockedScopes.push(blocked);
+        console.warn(`[SPO number sync] Scope ${preScope.scopeKey} skipped:`, blocked.reason);
+      }
+    }
+
+    // If every scope that needed work was blocked, surface the real scope and
+    // reason to the Admin instead of returning a misleading "nothing to sync".
+    if (totalChanges.length === 0 && cleanedReservationCount === 0 && blockedScopes.length > 0) {
+      const details = blockedScopes
+        .slice(0, 3)
+        .map((row) => `${row.scopeKey}: ${row.reason}`)
+        .join(' | ');
+      throw new HttpsError(
+        'failed-precondition',
+        `Sinkronisasi gagal pada ${blockedScopes.length} scope. ${details}`
+      );
     }
 
     return {
-      ok: true,
+      ok: blockedScopes.length === 0,
       changedCount: totalChanges.length,
       duplicateCount,
       cleanedReservationCount,
       reconciledScopes,
       changes: totalChanges,
-      warnings: preflight.warnings,
+      blockedScopes,
+      warnings: [
+        ...preflight.warnings,
+        ...blockedScopes.map((row) => ({ type: 'BLOCKED_SCOPE', ...row })),
+      ],
     };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
@@ -354,3 +395,4 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
 });
 
 module.exports.lockIsActive = lockIsActive;
+module.exports.getScopesNeedingReconciliation = getScopesNeedingReconciliation;
