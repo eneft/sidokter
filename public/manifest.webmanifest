@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "SIDOKTER SOEGIRI",
+  "short_name": "SIDOKTER",
+  "description": "Sistem Dokumen Terpadu Soegiri - RSUD Dr. Soegiri Lamongan",
+  "lang": "id-ID",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/logo_soegiri_transparent.png",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
