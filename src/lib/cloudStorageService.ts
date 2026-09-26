@@ -6,6 +6,7 @@
 import { getNamedFileFromLocalCache, normalizeStorageUrl } from '../utils/fileStorage';
 import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from './authService';
 import { firebaseConfig } from './firebase';
+import { normalizeStorageApiUrl, storageApiUrl } from './runtimeEndpoints';
 
 export interface UploadResult {
   success: boolean;
@@ -76,6 +77,7 @@ export async function uploadFileToCloudStorage(
 
   const projectId = firebaseConfig.projectId || 'sidokter-soegiri';
   const DIRECT_STORAGE_UPLOAD_URL = `https://asia-southeast2-${projectId}.cloudfunctions.net/storageApi/upload`;
+  const PRIMARY_STORAGE_UPLOAD_URL = storageApiUrl('/upload', projectId);
 
   const sendUpload = (url: string, customHeaders = headers) => fetch(url, {
     method: 'POST',
@@ -91,7 +93,7 @@ export async function uploadFileToCloudStorage(
 
   let response: Response;
   try {
-    response = await sendUpload('/api/storage/upload');
+    response = await sendUpload(PRIMARY_STORAGE_UPLOAD_URL);
   } catch (netErr) {
     console.warn('[cloudStorageService] Network error calling /api/storage/upload, trying direct Cloud Function:', netErr);
     try {
@@ -120,7 +122,7 @@ export async function uploadFileToCloudStorage(
     const retryHeaders = { ...headers };
     delete retryHeaders['Authorization'];
     try {
-      const retryUrl = response.url && response.url.includes('cloudfunctions.net') ? DIRECT_STORAGE_UPLOAD_URL : '/api/storage/upload';
+      const retryUrl = response.url && response.url.includes('cloudfunctions.net') ? DIRECT_STORAGE_UPLOAD_URL : PRIMARY_STORAGE_UPLOAD_URL;
       const retryRes = await sendUpload(retryUrl, retryHeaders);
       if (retryRes.ok) {
         response = retryRes;
@@ -137,8 +139,7 @@ export async function uploadFileToCloudStorage(
   }
 
   const result: UploadResult = await response.json();
-
-  return result;
+  return { ...result, url: normalizeStorageApiUrl(result.url, projectId) };
 }
 
 /**
@@ -155,7 +156,7 @@ export async function ensureCloudFileUrl(
 
   // Already a permanent URL
   if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/api/storage/')) {
-    return input;
+    return normalizeStorageApiUrl(input, firebaseConfig.projectId || 'sidokter-soegiri');
   }
 
   // If it's a data URL, upload to cloud storage
@@ -179,7 +180,7 @@ export async function ensureCloudFileUrl(
  */
 export function buildStoragePathUrl(storagePath: string): string {
   const cleanPath = String(storagePath || '').replace(/^\/+/, '');
-  return `/api/storage/path/${encodeURIComponent(cleanPath)}`;
+  return storageApiUrl(`/path/${encodeURIComponent(cleanPath)}`, firebaseConfig.projectId || 'sidokter-soegiri');
 }
 
 export async function resolveViewableUrl(

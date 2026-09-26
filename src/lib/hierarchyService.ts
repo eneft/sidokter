@@ -3,6 +3,7 @@ import { safeSetLocalStorage, getFromIndexedDB, saveToIndexedDB } from '../utils
 import { getPersistedClientSession } from './authService';
 import { doc, getDoc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { auth, authPersistenceReady, db, firebaseConfig } from './firebase';
+import { isCapacitorNativeRuntime } from './runtimeEndpoints';
 
 const KEY = 'soegiri_offline_hierarchy_v1';
 const FIRESTORE_CONFIG_KEY = 'hierarchy_master';
@@ -135,7 +136,7 @@ async function requestHierarchyApi(method: 'GET' | 'POST', body?: Record<string,
 
   let first: HierarchyApiResult | null = null;
   try {
-    first = await requestOne('/api/hierarchy');
+    first = await requestOne(isCapacitorNativeRuntime() ? DIRECT_CLOUD_HIERARCHY_URL : '/api/hierarchy');
   } catch (error) {
     console.warn('[HierarchyService] Same-origin hierarchy endpoint unavailable:', error);
   }

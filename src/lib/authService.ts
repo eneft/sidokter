@@ -1,6 +1,7 @@
 import { UserAccount, UserSession, UserAssignment, LoginAuditLog } from '../types';
 import { auth, authPersistenceReady, firebaseConfig } from './firebase';
 import { signInWithCustomToken, signOut } from 'firebase/auth';
+import { isCapacitorNativeRuntime } from './runtimeEndpoints';
 
 const CLIENT_SESSION_STORAGE_KEY='soegiri_sop_client_session_v3';
 const AUDIT_KEY='soegiri_offline_audit_v1';
@@ -45,9 +46,10 @@ const isClientDirect = (import.meta as any).env?.VITE_AUTH_CLIENT_DIRECT === 'tr
 // 1. If VITE_AUTH_API_URL is an explicit remote URL (http/https), use it directly.
 // 2. If VITE_AUTH_CLIENT_DIRECT is true, use the Cloud Function endpoint directly.
 // 3. Otherwise, default to same-origin proxy '/api/auth' (works with Express & Firebase Hosting rewrites).
+const nativeClient = isCapacitorNativeRuntime();
 const PRIMARY_AUTH_API_URL = (rawAuthEnvUrl.startsWith('http://') || rawAuthEnvUrl.startsWith('https://'))
   ? rawAuthEnvUrl.replace(/\/$/, '')
-  : isClientDirect
+  : (isClientDirect || nativeClient)
     ? DIRECT_CLOUD_AUTH_URL
     : (rawAuthEnvUrl || '/api/auth');
 
@@ -365,10 +367,16 @@ export function subscribeToUserSessionGuard(
   };
 
   // Run periodic checks every 60 seconds (never synchronously at 0s, giving the login flow time to settle)
+  const onVisibilityChange = () => {
+    if (!stopped && typeof document !== 'undefined' && document.visibilityState === 'visible') void check();
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+
   const timer = window.setInterval(check, 60000);
   return () => {
     stopped = true;
     window.clearInterval(timer);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
   };
 }
 

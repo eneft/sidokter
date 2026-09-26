@@ -13,7 +13,8 @@ import {
   getProtectedStorageHeaders,
   buildStoragePathUrl,
   normalizeStorageUrl,
-  resolveProtectedStorageUrl
+  resolveProtectedStorageUrl,
+  isProtectedStorageUrl
 } from '../utils/fileStorage';
 
 export interface DocumentViewerProps {
@@ -33,7 +34,7 @@ type DocumentType = 'pdf' | 'image' | 'word' | 'excel' | 'unknown';
 type ProtectedStorageSlot = 'file' | 'signedScan' | 'oldFile';
 
 function protectedStorageSlotFor(url: string): ProtectedStorageSlot | undefined {
-  const protectedFileId = url.match(/^\/api\/storage\/files\/([^?#]+)/)?.[1];
+  const protectedFileId = url.match(/\/(?:api\/storage|storageApi)\/files\/([^?#]+)/i)?.[1];
   if (!protectedFileId) return undefined;
 
   let decodedFileId = protectedFileId;
@@ -58,9 +59,7 @@ function documentTypeFor(fileName: string, mimeType = ''): DocumentType {
 }
 
 function requiresProtectedHeaders(url: string): boolean {
-  return url.startsWith('/api/storage/files/') ||
-    url.startsWith('/api/storage/path') ||
-    url.startsWith('/api/storage/sop/');
+  return isProtectedStorageUrl(url);
 }
 
 function withOptimizedPreviewIntent(url: string, fileName: string): string {

@@ -1,5 +1,5 @@
 import { LibraryDocument, LibraryDocumentType, UserRole } from '../types';
-import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache, buildStoragePathUrl, resolveProtectedStorageUrl } from '../utils/fileStorage';
+import { deleteNamedFileFromLocalCache, getNamedFileFromLocalCache, buildStoragePathUrl, resolveProtectedStorageUrl, normalizeStorageUrl, isProtectedStorageUrl } from '../utils/fileStorage';
 import { safeSetLocalStorage } from '../utils/storageQuota';
 import { saveLibraryDocToFirestore, deleteLibraryDocFromFirestore, subscribeToFirestoreLibraryDocs, fetchLibraryDocsFromFirestore } from './firestoreService';
 import { uploadFileToCloudStorage, resolveViewableUrl } from './cloudStorageService';
@@ -143,10 +143,11 @@ export async function deleteDocument(document:LibraryDocument,actorRole?:UserRol
   saveDocuments(getDocuments().filter(d=>d.id!==document.id));
   void deleteLibraryDocFromFirestore(document.id);
   // Delete from server storage if cloud url
-  if (document.downloadUrl && document.downloadUrl.startsWith('/api/storage/files/')) {
-    const fileId = document.downloadUrl.replace('/api/storage/files/', '');
+  if (document.downloadUrl && isProtectedStorageUrl(normalizeStorageUrl(document.downloadUrl))) {
+    const normalizedDeleteUrl = normalizeStorageUrl(document.downloadUrl);
+    const fileId = normalizedDeleteUrl.split('/files/')[1] || '';
     const session = getPersistedClientSession();
-    void getCurrentAuthToken().then((token) => fetch(`/api/storage/files/${fileId}`, {
+    void getCurrentAuthToken().then((token) => fetch(normalizeStorageUrl(`/api/storage/files/${fileId}`), {
       method: 'DELETE',
       headers: {
         ...(session?.sessionId ? { 'X-Session-Id': session.sessionId } : {}),
@@ -158,9 +159,10 @@ export async function deleteDocument(document:LibraryDocument,actorRole?:UserRol
 export async function getDocumentUrl(document: LibraryDocument): Promise<string | null> {
   // 1. Direct downloadUrl or storagePath
   if (document.downloadUrl) {
-    const viewUrl = document.downloadUrl.startsWith('/api/storage/files/')
-      ? await resolveProtectedStorageUrl(document.downloadUrl, document.storagePath)
-      : await resolveViewableUrl(document.downloadUrl);
+    const normalizedDownloadUrl = normalizeStorageUrl(document.downloadUrl);
+    const viewUrl = isProtectedStorageUrl(normalizedDownloadUrl)
+      ? await resolveProtectedStorageUrl(normalizedDownloadUrl, document.storagePath)
+      : await resolveViewableUrl(normalizedDownloadUrl);
     if (viewUrl) return viewUrl;
   }
   if (document.storagePath) {
@@ -179,7 +181,7 @@ export async function getDocumentUrl(document: LibraryDocument): Promise<string 
   ];
 
   for (const cand of candidates) {
-    const fallbackServerUrl = `/api/storage/files/${cand}`;
+    const fallbackServerUrl = normalizeStorageUrl(`/api/storage/files/${cand}`);
     try {
       const session = getPersistedClientSession();
       const token = await getCurrentAuthToken();
