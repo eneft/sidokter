@@ -59,7 +59,19 @@ jobs:
           test -n "$UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
+          python3 - "$UDID" <<'PY'
+          import json, subprocess, sys, time
+          udid = sys.argv[1]
+          for _ in range(90):
+              raw = subprocess.check_output(['xcrun','simctl','list','devices','-j'], text=True)
+              data = json.loads(raw)
+              states = [d.get('state') for devices in data.get('devices',{}).values() for d in devices if d.get('udid') == udid]
+              if 'Booted' in states:
+                  print('Simulator booted:', udid)
+                  raise SystemExit(0)
+              time.sleep(1)
+          raise SystemExit('Simulator did not reach Booted state within 90 seconds')
+          PY
 
       - name: Install and launch SIDOKTER
         shell: bash
