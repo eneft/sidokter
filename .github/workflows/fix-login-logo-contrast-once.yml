@@ -29,17 +29,18 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('src/components/LoginPage.tsx')
           text = path.read_text(encoding='utf-8')
 
-          old = '''                <img
-                  src="/sidokter-logo-v2.webp"
-                  alt="SIDOKTER — Sistem Dokumen Terpadu"
-                  className="block w-full max-w-[400px] h-auto object-contain object-left mb-4"
-                />'''
+          pattern = re.compile(
+              r'<img\s+src="/sidokter-logo-v2\.webp"\s+'
+              r'alt="SIDOKTER — Sistem Dokumen Terpadu"\s+'
+              r'className="block w-full max-w-\[400px\] h-auto object-contain object-left mb-4"\s*/>'
+          )
 
-          new = '''                <div
+          replacement = '''<div
                   className="relative w-full max-w-[400px] mb-4"
                   role="img"
                   aria-label="SIDOKTER — Sistem Dokumen Terpadu"
@@ -58,10 +59,11 @@ jobs:
                   />
                 </div>'''
 
-          if old not in text:
-              raise SystemExit('Target login logo block was not found; aborting safe patch.')
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one login logo block, found {count}; aborting safe patch.')
 
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Install dependencies
