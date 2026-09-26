@@ -261,11 +261,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
 
-              {/* Bottom Hospital Footer Note */}
-              <div className="login-brand-footer-note">
-                <span className="login-brand-footer-dot">•</span>
-                <span>Terakreditasi Paripurna</span>
-              </div>
             </div>
           </aside>
 
@@ -519,13 +514,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   Akses terenkripsi khusus pegawai &amp; staf unit kerja RSUD Dr. Soegiri Lamongan.
                 </span>
               </div>
+
+              {/* Desktop-only footer inside the login card */}
+              <div className="hidden lg:block mt-5 border-t border-slate-100 pt-3 text-center text-[10px] font-medium leading-relaxed text-slate-400">
+                © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0
+              </div>
             </div>
           </section>
         </div>
       </main>
 
       {/* Clean Global Footer */}
-      <footer id="login-auth-footer" className="login-page-footer">
+      <footer id="login-auth-footer" className="login-page-footer lg:hidden">
         © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0
       </footer>
     </div>
