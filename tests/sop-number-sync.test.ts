@@ -42,6 +42,20 @@ const reserved = (seq: number): SopNumberReservation => ({
   status: 'RESERVED',
 });
 
+const staleUsed = (seq: number): SopNumberReservation => ({
+  id: `stale-${seq}`,
+  divisionCode: 'PEL',
+  subHierarchyCode: '1.1',
+  sequenceNumber: seq,
+  sopNumber: `PEL / 1.1 / ${String(seq).padStart(3, '0')} / 2026`,
+  year: '2026',
+  reservedBy: 'Admin',
+  reservedAt: '2026-01-01T00:00:00.000Z',
+  status: 'USED',
+  purpose: 'SYSTEM_DOCUMENT',
+  usedDocumentId: 'deleted-draft',
+});
+
 test('preview compacts 001,003,004 into 001,002,003', () => {
   const result = standardizeAllSops([makeSop('a', 1), makeSop('b', 3), makeSop('c', 4)]);
   assert.equal(result.changedCount, 2);
@@ -63,4 +77,12 @@ test('preview skips an active Nomor Terbit reservation', () => {
   const result = standardizeAllSops([makeSop('a', 1), makeSop('c', 4)], [reserved(2)]);
   const byId = new Map(result.updatedSops.map((row) => [row.id, row]));
   assert.equal(byId.get('c')?.sequenceNumber, 3);
+});
+
+test('preview does not let stale USED claim block deleted-draft gap', () => {
+  const result = standardizeAllSops([makeSop('a', 1), makeSop('c', 3)], [staleUsed(2)]);
+  const byId = new Map(result.updatedSops.map((row) => [row.id, row]));
+  assert.equal(result.changedCount, 1);
+  assert.equal(byId.get('c')?.sequenceNumber, 2);
+  assert.equal(byId.get('c')?.sopNumber, 'PEL / 1.1 / 002 / 2026');
 });
