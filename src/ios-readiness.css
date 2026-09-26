@@ -119,22 +119,12 @@ body,
 
 /* Smartphone authoring keeps the complete Live SPO editor but removes the two
    desktop-oriented control bars: section/zoom navigation and rich text tools.
-   Canonical A4 geometry remains untouched; only its visual mobile scale is 50%. */
+   The canonical A4 keeps using SopLiveTemplate's transform-based fit scaling so
+   the document geometry is never reflowed by CSS zoom. */
 @media (max-width: 932px) and (hover: none) and (pointer: coarse) {
   .animate-fadeIn:has(> .sop-canonical-viewport) > .sticky.top-0.z-20,
   .animate-fadeIn:has(> .sop-canonical-viewport) > .live-spo-context-toolbar {
     display: none !important;
-  }
-
-  /* Modern iOS Safari supports CSS zoom. Unlike transform-only scaling, zoom
-     also contracts layout space, so a fixed 50% editor does not leave a large
-     invisible gap below multi-page documents. */
-  @supports (zoom: 0.5) {
-    .sop-canonical-viewport > div {
-      zoom: 0.5;
-      transform: none !important;
-      margin-bottom: 0 !important;
-    }
   }
 
   /* Keep text-entry controls at 16px to avoid Safari focus zoom. Selects use a
