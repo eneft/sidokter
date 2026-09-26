@@ -227,15 +227,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
 
-              {/* Main App Title */}
+              {/* Main App Brand */}
               <div className="login-brand-hero">
-                <div className="login-brand-title" aria-label="SIDOKTER">
-                  <span className="login-brand-title-light">SIDO</span>
-                  <span className="login-brand-title-accent">KTER</span>
-                </div>
-                <h1 className="login-brand-system-name">
-                  Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan
-                </h1>
+                <img
+                  src="/sidokter-logo-v2.webp"
+                  alt="SIDOKTER — Sistem Dokumen Terpadu"
+                  className="block w-full max-w-[400px] h-auto object-contain object-left mb-4"
+                />
                 <p className="login-brand-desc">
                   Platform resmi RSUD Dr. Soegiri Lamongan yang menghadirkan digitalisasi tata kelola dokumen melalui sistem yang terstandar, aman, dan terintegrasi. 
                 </p>
