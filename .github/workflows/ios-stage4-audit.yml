@@ -1,0 +1,21 @@
+name: iOS Stage 4 Audit
+
+on:
+  push:
+    branches:
+      - ios/tahap-4-auth-api-session
+
+jobs:
+  audit-native-api:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate browser-relative API usage
+        run: |
+          echo '=== /api/ references in src ==='
+          grep -RIn --exclude-dir=node_modules --exclude='*.map' '/api/' src || true
+          echo '=== cloudfunctions references in src ==='
+          grep -RIn --exclude-dir=node_modules 'cloudfunctions.net' src || true
+          echo '=== CORS origin policies in functions ==='
+          grep -nE 'function (cors|pdfCors|storageCors)|const local =|Access-Control-Allow-Origin' functions/index.js || true
