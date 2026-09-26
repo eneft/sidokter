@@ -36,8 +36,8 @@ jobs:
       - name: Test sync policy
         run: node --test functions/sopNumberSync.test.js
 
-      - name: Run numbering boundary regression
-        run: npm run test:sop-numbering-boundary
+      - name: Test SPO numbering boundaries
+        run: npx tsx --test tests/sop-number-sync.test.ts tests/sop-number-lifecycle.test.ts
 
       - name: Build client
         run: npm run build:client
