@@ -159,6 +159,7 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
     const metadataMaps = buildMetadataMaps(storageSnapshot, notificationSnapshots);
     const allSops = sopSnapshot.docs.map(snapshotData);
     const allReservations = reservationSnapshot.docs.map(snapshotData);
+    const allDocumentIds = new Set(allSops.map((row) => cleanString(row.id)).filter(Boolean));
     const preflight = buildSequentialSyncPlan(allSops, allReservations);
 
     if (preflight.lockedConflictCount > 0) {
@@ -171,6 +172,7 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
     const totalChanges = [];
     let reconciledScopes = 0;
     let duplicateCount = preflight.duplicateCount;
+    let cleanedReservationCount = 0;
 
     for (const preScope of preflight.scopes) {
       await refreshLock(lock, actor);
@@ -191,20 +193,39 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
           if (snapshot.ref.parent.id === 'sop_number_reservations') currentReservations.push(snapshotData(snapshot));
         }
 
-        const currentPlan = buildSequentialSyncPlan(currentSops, currentReservations);
+        // Preserve awareness of documents outside this scope (legacy/Existing or
+        // another scope) so a USED claim that still references a real document is
+        // not mistaken for stale metadata.
+        const policySops = [
+          ...currentSops,
+          ...Array.from(allDocumentIds)
+            .filter((id) => !currentSops.some((row) => cleanString(row.id) === id))
+            .map((id) => ({ id, isLegacySop: true })),
+        ];
+        const currentPlan = buildSequentialSyncPlan(policySops, currentReservations);
         const scope = currentPlan.scopes.find((row) => row.scopeKey === preScope.scopeKey);
-        if (!scope) return { changes: [], duplicateCount: 0 };
+        if (!scope) return { changes: [], duplicateCount: 0, cleanedReservationCount: 0 };
         if (currentPlan.lockedConflictCount > 0) {
           throw new HttpsError('failed-precondition', `Scope ${preScope.scopeKey} memiliki konflik nomor terkunci.`);
         }
 
+        const staleReservationIds = new Set(
+          currentPlan.warnings
+            .filter((row) => row?.type === 'STALE_USED_RESERVATION' && cleanString(row?.scopeKey) === preScope.scopeKey)
+            .map((row) => cleanString(row?.reservationId))
+            .filter(Boolean)
+        );
         const desiredReservationIds = new Set(scope.desiredReservations.map((row) => row.id));
         const standardDocumentIds = new Set(scope.finalDocuments.map((row) => cleanString(row.id)));
         const changedById = new Map(scope.finalDocuments.filter((row) => row.changed).map((row) => [cleanString(row.id), row]));
 
         let writeEstimate = 2 + scope.desiredReservations.length;
         for (const row of currentReservations) {
-          if (cleanString(row.status).toUpperCase() === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId)) && !desiredReservationIds.has(cleanString(row.id))) {
+          const reservationId = cleanString(row.id);
+          const status = cleanString(row.status).toUpperCase();
+          const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
+          const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
+          if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
             writeEstimate += 1;
           }
         }
@@ -233,14 +254,20 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
           }
         }
 
+        const cleanedStaleIds = new Set();
         for (const row of currentReservations) {
-          const isUsedForStandardDoc = cleanString(row.status).toUpperCase() === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
-          if (isUsedForStandardDoc && !desiredReservationIds.has(cleanString(row.id))) {
+          const reservationId = cleanString(row.id);
+          const status = cleanString(row.status).toUpperCase();
+          const isUsedForStandardDoc = status === 'USED' && standardDocumentIds.has(cleanString(row.usedDocumentId));
+          const isStaleUsed = status === 'USED' && staleReservationIds.has(reservationId);
+          if ((isUsedForStandardDoc || isStaleUsed) && !desiredReservationIds.has(reservationId)) {
             transaction.delete(db.collection('sop_number_reservations').doc(String(row.id)));
+            if (isStaleUsed) cleanedStaleIds.add(reservationId);
           }
         }
 
         for (const desired of scope.desiredReservations) {
+          if (staleReservationIds.has(cleanString(desired.id))) cleanedStaleIds.add(cleanString(desired.id));
           const sourceDocument = scope.finalDocuments.find((row) => cleanString(row.id) === cleanString(desired.usedDocumentId));
           transaction.set(db.collection('sop_number_reservations').doc(desired.id), {
             ...desired,
@@ -276,6 +303,7 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
           scopeKey: scope.scopeKey,
           changedCount: changedById.size,
           duplicateCount: currentPlan.duplicateCount,
+          staleReservationCleanupCount: cleanedStaleIds.size,
           archivedLockedCount: scope.archivedCount,
           reusableSequences: scope.reusableSequences,
           changes: Array.from(changedById.values()).slice(0, 50).map((row) => ({
@@ -297,18 +325,21 @@ exports.synchronizeSopNumbers = onCall({ region: 'asia-southeast2', timeoutSecon
             scopeKey: scope.scopeKey,
           })),
           duplicateCount: currentPlan.duplicateCount,
+          cleanedReservationCount: cleanedStaleIds.size,
         };
       });
 
       reconciledScopes += 1;
       totalChanges.push(...scopeResult.changes);
       duplicateCount = Math.max(duplicateCount, scopeResult.duplicateCount);
+      cleanedReservationCount += Number(scopeResult.cleanedReservationCount || 0);
     }
 
     return {
       ok: true,
       changedCount: totalChanges.length,
       duplicateCount,
+      cleanedReservationCount,
       reconciledScopes,
       changes: totalChanges,
       warnings: preflight.warnings,
