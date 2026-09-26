@@ -23,7 +23,9 @@ jobs:
       - name: Install official Capacitor native UX plugins
         run: npm install --save @capacitor/app@^8 @capacitor/network@^8 @capacitor/keyboard@^8 @capacitor/status-bar@^8 @capacitor/splash-screen@^8 @capacitor/filesystem@^8 @capacitor/share@^8 @capacitor/browser@^8
       - name: Apply native UX patch
-        run: python3 scripts/ios_stage5_patch.py
+        run: |
+          python3 scripts/ios_stage5_patch.py
+          python3 scripts/ios_stage5_fix_config.py
       - name: Verify native UX contract
         run: npx tsx tests/ios-native-ux-contract.test.ts
       - name: Lint TypeScript
