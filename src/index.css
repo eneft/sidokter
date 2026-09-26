@@ -3379,3 +3379,134 @@ main .rich-text-toolbar,
 #printable-sop-official-document li::marker {
   font-size: 1em !important;
 }
+
+/* ================================================================
+   SIDOKTER LOGIN SAFARI/TABLET PATCH 2026-09-26
+   Keeps desktop layout intact while preventing iPad/Safari clipping
+   and horizontal overflow. The login brand remains left-aligned.
+   ================================================================ */
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#login-page-container.login-page-shell {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+#login-main-content.login-main-content {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(16px, 3vh, 28px) clamp(16px, 3vw, 28px);
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+}
+
+#login-auth-card.login-auth-card {
+  width: 100%;
+  max-width: 820px;
+  min-width: 0;
+  height: auto;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.login-brand-panel,
+.login-auth-panel,
+.login-brand-content,
+.login-form-container {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.login-brand-hero {
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+
+.login-brand-hero > img {
+  display: block !important;
+  width: min(100%, 420px) !important;
+  max-width: 420px !important;
+  height: auto !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  align-self: flex-start !important;
+  object-fit: contain !important;
+  object-position: left center !important;
+}
+
+@media (min-width: 821px) and (max-height: 820px) {
+  #login-page-container.login-page-shell {
+    min-height: 100dvh;
+    height: auto;
+  }
+
+  #login-main-content.login-main-content {
+    flex: 0 0 auto;
+    min-height: 100dvh;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 12px 16px 18px;
+  }
+
+  #login-auth-card.login-auth-card {
+    min-height: 0;
+    max-height: none;
+    margin: 0 auto;
+  }
+
+  .login-brand-content,
+  .login-form-container {
+    padding-top: 24px !important;
+    padding-bottom: 24px !important;
+  }
+
+  .login-brand-institution {
+    margin-bottom: 16px !important;
+  }
+
+  .login-brand-hero > img {
+    max-width: 360px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .login-brand-features {
+    margin-top: 16px !important;
+    padding-top: 16px !important;
+  }
+
+  .login-brand-footer-note {
+    margin-top: 12px !important;
+  }
+
+  .login-card-header {
+    margin-bottom: 16px !important;
+  }
+
+  .login-form {
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 820px) {
+  #login-main-content.login-main-content {
+    padding: 16px 12px;
+    align-items: flex-start;
+  }
+
+  #login-auth-card.login-auth-card {
+    width: 100%;
+    max-width: 440px;
+  }
+}
