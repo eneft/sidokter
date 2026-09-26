@@ -1,0 +1,105 @@
+/* SIDOKTER — iPhone/mobile readiness layer.
+ * Presentation-only safeguards for Safari/WKWebView.
+ * Do not place business logic or desktop layout rules here.
+ */
+
+:root {
+  --sidokter-safe-top: env(safe-area-inset-top, 0px);
+  --sidokter-safe-right: env(safe-area-inset-right, 0px);
+  --sidokter-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sidokter-safe-left: env(safe-area-inset-left, 0px);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+@supports (height: 100dvh) {
+  body,
+  #root {
+    min-height: 100dvh;
+  }
+}
+
+@media (max-width: 1023px) {
+  html {
+    min-height: 100%;
+    background: #ffffff;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-padding-top: calc(4rem + var(--sidokter-safe-top));
+    scroll-padding-bottom: calc(1.5rem + var(--sidokter-safe-bottom));
+  }
+
+  body {
+    min-width: 0;
+    min-height: 100svh;
+    margin: 0;
+    padding-left: var(--sidokter-safe-left);
+    padding-right: var(--sidokter-safe-right);
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #root {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 100svh;
+    padding-top: var(--sidokter-safe-top);
+    padding-bottom: var(--sidokter-safe-bottom);
+  }
+
+  @supports (height: 100dvh) {
+    body,
+    #root {
+      min-height: 100dvh;
+    }
+  }
+
+  /* Existing Header.tsx mobile drawer: keep every menu item reachable on
+     short iPhones, landscape orientation, and while browser chrome is visible. */
+  .lg\:hidden.sticky > nav {
+    max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: max(0.75rem, var(--sidokter-safe-bottom));
+  }
+
+  /* Prevent long document identifiers/URLs from forcing horizontal viewport
+     overflow without changing normal table overflow behaviour. */
+  img,
+  video,
+  canvas,
+  iframe {
+    max-width: 100%;
+  }
+
+  /* iOS Safari/WKWebView zooms focused controls whose computed font is below
+     16px. Apply only to coarse-pointer mobile devices, preserving desktop UI. */
+  @media (hover: none) and (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Make focused controls less likely to remain hidden behind the software
+     keyboard after browser/WebView automatic scrolling. */
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    scroll-margin-top: calc(5rem + var(--sidokter-safe-top));
+    scroll-margin-bottom: calc(8rem + var(--sidokter-safe-bottom));
+  }
+}
+
+@media (max-width: 1023px) and (orientation: landscape) {
+  .lg\:hidden.sticky > nav {
+    max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+  }
+}

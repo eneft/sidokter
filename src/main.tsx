@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { getPersistedClientSession, refreshUserSessionProfile } from './lib/authService';
 import './index.css';
+import './ios-readiness.css';
 
 // Silently handle benign Vite HMR WebSocket errors in proxied sandbox container environments
 if (typeof window !== 'undefined') {
