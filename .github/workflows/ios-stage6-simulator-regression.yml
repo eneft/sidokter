@@ -1,0 +1,102 @@
+name: iOS Stage 6 Simulator Regression
+
+on:
+  push:
+    branches:
+      - ios/tahap-6-device-regression
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator-regression:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify native and business boundaries
+        run: |
+          npm run lint
+          npm run verify:functions
+          npm run test:revision
+          npm run test:hierarchy
+          npm run test:sop-edit
+          npm run test:pdf-binary
+
+      - name: Build and sync iOS
+        run: |
+          npm run build:client
+          npx cap sync ios
+
+      - name: Compile simulator app
+        run: |
+          rm -rf .derivedData
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath "$PWD/.derivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Boot iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); candidates=[]; [candidates.extend(v) for v in d.get("devices",{}).values()]; phones=[x for x in candidates if "iPhone" in x.get("name","") and x.get("isAvailable",False)]; print(phones[0]["udid"] if phones else "")')"
+          test -n "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Install and launch SIDOKTER
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID='${{ steps.simulator.outputs.udid }}'
+          APP_PATH="$(find "$PWD/.derivedData/Build/Products/Debug-iphonesimulator" -maxdepth 2 -name 'App.app' -print -quit)"
+          test -d "$APP_PATH"
+          xcrun simctl install "$UDID" "$APP_PATH"
+          xcrun simctl launch --terminate-running-process "$UDID" id.go.lamongankab.rsudsoegiri.sidokter
+          sleep 8
+          CONTAINER="$(xcrun simctl get_app_container "$UDID" id.go.lamongankab.rsudsoegiri.sidokter app)"
+          test -d "$CONTAINER"
+          echo "App container: $CONTAINER"
+          mkdir -p artifacts
+          xcrun simctl io "$UDID" screenshot artifacts/launch.png
+
+      - name: Lifecycle relaunch smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID='${{ steps.simulator.outputs.udid }}'
+          BUNDLE='id.go.lamongankab.rsudsoegiri.sidokter'
+          xcrun simctl terminate "$UDID" "$BUNDLE" || true
+          sleep 2
+          xcrun simctl launch "$UDID" "$BUNDLE"
+          sleep 6
+          xcrun simctl io "$UDID" screenshot artifacts/relaunch.png
+          xcrun simctl get_app_container "$UDID" "$BUNDLE" app >/dev/null
+
+      - name: Verify native integration contract
+        run: npx tsx tests/ios-native-ux-contract.test.ts
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-stage6-simulator-evidence
+          path: artifacts/
+          if-no-files-found: warn
