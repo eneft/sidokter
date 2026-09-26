@@ -35,7 +35,7 @@ body,
 
   body {
     min-width: 0;
-    min-height: 100svh;
+    min-height: 100vh;
     margin: 0;
     padding-left: var(--sidokter-safe-left);
     padding-right: var(--sidokter-safe-right);
@@ -46,9 +46,15 @@ body,
   #root {
     box-sizing: border-box;
     min-width: 0;
-    min-height: 100svh;
-    padding-top: var(--sidokter-safe-top);
+    min-height: 100vh;
     padding-bottom: var(--sidokter-safe-bottom);
+  }
+
+  @supports (height: 100svh) {
+    body,
+    #root {
+      min-height: 100svh;
+    }
   }
 
   @supports (height: 100dvh) {
@@ -58,14 +64,37 @@ body,
     }
   }
 
+  /* Sticky mobile chrome must own the top inset itself. Ancestor padding
+     scrolls away and does not protect a sticky header after page movement. */
+  .lg\:hidden.sticky {
+    top: 0;
+    padding-top: var(--sidokter-safe-top);
+  }
+
+  /* Full-screen fixed surfaces ignore ancestor padding. Keep modal/drawer
+     content inside the iPhone safe rectangle without changing business UI. */
+  [class~="fixed"][class~="inset-0"] {
+    box-sizing: border-box;
+    padding-top: var(--sidokter-safe-top);
+    padding-right: var(--sidokter-safe-right);
+    padding-bottom: var(--sidokter-safe-bottom);
+    padding-left: var(--sidokter-safe-left);
+  }
+
   /* Existing Header.tsx mobile drawer: keep every menu item reachable on
      short iPhones, landscape orientation, and while browser chrome is visible. */
   .lg\:hidden.sticky > nav {
-    max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+    max-height: calc(100vh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     padding-bottom: max(0.75rem, var(--sidokter-safe-bottom));
+  }
+
+  @supports (height: 100dvh) {
+    .lg\:hidden.sticky > nav {
+      max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+    }
   }
 
   /* Prevent long document identifiers/URLs from forcing horizontal viewport
@@ -75,16 +104,6 @@ body,
   canvas,
   iframe {
     max-width: 100%;
-  }
-
-  /* iOS Safari/WKWebView zooms focused controls whose computed font is below
-     16px. Apply only to coarse-pointer mobile devices, preserving desktop UI. */
-  @media (hover: none) and (pointer: coarse) {
-    input,
-    textarea,
-    select {
-      font-size: 16px !important;
-    }
   }
 
   /* Make focused controls less likely to remain hidden behind the software
@@ -98,8 +117,25 @@ body,
   }
 }
 
+/* iOS Safari/WKWebView zooms focused controls below 16px. Restrict this to
+   phone-sized coarse-pointer layouts so canonical A4/tablet typography is not
+   mutated on 769–1023px editing surfaces. */
+@media (max-width: 768px) and (hover: none) and (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 @media (max-width: 1023px) and (orientation: landscape) {
   .lg\:hidden.sticky > nav {
-    max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+    max-height: calc(100vh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+  }
+
+  @supports (height: 100dvh) {
+    .lg\:hidden.sticky > nav {
+      max-height: calc(100dvh - 4rem - var(--sidokter-safe-top) - var(--sidokter-safe-bottom));
+    }
   }
 }
