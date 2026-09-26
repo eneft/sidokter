@@ -2073,11 +2073,19 @@ const confirmDeleteSop = async () => {
       }
 
       if (result.changedCount === 0) {
-        addToast(
-          'info',
-          'Penomoran Sudah Sinkron',
-          `${result.reconciledScopes} scope penomoran telah dicek. Tidak ada gap yang perlu diperbaiki; nomor arsip dan Nomor Terbit tetap terkunci.`
-        );
+        if (result.cleanedReservationCount > 0) {
+          addToast(
+            'success',
+            'Register Nomor Berhasil Dibersihkan',
+            `${result.cleanedReservationCount} register USED lama dari Draft yang sudah tidak ada telah dibersihkan. Tidak ada dokumen lain yang perlu dinomori ulang.`
+          );
+        } else {
+          addToast(
+            'info',
+            'Penomoran Sudah Sinkron',
+            `${result.reconciledScopes} scope penomoran telah diproses. Tidak ada gap yang dapat dirapatkan; nomor DIARSIPKAN dan Nomor Terbit RESERVED tetap terkunci.`
+          );
+        }
         return;
       }
 
