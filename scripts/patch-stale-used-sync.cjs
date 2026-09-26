@@ -97,11 +97,4 @@ patch(
   'App zero-change result'
 );
 
-patch(
-  'src/App.tsx',
-`        \`${'${result.duplicateCount > 0 ? `Ditemukan ${result.duplicateCount} konflik/duplikasi yang dirapikan.\\n` : ``}'}Urutan kini kontinu per KODE + HIRARKI + TAHUN; slot DIARSIPKAN dan RESERVED tetap dikunci.\\n${'${summaryList}'}${'${remaining}'}${'${previewNote}'}\`,` ,
-`        \`${'${result.duplicateCount > 0 ? `Ditemukan ${result.duplicateCount} konflik/duplikasi yang dirapikan.\\n` : ``}'}${'${result.cleanedReservationCount > 0 ? `${result.cleanedReservationCount} register USED lama dibersihkan.\\n` : ``}'}Urutan kini kontinu per KODE + HIRARKI + TAHUN; slot DIARSIPKAN dan RESERVED tetap dikunci.\\n${'${summaryList}'}${'${remaining}'}${'${previewNote}'}\`,` ,
-  'App success cleanup note'
-);
-
 console.log('Client stale USED sync patch applied.');
