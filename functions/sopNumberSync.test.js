@@ -37,6 +37,22 @@ function reservation(sequenceNumber) {
   };
 }
 
+function staleUsedReservation(sequenceNumber, usedDocumentId = 'deleted-draft') {
+  return {
+    id: `stale-used-${sequenceNumber}`,
+    divisionCode: 'PEL',
+    subHierarchyCode: '1.1',
+    sequenceNumber,
+    sopNumber: `PEL / 1.1 / ${String(sequenceNumber).padStart(3, '0')} / 2026`,
+    year: '2026',
+    status: 'USED',
+    purpose: 'SYSTEM_DOCUMENT',
+    usedDocumentId,
+    reservedAt: '2026-01-01T00:00:00.000Z',
+    reservedBy: 'Admin',
+  };
+}
+
 test('fills ordinary numbering gaps sequentially', () => {
   const plan = buildSequentialSyncPlan([sop('a', 1), sop('b', 3), sop('c', 4)], []);
   assert.equal(plan.changedCount, 2);
@@ -63,6 +79,29 @@ test('reserved number also locks its slot while awaiting use', () => {
   assert.equal(plan.changedCount, 1);
   assert.equal(plan.changes[0].newNumber, 'PEL / 1.1 / 003 / 2026');
   assert.deepEqual(plan.scopes[0].lockedSequences, [2]);
+});
+
+test('stale USED claim from deleted draft does not lock a numbering gap', () => {
+  const plan = buildSequentialSyncPlan(
+    [sop('a', 1), sop('c', 3)],
+    [staleUsedReservation(2)]
+  );
+  assert.equal(plan.lockedConflictCount, 0);
+  assert.equal(plan.changedCount, 1);
+  assert.equal(plan.changes[0].id, 'c');
+  assert.equal(plan.changes[0].newNumber, 'PEL / 1.1 / 002 / 2026');
+  assert.deepEqual(plan.scopes[0].lockedSequences, []);
+  assert.ok(plan.warnings.some((row) => row.type === 'STALE_USED_RESERVATION' && row.reservationId === 'stale-used-2'));
+});
+
+test('USED claim that still points to a real document follows that document and does not lock independently', () => {
+  const docs = [sop('a', 1), sop('c', 3)];
+  const usedClaim = staleUsedReservation(3, 'c');
+  usedClaim.id = 'used-c';
+  const plan = buildSequentialSyncPlan(docs, [usedClaim]);
+  assert.equal(plan.changedCount, 1);
+  assert.equal(plan.changes[0].newNumber, 'PEL / 1.1 / 002 / 2026');
+  assert.ok(!plan.warnings.some((row) => row.type === 'STALE_USED_RESERVATION'));
 });
 
 test('locked conflict is detected instead of mutating historical slots', () => {

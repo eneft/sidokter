@@ -511,6 +511,7 @@ export interface SopNumberSynchronizationResult {
   ok: boolean;
   changedCount: number;
   duplicateCount: number;
+  cleanedReservationCount: number;
   reconciledScopes: number;
   changes: Array<{
     id: string;
@@ -534,6 +535,7 @@ export async function synchronizeSopNumbersInFirestore(): Promise<SopNumberSynch
       ok: data.ok === true,
       changedCount: Number(data.changedCount || 0),
       duplicateCount: Number(data.duplicateCount || 0),
+      cleanedReservationCount: Number(data.cleanedReservationCount || 0),
       reconciledScopes: Number(data.reconciledScopes || 0),
       changes: Array.isArray(data.changes) ? data.changes : [],
       warnings: Array.isArray(data.warnings) ? data.warnings : [],

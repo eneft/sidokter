@@ -915,7 +915,6 @@ export function standardizeAllSops(
   const processed = new Map<string, SopDocument>();
 
   for (const group of groups.values()) {
-    const docById = new Map(group.docs.map((doc) => [doc.id, doc]));
     const mutableIds = new Set(group.docs.filter((doc) => doc.status !== 'DIARSIPKAN').map((doc) => doc.id));
     const locked = new Set<number>();
     const lockedOwners = new Map<number, string>();
@@ -932,12 +931,11 @@ export function standardizeAllSops(
 
     for (const reservation of group.reservations) {
       const status = String(reservation.status || '').toUpperCase();
-      const usedDocumentId = String(reservation.usedDocumentId || '').trim();
-      // A USED claim that still points to a document follows that document.
-      // Only RESERVED slots and orphan USED claims independently lock a slot.
-      if (status === 'USED' && usedDocumentId && docById.has(usedDocumentId)) continue;
-      if (status === 'RESERVED' || status === 'USED') {
-        addLocked(Number(reservation.sequenceNumber || 0), `${status}:${reservation.id}`);
+      // Only an active Nomor Terbit (RESERVED) locks a slot. USED claims follow
+      // their document; orphan USED claims are stale metadata and must not keep
+      // a deleted-DRAFT gap permanently occupied.
+      if (status === 'RESERVED') {
+        addLocked(Number(reservation.sequenceNumber || 0), `RESERVED:${reservation.id}`);
       }
     }
 
