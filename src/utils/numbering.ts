@@ -1,4 +1,4 @@
-import { NumberingConfig, SopDocument, SopStatus } from '../types';
+import { NumberingConfig, SopDocument, SopStatus, SopNumberReservation } from '../types';
 import { SOEGIRI_MASTER_CATEGORIES, SOEGIRI_HOSPITAL_INFO, getSoegiriHierarchyInfo } from './soegiriStructure';
 
 export const ROMAN_MONTHS = [
@@ -838,150 +838,170 @@ export function standardizeSopDocument(sop: SopDocument): SopDocument {
  * Standardize an entire list of SOPs, eliminate duplicate numbers across all units deterministically,
  * and identify what changed.
  */
-export function standardizeAllSops(sops: SopDocument[]): {
+export function standardizeAllSops(
+  sops: SopDocument[],
+  reservations: SopNumberReservation[] = []
+): {
   updatedSops: SopDocument[];
   changedCount: number;
   changes: Array<{ oldNumber: string; newNumber: string; title: string }>;
   duplicateCount: number;
 } {
   const changes: Array<{ oldNumber: string; newNumber: string; title: string }> = [];
-  let changedCount = 0;
   let duplicateCount = 0;
 
-  if (!sops || !Array.isArray(sops)) {
+  if (!Array.isArray(sops)) {
     return { updatedSops: [], changedCount: 0, changes: [], duplicateCount: 0 };
   }
 
-  // 1. Separate legacy and reservations from standard documents
-  const preservedSops: SopDocument[] = [];
-  const standardSops: SopDocument[] = [];
+  const getYear = (sop: SopDocument): string => {
+    const effectiveYear = String(sop.effectiveDate || '').slice(0, 4);
+    if (/^\d{4}$/.test(effectiveYear)) return effectiveYear;
+    const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
+    if (parsed?.year && /^\d{4}$/.test(parsed.year)) return parsed.year;
+    const createdYear = String(sop.createdAt || '').slice(0, 4);
+    if (/^\d{4}$/.test(createdYear)) return createdYear;
+    return SOEGIRI_HOSPITAL_INFO.year || '2026';
+  };
 
-  sops.forEach((sop) => {
-    if (sop.isLegacySop || sop.documentType === 'LAMA' || (sop as any).isNumberReservation) {
-      preservedSops.push(sop);
-    } else {
-      standardSops.push(standardizeSopDocument(sop));
+  const getSequence = (sop: SopDocument): number => {
+    const direct = Number(sop.sequenceNumber || 0);
+    if (Number.isSafeInteger(direct) && direct > 0) return direct;
+    const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
+    return parsed?.sequenceNumber && parsed.sequenceNumber > 0 ? parsed.sequenceNumber : 0;
+  };
+
+  const preserved = new Map<string, SopDocument>();
+  const standard: SopDocument[] = [];
+  for (const original of sops) {
+    if (original.isLegacySop || original.documentType === 'LAMA' || original.jenis_spo === 'EKSISTING' || (original as any).isNumberReservation) {
+      preserved.set(original.id, original);
+      continue;
     }
-  });
+    standard.push(standardizeSopDocument(original));
+  }
 
-  // 2. Group standard SOPs by Unit Key: `${divCode}:${cleanSub}:${year}`
-  const unitGroups = new Map<string, SopDocument[]>();
+  type Group = {
+    divisionCode: string;
+    subHierarchyCode: string;
+    year: string;
+    docs: SopDocument[];
+    reservations: SopNumberReservation[];
+  };
+  const groups = new Map<string, Group>();
+  const ensureGroup = (divisionCode: string, subHierarchyCode: string, year: string): Group => {
+    const cleanDiv = String(divisionCode || 'PEL').trim().toUpperCase();
+    const cleanSub = String(subHierarchyCode || '').trim();
+    const key = `${year}|${cleanDiv}|${cleanSub || 'ROOT'}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { divisionCode: cleanDiv, subHierarchyCode: cleanSub, year, docs: [], reservations: [] };
+      groups.set(key, group);
+    }
+    return group;
+  };
 
-  standardSops.forEach((sop) => {
-    const divCode = (sop.divisionCode || 'PEL').trim().toUpperCase();
-    const cleanSub = (sop.subHierarchyCode || '').trim();
+  for (const sop of standard) {
+    ensureGroup(sop.divisionCode || 'PEL', sop.subHierarchyCode || '', getYear(sop)).docs.push(sop);
+  }
+  for (const reservation of Array.isArray(reservations) ? reservations : []) {
+    const year = String(reservation.year || '').trim();
+    const divisionCode = String(reservation.divisionCode || '').trim().toUpperCase();
+    const sequenceNumber = Number(reservation.sequenceNumber || 0);
+    if (!/^\d{4}$/.test(year) || !divisionCode || !Number.isSafeInteger(sequenceNumber) || sequenceNumber <= 0) continue;
+    ensureGroup(divisionCode, reservation.subHierarchyCode || '', year).reservations.push(reservation);
+  }
 
-    let year = SOEGIRI_HOSPITAL_INFO.year || '2026';
-    if (sop.effectiveDate) {
-      const y = sop.effectiveDate.split('-')[0];
-      if (y && /^\d{4}$/.test(y)) year = y;
-    } else {
-      const parsed = sop.sopNumber ? parseSopNumber(sop.sopNumber) : null;
-      if (parsed && parsed.year) {
-        year = parsed.year;
-      } else if (sop.createdAt) {
-        const y = new Date(sop.createdAt).getFullYear().toString();
-        if (y && /^\d{4}$/.test(y)) year = y;
+  const processed = new Map<string, SopDocument>();
+
+  for (const group of groups.values()) {
+    const docById = new Map(group.docs.map((doc) => [doc.id, doc]));
+    const mutableIds = new Set(group.docs.filter((doc) => doc.status !== 'DIARSIPKAN').map((doc) => doc.id));
+    const locked = new Set<number>();
+    const lockedOwners = new Map<number, string>();
+    const addLocked = (seq: number, owner: string) => {
+      if (!Number.isSafeInteger(seq) || seq <= 0) return;
+      if (lockedOwners.has(seq) && lockedOwners.get(seq) !== owner) duplicateCount += 1;
+      else lockedOwners.set(seq, owner);
+      locked.add(seq);
+    };
+
+    for (const doc of group.docs.filter((doc) => doc.status === 'DIARSIPKAN')) {
+      addLocked(getSequence(doc), `ARCHIVED:${doc.id}`);
+    }
+
+    for (const reservation of group.reservations) {
+      const status = String(reservation.status || '').toUpperCase();
+      const usedDocumentId = String(reservation.usedDocumentId || '').trim();
+      // A USED claim that still points to a document follows that document.
+      // Only RESERVED slots and orphan USED claims independently lock a slot.
+      if (status === 'USED' && usedDocumentId && docById.has(usedDocumentId)) continue;
+      if (status === 'RESERVED' || status === 'USED') {
+        addLocked(Number(reservation.sequenceNumber || 0), `${status}:${reservation.id}`);
       }
     }
 
-    const groupKey = `${divCode}:${cleanSub}:${year}`;
-    if (!unitGroups.has(groupKey)) {
-      unitGroups.set(groupKey, []);
+    const seen = new Set<number>();
+    for (const doc of group.docs) {
+      const seq = getSequence(doc);
+      if (!(seq > 0)) continue;
+      if (seen.has(seq)) duplicateCount += 1;
+      seen.add(seq);
     }
-    unitGroups.get(groupKey)!.push(sop);
-  });
+    for (const reservation of group.reservations.filter((row) => row.status === 'RESERVED')) {
+      const seq = Number(reservation.sequenceNumber || 0);
+      if (!(seq > 0)) continue;
+      if (seen.has(seq)) duplicateCount += 1;
+      seen.add(seq);
+    }
 
-  // 3. Process each unit group to guarantee unique sequence numbers (001, 002, 003...)
-  const processedStandardSops: SopDocument[] = [];
-
-  unitGroups.forEach((groupDocs, groupKey) => {
-    const [divCode, cleanSub, year] = groupKey.split(':');
-
-    // Sort documents deterministically:
-    // 1) original sequenceNumber if valid
-    // 2) createdAt timestamp ascending
-    // 3) title / id for strict tiebreaking
-    groupDocs.sort((a, b) => {
-      const aSeq = typeof a.sequenceNumber === 'number' && a.sequenceNumber > 0 ? a.sequenceNumber : 999999;
-      const bSeq = typeof b.sequenceNumber === 'number' && b.sequenceNumber > 0 ? b.sequenceNumber : 999999;
-      if (aSeq !== bSeq) return aSeq - bSeq;
-
-      const aTime = new Date(a.createdAt || a.effectiveDate || 0).getTime();
-      const bTime = new Date(b.createdAt || b.effectiveDate || 0).getTime();
-      if (aTime !== bTime) return aTime - bTime;
-
-      return (a.title || '').localeCompare(b.title || '');
-    });
-
-    // Step A: Allocate legitimate sequence numbers and detect duplicates
-    const reservedSequences = new Set<number>();
-    const reassignmentNeeded: SopDocument[] = [];
-    const assignedSequences = new Map<string, number>();
-
-    groupDocs.forEach((sop) => {
-      const seq = typeof sop.sequenceNumber === 'number' && sop.sequenceNumber > 0 ? sop.sequenceNumber : null;
-      if (seq !== null && !reservedSequences.has(seq)) {
-        reservedSequences.add(seq);
-        assignedSequences.set(sop.id, seq);
-      } else {
-        if (seq !== null && reservedSequences.has(seq)) {
-          duplicateCount++;
-        }
-        reassignmentNeeded.push(sop);
-      }
-    });
-
-    // Step B: Reassign duplicates to lowest available unused positive integer starting at 1
-    let candidate = 1;
-    reassignmentNeeded.forEach((sop) => {
-      while (reservedSequences.has(candidate)) {
-        candidate++;
-      }
-      reservedSequences.add(candidate);
-      assignedSequences.set(sop.id, candidate);
-    });
-
-    // Step C: Format each document to standard format
-    groupDocs.forEach((sop) => {
-      const targetSeq = assignedSequences.get(sop.id) || 1;
-      const paddedNum = getPaddedNumber(targetSeq, 3);
-      const standardNumber = cleanSub
-        ? `${divCode} / ${cleanSub} / ${paddedNum} / ${year}`
-        : `${divCode} / ${paddedNum} / ${year}`;
-
-      const isChanged = sop.sopNumber !== standardNumber || sop.sequenceNumber !== targetSeq;
-
-      if (isChanged) {
-        changedCount++;
-        changes.push({
-          oldNumber: sop.sopNumber || '-',
-          newNumber: standardNumber,
-          title: sop.title
-        });
-      }
-
-      processedStandardSops.push({
-        ...sop,
-        divisionCode: divCode,
-        subHierarchyCode: cleanSub,
-        sequenceNumber: targetSeq,
-        sopNumber: standardNumber
+    const mutable = group.docs
+      .filter((doc) => mutableIds.has(doc.id))
+      .sort((a, b) => {
+        const aSeq = getSequence(a) || Number.MAX_SAFE_INTEGER;
+        const bSeq = getSequence(b) || Number.MAX_SAFE_INTEGER;
+        if (aSeq !== bSeq) return aSeq - bSeq;
+        const aTime = Date.parse(a.createdAt || a.effectiveDate || '') || 0;
+        const bTime = Date.parse(b.createdAt || b.effectiveDate || '') || 0;
+        if (aTime !== bTime) return aTime - bTime;
+        const titleOrder = String(a.title || '').localeCompare(String(b.title || ''));
+        return titleOrder || String(a.id || '').localeCompare(String(b.id || ''));
       });
-    });
-  });
 
-  // Re-merge maintaining original id positions
-  const idMap = new Map<string, SopDocument>();
-  processedStandardSops.forEach((s) => idMap.set(s.id, s));
-  preservedSops.forEach((s) => idMap.set(s.id, s));
+    const assigned = new Set<number>();
+    let candidate = 1;
+    for (const sop of mutable) {
+      while (locked.has(candidate) || assigned.has(candidate)) candidate += 1;
+      const targetSeq = candidate;
+      assigned.add(targetSeq);
+      candidate += 1;
+      const padded = getPaddedNumber(targetSeq, 3);
+      const newNumber = group.subHierarchyCode
+        ? `${group.divisionCode} / ${group.subHierarchyCode} / ${padded} / ${group.year}`
+        : `${group.divisionCode} / ${padded} / ${group.year}`;
+      const oldNumber = String(sop.sopNumber || '').trim();
+      if (getSequence(sop) !== targetSeq || oldNumber !== newNumber) {
+        changes.push({ oldNumber: oldNumber || '-', newNumber, title: sop.title });
+      }
+      processed.set(sop.id, {
+        ...sop,
+        sequenceNumber: targetSeq,
+        sopNumber: newNumber,
+      });
+    }
 
-  const updatedSops = sops.map((original) => idMap.get(original.id) || original);
+    for (const archived of group.docs.filter((doc) => doc.status === 'DIARSIPKAN')) {
+      // Arsip is historical: never renumber or rewrite its canonical number.
+      processed.set(archived.id, archived);
+    }
+  }
 
+  for (const [id, sop] of preserved) processed.set(id, sop);
+  const updatedSops = sops.map((original) => processed.get(original.id) || original);
   return {
     updatedSops,
-    changedCount,
+    changedCount: changes.length,
     changes,
-    duplicateCount
+    duplicateCount,
   };
 }

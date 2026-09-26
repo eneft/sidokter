@@ -44,14 +44,13 @@ import {
   restoreSopsToLocal,
   deleteSopFromLocal,
   deleteAllSops,
-  bulkUpdateSops,
   saveConfigToLocal,
   registerSopAndNumberingToLocal,
   reserveNextSopNumber,
   findNumberReservationBySopNumber,
   getAllNumberReservations
 } from './lib/sopService';
-import { activateRiviuInFirestore, activateStandaloneSopInFirestore } from './lib/firestoreService';
+import { activateRiviuInFirestore, activateStandaloneSopInFirestore, synchronizeSopNumbersInFirestore } from './lib/firestoreService';
 import { canEditExistingSop, preserveSopWorkflowIdentity } from './lib/sopEditPolicy';
 import { mutateSopReview, SopReviewAction } from './lib/sopReviewService';
 import { subscribeToUsers, saveUserToLocal, deleteUserFromLocal } from './lib/accountService';
@@ -2049,40 +2048,64 @@ const confirmDeleteSop = async () => {
     addToast('info', 'Pengaturan Diatur Ulang', 'Format penomoran dikembalikan ke Standar Baku RSUD Dr. Soegiri Lamongan.');
   };
 
-  // Standardize All SOP Numbers manually (Admin Trigger)
+  // Standardize All SOP Numbers manually (Admin Trigger).
+  // The preview is calculated locally, but the mutation itself is performed by
+  // an Admin-only Cloud Function that also reconciles reservations and ledgers.
   const handleStandardizeAllSopNumbers = async () => {
-    const { updatedSops, changedCount, changes, duplicateCount } = standardizeAllSops(sops);
-    if (changedCount === 0) {
-      addToast(
-        'info',
-        'Penomoran Sudah Standar Baku & Bebas Duplikat',
-        'Semua nomor dokumen SPO yang terdaftar sudah 100% unik dan sesuai dengan Pedoman Tata Naskah RSUD Dr. Soegiri Lamongan.'
-      );
+    if (userSession?.role !== 'admin') {
+      addToast('error', 'Akses Ditolak', 'Hanya Administrator yang dapat menjalankan sinkronisasi nomor SPO.');
       return;
     }
 
-    setSops(updatedSops);
-    const changedIds = updatedSops
-      .filter((s) => changes.some((c) => c.newNumber === s.sopNumber))
-      .map((s) => s.id);
-
     try {
-      await bulkUpdateSops(updatedSops, changedIds);
-    } catch (err) {
-      console.error('Error saving standardized SOPs to local database:', err);
+      const reservations = await getAllNumberReservations();
+      const preview = standardizeAllSops(sops, reservations);
+      const result = await synchronizeSopNumbersInFirestore();
+
+      if (result.changes.length > 0) {
+        const changesById = new Map(result.changes.map((change) => [change.id, change]));
+        setSops((current) => current.map((sop) => {
+          const change = changesById.get(sop.id);
+          return change
+            ? { ...sop, sopNumber: change.newNumber, sequenceNumber: change.sequenceNumber, updatedAt: new Date().toISOString() }
+            : sop;
+        }));
+      }
+
+      if (result.changedCount === 0) {
+        addToast(
+          'info',
+          'Penomoran Sudah Sinkron',
+          `${result.reconciledScopes} scope penomoran telah dicek. Tidak ada gap yang perlu diperbaiki; nomor arsip dan Nomor Terbit tetap terkunci.`
+        );
+        return;
+      }
+
+      const summaryList = result.changes
+        .slice(0, 4)
+        .map((change) => `• ${change.oldNumber} ➔ ${change.newNumber}`)
+        .join('\n');
+      const remaining = result.changes.length > 4
+        ? `\n...dan ${result.changes.length - 4} dokumen lainnya.`
+        : '';
+      const previewNote = preview.changedCount !== result.changedCount
+        ? '\nData cloud berubah setelah pratinjau; hasil akhir mengikuti data authoritative Firebase.'
+        : '';
+
+      addToast(
+        'success',
+        `${result.changedCount} Nomor SPO Berhasil Disinkronkan`,
+        `${result.duplicateCount > 0 ? `Ditemukan ${result.duplicateCount} konflik/duplikasi yang dirapikan.\n` : ''}Urutan kini kontinu per KODE + HIRARKI + TAHUN; slot DIARSIPKAN dan RESERVED tetap dikunci.\n${summaryList}${remaining}${previewNote}`,
+        { duration: 10000 }
+      );
+    } catch (error) {
+      console.error('SPO number synchronization failed:', error);
+      addToast(
+        'error',
+        'Sinkronisasi Nomor Gagal',
+        error instanceof Error ? error.message : 'Nomor SPO tidak diubah karena sinkronisasi authoritative gagal.'
+      );
     }
-
-    const summaryList = changes
-      .slice(0, 4)
-      .map((c) => `• ${c.oldNumber} ➔ ${c.newNumber}`)
-      .join('\n');
-    const remaining = changes.length > 4 ? `\n...dan ${changes.length - 4} dokumen lainnya.` : '';
-
-    addToast(
-      'success',
-      `${changedCount} Nomor SPO Berhasil Disesuaikan!`,
-      `${duplicateCount > 0 ? `Ditemukan & diperbaiki ${duplicateCount} nomor duplikat per unit.\n` : ''}Seluruh format nomor unit telah distandarkan:\n${summaryList}${remaining}`
-    );
   };
 
   // User Management Handlers
@@ -2293,6 +2316,7 @@ const confirmDeleteSop = async () => {
         onOpenSecurity={() => setIsSecurityOpen(true)}
         onOpenBackupRestore={() => setIsBackupRestoreOpen(true)}
         onOpenMaintenance={() => setIsMaintenanceModalOpen(true)}
+        onStandardizeAllNumbers={handleStandardizeAllSopNumbers}
       />
 
       {/* Modals */}
