@@ -514,12 +514,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </span>
               </div>
 
+              {/* Desktop application version — inside the right login panel */}
+              <div
+                className="hidden lg:block mt-5 border-t border-slate-100 pt-3 text-center text-[10px] font-semibold tracking-[0.04em] text-slate-400"
+                aria-label="Versi aplikasi SIDOKTER"
+              >
+                SIDOKTER V. 1.0.0
+              </div>
+
             </div>
           </section>
-        </div>
-
-        <div className="login-version-note" aria-label="Versi aplikasi SIDOKTER">
-          SIDOKTER V. 1.0.0
         </div>
       </main>
 
