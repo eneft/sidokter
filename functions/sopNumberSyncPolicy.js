@@ -90,6 +90,12 @@ function buildSequentialSyncPlan(sopsInput, reservationsInput) {
   const reservations = Array.isArray(reservationsInput) ? reservationsInput : [];
   const scopes = new Map();
   const warnings = [];
+  const allDocumentIds = new Set(
+    sops
+      .filter(Boolean)
+      .map((record) => cleanString(record?.id))
+      .filter(Boolean)
+  );
 
   const ensureScope = (scopeKey, divisionCode, subHierarchyCode, year) => {
     if (!scopes.has(scopeKey)) {
@@ -141,8 +147,6 @@ function buildSequentialSyncPlan(sopsInput, reservationsInput) {
   for (const scope of scopes.values()) {
     const docs = scope.docs.slice();
     const reservationsForScope = scope.reservations.slice();
-    const docById = new Map(docs.map((doc) => [String(doc.id || ''), doc]));
-    const mutableDocIds = new Set(docs.filter((doc) => !isArchived(doc)).map((doc) => String(doc.id || '')));
     const archivedDocIds = new Set(docs.filter(isArchived).map((doc) => String(doc.id || '')));
 
     const lockedOwners = new Map();
@@ -166,10 +170,23 @@ function buildSequentialSyncPlan(sopsInput, reservationsInput) {
     for (const reservation of reservationsForScope) {
       const usedDocumentId = cleanString(reservation.usedDocumentId);
       const status = cleanString(reservation.status).toUpperCase();
-      const isDocumentClaim = status === 'USED' && usedDocumentId && docById.has(usedDocumentId);
-      if (isDocumentClaim) continue;
-      if (status === 'RESERVED' || status === 'USED') {
-        addLocked(Number(reservation.sequenceNumber), `${status}:${reservation.id}`);
+
+      // Only an active RESERVED number independently locks a slot. A USED claim
+      // follows its document. If its document has already been deleted, the claim
+      // is stale metadata and must NOT keep a numbering gap permanently occupied.
+      if (status === 'RESERVED') {
+        addLocked(Number(reservation.sequenceNumber), `RESERVED:${reservation.id}`);
+        continue;
+      }
+      if (status === 'USED') {
+        if (!usedDocumentId || !allDocumentIds.has(usedDocumentId)) {
+          warnings.push({
+            type: 'STALE_USED_RESERVATION',
+            reservationId: cleanString(reservation.id),
+            usedDocumentId,
+            scopeKey: scope.scopeKey,
+          });
+        }
       }
     }
 
