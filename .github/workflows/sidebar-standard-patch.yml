@@ -38,12 +38,17 @@ jobs:
               raise SystemExit(f'Expected 2 desktop brand subtitles, found {brand_count}')
           text = text.replace(old_brand, new_brand)
 
-          profile_tail = '''            </AdminTooltip>\n            </div>\n          </div>\n        </aside>'''
-          version_tail = '''            </AdminTooltip>\n            </div>\n            <div className="pt-2 text-center text-[9px] font-black tracking-[0.14em] text-slate-400">\n              SIDOKTER V. 1.0.0\n            </div>\n          </div>\n        </aside>'''
-          tail_count = text.count(profile_tail)
-          if tail_count != 2:
-              raise SystemExit(f'Expected 2 desktop account-card tails, found {tail_count}')
-          text = text.replace(profile_tail, version_tail)
+          user_close = '''        </aside>\n\n        <DesktopAccountHeader'''
+          user_version = '''          <div className="px-3.5 pb-3 text-center text-[9px] font-black tracking-[0.14em] text-slate-400">\n            SIDOKTER V. 1.0.0\n          </div>\n        </aside>\n\n        <DesktopAccountHeader'''
+          if text.count(user_close) != 1:
+              raise SystemExit(f'Expected one user desktop sidebar closing marker, found {text.count(user_close)}')
+          text = text.replace(user_close, user_version, 1)
+
+          admin_close = '''      </aside>\n\n      <DesktopAccountHeader'''
+          admin_version = '''        <div className="px-3.5 pb-3 text-center text-[9px] font-black tracking-[0.14em] text-slate-400">\n          SIDOKTER V. 1.0.0\n        </div>\n      </aside>\n\n      <DesktopAccountHeader'''
+          if text.count(admin_close) != 1:
+              raise SystemExit(f'Expected one admin desktop sidebar closing marker, found {text.count(admin_close)}')
+          text = text.replace(admin_close, admin_version, 1)
 
           if 'Terakreditasi Paripurna' in text:
               raise SystemExit('Legacy accreditation badge is still present in Header.tsx')
@@ -56,7 +61,7 @@ jobs:
           npm ci
           npm run build:client
           git diff --check
-          grep -F "RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian" src/components/Header.tsx
+          test "$(grep -F -c 'RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian' src/components/Header.tsx)" -eq 2
           test "$(grep -F -c 'SIDOKTER V. 1.0.0' src/components/Header.tsx)" -eq 2
           ! grep -F "Terakreditasi Paripurna" src/components/Header.tsx
 
