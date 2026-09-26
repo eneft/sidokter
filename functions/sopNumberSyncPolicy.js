@@ -115,7 +115,21 @@ function buildSequentialSyncPlan(sopsInput, reservationsInput) {
     if (!sop || isLegacy(sop) || sop.isNumberReservation) continue;
     const parsed = parseStandardNumber(sop.sopNumber);
     const divisionCode = cleanDivision(sop.divisionCode || parsed?.divisionCode);
-    const subHierarchyCode = cleanString(sop.subHierarchyCode ?? parsed?.subHierarchyCode);
+    // Older standard SPO records can have an empty composite subHierarchyCode
+    // even though the canonical SPO number (and/or component hierarchy fields)
+    // already identifies the real hierarchy. Keep the server plan aligned with
+    // the browser preview: blank is missing data, not an authoritative ROOT.
+    const storedSubHierarchyCode = cleanString(sop.subHierarchyCode);
+    const componentSubHierarchyCode = [
+      cleanString(sop.subCode),
+      cleanString(sop.instalasiCode || sop.instCode),
+      cleanString(sop.poliCode),
+      cleanString(sop.subUnitCode),
+    ].filter(Boolean).join('.');
+    const subHierarchyCode =
+      storedSubHierarchyCode ||
+      cleanString(parsed?.subHierarchyCode) ||
+      componentSubHierarchyCode;
     const year = getRecordYear(sop);
     if (!divisionCode || divisionCode === 'ALL' || !/^\d{4}$/.test(year)) {
       warnings.push({ type: 'INVALID_SCOPE', documentId: sop.id, sopNumber: sop.sopNumber || '' });

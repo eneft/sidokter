@@ -134,3 +134,44 @@ test('reusable ledger contains free slots below a higher archived number', () =>
   assert.deepEqual(plan.scopes[0].reusableSequences, [2, 3, 4]);
   assert.equal(plan.scopes[0].lastSequence, 5);
 });
+
+
+test('blank stored subHierarchyCode falls back to the hierarchy encoded in the SPO number', () => {
+  const docs = [
+    {
+      ...sop('uph-gap-3', 3),
+      divisionCode: 'UPH',
+      subHierarchyCode: '',
+      sopNumber: 'UPH / 1.1 / 003 / 2026',
+    },
+    {
+      ...sop('uph-gap-4', 4),
+      divisionCode: 'UPH',
+      subHierarchyCode: '',
+      sopNumber: 'UPH / 1.1 / 004 / 2026',
+    },
+  ];
+  const reservations = [{
+    id: 'uph-reserved-1',
+    divisionCode: 'UPH',
+    subHierarchyCode: '1.1',
+    sequenceNumber: 1,
+    sopNumber: 'UPH / 1.1 / 001 / 2026',
+    year: '2026',
+    status: 'RESERVED',
+    reservedAt: '2026-01-01T00:00:00.000Z',
+    reservedBy: 'Admin',
+  }];
+
+  const plan = buildSequentialSyncPlan(docs, reservations);
+  const targetScope = plan.scopes.find((row) => row.scopeKey === '2026|UPH|1.1');
+
+  assert.ok(targetScope, 'UPH / 1.1 scope should be recovered from the SPO number');
+  assert.equal(targetScope.docs.length, 2);
+  assert.equal(plan.changedCount, 2);
+  assert.deepEqual(plan.changes.map((row) => row.newNumber), [
+    'UPH / 1.1 / 002 / 2026',
+    'UPH / 1.1 / 003 / 2026',
+  ]);
+  assert.equal(plan.scopes.some((row) => row.scopeKey === '2026|UPH|ROOT' && row.docs.length > 0), false);
+});
