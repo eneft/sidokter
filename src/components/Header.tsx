@@ -147,7 +147,7 @@ export const Header: React.FC<HeaderProps> = ({
               <HospitalLogo size="md" />
               <div className="min-w-0">
                 <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
-                <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
+                <div className="text-[10px] text-emerald-700 font-bold leading-tight">RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian</div>
               </div>
             </div>
           </div>
@@ -245,6 +245,9 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               </AdminTooltip>
             </div>
+          </div>
+          <div className="px-3.5 pb-3 text-center text-[9px] font-black tracking-[0.14em] text-slate-400">
+            SIDOKTER V. 1.0.0
           </div>
         </aside>
 
@@ -372,7 +375,7 @@ export const Header: React.FC<HeaderProps> = ({
             <HospitalLogo size="md" />
             <div className="min-w-0">
               <div className="font-black text-slate-900 tracking-tight text-sm leading-tight">SIDOKTER SOEGIRI</div>
-              <div className="text-[11px] text-emerald-700 font-bold truncate">RSUD Dr. Soegiri Lamongan</div>
+              <div className="text-[10px] text-emerald-700 font-bold leading-tight">RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian</div>
             </div>
           </div>
         </div>
@@ -518,6 +521,9 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </AdminTooltip>
           </div>
+        </div>
+        <div className="px-3.5 pb-3 text-center text-[9px] font-black tracking-[0.14em] text-slate-400">
+          SIDOKTER V. 1.0.0
         </div>
       </aside>
 
