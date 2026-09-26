@@ -117,14 +117,30 @@ body,
   }
 }
 
-/* iOS Safari/WKWebView zooms focused controls below 16px. Restrict this to
-   phone-sized coarse-pointer layouts so canonical A4/tablet typography is not
-   mutated on 769–1023px editing surfaces. */
+/* Phone authoring keeps the Live SPO editor itself, but removes only the
+   desktop-oriented rich-text/table/image toolbar. Section chips, A4 preview,
+   editable body fields, and document workflow remain available. */
 @media (max-width: 768px) and (hover: none) and (pointer: coarse) {
+  .live-spo-context-toolbar {
+    display: none !important;
+  }
+
+  /* Keep text-entry controls at 16px to avoid Safari focus zoom. Selects use a
+     tighter mobile size because native dropdown labels were visually oversized. */
   input,
-  textarea,
-  select {
+  textarea {
     font-size: 16px !important;
+  }
+
+  select {
+    font-size: 14px !important;
+    line-height: 1.25 !important;
+    min-height: 34px;
+  }
+
+  select option,
+  select optgroup {
+    font-size: 14px;
   }
 }
 
