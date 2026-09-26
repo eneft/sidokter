@@ -1,0 +1,44 @@
+name: Verify iOS TestFlight Pipeline
+
+on:
+  push:
+    branches: [ios/tahap-7-testflight-ci]
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-release-archive:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install, lint, build, and sync
+        run: |
+          npm ci
+          npm run lint
+          npm run build:client
+          npx cap sync ios
+      - name: Require Xcode 26+
+        run: |
+          V="$(xcodebuild -version | awk 'NR==1 {print $2}')"
+          echo "Xcode $V"
+          M="${V%%.*}"
+          test "$M" -ge 26
+      - name: Release archive smoke without signing
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/SIDOKTER.xcarchive" \
+            MARKETING_VERSION=1.0.0 \
+            CURRENT_PROJECT_VERSION=1 \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+          test -d "$RUNNER_TEMP/SIDOKTER.xcarchive"
