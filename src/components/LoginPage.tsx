@@ -17,7 +17,6 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { UserSession } from '../types';
-import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 import { authenticateUser } from '../lib/authService';
 
 interface LoginPageProps {
@@ -515,18 +514,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </span>
               </div>
 
-              {/* Desktop-only footer inside the login card */}
-              <div className="hidden lg:block mt-5 border-t border-slate-100 pt-3 text-center text-[10px] font-medium leading-relaxed text-slate-400">
-                © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0
-              </div>
             </div>
           </section>
         </div>
+
+        <div className="login-version-note" aria-label="Versi aplikasi SIDOKTER">
+          SIDOKTER V. 1.0.0
+        </div>
       </main>
 
-      {/* Clean Global Footer */}
-      <footer id="login-auth-footer" className="login-page-footer lg:hidden">
-        © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0
+      {/* Footer institusi tetap berada di bagian bawah halaman */}
+      <footer id="login-auth-footer" className="login-page-footer">
+        © 2026 RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian
       </footer>
     </div>
   );
