@@ -72,6 +72,7 @@ jobs:
               states = [d.get('state') for devices in data.get('devices',{}).values() for d in devices if d.get('udid') == udid]
               if 'Booted' in states:
                   print('Simulator booted:', udid)
+                  time.sleep(8)
                   raise SystemExit(0)
               time.sleep(1)
           raise SystemExit('Simulator did not reach Booted state within 90 seconds')
@@ -86,21 +87,66 @@ jobs:
           export APP_PATH="$(find "$PWD/.derivedData/Build/Products/Debug-iphonesimulator" -maxdepth 2 -name 'App.app' -print -quit)"
           test -d "$APP_PATH"
           mkdir -p artifacts
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist" | tee artifacts/bundle-id.txt
           python3 <<'PY'
-          import os, subprocess, time
+          import os, subprocess, time, traceback
           udid, bundle, app = os.environ['UDID'], os.environ['BUNDLE'], os.environ['APP_PATH']
-          subprocess.run(['xcrun','simctl','install',udid,app], check=True, timeout=45)
-          out = subprocess.run(['xcrun','simctl','launch','--terminate-running-process',udid,bundle], check=True, text=True, capture_output=True, timeout=30)
-          print(out.stdout.strip())
-          time.sleep(8)
-          container = subprocess.check_output(['xcrun','simctl','get_app_container',udid,bundle,'app'], text=True, timeout=20).strip()
-          if not os.path.isdir(container):
-              raise SystemExit('Installed app container not found')
-          print('App container:', container)
+          diag = []
+          def record(label, value):
+              text = f'\n=== {label} ===\n{value}\n'
+              diag.append(text)
+              print(text)
           try:
-              subprocess.run(['xcrun','simctl','io',udid,'screenshot','artifacts/launch.png'], check=True, timeout=15)
+              installed = False
+              for attempt in range(1, 4):
+                  try:
+                      result = subprocess.run(['xcrun','simctl','install',udid,app], text=True, capture_output=True, timeout=45)
+                      record(f'install attempt {attempt} rc={result.returncode}', (result.stdout or '') + '\n' + (result.stderr or ''))
+                      if result.returncode == 0:
+                          installed = True
+                          break
+                  except Exception as exc:
+                      record(f'install attempt {attempt} exception', repr(exc))
+                  time.sleep(8)
+              if not installed:
+                  raise RuntimeError('simctl install failed after 3 attempts')
+
+              apps = subprocess.run(['xcrun','simctl','listapps',udid], text=True, capture_output=True, timeout=25)
+              record('listapps', (apps.stdout or '') + '\n' + (apps.stderr or ''))
+              if bundle not in (apps.stdout or ''):
+                  raise RuntimeError(f'Expected bundle {bundle} not present after install')
+
+              launched = subprocess.run(['xcrun','simctl','launch','--terminate-running-process',udid,bundle], text=True, capture_output=True, timeout=30)
+              record(f'launch rc={launched.returncode}', (launched.stdout or '') + '\n' + (launched.stderr or ''))
+              if launched.returncode != 0:
+                  raise RuntimeError('simctl launch failed')
+              time.sleep(8)
+
+              container = subprocess.check_output(['xcrun','simctl','get_app_container',udid,bundle,'app'], text=True, timeout=20).strip()
+              record('app container', container)
+              if not os.path.isdir(container):
+                  raise RuntimeError('Installed app container not found')
+
+              try:
+                  subprocess.run(['xcrun','simctl','io',udid,'screenshot','artifacts/launch.png'], check=True, timeout=15)
+              except Exception as exc:
+                  record('screenshot notice', repr(exc))
           except Exception as exc:
-              print('Screenshot evidence unavailable:', exc)
+              record('failure', repr(exc) + '\n' + traceback.format_exc())
+              for command, label in [
+                  (['xcrun','simctl','listapps',udid], 'listapps after failure'),
+                  (['xcrun','simctl','list','devices'], 'devices after failure'),
+                  (['xcrun','simctl','spawn',udid,'log','show','--style','compact','--last','3m','--predicate',f'eventMessage CONTAINS[c] "{bundle}" OR process == "installd" OR process == "SpringBoard"'], 'simulator log')
+              ]:
+                  try:
+                      r = subprocess.run(command, text=True, capture_output=True, timeout=30)
+                      record(label, (r.stdout or '') + '\n' + (r.stderr or ''))
+                  except Exception as inner:
+                      record(label + ' diagnostic exception', repr(inner))
+              raise
+          finally:
+              with open('artifacts/install-diagnostic.txt','w',encoding='utf-8') as handle:
+                  handle.write(''.join(diag))
           PY
 
       - name: Lifecycle relaunch smoke
