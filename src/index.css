@@ -3510,3 +3510,52 @@ body,
     max-width: 440px;
   }
 }
+
+/* LOGIN DESKTOP 80% — CENTERED CARD + VERSION + BOTTOM INSTITUTION FOOTER */
+.login-version-note {
+  display: none;
+}
+
+@media (min-width: 821px) {
+  #login-page-container.login-page-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  #login-main-content.login-main-content {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 20px 16px 10px !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  #login-auth-card.login-auth-card {
+    flex: 0 0 auto;
+  }
+
+  .login-version-note {
+    display: block;
+    margin-top: 10px;
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.4;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #94a3b8;
+  }
+
+  #login-auth-footer.login-page-footer {
+    display: block !important;
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 0 16px 14px !important;
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #94a3b8;
+  }
+}
