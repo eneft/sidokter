@@ -21,7 +21,7 @@ import {
   Info,
   HelpCircle
 } from 'lucide-react';
-import { UserSession, UserAccount, SopDocument } from '../types';
+import { UserSession, UserAccount, SopDocument, SopNumberReservation } from '../types';
 import { standardizeAllSops } from '../utils/numbering';
 import { SecurityAccountPanel } from './SecurityAccountPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
@@ -32,6 +32,7 @@ interface AdminHubPageProps {
   userSession: UserSession;
   userAccounts?: UserAccount[];
   sops?: SopDocument[];
+  numberReservations?: SopNumberReservation[];
   onOpenUserManagement?: () => void;
   onOpenMasterData?: () => void;
   onOpenMaintenanceModal?: () => void;
@@ -55,6 +56,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
   userSession,
   userAccounts = [],
   sops = [],
+  numberReservations = [],
   onOpenUserManagement,
   onOpenMasterData,
   onOpenMaintenanceModal,
@@ -81,9 +83,9 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
 
   const syncAnalysis = useMemo(() => {
     if (!sops || sops.length === 0) return { changedCount: 0, duplicateCount: 0 };
-    const res = standardizeAllSops(sops);
+    const res = standardizeAllSops(sops, numberReservations);
     return { changedCount: res.changedCount, duplicateCount: res.duplicateCount };
-  }, [sops]);
+  }, [sops, numberReservations]);
 
   // If user does not have Admin access, show clean User Security & Profile Hub
   if (!hasAdminAccess) {
@@ -591,8 +593,7 @@ export const AdminHubPage: React.FC<AdminHubPageProps> = ({
                   Format Baku Penomoran: KODE_BIDANG / SUB_HIRARKI / NO_URUT / TAHUN
                 </div>
                 <div className="text-purple-800 text-[11px] leading-relaxed">
-                  SPO Baru dan SPO Riviu dinomori urut per unit kerja (dimulai dari 001). 
-                  Dokumen <strong>SPO Eksisting (Lama)</strong> tetap dipertahankan nomor aslinya dan tidak akan diubah atau digenerate baru.
+                  SPO Baru dan SPO Riviu wajib berurutan tanpa loncatan mulai 001. Nomor <strong>DIARSIPKAN</strong> tetap terkunci sebagai histori, dan <strong>Nomor Terbit RESERVED</strong> tetap mengunci slot sampai digunakan. Dokumen <strong>SPO Eksisting (Lama)</strong> tetap mempertahankan nomor aslinya.
                 </div>
               </div>
             </div>

@@ -507,6 +507,56 @@ export async function fetchSopNumberReservationsFromFirestore(): Promise<SopNumb
   });
 }
 
+export interface SopNumberSynchronizationResult {
+  ok: boolean;
+  changedCount: number;
+  duplicateCount: number;
+  reconciledScopes: number;
+  changes: Array<{
+    id: string;
+    title: string;
+    status: string;
+    oldNumber: string;
+    newNumber: string;
+    sequenceNumber: number;
+    scopeKey: string;
+  }>;
+  warnings?: Array<Record<string, unknown>>;
+}
+
+export async function synchronizeSopNumbersInFirestore(): Promise<SopNumberSynchronizationResult> {
+  await ensureFirebaseAuthSession();
+  try {
+    const callable = httpsCallable(functions, 'synchronizeSopNumbers');
+    const result = await callable({});
+    const data = result.data as Partial<SopNumberSynchronizationResult>;
+    return {
+      ok: data.ok === true,
+      changedCount: Number(data.changedCount || 0),
+      duplicateCount: Number(data.duplicateCount || 0),
+      reconciledScopes: Number(data.reconciledScopes || 0),
+      changes: Array.isArray(data.changes) ? data.changes : [],
+      warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    };
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '').trim();
+    if (code === 'functions/unauthenticated') {
+      throw new Error('Sesi Admin tidak valid. Silakan login kembali sebelum menjalankan sinkronisasi nomor.');
+    }
+    if (code === 'functions/permission-denied') {
+      throw new Error(message || 'Hanya Administrator yang dapat menjalankan Sinkronisasi Nomor SPO.');
+    }
+    if (code === 'functions/aborted') {
+      throw new Error(message || 'Sinkronisasi nomor lain sedang berjalan. Coba kembali beberapa saat lagi.');
+    }
+    if (code === 'functions/failed-precondition' || code === 'functions/resource-exhausted') {
+      throw new Error(message || 'Sinkronisasi nomor dihentikan karena terdapat konflik nomor terkunci.');
+    }
+    throw new Error(message || 'Sinkronisasi nomor SPO gagal disimpan ke server.');
+  }
+}
+
 export async function consumeSopNumberReservationInFirestore(id: string, usedDocumentId?: string): Promise<void> {
   if (!id) return;
   const reservationRef = doc(db, 'sop_number_reservations', id);

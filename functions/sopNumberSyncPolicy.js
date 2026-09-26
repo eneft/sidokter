@@ -166,8 +166,8 @@ function buildSequentialSyncPlan(sopsInput, reservationsInput) {
     for (const reservation of reservationsForScope) {
       const usedDocumentId = cleanString(reservation.usedDocumentId);
       const status = cleanString(reservation.status).toUpperCase();
-      const isMutableDocumentClaim = status === 'USED' && usedDocumentId && mutableDocIds.has(usedDocumentId);
-      if (isMutableDocumentClaim) continue;
+      const isDocumentClaim = status === 'USED' && usedDocumentId && docById.has(usedDocumentId);
+      if (isDocumentClaim) continue;
       if (status === 'RESERVED' || status === 'USED') {
         addLocked(Number(reservation.sequenceNumber), `${status}:${reservation.id}`);
       }

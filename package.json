@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "check:pdf": "node -e \"console.log('PDF engine: puppeteer-core 25.1.0 + @sparticuz/chromium 149.0.0 + explicit AL2023 libs')\"",
     "deploy:firebase": "firebase deploy --only functions,hosting,firestore,storage",
-    "verify:functions": "node --check functions/index.js && node --check functions/main.js && node --check functions/mailboxWorkflow.js && node --check functions/hierarchyApiV2.js && node --check functions/sopNumberAllocator.js && node scripts/verify-functions.cjs",
+    "verify:functions": "node --check functions/index.js && node --check functions/main.js && node --check functions/mailboxWorkflow.js && node --check functions/hierarchyApiV2.js && node --check functions/sopNumberAllocator.js && node --check functions/sopNumberSyncPolicy.js && node --check functions/sopNumberSync.js && node scripts/verify-functions.cjs",
     "test:storage": "node --test functions/storageMetadata.test.js",
     "test:revision": "tsx tests/revision-number.test.ts",
     "test:sop-edit": "tsx --test tests/sop-edit-policy.test.ts tests/sop-archive-relations.test.ts && node --test functions/sopNumberUpdate.test.js functions/sopEditContentPolicy.test.js functions/sopActivationPolicy.test.js functions/sopDeletePolicy.test.js tests/sop-edit-trusted-boundary.test.cjs tests/sop-archive-delete-boundary.test.cjs tests/sop-alur-image-delete.test.cjs tests/riviu-review-reason-ui.test.cjs",
@@ -22,7 +22,7 @@
     "test:tables": "tsx --test tests/structured-table-pagination.test.ts tests/table-geometry-resize.test.ts tests/table-pagination-v2.test.ts tests/a4-table-width-contract.test.ts tests/live-editor-toolbar-regression.test.ts tests/live-sop-content-integrity.test.ts tests/table-structural-mutations.test.ts tests/table-interaction-regression.test.ts tests/preview-list-numbering-table.test.ts tests/a4-page-boundary-contract.test.ts",
     "test:hierarchy": "node --test tests/hierarchy-cloud-boundary.test.cjs",
     "test:pdf-binary": "tsx --test tests/pdf-binary-download.test.ts",
-    "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts && node --test tests/sop-number-allocation-boundary.test.cjs",
+    "test:numbering-lifecycle": "tsx --test tests/sop-number-lifecycle.test.ts tests/sop-number-sync.test.ts && node --test tests/sop-number-allocation-boundary.test.cjs && node --test functions/sopNumberSync.test.js",
     "test:live-pagination": "tsx --test tests/live-sop-content-integrity.test.ts"
   },
   "dependencies": {

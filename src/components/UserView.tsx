@@ -2507,6 +2507,7 @@ export const UserView: React.FC<UserViewProps> = ({
             userSession={userSession}
             userAccounts={users}
             sops={sops}
+            numberReservations={issuedNumberRegister}
             onOpenUserManagement={onOpenUserManagement}
             onOpenMasterData={onOpenMasterData}
             onOpenSecurity={onOpenSecurity}

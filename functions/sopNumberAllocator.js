@@ -247,6 +247,12 @@ exports.allocateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 
   }
 
   const db = getDb();
+  const syncLockRef = db.collection('system_config').doc('spo_number_sync_lock');
+  const syncLockSnapshot = await syncLockRef.get();
+  const syncLockData = syncLockSnapshot.exists ? (syncLockSnapshot.data() || {}) : {};
+  if (syncLockData.active === true && Number(syncLockData.expiresAtMs || 0) > Date.now()) {
+    throw new HttpsError('aborted', 'Sinkronisasi nomor SPO sedang berjalan. Coba kembali setelah proses selesai.');
+  }
   const scopeKey = getSequenceScope(year, divisionCode, subHierarchyCode);
   const sequenceKey = encodeURIComponent(scopeKey);
   const sequenceRef = db.collection('system_config').doc(`spo_sequence_${sequenceKey}`);
@@ -306,7 +312,14 @@ exports.allocateSopNumber = onCall({ region: 'asia-southeast2', timeoutSeconds: 
   const highestExisting = Math.max(0, ...Array.from(occupied));
 
   return db.runTransaction(async (transaction) => {
-    const sequenceSnapshot = await transaction.get(sequenceRef);
+    const [lockSnapshot, sequenceSnapshot] = await Promise.all([
+      transaction.get(syncLockRef),
+      transaction.get(sequenceRef),
+    ]);
+    const lockData = lockSnapshot.exists ? (lockSnapshot.data() || {}) : {};
+    if (lockData.active === true && Number(lockData.expiresAtMs || 0) > Date.now()) {
+      throw new HttpsError('aborted', 'Sinkronisasi nomor SPO sedang berjalan. Coba kembali setelah proses selesai.');
+    }
     const sequenceData = sequenceSnapshot.exists ? (sequenceSnapshot.data() || {}) : {};
     const storedCounter = Number(sequenceData.lastSequence || 0);
     const allocation = getNextLifecycleSequence(storedCounter, highestExisting, sequenceData.reusableSequences, occupied);
