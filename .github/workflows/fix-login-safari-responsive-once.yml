@@ -95,7 +95,6 @@ jobs:
               raise SystemExit('Safari/tablet login patch marker already exists; aborting duplicate patch.')
 
           block = dedent(r'''
-          
           /* ================================================================
              SIDOKTER LOGIN SAFARI/TABLET PATCH 2026-09-26
              Keeps desktop layout intact while preventing iPad/Safari clipping
@@ -107,7 +106,7 @@ jobs:
             max-width: 100%;
             overflow-x: hidden;
           }
-          
+
           #login-page-container.login-page-shell {
             width: 100%;
             max-width: 100%;
@@ -115,7 +114,7 @@ jobs:
             min-height: 100dvh;
             overflow-x: hidden;
           }
-          
+
           #login-main-content.login-main-content {
             width: 100%;
             max-width: 100%;
@@ -126,7 +125,7 @@ jobs:
             align-items: center;
             justify-content: center;
           }
-          
+
           #login-auth-card.login-auth-card {
             width: 100%;
             max-width: 820px;
@@ -135,7 +134,7 @@ jobs:
             margin: 0 auto;
             box-sizing: border-box;
           }
-          
+
           .login-brand-panel,
           .login-auth-panel,
           .login-brand-content,
@@ -144,12 +143,12 @@ jobs:
             max-width: 100%;
             box-sizing: border-box;
           }
-          
+
           .login-brand-hero {
             align-items: flex-start !important;
             text-align: left !important;
           }
-          
+
           .login-brand-hero > img {
             display: block !important;
             width: min(100%, 420px) !important;
@@ -161,16 +160,13 @@ jobs:
             object-fit: contain !important;
             object-position: left center !important;
           }
-          
-          /* Safari/iPad landscape can have a short usable viewport because
-             browser chrome consumes vertical space. Top-align the card so its
-             top edge and hospital identity never start above the viewport. */
+
           @media (min-width: 821px) and (max-height: 820px) {
             #login-page-container.login-page-shell {
               min-height: 100dvh;
               height: auto;
             }
-          
+
             #login-main-content.login-main-content {
               flex: 0 0 auto;
               min-height: 100dvh;
@@ -178,53 +174,52 @@ jobs:
               justify-content: center;
               padding: 12px 16px 18px;
             }
-          
+
             #login-auth-card.login-auth-card {
               min-height: 0;
               max-height: none;
               margin: 0 auto;
             }
-          
+
             .login-brand-content,
             .login-form-container {
               padding-top: 24px !important;
               padding-bottom: 24px !important;
             }
-          
+
             .login-brand-institution {
               margin-bottom: 16px !important;
             }
-          
+
             .login-brand-hero > img {
               max-width: 360px !important;
               margin-bottom: 10px !important;
             }
-          
+
             .login-brand-features {
               margin-top: 16px !important;
               padding-top: 16px !important;
             }
-          
+
             .login-brand-footer-note {
               margin-top: 12px !important;
             }
-          
+
             .login-card-header {
               margin-bottom: 16px !important;
             }
-          
+
             .login-form {
               gap: 12px !important;
             }
           }
-          
-          /* Keep the existing stacked phone/tablet breakpoint authoritative. */
+
           @media (max-width: 820px) {
             #login-main-content.login-main-content {
               padding: 16px 12px;
               align-items: flex-start;
             }
-          
+
             #login-auth-card.login-auth-card {
               width: 100%;
               max-width: 440px;
@@ -232,7 +227,7 @@ jobs:
           }
           ''')
 
-          path.write_text(text.rstrip() + block + '\n', encoding='utf-8')
+          path.write_text(text.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
           PY
 
       - name: Install dependencies
