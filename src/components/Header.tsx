@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, LogOut, FileText, FileCheck, Handshake,
-  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Mail, RefreshCw
+  Menu as MenuIcon, X, Lock, Home, UserRound, Upload, ChevronRight, Database, Wrench, Cloud, Mail, RefreshCw, BookOpen
 } from 'lucide-react';
 import { UserSession, MainMenuTab } from '../types';
 import { HospitalLogo } from './HospitalLogo';
@@ -106,6 +106,10 @@ export const Header: React.FC<HeaderProps> = ({
       title: 'Perjanjian Kerjasama (MOU)',
       desc: 'Daftar nota kesepahaman dan kemitraan resmi rumah sakit dengan pihak eksternal.'
     },
+    regulasi: {
+      title: 'Regulasi Daerah',
+      desc: 'Repository PERDA dan PERBUP yang menjadi regulasi eksternal rujukan rumah sakit.'
+    },
     admin: {
       title: 'Portal Administrator',
       desc: 'Akses penuh ke manajemen user, master data organisasi, keamanan, dan pemeliharaan.'
@@ -121,6 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
     { id: 'sk', label: 'SK', icon: FileCheck, count: skCount },
     { id: 'mou', label: 'MOU', icon: Handshake, count: mouCount },
+    { id: 'regulasi', label: 'Regulasi', icon: BookOpen },
     ...(hasAdminAccess ? [{ id: 'admin' as MainMenuTab, label: 'Administrator', icon: ShieldCheck }] : []),
     { id: 'profile', label: 'Profil', icon: UserRound },
   ];
