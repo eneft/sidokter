@@ -44,7 +44,7 @@ replaceOnce(
                     aria-busy={isSynchronizingNumbers}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-70 disabled:cursor-not-allowed text-white text-xs font-black transition-all cursor-pointer shadow-sm shadow-purple-200"
                   >
-                    <RefreshCw className={\`w-4 h-4 ${isSynchronizingNumbers ? 'animate-spin' : ''}\`} />
+                    <RefreshCw className={'w-4 h-4 ' + (isSynchronizingNumbers ? 'animate-spin' : '')} />
                     <span>{isSynchronizingNumbers ? 'Sedang Menyinkronkan...' : 'Jalankan Sinkronisasi Nomor Sekarang'}</span>
                   </button>`,
   'replace synchronization action button'
