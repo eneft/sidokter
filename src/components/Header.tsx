@@ -359,6 +359,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'spo', label: 'SPO', icon: FileText, count: totalSopCount },
     { id: 'sk', label: 'SK', icon: FileCheck, count: skCount },
     { id: 'mou', label: 'MOU', icon: Handshake, count: mouCount },
+    { id: 'regulasi', label: 'Regulasi', icon: BookOpen },
     { id: 'admin', label: 'Administrator', icon: ShieldCheck },
     { id: 'profile', label: 'Profil', icon: UserRound },
   ];
