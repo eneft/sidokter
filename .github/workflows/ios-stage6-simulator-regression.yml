@@ -1,0 +1,142 @@
+name: iOS Stage 6 Simulator Regression
+
+on:
+  push:
+    branches: [ios/tahap-6-device-regression]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-stage6-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator-regression:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify protected SIDOKTER boundaries
+        run: |
+          npm run lint
+          npm run verify:functions
+          npm run test:revision
+          npm run test:hierarchy
+          npm run test:sop-edit
+          npm run test:pdf-binary
+          npx tsx tests/ios-native-ux-contract.test.ts
+
+      - name: Build and sync iOS
+        run: |
+          npm run build:client
+          npx cap sync ios
+
+      # Do not disable code signing here. Xcode performs simulator/ad-hoc signing
+      # without an Apple Developer Team, which is required for reliable launch
+      # on modern iOS Simulator runtimes.
+      - name: Compile launchable simulator app
+        run: |
+          rm -rf .derivedData
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath "$PWD/.derivedData" \
+            build
+
+      - name: Boot iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); xs=[x for v in d.get("devices",{}).values() for x in v if "iPhone" in x.get("name","") and x.get("isAvailable",False)]; print(xs[0]["udid"] if xs else "")')"
+          test -n "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          python3 - "$UDID" <<'PY'
+          import json, subprocess, sys, time
+          udid = sys.argv[1]
+          for _ in range(100):
+              data = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','-j'], text=True))
+              state = [x.get('state') for v in data.get('devices',{}).values() for x in v if x.get('udid') == udid]
+              if 'Booted' in state:
+                  time.sleep(12)
+                  print('Simulator ready:', udid)
+                  raise SystemExit(0)
+              time.sleep(1)
+          raise SystemExit('Simulator did not become ready')
+          PY
+
+      - name: Install, launch, and capture evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UDID='${{ steps.simulator.outputs.udid }}'
+          export BUNDLE='id.go.lamongankab.rsudsoegiri.sidokter'
+          export APP_PATH="$(find "$PWD/.derivedData/Build/Products/Debug-iphonesimulator" -maxdepth 2 -name 'App.app' -print -quit)"
+          test -d "$APP_PATH"
+          mkdir -p artifacts
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist" | tee artifacts/bundle-id.txt
+          codesign -dv --verbose=4 "$APP_PATH" 2> artifacts/codesign.txt || true
+          python3 <<'PY'
+          import os, subprocess, time, traceback
+          udid, bundle, app = os.environ['UDID'], os.environ['BUNDLE'], os.environ['APP_PATH']
+          lines=[]
+          def run(cmd, timeout, check=True):
+              r=subprocess.run(cmd,text=True,capture_output=True,timeout=timeout)
+              lines.append(f"$ {' '.join(cmd)}\nrc={r.returncode}\n{r.stdout}\n{r.stderr}\n")
+              if check and r.returncode: raise RuntimeError(f'command failed: {cmd}')
+              return r
+          try:
+              run(['xcrun','simctl','install',udid,app],60)
+              apps=run(['xcrun','simctl','listapps',udid],30)
+              if bundle not in apps.stdout: raise RuntimeError('bundle missing after install')
+              time.sleep(8)
+              launched=run(['xcrun','simctl','launch',udid,bundle],120)
+              time.sleep(10)
+              container=subprocess.check_output(['xcrun','simctl','get_app_container',udid,bundle,'app'],text=True,timeout=30).strip()
+              lines.append('container='+container+'\n')
+              if not os.path.isdir(container): raise RuntimeError('app container missing')
+              try: run(['xcrun','simctl','io',udid,'screenshot','artifacts/launch.png'],20)
+              except Exception as e: lines.append('launch screenshot notice='+repr(e)+'\n')
+          except Exception as e:
+              lines.append('FAILURE='+repr(e)+'\n'+traceback.format_exc()+'\n')
+              try:
+                  log=run(['xcrun','simctl','spawn',udid,'log','show','--style','compact','--last','3m','--predicate',f'eventMessage CONTAINS[c] "{bundle}" OR process == "installd" OR process == "SpringBoard"'],45,False)
+              except Exception as inner: lines.append('diagnostic error='+repr(inner)+'\n')
+              raise
+          finally:
+              open('artifacts/install-diagnostic.txt','w').write('\n'.join(lines))
+          PY
+
+      - name: Lifecycle relaunch smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID='${{ steps.simulator.outputs.udid }}'
+          BUNDLE='id.go.lamongankab.rsudsoegiri.sidokter'
+          xcrun simctl terminate "$UDID" "$BUNDLE" || true
+          sleep 3
+          xcrun simctl launch "$UDID" "$BUNDLE"
+          sleep 8
+          xcrun simctl get_app_container "$UDID" "$BUNDLE" app >/dev/null
+          xcrun simctl io "$UDID" screenshot artifacts/relaunch.png || true
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-stage6-simulator-evidence
+          path: artifacts/
+          if-no-files-found: warn
