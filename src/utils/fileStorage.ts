@@ -1,6 +1,7 @@
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import { purgeBloatedLocalStorage } from './storageQuota';
 import { firebaseConfig } from '../lib/firebase';
+import { isProtectedStorageApiUrl, normalizeStorageApiUrl, storageApiUrl } from '../lib/runtimeEndpoints';
 
 /**
  * Utility for handling file downloads safely in all browser environments (including iframes & sandboxes)
@@ -23,7 +24,7 @@ export async function getProtectedStorageHeaders(): Promise<Record<string, strin
 
 export function buildStoragePathUrl(storagePath: string): string {
   const cleanPath = String(storagePath || '').replace(/^\/+/, '');
-  return `/api/storage/path/${encodeURIComponent(cleanPath)}`;
+  return storageApiUrl(`/path/${encodeURIComponent(cleanPath)}`, firebaseConfig.projectId || 'sidokter-soegiri');
 }
 
 /**
@@ -33,11 +34,11 @@ export function buildStoragePathUrl(storagePath: string): string {
 export function normalizeStorageUrl(url: string | null | undefined): string {
   if (!url) return '';
   const trimmed = String(url).trim();
-  const cfMatch = trimmed.match(/^https?:\/\/[^/]*cloudfunctions\.net\/storageApi\/(files|path|sop)\/(.*)$/i);
-  if (cfMatch) {
-    return `/api/storage/${cfMatch[1]}/${cfMatch[2]}`;
-  }
-  return trimmed;
+  return normalizeStorageApiUrl(trimmed, firebaseConfig.projectId || 'sidokter-soegiri');
+}
+
+export function isProtectedStorageUrl(url: string | null | undefined): boolean {
+  return isProtectedStorageApiUrl(url);
 }
 
 export async function resolveProtectedStorageUrl(
@@ -47,15 +48,7 @@ export async function resolveProtectedStorageUrl(
 ): Promise<string | null> {
   const normalizedRawUrl = normalizeStorageUrl(rawUrl);
   if (!normalizedRawUrl && !storagePath) return null;
-  const isProtectedUrl = (value: string | undefined | null): boolean =>
-    Boolean(
-      value &&
-      (
-        value.startsWith('/api/storage/files/') ||
-        value.startsWith('/api/storage/path') ||
-        value.startsWith('/api/storage/sop/')
-      )
-    );
+  const isProtectedUrl = (value: string | undefined | null): boolean => isProtectedStorageUrl(value);
 
   // storagePath is copied from storage_files.objectPath by the upload API. It
   // identifies the binary itself, while a file URL only identifies a metadata
@@ -153,9 +146,7 @@ export function triggerFileDownload(
   // A plain <a href> cannot send X-Session-Id, so fetch the protected file first
   // and then download the resulting Blob.
   if (
-    normalizedUrl?.startsWith('/api/storage/files/') ||
-    normalizedUrl?.startsWith('/api/storage/path') ||
-    normalizedUrl?.startsWith('/api/storage/sop/') ||
+    isProtectedStorageUrl(normalizedUrl) ||
     (!normalizedUrl && fallbackStoragePath)
   ) {
     void getProtectedStorageHeaders().then(async (headers) => {
@@ -198,7 +189,7 @@ export function triggerFileDownload(
         }
         // Guessing is legacy-only. An objectPath or the metadata-first SPO
         // resolver has already made an authoritative decision.
-        const canGuessLegacyName = !fallbackStoragePath && !normalizedUrl?.startsWith('/api/storage/sop/');
+        const canGuessLegacyName = !fallbackStoragePath && !/\/(?:api\/storage|storageApi)\/sop\//i.test(normalizedUrl || '');
         if (seg && canGuessLegacyName) {
           fallbackUrls.push(`/api/storage/files/${seg}`);
           fallbackUrls.push(`/api/storage/path/sidokter/spo/${fullFilename}`);
@@ -224,7 +215,7 @@ export function triggerFileDownload(
         for (const candidateUrl of fallbackUrls) {
           if (!candidateUrl || candidateUrl === normalizedUrl) continue;
           try {
-            const candidateRes = await fetch(candidateUrl, { headers });
+            const candidateRes = await fetch(normalizeStorageUrl(candidateUrl), { headers });
             if (candidateRes.ok) {
               res = candidateRes;
               break;

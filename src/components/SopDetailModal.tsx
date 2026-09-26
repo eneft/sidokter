@@ -38,11 +38,12 @@ import { formatBytes } from '../utils/numbering';
 import { SOEGIRI_HOSPITAL_INFO, isSopAccessibleByUser, canUserActivateSop } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
-import { triggerFileDownload, openDocumentPreview, getFileFromPersistentCacheAsync, resolveProtectedStorageUrl } from '../utils/fileStorage';
+import { triggerFileDownload, openDocumentPreview, getFileFromPersistentCacheAsync, resolveProtectedStorageUrl, normalizeStorageUrl } from '../utils/fileStorage';
 import { RichTextRenderer, hasHtmlTags, cleanSopRichContent } from './RichTextRenderer';
 import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from '../lib/authService';
 import { buildStoragePathUrl } from '../lib/cloudStorageService';
 import { shouldShowSignatureAndStamp } from '../utils/documentUtils';
+import { buildCloudFunctionUrl, isCapacitorNativeRuntime, publicWebBaseUrl } from '../lib/runtimeEndpoints';
 import { DocumentViewer } from './DocumentViewer';
 import { AdminTooltip } from './AdminTooltip';
 import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
@@ -361,7 +362,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
 
       // 2. Storage path reference
       if (storagePath) {
-        const pathUrl = storagePath.startsWith('/api/storage/') ? storagePath : buildStoragePathUrl(storagePath);
+        const pathUrl = storagePath.startsWith('/api/storage/') ? normalizeStorageUrl(storagePath) : buildStoragePathUrl(storagePath);
         if (!isCancelled) {
           setResolvedLegacyFileUrl(pathUrl);
           setIsLoadingLegacyFile(false);
@@ -373,7 +374,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
       // server once: it first resolves storage_files.sopId -> objectPath, and
       // only when no metadata exists does it try conventional legacy names.
       // DocumentViewer performs the authenticated GET with SIDOKTER headers.
-      const legacyServerUrl = `/api/storage/sop/${encodeURIComponent(sop.id)}`;
+      const legacyServerUrl = normalizeStorageUrl(`/api/storage/sop/${encodeURIComponent(sop.id)}`);
       if (!isCancelled) {
         setResolvedLegacyFileUrl(legacyServerUrl);
         setResolvedLegacySource(null);
@@ -1201,15 +1202,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
     const payload = JSON.stringify({
       html: clonedRoot.outerHTML,
       css: cssParts.join('\n'),
-      baseUrl: window.location.origin,
+      baseUrl: publicWebBaseUrl(),
       authUid,
       sopNumber: sop.sopNumber,
       title: sop.title,
       filename: sop.title || sop.sopNumber || `SPO_${sop.id}`
     });
+    const directPdfEndpoint = buildCloudFunctionUrl('pdfApi', 'sidokter-soegiri');
     const endpoints = [
-      '/api/pdf',
-      'https://asia-southeast2-sidokter-soegiri.cloudfunctions.net/pdfApi',
+      ...(isCapacitorNativeRuntime() ? [] : ['/api/pdf']),
+      directPdfEndpoint,
       'https://pdfapi-n7zygxitla-et.a.run.app'
     ];
     let response: Response | null = null;

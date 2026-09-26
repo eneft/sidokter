@@ -209,7 +209,8 @@ function cors(req, res) {
   const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
+  const native = /^(?:capacitor|ionic):\/\/localhost$/;
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || native.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -1965,7 +1966,8 @@ function pdfCors(req, res) {
   const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
-  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
+  const native = /^(?:capacitor|ionic):\/\/localhost$/;
+  if (origin && (configured.includes(origin) || builtIn.test(origin) || local.test(origin) || native.test(origin) || vercel.test(origin) || origin.endsWith('.run.app') || origin.includes('sidokter-soegiri'))) {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
@@ -2087,10 +2089,11 @@ function storageCors(req, res) {
   const builtIn = new RegExp(`^https://(?:sidokter-soegiri|${projectId})\\.(?:web\\.app|firebaseapp\\.com)$`);
   const vercel = /^https:\/\/[a-z0-9-]+\.vercel\.app$/;
   const local = /^http:\/\/localhost:\d+$/;
+  const native = /^(?:capacitor|ionic):\/\/localhost$/;
   const aiStudio = /^https:\/\/[^/]+\.run\.app$/;
 
   const allowed = !origin || configured.includes(origin) || builtIn.test(origin) ||
-    local.test(origin) || vercel.test(origin) || aiStudio.test(origin) ||
+    local.test(origin) || native.test(origin) || vercel.test(origin) || aiStudio.test(origin) ||
     origin.includes('sidokter-soegiri');
 
   if (origin && allowed) {
