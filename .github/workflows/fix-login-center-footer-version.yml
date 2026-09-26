@@ -1,0 +1,78 @@
+name: Fix login centering and footer
+
+on:
+  push:
+    branches:
+      - fix/login-center-footer-version
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply login layout correction
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/LoginPage.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace("import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';\n", '')
+
+          inside_footer = '''\n              {/* Desktop-only footer inside the login card */}\n              <div className="hidden lg:block mt-5 border-t border-slate-100 pt-3 text-center text-[10px] font-medium leading-relaxed text-slate-400">\n                © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0\n              </div>'''
+          if text.count(inside_footer) != 1:
+              raise SystemExit('Expected exactly one desktop footer inside login card')
+          text = text.replace(inside_footer, '')
+
+          old_tail = '''          </section>\n        </div>\n      </main>\n\n      {/* Clean Global Footer */}\n      <footer id="login-auth-footer" className="login-page-footer lg:hidden">\n        © 2026 {SOEGIRI_HOSPITAL_INFO.shortName} · Sistem Dokumen Terpadu (SIDOKTER) v1.0\n      </footer>'''
+          new_tail = '''          </section>\n        </div>\n\n        <div className="login-version-note" aria-label="Versi aplikasi SIDOKTER">\n          SIDOKTER V. 1.0.0\n        </div>\n      </main>\n\n      {/* Footer institusi tetap berada di bagian bawah halaman */}\n      <footer id="login-auth-footer" className="login-page-footer">\n        © 2026 RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian\n      </footer>'''
+          if text.count(old_tail) != 1:
+              raise SystemExit('Expected exactly one login page tail')
+          text = text.replace(old_tail, new_tail)
+          path.write_text(text, encoding='utf-8')
+
+          css = Path('src/index.css')
+          css_text = css.read_text(encoding='utf-8')
+          marker = '/* LOGIN DESKTOP 80% — CENTERED CARD + VERSION + BOTTOM INSTITUTION FOOTER */'
+          if marker in css_text:
+              raise SystemExit('Desktop login centering override already exists')
+          css_text = css_text.rstrip() + '''\n\n/* LOGIN DESKTOP 80% — CENTERED CARD + VERSION + BOTTOM INSTITUTION FOOTER */\n.login-version-note {\n  display: none;\n}\n\n@media (min-width: 821px) {\n  #login-page-container.login-page-shell {\n    min-height: 100vh;\n    min-height: 100dvh;\n  }\n\n  #login-main-content.login-main-content {\n    flex: 1 1 auto !important;\n    min-height: 0 !important;\n    margin: 0 !important;\n    padding: 20px 16px 10px !important;\n    display: flex;\n    flex-direction: column;\n    align-items: center !important;\n    justify-content: center !important;\n  }\n\n  #login-auth-card.login-auth-card {\n    flex: 0 0 auto;\n  }\n\n  .login-version-note {\n    display: block;\n    margin-top: 10px;\n    text-align: center;\n    font-size: 10px;\n    line-height: 1.4;\n    font-weight: 600;\n    letter-spacing: 0.02em;\n    color: #94a3b8;\n  }\n\n  #login-auth-footer.login-page-footer {\n    display: block !important;\n    flex: 0 0 auto;\n    width: 100%;\n    padding: 0 16px 14px !important;\n    text-align: center;\n    font-size: 10px;\n    line-height: 1.4;\n    color: #94a3b8;\n  }\n}\n'''
+          css.write_text(css_text, encoding='utf-8')
+          PY
+
+      - name: Verify build and requested layout scope
+        shell: bash
+        run: |
+          npm ci
+          npm run build:client
+          git diff HEAD --check
+          grep -F "SIDOKTER V. 1.0.0" src/components/LoginPage.tsx
+          grep -F "© 2026 RSUD Dr. Soegiri Lamongan - Bagian Umum dan Kepegawaian" src/components/LoginPage.tsx
+          ! grep -F "Desktop-only footer inside the login card" src/components/LoginPage.tsx
+          ! grep -F "SOEGIRI_HOSPITAL_INFO" src/components/LoginPage.tsx
+          grep -F "LOGIN DESKTOP 80% — CENTERED CARD + VERSION + BOTTOM INSTITUTION FOOTER" src/index.css
+          test "$(git diff HEAD --name-only | sort | tr '\n' ' ')" = "src/components/LoginPage.tsx src/index.css "
+
+      - name: Commit verified patch and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/fix-login-center-footer-version.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/LoginPage.tsx src/index.css .github/workflows/fix-login-center-footer-version.yml
+          git commit -m "fix: center desktop login and restore bottom footer"
+          git push origin HEAD:fix/login-center-footer-version
