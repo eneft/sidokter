@@ -277,9 +277,10 @@ export interface SupportingEvidence {
 }
 
 
-export type MainMenuTab = 'dashboard' | 'spo' | 'sk' | 'mou' | 'library' | 'profile' | 'admin';
+export type MainMenuTab = 'dashboard' | 'spo' | 'sk' | 'mou' | 'regulasi' | 'library' | 'profile' | 'admin';
 
-export type LibraryDocumentType = 'SK' | 'MOU';
+export type LibraryDocumentType = 'SK' | 'MOU' | 'REGULASI';
+export type RegulationType = 'PERDA' | 'PERBUP';
 export type SkCategory = 'POKOK' | 'PERUBAHAN';
 
 export interface LibraryDocument {
@@ -300,6 +301,10 @@ export interface LibraryDocument {
   createdAt: string;
   updatedAt: string;
   uploadedBy?: string;
+
+  // Regulasi eksternal daerah (repository resmi; PDF asli dipertahankan)
+  regulationType?: RegulationType;
+  regulationYear?: string;
 
   // Fitur SK Perubahan (Revisi Kebijakan & Aturan)
   isRevisionSK?: boolean;          // Menandakan naskah ini adalah SK Perubahan

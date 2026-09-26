@@ -8,6 +8,7 @@ import { getAllUsersForBackup, restoreUsersFromBackup } from './accountService';
 import { restoreLibraryDocuments } from './documentLibraryService';
 import { getAllSKForBackup, getAllSKFilesForBackup } from './skService';
 import { getAllMOUForBackup, getAllMOUFilesForBackup } from './mouService';
+import { getAllRegulationsForBackup, getAllRegulationFilesForBackup } from './regulationService';
 import { getAllCachedFiles, saveFileToLocalCache } from '../utils/fileStorage';
 import { getHierarchyMaster, saveHierarchyMaster } from './hierarchyService';
 import { SoegiriCategory } from '../utils/soegiriStructure';
@@ -20,12 +21,14 @@ export interface SystemBackupData {
   sopNumberReservations: SopNumberReservation[];
   sk: LibraryDocument[];
   mou: LibraryDocument[];
+  regulasi: LibraryDocument[];
   numberingConfig?: NumberingConfig;
   hierarchy?: SoegiriCategory[];
   users: UserAccount[];
   sopFiles: Record<string, string>;
   skFiles: Record<string, string>;
   mouFiles: Record<string, string>;
+  regulasiFiles: Record<string, string>;
 }
 
 export interface SystemBackupFile {
@@ -57,8 +60,10 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
   const sops = addSopCachedFiles(localSops, cachedFiles);
   const sk = await getAllSKForBackup();
   const mou = await getAllMOUForBackup();
+  const regulasi = await getAllRegulationsForBackup();
   const skFiles = await getAllSKFilesForBackup();
   const mouFiles = await getAllMOUFilesForBackup();
+  const regulasiFiles = await getAllRegulationFilesForBackup();
   const users = getAllUsersForBackup();
 
   const numberingRaw = localStorage.getItem('soegiri_offline_numbering_v1');
@@ -69,15 +74,16 @@ export async function createSystemBackup(createdBy: string): Promise<SystemBacku
   if (sopNumberReservations.some((r) => !r.sopNumber || !r.divisionCode || !r.year || !(r.sequenceNumber > 0))) throw new Error('Verifikasi backup reservation nomor SPO gagal.');
   if (sk.length !== (await getAllSKForBackup()).length) throw new Error('Verifikasi backup SK gagal.');
   if (mou.length !== (await getAllMOUForBackup()).length) throw new Error('Verifikasi backup MOU gagal.');
+  if (regulasi.length !== (await getAllRegulationsForBackup()).length) throw new Error('Verifikasi backup REGULASI gagal.');
 
   return {
     backupVersion: BACKUP_VERSION,
     application: BACKUP_APPLICATION,
     createdAt: new Date().toISOString(),
     createdBy,
-    data: { sops, sopNumberReservations, sk, mou, numberingConfig, hierarchy, users, sopFiles: {}, skFiles, mouFiles },
+    data: { sops, sopNumberReservations, sk, mou, regulasi, numberingConfig, hierarchy, users, sopFiles: {}, skFiles, mouFiles, regulasiFiles },
     notes: [
-      'Backup sistem mencakup SPO, SK, MOU, akun pengguna, konfigurasi penomoran, master hirarki, dan lampiran PDF.',
+      'Backup sistem mencakup SPO, SK, MOU, REGULASI, akun pengguna, konfigurasi penomoran, master hirarki, dan lampiran PDF.',
       'Session login aktif dan status lockout sementara tidak disertakan demi keamanan.',
       'Backup akun hanya menyimpan profil; password, passwordHash, passwordSalt, session, dan lockout tidak pernah dimasukkan.',
       'Backup dokumen berasal dari penyimpanan lokal SIDOKTER SOEGIRI; credential akun dikelola terpisah oleh server.'
@@ -149,7 +155,8 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
 
   const sk = Array.isArray(backup.data.sk) ? backup.data.sk : (Array.isArray(backup.data.library) ? backup.data.library.filter((d:any) => d.type === 'SK') : []);
   const mou = Array.isArray(backup.data.mou) ? backup.data.mou : (Array.isArray(backup.data.library) ? backup.data.library.filter((d:any) => d.type === 'MOU') : []);
-  const library = [...sk, ...mou].filter((d:any) => d && (d.type === 'SK' || d.type === 'MOU')) as LibraryDocument[];
+  const regulasi = Array.isArray(backup.data.regulasi) ? backup.data.regulasi : (Array.isArray(backup.data.library) ? backup.data.library.filter((d:any) => d.type === 'REGULASI') : []);
+  const library = [...sk, ...mou, ...regulasi].filter((d:any) => d && (d.type === 'SK' || d.type === 'MOU' || d.type === 'REGULASI')) as LibraryDocument[];
 
   const users = Array.isArray(backup.data.users) ? backup.data.users as UserAccount[] : [];
   const config = backup.data.numberingConfig as NumberingConfig | undefined;
@@ -157,13 +164,14 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
   const sopFiles: Record<string,string> = backup.data.sopFiles || {};
   const skFiles: Record<string,string> = backup.data.skFiles || {};
   const mouFiles: Record<string,string> = backup.data.mouFiles || {};
+  const regulasiFiles: Record<string,string> = backup.data.regulasiFiles || {};
 
   await restoreSopsToLocal(sops);
   await restoreNumberReservations(sopNumberReservations);
   if (config) await saveConfigToLocal(config);
   if (hierarchy && hierarchy.length > 0) await saveHierarchyMaster(hierarchy, preserveUsername || 'admin');
   if (users.length) await restoreUsersFromBackup(users, preserveUsername);
-  await restoreLibraryDocuments(library, { ...skFiles, ...mouFiles });
+  await restoreLibraryDocuments(library, { ...skFiles, ...mouFiles, ...regulasiFiles });
 
   let sopAttachmentCount = 0;
   const allSopFiles = { ...sopFiles };
@@ -190,5 +198,5 @@ export async function restoreSystemBackup(file: File, preserveUsername: string) 
     Object.assign(sop, restored);
   }
 
-  return { sops, sopNumberReservations, sk, mou, users, config, sopAttachmentCount, libraryFiles: Object.keys({ ...skFiles, ...mouFiles }).length, version };
+  return { sops, sopNumberReservations, sk, mou, regulasi, users, config, sopAttachmentCount, libraryFiles: Object.keys({ ...skFiles, ...mouFiles, ...regulasiFiles }).length, version };
 }

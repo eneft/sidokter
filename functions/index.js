@@ -2148,12 +2148,13 @@ async function storageUpload(req, res) {
   // server-side so a stale client cannot place SK/MOU files under OTHER.
   const inferredType = id.startsWith('library-sk-') ? 'SK'
     : id.startsWith('library-mou-') ? 'MOU'
+    : id.startsWith('library-regulasi-') ? 'REGULASI'
     : (id.includes('_signedScan') || id.includes('_oldFile') || id.includes('_file') || id.startsWith('sop-') ? 'SPO' : 'OTHER');
   const requestedType = String(resourceType || inferredType).toUpperCase();
   const type = inferredType !== 'OTHER'
     ? inferredType
-    : (['SPO', 'SK', 'MOU', 'OTHER'].includes(requestedType) ? requestedType : 'OTHER');
-  if ((type === 'SK' || type === 'MOU') && !(isAdmin || isStructural)) return json(res, 403, { success:false, message:'Akses upload SK/MOU ditolak.' });
+    : (['SPO', 'SK', 'MOU', 'REGULASI', 'OTHER'].includes(requestedType) ? requestedType : 'OTHER');
+  if (['SK', 'MOU', 'REGULASI'].includes(type) && !(isAdmin || isStructural)) return json(res, 403, { success:false, message:'Akses upload SK/MOU/REGULASI ditolak.' });
 
   const ext = path.extname(safeName) || (mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : '.jpg');
   const objectPath = `sidokter/${type.toLowerCase()}/${id}${ext}`;
@@ -2330,8 +2331,12 @@ async function storageDownload(req, res) {
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
-    let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
-    if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
+    const resourceType = String(meta.resourceType || '').toUpperCase();
+    const protectedLibraryType = ['SK', 'MOU', 'REGULASI'].includes(resourceType);
+    let allowed = protectedLibraryType
+      ? (isAdmin || isStructural)
+      : (isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k))));
+    if (!allowed && resourceType === 'SPO') {
       const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || id || objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }
@@ -2450,8 +2455,12 @@ async function storageDownloadByPath(req, res) {
     const isStructural = Array.isArray(context.user.badges) && context.user.badges.some(b => String(b).trim().toUpperCase() === 'STRUKTURAL');
     const hasGlobalAccess = Boolean(context.user.sopGlobalAccess || context.user.divisionCode === 'ALL');
     const keys = storageAccessKeys(context.user);
-    let allowed = isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k)));
-    if (!allowed && String(meta.resourceType || '').toUpperCase() === 'SPO') {
+    const resourceType = String(meta.resourceType || '').toUpperCase();
+    const protectedLibraryType = ['SK', 'MOU', 'REGULASI'].includes(resourceType);
+    let allowed = protectedLibraryType
+      ? (isAdmin || isStructural)
+      : (isAdmin || isStructural || hasGlobalAccess || meta.ownerUid === context.user.id || (Array.isArray(meta.accessKeys) && meta.accessKeys.some(k => keys.has(k))));
+    if (!allowed && resourceType === 'SPO') {
       const sopId = meta.sopId || extractSopIdFromStorageRef(meta.id || metadataObjectPath || objectPath);
       if (sopId) allowed = await canReadSopBinaryForUser(context, sopId);
     }

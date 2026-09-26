@@ -16,7 +16,7 @@ export interface UploadResult {
   storagePath?: string;
 }
 
-export type StorageResourceType = 'SPO' | 'SK' | 'MOU' | 'OTHER';
+export type StorageResourceType = 'SPO' | 'SK' | 'MOU' | 'REGULASI' | 'OTHER';
 
 /**
  * Uploads a file (File object, Blob, or base64 DataURL) to the cloud storage endpoint.

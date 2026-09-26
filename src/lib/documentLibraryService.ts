@@ -50,7 +50,7 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
   if (actorRole !== 'admin' && !hasStructuralBadge) {
     throw new Error(`Akses ditolak. Dokumen ${type} hanya dapat diakses oleh User dengan badge STRUKTURAL.`);
   }
-  if (!['SK','MOU'].includes(type)) throw new Error('Jenis dokumen tidak valid.');
+  if (!['SK','MOU','REGULASI'].includes(type)) throw new Error('Jenis dokumen tidak valid.');
   if (!file || file.type !== 'application/pdf') throw new Error('File harus berupa PDF.');
   // Keep the client validation aligned with the Firebase Storage API hard
   // limit. Allowing 20 MB here previously let a user finish the form only to
@@ -94,6 +94,13 @@ export async function uploadDocument(file: File, type: LibraryDocumentType, titl
     createdAt: now,
     updatedAt: now,
     uploadedBy,
+    // Regulasi daerah
+    regulationType: type === 'REGULASI' && ['PERDA', 'PERBUP'].includes(String(metadata?.regulationType || '').toUpperCase())
+      ? String(metadata.regulationType).toUpperCase() as any
+      : undefined,
+    regulationYear: type === 'REGULASI'
+      ? (String(metadata?.regulationYear || '').trim() || undefined)
+      : undefined,
     // SK Perubahan fields
     isRevisionSK: type === 'SK' ? isRevisionSK : undefined,
     skCategory: type === 'SK' ? skCategory : undefined,
@@ -167,7 +174,8 @@ export async function getDocumentUrl(document: LibraryDocument): Promise<string 
     document.id,
     `library_${document.id}`,
     `sk_${document.id}`,
-    `mou_${document.id}`
+    `mou_${document.id}`,
+    `regulasi_${document.id}`
   ];
 
   for (const cand of candidates) {
@@ -208,7 +216,7 @@ export async function getLibraryFilesForBackup(type?: LibraryDocumentType): Prom
   return out;
 }
 export async function restoreLibraryDocuments(documents: LibraryDocument[], files: Record<string,string> = {}): Promise<void> {
-  const valid = documents.filter((d) => d && (d.type === 'SK' || d.type === 'MOU'));
+  const valid = documents.filter((d) => d && (d.type === 'SK' || d.type === 'MOU' || d.type === 'REGULASI'));
   saveDocuments(valid);
 }
 
@@ -216,7 +224,7 @@ export async function restoreLibraryDocuments(documents: LibraryDocument[], file
  * Compatibility aliases for legacy Library UI components.
  * Canonical API remains uploadDocument/deleteDocument/getDocumentUrl.
  * These aliases keep existing callers working while the document domains
- * (SPO/SK/MOU) remain separated at the service layer.
+ * (SPO/SK/MOU/REGULASI) remain separated at the service layer.
  */
 export const uploadLibraryDocument = uploadDocument;
 export const deleteLibraryDocument = deleteDocument;

@@ -70,6 +70,7 @@ import { UserLibraryTab } from './UserLibraryTab';
 import { UserPasswordTab } from './UserPasswordTab';
 import { SKPage } from './SKPage';
 import { MOUPage } from './MOUPage';
+import { RegulasiPage } from './RegulasiPage';
 import { FinalLibraryPage } from './FinalLibraryPage';
 import { DashboardOverviewPage } from './DashboardOverviewPage';
 import { DocumentViewer } from './DocumentViewer';
@@ -139,7 +140,7 @@ export const UserView: React.FC<UserViewProps> = ({
   // Terbitkan Nomor memiliki state sendiri agar tidak bocor ke form SPO.
   const [issueTitle, setIssueTitle] = useState('');
   const [issueEffectiveDate, setIssueEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
-  // Active Navigation Tab State: Menu structure Dashboard | SPO | SK | MOU | Library | Admin
+  // Active Navigation Tab State: Menu structure Dashboard | SPO | SK | MOU | REGULASI | Library | Admin
   const [activeTab, setActiveTab] = useState<MainMenuTab>('dashboard');
   const [spoSubTab, setSpoSubTab] = useState<'input' | 'list' | 'archive'>('list');
 
@@ -2464,6 +2465,15 @@ export const UserView: React.FC<UserViewProps> = ({
         {activeTab === 'mou' && (
           <MOUPage
             documents={libraryDocuments}
+            userSession={userSession}
+            onBack={() => setActiveTab('dashboard')}
+            onShowToast={onShowToast}
+          />
+        )}
+
+        {/* TAB 5: REGULASI (PERDA/PERBUP) */}
+        {activeTab === 'regulasi' && (
+          <RegulasiPage
             userSession={userSession}
             onBack={() => setActiveTab('dashboard')}
             onShowToast={onShowToast}
