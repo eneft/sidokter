@@ -1,6 +1,7 @@
 import { getPersistedClientSession, getCurrentAuthToken } from '../lib/authService';
 import { purgeBloatedLocalStorage } from './storageQuota';
 import { firebaseConfig } from '../lib/firebase';
+import { shareOrSaveBlobNative } from '../lib/nativeFileActions';
 import { isProtectedStorageApiUrl, normalizeStorageApiUrl, storageApiUrl } from '../lib/runtimeEndpoints';
 
 /**
@@ -154,7 +155,8 @@ export function triggerFileDownload(
         .replace(/[/\\?%*:|"<>]/g, '_')
         .replace(/\s+/g, '_');
 
-      const downloadBlob = (blob: Blob) => {
+      const downloadBlob = async (blob: Blob) => {
+        if (await shareOrSaveBlobNative(blob, safeFileName)) return;
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -253,7 +255,7 @@ export function triggerFileDownload(
               if (cachedDataUrl) {
                 const cachedBlob = dataUrlToBlob(cachedDataUrl);
                 if (cachedBlob.size > 0) {
-                  downloadBlob(cachedBlob);
+                  await downloadBlob(cachedBlob);
                   return;
                 }
               }
@@ -276,7 +278,7 @@ export function triggerFileDownload(
       if (res && res.ok) {
         const blob = await res.blob();
         if (blob && blob.size > 0) {
-          downloadBlob(blob);
+          await downloadBlob(blob);
           return;
         }
       }

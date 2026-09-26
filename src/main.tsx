@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { getPersistedClientSession, refreshUserSessionProfile } from './lib/authService';
+import { hideNativeSplash, initializeNativeUx } from './lib/nativeUx';
 import './index.css';
 import './ios-readiness.css';
 
@@ -34,6 +35,7 @@ async function restoreFirebaseAuthBeforeRender(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  await initializeNativeUx();
   await restoreFirebaseAuthBeforeRender();
 
   createRoot(document.getElementById('root')!).render(
@@ -43,6 +45,8 @@ async function bootstrap(): Promise<void> {
       </ErrorBoundary>
     </StrictMode>,
   );
+
+  requestAnimationFrame(() => { void hideNativeSplash(); });
 }
 
 void bootstrap();
