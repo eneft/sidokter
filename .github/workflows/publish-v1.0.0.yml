@@ -1,0 +1,51 @@
+name: Publish SIDOKTER v1.0.0
+
+on:
+  push:
+    branches:
+      - automation/publish-v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub Release v1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: dfcf6736fc2736c0a6f939fd5cfaed8b0e2fa324
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # SIDOKTER Final 1.0.0
+
+          Baseline produksi pertama Sistem Dokumen Terpadu RSUD Dr. Soegiri.
+
+          Release ini mengunci versi operasional yang telah terverifikasi di production, termasuk:
+          - workflow SPO Baru, Existing, dan Riviu;
+          - penomoran SPO, nomor revisi, reservation/nomor terbit, dan validasi hirarki;
+          - Live SPO dan preview A4;
+          - pengelolaan PDF/DOCX dengan Firebase Storage authoritative;
+          - RBAC Admin/User, hirarki, ALL, dan badge STRUKTURAL;
+          - audit/security baseline;
+          - dokumen pendukung dan library;
+          - desktop dan PWA mobile yang telah dipoles untuk iPhone.
+
+          Baseline commit:
+          `dfcf6736fc2736c0a6f939fd5cfaed8b0e2fa324`
+
+          Status verifikasi production: SUCCESS.
+          EOF
+
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v1.0.0 already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create v1.0.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "SIDOKTER Final 1.0.0" \
+            --notes-file release-notes.md
