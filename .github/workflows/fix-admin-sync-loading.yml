@@ -1,0 +1,49 @@
+name: Verify sync loading indicator
+
+on:
+  push:
+    branches:
+      - fix/admin-sync-loading-indicator
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/admin-sync-loading-indicator
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply UI patch
+        run: node scripts/patch-admin-sync-loading.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Check diff
+        run: git diff --check
+
+      - name: Commit verified source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/AdminHubPage.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+          else
+            git commit -m "fix: show progress during SPO number synchronization"
+            git push origin HEAD:fix/admin-sync-loading-indicator
+          fi
