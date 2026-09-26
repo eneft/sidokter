@@ -1,0 +1,83 @@
+name: Fix Login Logo Final Once
+
+on:
+  push:
+    branches:
+      - fix/login-logo-final-upload
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/login-logo-final-upload
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Replace login brand with final uploaded logo
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/components/LoginPage.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          pattern = re.compile(
+              r'(\s*\{/\* Main App Brand \*/\}\s*\n\s*<div className="login-brand-hero">\s*\n)'
+              r'.*?'
+              r'(\s*<p className="login-brand-desc">)',
+              re.S,
+          )
+
+          replacement = (
+              '\n              {/* Main App Brand */}\n'
+              '              <div className="login-brand-hero">\n'
+              '                <img\n'
+              '                  src="/sidokter-logo-login.webp"\n'
+              '                  alt="SIDOKTER — Sistem Dokumen Terpadu"\n'
+              '                  className="block w-full max-w-[420px] h-auto object-contain object-left mb-4"\n'
+              '                />\n'
+              '                <p className="login-brand-desc">'
+          )
+
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected 1 login brand block, found {count}.')
+
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Validate diff
+        shell: bash
+        run: |
+          git diff --check
+          grep -n "sidokter-logo-login.webp" src/components/LoginPage.tsx
+          test -f public/sidokter-logo-login.webp
+
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/fix-login-logo-final-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/LoginPage.tsx .github/workflows/fix-login-logo-final-once.yml
+          git commit -m "fix: use final uploaded SIDOKTER logo on login"
+          git push origin HEAD:fix/login-logo-final-upload
