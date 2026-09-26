@@ -229,11 +229,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               {/* Main App Brand */}
               <div className="login-brand-hero">
-                <img
-                  src="/sidokter-logo-v2.webp"
-                  alt="SIDOKTER — Sistem Dokumen Terpadu"
-                  className="block w-full max-w-[400px] h-auto object-contain object-left mb-4"
-                />
+                <div
+        className="relative w-full max-w-[400px] mb-4"
+        role="img"
+        aria-label="SIDOKTER — Sistem Dokumen Terpadu"
+      >
+        <img
+          src="/sidokter-logo-v2.webp"
+          alt=""
+          className="block w-full h-auto object-contain object-left"
+        />
+        <img
+          src="/sidokter-logo-v2.webp"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 block w-full h-auto object-contain object-left brightness-0 invert"
+          style={{ clipPath: 'inset(0 0 0 26%)' }}
+        />
+      </div>
                 <p className="login-brand-desc">
                   Platform resmi RSUD Dr. Soegiri Lamongan yang menghadirkan digitalisasi tata kelola dokumen melalui sistem yang terstandar, aman, dan terintegrasi. 
                 </p>
