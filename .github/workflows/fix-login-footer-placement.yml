@@ -60,12 +60,12 @@ jobs:
         run: |
           npm ci
           npm run build:client
-          git diff --check
+          git diff HEAD --check
           ! grep -F "Terakreditasi Paripurna" src/components/LoginPage.tsx
           grep -F "login-page-footer lg:hidden" src/components/LoginPage.tsx
           grep -F "Desktop-only footer inside the login card" src/components/LoginPage.tsx
-          git diff --name-only | grep -Fx "src/components/Header.tsx"
-          git diff --name-only | grep -Fx "src/components/LoginPage.tsx"
+          git diff HEAD --name-only | grep -Fx "src/components/Header.tsx"
+          git diff HEAD --name-only | grep -Fx "src/components/LoginPage.tsx"
 
       - name: Commit patch and remove temporary workflow
         shell: bash
