@@ -139,3 +139,31 @@ body,
     }
   }
 }
+
+
+/* Native iOS runtime states. Activated only by nativeUx.ts. */
+:root {
+  --sidokter-keyboard-height: 0px;
+}
+
+.sidokter-native-ios.sidokter-keyboard-open [class~="fixed"][class~="inset-0"] {
+  padding-bottom: max(var(--sidokter-safe-bottom), min(var(--sidokter-keyboard-height), 35vh));
+}
+
+.sidokter-native-ios[data-sidokter-network="offline"] body::before {
+  content: "Koneksi terputus — perubahan online menunggu jaringan kembali";
+  position: fixed;
+  z-index: 2147483000;
+  top: var(--sidokter-safe-top);
+  left: max(0.5rem, var(--sidokter-safe-left));
+  right: max(0.5rem, var(--sidokter-safe-right));
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 0 0 10px 10px;
+  background: rgba(15, 23, 42, 0.94);
+  color: white;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
