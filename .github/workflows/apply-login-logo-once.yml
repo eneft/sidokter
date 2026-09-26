@@ -1,0 +1,110 @@
+name: Apply Login Logo Once
+
+on:
+  push:
+    branches:
+      - feat/login-logo-brand
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/login-logo-brand
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Replace login title with SIDOKTER logo
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/LoginPage.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''              {/* Main App Title */}
+              <div className="login-brand-hero">
+                <div className="login-brand-title" aria-label="SIDOKTER">
+                  <span className="login-brand-title-light">SIDO</span>
+                  <span className="login-brand-title-accent">KTER</span>
+                </div>
+                <h1 className="login-brand-system-name">
+                  Sistem Dokumen Terpadu RSUD Dr. Soegiri Lamongan
+                </h1>
+                <p className="login-brand-desc">'''
+
+          new = '''              {/* Main App Brand */}
+              <div className="login-brand-hero">
+                <img
+                  src="/sidokter-logo-v2.webp"
+                  alt="SIDOKTER — Sistem Dokumen Terpadu"
+                  className="login-brand-app-logo"
+                />
+                <p className="login-brand-desc">'''
+
+          if old not in text:
+              raise SystemExit('Target login brand block was not found; aborting safe patch.')
+
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          css = Path('src/index.css')
+          css_text = css.read_text(encoding='utf-8')
+          marker = '''.login-brand-title-accent {
+  color: #00c4a7;
+  margin-left: 1px;
+}
+'''
+          addition = '''.login-brand-title-accent {
+  color: #00c4a7;
+  margin-left: 1px;
+}
+
+.login-brand-app-logo {
+  display: block;
+  width: min(100%, 400px);
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  margin: 0 0 16px;
+}
+'''
+          if '.login-brand-app-logo {' not in css_text:
+              if marker not in css_text:
+                  raise SystemExit('Target login CSS marker was not found; aborting safe patch.')
+              css_text = css_text.replace(marker, addition, 1)
+              css.write_text(css_text, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Validate diff
+        shell: bash
+        run: |
+          git diff --check
+          git diff -- src/components/LoginPage.tsx src/index.css
+
+      - name: Commit verified login logo update
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-login-logo-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/LoginPage.tsx src/index.css .github/workflows/apply-login-logo-once.yml
+          git commit -m "feat: use SIDOKTER logo on login brand panel"
+          git push origin HEAD:feat/login-logo-brand
