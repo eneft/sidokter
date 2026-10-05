@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   X, 
-  Printer, 
+  Printer,
+  Download,
+  Loader2,
   Search, 
   Filter, 
   RotateCcw, 
@@ -11,6 +13,10 @@ import {
 import { SopDocument, getStandardJenisSpo } from '../types';
 import { SOEGIRI_HOSPITAL_INFO, SOEGIRI_MASTER_CATEGORIES } from '../utils/soegiriStructure';
 import { HospitalLogo } from './HospitalLogo';
+import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfile } from '../lib/authService';
+import { buildCloudFunctionUrl, isCapacitorNativeRuntime, publicWebBaseUrl } from '../lib/runtimeEndpoints';
+import { responseToPdfBlob } from '../utils/pdfBinary';
+import { shareOrSaveBlobNative } from '../lib/nativeFileActions';
 
 interface PrintRegisterModalProps {
   isOpen: boolean;
@@ -31,6 +37,8 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const printablePaperRef = useRef<HTMLDivElement | null>(null);
 
   const handlePrint = () => {
     window.print();
@@ -83,6 +91,183 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
 
   const selectedCategoryObj = SOEGIRI_MASTER_CATEGORIES.find((c) => c.code === selectedDivision);
 
+  const buildPdfAuthHeaders = async (forceRefresh = false) => {
+    const token = await getCurrentAuthToken(forceRefresh).catch(() => null);
+    const persisted = getPersistedClientSession();
+    if (!token && !persisted?.sessionId) {
+      throw new Error('Sesi login tidak valid. Silakan login kembali.');
+    }
+    return {
+      Accept: 'application/pdf, application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(persisted?.sessionId ? {
+        'X-Session-Id': persisted.sessionId,
+        'X-Soegiri-Session-Id': persisted.sessionId
+      } : {}),
+      ...(persisted?.authUid ? { 'X-Soegiri-Auth-Uid': persisted.authUid } : {}),
+      ...(persisted?.username ? { 'X-User-Username': persisted.username } : {})
+    };
+  };
+
+  const generateRegisterPdfBlob = async (): Promise<Blob> => {
+    const registerRoot = printablePaperRef.current;
+    if (!registerRoot) throw new Error('Buku register belum siap dibuat PDF.');
+
+    const cssParts: string[] = [];
+    for (const style of Array.from(document.querySelectorAll<HTMLStyleElement>('style'))) {
+      if (style.textContent) cssParts.push(style.textContent);
+    }
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        const rules = Array.from((sheet as CSSStyleSheet).cssRules || []);
+        if (rules.length) cssParts.push(rules.map((rule) => rule.cssText).join('\n'));
+      } catch {
+        // Cross-origin stylesheets cannot be read; local compiled CSS is enough.
+      }
+    }
+
+    const clonedRoot = registerRoot.cloneNode(true) as HTMLElement;
+    clonedRoot.id = 'printable-register-pdf-document';
+    clonedRoot.classList.remove('rounded-xl', 'shadow-xs', 'border', 'max-w-4xl', 'mx-auto');
+    clonedRoot.style.width = '190mm';
+    clonedRoot.style.maxWidth = '190mm';
+    clonedRoot.style.margin = '0 auto';
+    clonedRoot.style.padding = '10mm';
+    clonedRoot.style.boxSizing = 'border-box';
+    clonedRoot.style.boxShadow = 'none';
+    clonedRoot.style.border = '0';
+    clonedRoot.style.borderRadius = '0';
+    clonedRoot.style.background = '#ffffff';
+
+    clonedRoot.querySelectorAll('.no-print').forEach((node) => node.remove());
+    clonedRoot.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+      const src = img.getAttribute('src');
+      if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
+      try {
+        img.setAttribute('src', new URL(src, window.location.href).href);
+      } catch {
+        // Keep original relative URL if URL normalization fails.
+      }
+    });
+
+    const extraCss = `
+#printable-register-pdf-document {
+  width: 190mm !important;
+  max-width: 190mm !important;
+  margin: 0 auto !important;
+  padding: 10mm !important;
+  box-sizing: border-box !important;
+  background: #fff !important;
+  color: #0f172a !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+#printable-register-pdf-document table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+}
+#printable-register-pdf-document thead {
+  display: table-header-group !important;
+}
+#printable-register-pdf-document tr {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+#printable-register-pdf-document th,
+#printable-register-pdf-document td {
+  font-size: 8.5px !important;
+  line-height: 1.25 !important;
+}
+#printable-register-pdf-document > div:last-child {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+`;
+
+    const persisted = getPersistedClientSession();
+    const safeYear = selectedYear !== 'ALL' ? selectedYear : 'SEMUA_TAHUN';
+    const safeDivision = selectedDivision !== 'ALL' ? selectedDivision : 'SEMUA_UNIT';
+    const filename = `Buku_Register_SPO_${safeDivision}_${safeYear}`;
+    const payload = JSON.stringify({
+      html: clonedRoot.outerHTML,
+      css: `${cssParts.join('\n')}\n${extraCss}`,
+      baseUrl: publicWebBaseUrl(),
+      authUid: persisted?.authUid || 'anonymous_user',
+      title: filename,
+      filename
+    });
+
+    const directPdfEndpoint = buildCloudFunctionUrl('pdfApi', 'sidokter-soegiri');
+    const endpoints = [
+      ...(isCapacitorNativeRuntime() ? [] : ['/api/pdf']),
+      directPdfEndpoint,
+      'https://pdfapi-n7zygxitla-et.a.run.app'
+    ];
+
+    let response: Response | null = null;
+    let lastFailure = '';
+    for (const endpoint of endpoints) {
+      try {
+        let res = await fetch(endpoint, {
+          method: 'POST',
+          headers: await buildPdfAuthHeaders(false),
+          body: payload
+        });
+        if (res.status === 401) {
+          await refreshUserSessionProfile().catch(() => undefined);
+          res = await fetch(endpoint, {
+            method: 'POST',
+            headers: await buildPdfAuthHeaders(true),
+            body: payload
+          });
+        }
+        if (res.ok) {
+          response = res;
+          break;
+        }
+        lastFailure = `HTTP ${res.status}`;
+      } catch (error: any) {
+        lastFailure = error?.message || 'Gagal menghubungi server PDF';
+      }
+    }
+
+    if (!response?.ok) {
+      throw new Error(`PDF register gagal dibuat${lastFailure ? ` (${lastFailure})` : ''}.`);
+    }
+    return responseToPdfBlob(response);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (isPdfGenerating) return;
+    setIsPdfGenerating(true);
+    try {
+      const blob = await generateRegisterPdfBlob();
+      const safeYear = selectedYear !== 'ALL' ? selectedYear : 'Semua_Tahun';
+      const safeDivision = selectedDivision !== 'ALL' ? selectedDivision : 'Semua_Unit';
+      const fileName = `Buku_Register_SPO_RSUD_Dr_Soegiri_${safeDivision}_${safeYear}.pdf`;
+
+      const handledNative = await shareOrSaveBlobNative(blob, fileName);
+      if (handledNative) return;
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (error: any) {
+      console.error('Register PDF generation failed:', error);
+      alert(error?.message || 'PDF register gagal dibuat. Silakan coba lagi.');
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 printable-modal-active">
       <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] printable-modal-overlay">
@@ -101,6 +286,17 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
             </div>
             
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isPdfGenerating}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 disabled:cursor-wait text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
+                title="Unduh buku register sebagai PDF A4"
+              >
+                {isPdfGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                <span>{isPdfGenerating ? 'Membuat PDF...' : 'Unduh PDF'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handlePrint}
@@ -230,7 +426,7 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
 
         {/* PRINTABLE DOCUMENT PAPER */}
         <div className="overflow-y-auto p-4 sm:p-8 bg-slate-50 flex-1">
-          <div className="bg-white p-6 sm:p-10 rounded-xl shadow-xs border border-slate-200 max-w-4xl mx-auto space-y-6 text-slate-900 printable-paper">
+          <div ref={printablePaperRef} className="bg-white p-6 sm:p-10 rounded-xl shadow-xs border border-slate-200 max-w-4xl mx-auto space-y-6 text-slate-900 printable-paper">
             
             {/* Formal Hospital Header */}
             <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between gap-4">
