@@ -5,6 +5,7 @@ import {
   FileText,
   Lock,
   Plus,
+  Printer,
   Search,
   Trash2,
   X
@@ -16,6 +17,7 @@ import {
   isSopAccessibleByUser
 } from '../utils/soegiriStructure';
 import { canEditExistingSop } from '../lib/sopEditPolicy';
+import { PrintRegisterModal } from './PrintRegisterModal';
 
 interface UserLibraryTabProps {
   sops: SopDocument[];
@@ -45,6 +47,7 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
+  const [isPrintRegisterOpen, setIsPrintRegisterOpen] = useState(false);
 
   const assignedDivCodes = Array.from(new Set(
     (Array.isArray(userSession.assignments) && userSession.assignments.length
@@ -122,6 +125,18 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>+ SPO Baru</span>
             </button>
+
+            {userSession.role === 'admin' && !isArchiveView && (
+              <button
+                type="button"
+                onClick={() => setIsPrintRegisterOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors"
+                title="Cetak buku register SPO"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Register</span>
+              </button>
+            )}
 
             {isArchiveView ? (
               onSwitchToListTab && (
@@ -305,6 +320,15 @@ export const UserLibraryTab: React.FC<UserLibraryTabProps> = ({
             })}
           </div>
         </div>
+      )}
+
+      {userSession.role === 'admin' && !isArchiveView && (
+        <PrintRegisterModal
+          isOpen={isPrintRegisterOpen}
+          onClose={() => setIsPrintRegisterOpen(false)}
+          sops={sops}
+          initialDivisionFilter={selectedCategory}
+        />
       )}
     </div>
   );
