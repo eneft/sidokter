@@ -191,6 +191,38 @@ async function main() {
       return cases;
     });
     console.log('A4 nested-list page-break diagnostics:', JSON.stringify(paginationCases));
+    const pagePacking = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a" data-sop-list-format="a">' +
+        ['Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+         'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan oleh petugas.',
+         'Koridor ruang bayi dilengkapi dengan titik pengawasan, catatan, dan pemeriksaan identitas setiap pengunjung.',
+         'Petugas juga melakukan pelaporan berjenjang terhadap seluruh kejadian keamanan di area rawat inap.']
+          .map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const result = [];
+      for (const fillerCount of [8, 12, 16, 20, 24]) {
+        const blocks = [];
+        for (let i = 0; i < fillerCount; i++) {
+          blocks.push({id:'intro-'+i, section:'PROSEDUR',
+            html:'<p>Petugas melakukan pemeriksaan serta pemantauan keamanan rumah sakit secara berkala dan terkoordinasi.</p>'});
+        }
+        blocks.push({id:'parent-2',section:'PROSEDUR',html:'<ol type="1" start="2"><li>Pemantauan Oleh petugas keamanan</li></ol>'});
+        blocks.push({id:'children-a',section:'PROSEDUR',html:alpha});
+        const pages = pager.computeCanonicalA4Pages(blocks, {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+        const parentIndex=pages.findIndex(x=>x.some(y=>y.id==='parent-2'));
+        const childIndex=pages.findIndex(x=>x.some(y=>y.id.startsWith('children-a')));
+        const summaries=pages.map((p,i)=>({
+          page:i+1,blocks:p.map(b=>b.id).slice(-5),
+          childLi:p.filter(b=>b.id.startsWith('children-a')).reduce((n,b)=>{
+            const d=new DOMParser().parseFromString(b.html,'text/html');return n+d.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+          },0)
+        }));
+        result.push({fillerCount,parentIndex,childIndex,summaries});
+      }
+      return result;
+    });
+    console.log('A4 complete pagination page-pack diagnostics:', JSON.stringify(pagePacking));
+
 
   } finally {
     if (browser) await browser.close();
