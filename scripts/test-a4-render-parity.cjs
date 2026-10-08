@@ -199,6 +199,58 @@ async function main() {
       'Use dead space for at least one nested a./b./c. item');
     assert.ok(pagination.sameText, 'Split must preserve every authored word exactly');
     console.log('A4 nested procedure page-fill: PASS');
+
+    const pagePacking = await page.evaluate(() => {
+      const texts = [
+        'Pintu ruang Neonatus harus selalu terkunci bagi siapa pun yang tidak berkepentingan.',
+        'Setiap orang kecuali petugas dan orang tua kandung bayi dilarang masuk ke ruang bayi.',
+        'Orang tua menjalani pemeriksaan identitas Oleh perawat sebelum mengakses ruangan.',
+        'Khusus untuk ayah kandung yang datang tidak bersamaan dengan ibu bayi dilakukan konfirmasi identitas tambahan.',
+        'Selama ada bayi di ruang bayi, perawat tidak boleh meninggalkan ruangan tanpa pengawasan.'
+      ];
+      const prelude = texts.map(t => '<li>' + t + '</li>').join('');
+      const nextItems = Array.from({length: 11}, (_,i) =>
+        '<li>Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu sesuai jam dinas bagian ' + (i+1) + '.</li>').join('');
+      const source = '<ol type="1"><li>Akses masuk ruang Neonatus' +
+        '<ol type="a" data-sop-list-format="a">' + prelude + '</ol></li>' +
+        '<li>Pemantauan Oleh petugas keamanan' +
+        '<ol type="a" data-sop-list-format="a">' + nextItems + '</ol></li></ol>';
+      const blocks = [
+        { id:'pengertian', section:'PENGERTIAN', html:'<p>Keamanan ruang bayi adalah suatu sistem yang diberlakukan untuk melakukan pengamanan.</p>' },
+        { id:'tujuan', section:'TUJUAN', html:'<p>Untuk pencegahan terjadinya gangguan keamanan terhadap bayi.</p>' },
+        { id:'kebijakan', section:'KEBIJAKAN', html:'<ol><li>Peraturan Menteri Kesehatan Republik Indonesia Tahun 2017.</li><li>Keputusan Direktur RSUD Dr. Soegiri tentang kebijakan keamanan.</li></ol>' },
+        { id:'prosedur', section:'PROSEDUR', html:source }
+      ];
+      const headerHeight=125, publicationHeight=185, safety=24;
+      const pages=A4Canonical.computeCanonicalA4Pages(blocks,{
+        headerHeightPx:headerHeight, publicationHeightPx:publicationHeight, safetyBufferPx:safety
+      });
+      const bodyCap=1122.5-151.2-headerHeight-safety;
+      const host=A4Canonical.createMeasureHost();
+      const reports=pages.map((groups,i)=>{
+        let used=0, section=null, raw=0;
+        for(const block of groups){
+          host.innerHTML=block.html;
+          const h=host.getBoundingClientRect().height;
+          const first=section!==block.section;
+          const floor=Math.max(A4Canonical.LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+            A4Canonical.getCanonicalSectionLabelMinimumHeightPx(block.section));
+          const diff=A4Canonical.sectionFlowContributionPx(raw,h,first,floor);
+          used+=diff+(first?A4Canonical.getCanonicalSectionRowChromePx():0);
+          raw=first?h:raw+h;
+          section=block.section;
+        }
+        const text=groups.map(x=>new DOMParser().parseFromString(x.html,'text/html').body.textContent||'').join('');
+        return {page:i+1, blocks:groups.length, sections:groups.map(x=>x.section),
+          remaining: Math.round((bodyCap-(i===0?publicationHeight:0)-used)*10)/10,
+          used:Math.round(used), hasParent2:text.includes('Pemantauan Oleh petugas keamanan'),
+          hasChild1:text.includes('bagian 1.'), chars:text.length, tail:text.slice(-90)};
+      });
+      host.remove();
+      return reports;
+    });
+    console.log('A4 real-procedure page packing diagnostic:', pagePacking);
+
   } finally {
     if (browser) await browser.close();
     server.close();
