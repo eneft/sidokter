@@ -444,18 +444,25 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
           </th>
           <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
             {titleEditable && pageNumber === 1 && !measureReadonly ? (
-              <textarea
-                rows={1}
-                value={title}
-                onChange={(e) => onTitleChange(e.target.value)}
-                placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
-                className="w-full min-h-[20px] text-center font-extrabold uppercase text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = `${target.scrollHeight}px`;
-                }}
-              />
+              <div className="relative w-full min-h-[20px]">
+                {/* The identical readonly typography determines the header row
+                    height, while the editable textarea overlays it. A textarea's
+                    intrinsic rows/padding must never shift Live A4 page breaks. */}
+                <div
+                  aria-hidden="true"
+                  className="invisible text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black"
+                >
+                  {title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
+                </div>
+                <textarea
+                  aria-label="Judul SPO"
+                  rows={1}
+                  value={title}
+                  onChange={(e) => onTitleChange(e.target.value)}
+                  placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
+                  className="absolute inset-0 h-full w-full p-0 m-0 text-center font-extrabold uppercase text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
+                />
+              </div>
             ) : (
               <div className="text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
                 {title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
