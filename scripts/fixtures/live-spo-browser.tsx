@@ -28,7 +28,8 @@ function SelectionFixture({ seed }: { seed: string; key?: number }) {
   const [html, setHtml] = useState(seed);
   (window as any).__savedRichHtml = html;
   (window as any).__setRichHtml = setHtml;
-  return <RichTextEditor value={html} onChange={setHtml} variant="seamless" hideToolbar
+  return <RichTextEditor ref={(handle) => { (window as any).__richEditorHandle = handle; }}
+    value={html} onChange={setHtml} variant="seamless" hideToolbar
     placeholder="Uji seleksi editor" />;
 }
 (window as any).__mountRichEditor = (seed = '') =>
