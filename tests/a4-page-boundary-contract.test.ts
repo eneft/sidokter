@@ -12,7 +12,8 @@ test('physical A4 sheets are hard paint boundaries in Preview/PDF and Live', () 
 });
 
 test('canonical paginator reserves rounding room and has no intentional overflow escape', () => {
-  assert.match(paginator, /MIN_A4_SAFETY_BUFFER_PX\s*=\s*8/);
+  assert.match(paginator, /CANONICAL_A4_SAFETY_BUFFER_PX\s*=\s*24/);
+  assert.match(paginator, /MIN_A4_SAFETY_BUFFER_PX\s*=\s*CANONICAL_A4_SAFETY_BUFFER_PX/);
   assert.match(paginator, /getCanonicalSectionLabelMinimumHeightPx/);
   assert.match(paginator, /fitOversizedBlockHtmlToPage/);
   assert.match(paginator, /data-sop-page-fit-block/);
@@ -23,9 +24,11 @@ test('canonical paginator reserves rounding room and has no intentional overflow
 test('mobile viewer scale never contaminates physical A4 pagination metrics', () => {
   const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
   assert.match(detail, /const measurementScale = Number\.isFinite\(calculatedPreviewScale\)/);
-  assert.match(detail, /const layoutHeight = element\.offsetHeight;/);
-  assert.match(detail, /getBoundingClientRect\(\)\.height \/ measurementScale/);
-  assert.match(detail, /safetyBufferPx:\s*12/);
+  assert.match(paginator, /const layoutHeight = element\.offsetHeight;/);
+  assert.match(paginator, /element\.getBoundingClientRect\(\)\.height/);
+  assert.match(detail, /measureCanonicalA4RowHeight\(header, measurementScale\)/);
+  assert.match(detail, /measureCanonicalA4RowHeight\(publication, measurementScale\)/);
+  assert.match(detail, /safetyBufferPx:\s*CANONICAL_A4_SAFETY_BUFFER_PX/);
   assert.match(detail, /calculatedPreviewScale\]\);/);
 });
 
@@ -42,4 +45,22 @@ test('physical A4 chrome is viewport-invariant in Preview and LiveSPO', () => {
   const liveEnd = live.indexOf('// Helper to map OfficialSectionKey to active state and callbacks', liveStart);
   assert.ok(liveStart >= 0 && liveEnd > liveStart);
   assert.doesNotMatch(live.slice(liveStart, liveEnd), /\bsm:/);
+});
+
+test('Live editor, readonly Preview and paginator use the same A4 text/height budget', () => {
+  const detail = readFileSync('src/components/SopDetailModal.tsx', 'utf8');
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
+  const renderer = readFileSync('src/components/RichTextRenderer.tsx', 'utf8');
+
+  assert.match(detail, /measureCanonicalA4RowHeight\(header, measurementScale\)/);
+  assert.match(live, /measureCanonicalA4RowHeight\(header\)/);
+  assert.match(live, /measureCanonicalA4RowHeight\(publication\)/);
+  assert.match(live, /safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX/);
+  assert.match(detail, /safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX/);
+  assert.match(editor, /variant === 'seamless' \? 'sop-a4-rich-body p-0'/);
+  assert.match(detail, /<RichTextRenderer content=\{html\} fallback="-" className="sop-a4-rich-body" \/>/);
+  assert.match(paginator, /sop-a4-rich-body rich-text-output rich-text-document-content/);
+  assert.match(renderer, /className=\{\`font-bookman text-black rich-text-output/);
+  assert.match(css, /\.sop-a4-rich-body \{[\s\S]*font-size: 12pt !important;/);
 });
