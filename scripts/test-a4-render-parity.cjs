@@ -651,6 +651,49 @@ async function main() {
       'canonical HTML refresh must not steal editor focus');
     console.log('LiveSPO selection across rich HTML refresh: PASS');
 
+    // Changing list style across a multi-paragraph selection must format ALL
+    // intersected authored ordered lists, not only the anchor's first list.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1"><li>Butir A keamanan</li></ol>' +
+      '<ol type="1" data-sop-list-format="1"><li value="7" data-sop-manual-number="7">Butir B pengawasan</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol').length === 2);
+    const listStyleBefore = await page.evaluate(() => {
+      const root = document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const lists = root.querySelectorAll('ol');
+      const start = lists[0].querySelector('li').firstChild;
+      const end = lists[1].querySelector('li').firstChild;
+      const range = document.createRange();
+      range.setStart(start, 0);
+      range.setEnd(end, end.textContent.length);
+      root.focus();
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.insertCustomList('a');
+      return selection.toString();
+    });
+    await page.waitForFunction(() =>
+      !!window.__savedRichHtml?.includes('Butir B pengawasan'));
+    const listStyleAfter = await page.evaluate(() => {
+      const doc = new DOMParser().parseFromString(window.__savedRichHtml, 'text/html');
+      return {
+        types:[...doc.querySelectorAll('ol')].map(x=>x.getAttribute('type')),
+        text:doc.body.textContent,
+        manual:doc.querySelector('li[value="7"]')?.getAttribute('data-sop-manual-number')
+      };
+    });
+    assert.deepEqual(listStyleAfter.types, ['a','a'],
+      'formatting a multi-list selection must update every selected ordered list');
+    assert.equal(listStyleAfter.manual, '7',
+      'selection-wide formatting must not discard manual numbering overrides');
+    assert.ok(listStyleAfter.text.includes('Butir A keamanan') &&
+      listStyleAfter.text.includes('Butir B pengawasan'),
+      'selection-wide list formatting must preserve authored content');
+    console.log('LiveSPO multi-selection numbering style: PASS');
+
+
 
 
 

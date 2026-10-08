@@ -1622,33 +1622,51 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const existing = currentElement?.closest('ol,ul');
     const owned = existing && editor.contains(existing) ? existing : null;
     const unordered = listType === 'disc' || listType === 'square';
-    const sameKind = owned && owned.tagName.toLowerCase() === (unordered ? 'ul' : 'ol');
+    const tag = unordered ? 'ul' : 'ol';
+    const selectedRange = selectionBefore?.rangeCount && !selectionBefore.isCollapsed
+      ? selectionBefore.getRangeAt(0) : null;
+
+    // A highlighted range can cover several independent authored lists.
+    // Native insertOrderedList is a TOGGLE: invoking it for lists already of
+    // the requested kind unwraps their content, losing the user's numbering.
+    // Change the marker on ALL selected lists instead of only the anchor's.
+    const touchedLists = selectedRange
+      ? Array.from(editor.querySelectorAll<HTMLOListElement | HTMLUListElement>('ol,ul'))
+          .filter((list) => selectedRange.intersectsNode(list))
+      : (owned ? [owned as HTMLOListElement | HTMLUListElement] : []);
+    const touchesPlainBlocks = Boolean(selectedRange && Array.from(
+      editor.querySelectorAll('p,div,blockquote,h1,h2,h3,h4,h5,h6')
+    ).some((block) => !block.closest('ol,ul') && selectedRange.intersectsNode(block)));
+    const sameKind = touchedLists.length > 0 && !touchesPlainBlocks &&
+      touchedLists.every((list) => list.tagName.toLowerCase() === tag);
+
+    const styleList = (list: HTMLElement) => {
+      if (unordered) {
+        list.setAttribute('data-sop-bullet', listType);
+        list.removeAttribute('data-sop-list-format');
+        list.style.listStyleType = listType === 'square' ? 'square' : 'disc';
+      } else {
+        list.setAttribute('data-sop-list-format', listType);
+        list.removeAttribute('data-sop-bullet');
+        (list as HTMLOListElement).type = listType;
+        list.style.listStyleType =
+          listType === 'A' ? 'upper-alpha' : listType === 'a' ? 'lower-alpha' : 'decimal';
+      }
+    };
 
     try {
-      // execCommand is a TOGGLE. Do not call it when just changing an existing
-      // list's marker: that would turn the list off and make Enter jump back.
       if (!sameKind) {
         document.execCommand(unordered ? 'insertUnorderedList' : 'insertOrderedList', false);
       }
-      const selection = window.getSelection();
-      const anchor = selection?.anchorNode;
+      const currentSelection = window.getSelection();
+      const anchor = currentSelection?.anchorNode;
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
-      const list = element?.closest(unordered ? 'ul' : 'ol');
-      if (list && editor.contains(list)) {
-        if (unordered) {
-          list.setAttribute('data-sop-bullet', listType);
-          list.removeAttribute('data-sop-list-format');
-          (list as HTMLElement).style.listStyleType = listType === 'square' ? 'square' : 'disc';
-        } else {
-          list.setAttribute('data-sop-list-format', listType);
-          list.removeAttribute('data-sop-bullet');
-          (list as HTMLOListElement).type = listType;
-          (list as HTMLElement).style.listStyleType =
-            listType === 'A' ? 'upper-alpha' : listType === 'a' ? 'lower-alpha' : 'decimal';
-        }
-      }
+      const target = element?.closest(tag);
+      const targets = sameKind ? touchedLists :
+        (target && editor.contains(target) ? [target as HTMLElement] : []);
+      targets.forEach((list) => styleList(list as HTMLElement));
     } catch {
-      // Keep existing authored text intact if browser formatting is unavailable.
+      // Unsupported browser: do not discard the user's selected text.
     }
     handleInput();
     updateActiveFormatting();
