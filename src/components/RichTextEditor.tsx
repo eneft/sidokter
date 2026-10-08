@@ -2907,6 +2907,14 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                   aria-label="Pilih format numbering atau bullet"
                   title="Pilih format daftar (tidak otomatis)"
                   defaultValue=""
+                  onPointerDownCapture={() => {
+                    // Preserve the editor caret before the native select takes focus.
+                    const selection = window.getSelection();
+                    const editor = editorRef.current;
+                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
+                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+                    }
+                  }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onChange={(e) => {
                     const format = e.target.value;
