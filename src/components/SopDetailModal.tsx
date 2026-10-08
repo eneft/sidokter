@@ -50,7 +50,10 @@ import { normalizeSupportingEvidence } from '../utils/supportingEvidence';
 import { SopReviewAction } from '../lib/sopReviewService';
 import { getExistingPdfSources, ExistingPdfStorageSlot } from '../lib/existingPdfSource';
 import { responseToPdfBlob } from '../utils/pdfBinary';
-import { buildOfficialBlocks, computeCanonicalA4Pages } from '../utils/canonicalA4Pagination';
+import {
+  buildOfficialBlocks, computeCanonicalA4Pages,
+  CANONICAL_A4_SAFETY_BUFFER_PX, measureCanonicalA4RowHeight
+} from '../utils/canonicalA4Pagination';
 
 interface SopDetailModalProps {
   isOpen: boolean;
@@ -800,20 +803,16 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
         const measurementScale = Number.isFinite(calculatedPreviewScale) && calculatedPreviewScale > 0
           ? calculatedPreviewScale
           : 1;
-        const toPhysicalCssHeight = (element: HTMLElement) => {
-          const layoutHeight = element.offsetHeight;
-          if (layoutHeight > 0) return layoutHeight;
-          // Defensive fallback for unusual table-part implementations.
-          return element.getBoundingClientRect().height / measurementScale;
-        };
-        const headerHeightPx = toPhysicalCssHeight(header);
-        const publicationHeightPx = toPhysicalCssHeight(publication);
+        // Live editor and readonly Preview use this same zoom-independent
+        // measurement contract. Preview/PDF must never paginate from scaled px.
+        const headerHeightPx = measureCanonicalA4RowHeight(header, measurementScale);
+        const publicationHeightPx = measureCanonicalA4RowHeight(publication, measurementScale);
         if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
 
         const pages = computeCanonicalA4Pages(layoutBlocks, {
           headerHeightPx,
           publicationHeightPx,
-          safetyBufferPx: 12
+          safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX
         });
         if (!cancelled) {
           setOfficialPages(pages as OfficialBlock[][]);
