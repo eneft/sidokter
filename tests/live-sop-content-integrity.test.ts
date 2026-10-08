@@ -96,7 +96,9 @@ test('LiveSPO canonical pagination uses scoped header/publication metrics', () =
   assert.match(live, /data-live-measure-header/);
   assert.match(live, /data-live-measure-publication/);
   assert.match(live, /if \(!livePageMetrics\) return \[\]/);
-  assert.match(live, /computeCanonicalA4Pages\(debouncedBlocks, livePageMetrics\)/);
+  assert.match(live, /computeCanonicalA4Pages\(debouncedBlocks, \{/);
+  assert.match(live, /\.\.\.livePageMetrics/);
+  assert.match(live, /safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX/);
 });
 
 test('canonical pagination refuses guessed header/publication geometry', () => {
