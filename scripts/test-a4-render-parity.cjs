@@ -10,6 +10,12 @@ const paginatorBundle = require('esbuild').buildSync({
   globalName: 'SopA4Pagination', write: false
 }).outputFiles[0].text;
 
+const liveBundle = require('esbuild').buildSync({
+  entryPoints: [path.resolve(__dirname, 'fixtures/live-spo-browser.tsx')],
+  bundle: true, platform: 'browser', format: 'iife', write: false,
+  define: { 'process.env.NODE_ENV': '"production"' }
+}).outputFiles[0].text;
+
 const dist = path.resolve(__dirname, '..', 'dist');
 const css = fs.readdirSync(path.join(dist, 'assets')).filter(f => f.endsWith('.css'))
   .sort((a, b) => fs.statSync(path.join(dist, 'assets', b)).size -
@@ -42,6 +48,10 @@ const server = http.createServer((req, res) => {
   const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   if (pathname === '/__a4') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); return;
+  }
+  if (pathname === '/__live.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    res.end(liveBundle); return;
   }
   if (pathname === '/__paginator.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
@@ -233,6 +243,60 @@ async function main() {
         sizes
       };
     });
+    const persistence = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const source = window.__wordTableListFixture;
+      const parts = pager.splitHtmlForCapacity(source, 140, null);
+      // Reproduce LiveSPO: edit one displayed page, then save the logical section.
+      parts[parts.length - 1] = parts.at(-1).replace('koordinator', 'koordinator jaga');
+      const saved = pager.reassemblePaginatedSection
+        ? pager.reassemblePaginatedSection(parts.join('')) : parts.join('');
+      const doc = new DOMParser().parseFromString(saved, 'text/html');
+      return { tables: doc.querySelectorAll('table').length,
+        lists: doc.querySelectorAll('ol').length, items: doc.querySelectorAll('li').length,
+        text: doc.body.textContent, expected: new DOMParser().parseFromString(source,
+          'text/html').body.textContent.replace('koordinator', 'koordinator jaga'),
+        artifacts: doc.querySelectorAll('[data-sop-table-continuation], [data-sop-continuation-li], [data-sop-rejoin]').length,
+        manual: doc.querySelector('li[value="7"]')?.getAttribute('data-sop-manual-number') };
+    });
+    assert.equal(persistence.tables, 1, 'edit/save must restore one authored table');
+    assert.equal(persistence.lists, 1, 'edit/save must restore one authored list');
+    assert.equal(persistence.items, 3, 'edit/save must restore split LI text');
+    assert.equal(persistence.text, persistence.expected, 'edit must survive reassembly');
+    assert.equal(persistence.artifacts, 0, 'pagination metadata must not be saved');
+    assert.equal(persistence.manual, '7', 'manual numbering must survive edit/save');
+    console.log('A4 edit/save table roundtrip: PASS');
+    const repeatSave = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const original = window.__wordTableListFixture.replace('<tbody>', '\n<tbody>\n').replace('</tr>', '</tr>\n').replace('</tbody>', '</tbody>\n');
+      let saved = original;
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const blocks = pager.computeCanonicalA4Pages([{ id:'table', section:'PROSEDUR', html:saved }],
+          {headerHeightPx:850, publicationHeightPx:0, safetyBufferPx:24});
+        saved = pager.reassemblePaginatedSection(blocks.flat().map(b=>b.html).join(''));
+      }
+      const parse = s => new DOMParser().parseFromString(s, 'text/html');
+      // Two different authored tables are NOT one continuation even if identical.
+      const independent = pager.reassemblePaginatedSection([
+        ...pager.splitHtmlForCapacity(original,140,null),
+        ...pager.splitHtmlForCapacity(original,140,null)
+      ].join(''));
+      const parts = pager.splitHtmlForCapacity(original, 140, null);
+      const edited = parse(parts.at(-1));
+      const li = edited.querySelector('li');
+      li.setAttribute('value','12'); li.setAttribute('data-sop-manual-number','12');
+      const changed = edited.body.innerHTML;
+      parts[parts.length-1] = changed;
+      const manual = parse(pager.reassemblePaginatedSection(parts.join(''), changed));
+      return { tables: parse(saved).querySelectorAll('table').length,
+        items: parse(saved).querySelectorAll('li').length,
+        sameText: parse(saved).body.textContent === parse(original).body.textContent,
+        independent: parse(independent).querySelectorAll('table').length,
+        manual: !!manual.querySelector('li[value="12"][data-sop-manual-number="12"]') };
+    });
+    assert.deepEqual(repeatSave, { tables:1, items:3, sameText:true, independent:2, manual:true });
+    console.log('A4 repeated save/reopen and independent tables: PASS');
+
     const protectedTables = await page.evaluate(() => {
       const pager = window.SopA4Pagination;
       const alpha = '<ol type="a"><li>Pemeriksaan identitas dilakukan untuk setiap pengunjung rumah sakit.</li>' +
@@ -373,6 +437,90 @@ async function main() {
       'full pagination must preserve source text across all A4 pages');
     assert.equal(tablePagePacking.distinctAlphaItems, 4,
       'a/b/c/d numbering must remain four distinct items even when text continues across pages');
+    // Mount the production React editor and TYPE using real keyboard events.
+    await page.evaluate(() => {
+      document.body.innerHTML = '<div id="live-app"></div>';
+    });
+    await page.addScriptTag({ url: '/__live.js' });
+    await page.waitForSelector('[contenteditable="true"][data-placeholder*="Langkah persiapan"]');
+    const procedureSelector = '[contenteditable="true"][data-placeholder*="Langkah persiapan"]';
+    await page.click(procedureSelector);
+    await page.keyboard.type('Pemantauan petugas keamanan');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Pemeriksaan akses ruang bayi dan pengunjung.');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('pengunjung.'));
+    assert.ok((await page.evaluate(() => window.__savedProcedure)).includes('Pemantauan'),
+      'direct typing must reach the logical section callback');
+    console.log('LiveSPO actual keyboard input: PASS');
+    // Type a long procedure from an empty editor (no DOCX/imported HTML).
+    await page.evaluate(() => window.__mountLive());
+    await page.waitForFunction(() => window.__savedProcedure === '');
+    await page.waitForSelector(procedureSelector);
+    await page.click(procedureSelector);
+    await page.evaluate(() => document.execCommand('insertOrderedList'));
+    for (let i = 1; i <= 18; i++) {
+      await page.keyboard.sendCharacter(`Butir ${i}: Petugas melakukan pemantauan ruang bayi, memeriksa akses pengunjung, mencatat hasil pemeriksaan dan melaporkan kondisi keamanan kepada koordinator jaga. `);
+      if (i < 18) await page.keyboard.press('Enter');
+    }
+    await page.waitForFunction(() => window.__savedProcedure?.includes('Butir 18:'));
+    // Wait for the actual production debounced paginator to settle.
+    await page.waitForFunction(selector => document.querySelectorAll(selector).length > 1, {}, procedureSelector);
+    const typed = await page.evaluate(() => {
+      const saved = window.__savedProcedure;
+      const doc = new DOMParser().parseFromString(saved, 'text/html');
+      return { text: doc.body.textContent, tables: doc.querySelectorAll('table').length };
+    });
+    for (let i = 1; i <= 18; i++) assert.equal(typed.text.split(`Butir ${i}:`).length - 1, 1,
+      'typing across pages preserves each authored item exactly once');
+    assert.equal(typed.tables, 0, 'direct typing must not fabricate DOCX layout tables');
+    console.log('LiveSPO direct typing across A4 pages: PASS');
+    const typedGaps = await page.evaluate(() => [...document.querySelectorAll('.sop-live-a4-page')]
+      .slice(0, -1).map(page => {
+        const editors = page.querySelectorAll('[contenteditable="true"]');
+        const last = editors[editors.length - 1];
+        const frame = page.querySelector('.sop-a4-content-frame');
+        const scale = page.getBoundingClientRect().width / page.offsetWidth;
+        return (frame.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom) / scale;
+      }));
+    for (const gap of typedGaps) assert.ok(gap < 100,
+      'typed text must fill a nonterminal page; unused bottom=' + gap.toFixed(1));
+    console.log('LiveSPO typed-page unused bottoms (including safety/inset):', typedGaps);
+
+
+    // Reopen a multi-page table and edit a continuation using the real React callback.
+    await page.evaluate(() => window.__mountLive(window.__wordTableListFixture.replace(
+      'koordinator', 'koordinator ' + 'pemeriksaan keamanan berjenjang '.repeat(100))));
+    await page.waitForFunction(selector => [...document.querySelectorAll(selector)]
+      .some(e => e.querySelector('[data-sop-table-continuation]')), {}, procedureSelector);
+    const continuation = await page.$(procedureSelector + ' [data-sop-table-continuation] td');
+    await continuation.click();
+    await page.keyboard.press('End');
+    await page.keyboard.sendCharacter(' EDIT-ULANG ');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('EDIT-ULANG'));
+    const actualSaved = await page.evaluate(() => {
+      const doc = new DOMParser().parseFromString(window.__savedProcedure, 'text/html');
+      return { tables: doc.querySelectorAll('table').length, lists: doc.querySelectorAll('ol').length,
+        items: doc.querySelectorAll('li').length,
+        metadata: doc.querySelectorAll('[data-sop-rejoin], [data-sop-table-continuation], [data-sop-continuation-li]').length };
+    });
+    assert.deepEqual(actualSaved, { tables: 1, lists: 1, items: 3, metadata: 0 });
+    console.log('LiveSPO continuation keyboard edit/save: PASS');
+    await page.waitForFunction(selector => [...document.querySelectorAll(selector)]
+      .some(e => e.querySelector('[data-sop-table-continuation] li')), {}, procedureSelector);
+    const continuedItem = await page.$(procedureSelector + ' [data-sop-table-continuation] li');
+    await continuedItem.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.sendCharacter('BUTIR BARU DARI ENTER');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('BUTIR BARU DARI ENTER'));
+    const afterEnter = await page.evaluate(() => {
+      const doc = new DOMParser().parseFromString(window.__savedProcedure, 'text/html');
+      return doc.querySelectorAll('li').length;
+    });
+    assert.equal(afterEnter, 4, 'Enter in a table continuation must create a NEW logical list item');
+    console.log('LiveSPO continuation Enter: PASS');
+
+
 
 
 

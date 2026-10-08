@@ -38,6 +38,8 @@ import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
 import { 
+  reassemblePaginatedSection,
+  prepareEditedPaginationFragment,
   buildOfficialBlocks, 
   computeCanonicalA4Pages,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
@@ -1058,12 +1060,13 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                   // If this section is split across multiple pages, reassemble it cleanly
                                   // before recording history. History belongs to the logical section,
                                   // never to one transient physical page fragment.
-                                  let nextSectionHtml = newPartHtml;
+                                  const editedPartHtml = prepareEditedPaginationFragment(newPartHtml, fragmentHtml);
+                                  let nextSectionHtml = editedPartHtml;
                                   if (totalPages > 1 && calculatedPages.length > 1) {
                                     const allPartsForSection: string[] = [];
                                     calculatedPages.forEach((p, pIdx) => {
                                       if (pIdx === pageIndex) {
-                                        allPartsForSection.push(newPartHtml);
+                                        allPartsForSection.push(editedPartHtml);
                                       } else {
                                         const otherBlocks = p.filter((b) => b.section === group.section);
                                         if (otherBlocks.length > 0) {
@@ -1073,6 +1076,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                     });
                                     nextSectionHtml = allPartsForSection.join('');
                                   }
+                                  nextSectionHtml = reassemblePaginatedSection(nextSectionHtml, editedPartHtml);
                                   recordSectionHistory(cfg.id, nextSectionHtml, changeMeta?.historyMode || 'discrete');
                                   cfg.onChange(nextSectionHtml);
                                 }}
