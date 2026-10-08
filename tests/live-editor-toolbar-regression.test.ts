@@ -127,21 +127,35 @@ test('image selection publishes shared toolbar context synchronously without par
   assert.doesNotMatch(selectFigure, /setActiveFormatting\(current\s*=>[\s\S]*onFormattingChange/);
 });
 
-test('typed numbering prefixes stay literal and explicit list formats are selectable', () => {
+test('typed numbering prefixes stay literal and five explicit list styles are selectable', () => {
   const keydown = editor.slice(editor.indexOf('const handleEditorKeyDown'), editor.indexOf('const handleApplyColor'));
   assert.doesNotMatch(keydown, /insertOrderedList|insertUnorderedList/);
   assert.doesNotMatch(keydown, /numMatch|alphaMatch|romanMatch|bulletMatch/);
   const list = editor.slice(editor.indexOf('const insertCustomList'), editor.indexOf('const applyFontSize'));
-  assert.match(list, /if \(!inCurrentOrderedList\)/);
-  for (const marker of ['A', '1', 'a', 'a)', '1)', 'bullet']) {
-    assert.ok(editor.includes(`value="${marker}"`), `Missing explicit marker ${marker}`);
+  assert.match(list, /if \(!sameKind\)/);
+  assert.match(list, /data-sop-list-format/);
+  assert.match(list, /data-sop-bullet/);
+  for (const marker of ['A', '1', 'a', 'disc', 'square']) {
+    assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
+    assert.ok(template.includes(`value="${marker}"`), `Missing visible Live SPO marker ${marker}`);
+  }
+  for (const removed of ['a)', '1)', 'bullet']) {
+    assert.ok(!template.includes(`value="${removed}"`), `Legacy extra marker ${removed} should not appear`);
   }
 });
 
-test('parenthesized list styles and preview marker overrides exist', () => {
+test('A4 fragment reconciliation preserves active caret when canonical HTML changes after Enter', () => {
+  assert.match(editor, /const keepCaret = document\.activeElement === editor/);
+  assert.match(editor, /beforeCaret\.setEnd\(activeSelection\.anchorNode, activeSelection\.anchorOffset\)/);
+  assert.match(editor, /selection\?\.addRange\(caret\)/);
+});
+
+test('selected marker CSS persists for every listed SPO surface and square bullets', () => {
   const css = readFileSync('src/index.css', 'utf8');
-  assert.match(css, /ol\[style\*="sop-alpha-paren"\] > li::before/);
-  assert.match(css, /ol\[style\*="sop-decimal-paren"\] > li::before/);
-  assert.match(css, /counter\(sop-list, lower-alpha\) "\)"/);
-  assert.match(css, /counter\(sop-list, decimal\) "\)"/);
+  assert.match(css, /ol\[data-sop-list-format="a"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format="A"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format="1"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format\] > li/);
+  assert.match(css, /ul\[data-sop-bullet="square"\] > li/);
+  assert.match(css, /list-style-type: square !important/);
 });
