@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
+import { logicalCaretOffset, resolveLogicalCaretOffset } from '../utils/editorCaretBookmark';
 import { canMergeCell, createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
 import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
@@ -1029,12 +1030,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       Boolean(activeSelection?.anchorNode && editor.contains(activeSelection.anchorNode)) &&
       Boolean(activeSelection?.focusNode && editor.contains(activeSelection.focusNode));
 
-    const textOffsetBefore = (node: Node, offset: number): number => {
-      const prefix = document.createRange();
-      prefix.selectNodeContents(editor);
-      prefix.setEnd(node, offset);
-      return prefix.toString().length;
-    };
+    const textOffsetBefore = (node: Node, offset: number): number =>
+      logicalCaretOffset(editor, node, offset) ?? 0;
     let selectionBookmark: { anchor: number; focus: number } | null = null;
     if (ownsSelection && activeSelection?.anchorNode && activeSelection.focusNode) {
       try {
@@ -1055,26 +1052,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     isUpdatingFromPropRef.current = false;
 
     if (selectionBookmark && activeSelection) {
-      const resolveOffset = (absolute: number): { node: Node; offset: number } => {
-        let remaining = Math.max(0, absolute);
-        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-        let last: Text | null = null;
-        let node: Node | null;
-        while ((node = walker.nextNode())) {
-          const textNode = node as Text;
-          const length = textNode.length;
-          last = textNode;
-          if (remaining <= length) return { node: textNode, offset: remaining };
-          remaining -= length;
-        }
-        if (last) return { node: last, offset: last.length };
-        // An empty paragraph contains no text node. Put the caret inside it,
-        // not after the editor, so Enter and ordinary typing still work.
-        const first = editor.firstElementChild;
-        return first
-          ? { node: first, offset: 0 }
-          : { node: editor, offset: 0 };
-      };
+      const resolveOffset = (absolute: number): { node: Node; offset: number } =>
+        resolveLogicalCaretOffset(editor, absolute);
 
       try {
         const anchor = resolveOffset(selectionBookmark.anchor);
@@ -2781,37 +2760,17 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const selection = window.getSelection();
       if (!editor || !selection?.isCollapsed || !selection.rangeCount ||
           !selection.anchorNode || !editor.contains(selection.anchorNode)) return null;
-      try {
-        const prefix = document.createRange();
-        prefix.selectNodeContents(editor);
-        prefix.setEnd(selection.anchorNode, selection.anchorOffset);
-        return prefix.toString().length;
-      } catch {
-        return null;
-      }
+      return logicalCaretOffset(editor, selection.anchorNode, selection.anchorOffset);
     },
     focusAtTextOffset: (absolute) => {
       const editor = editorRef.current;
       if (!editor || !editor.isConnected) return;
       const selection = window.getSelection();
       if (!selection) return;
-      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-      let remaining = Math.max(0, absolute);
-      let lastText: Text | null = null;
-      let current: Node | null;
-      while ((current = walker.nextNode())) {
-        const node = current as Text;
-        lastText = node;
-        if (remaining <= node.length) break;
-        remaining -= node.length;
-      }
-      const target: Node = current || lastText || editor.firstElementChild || editor;
-      const offset = target.nodeType === Node.TEXT_NODE
-        ? Math.min(remaining, (target as Text).length)
-        : 0;
+      const target = resolveLogicalCaretOffset(editor, absolute);
       const caret = document.createRange();
       try {
-        caret.setStart(target, offset);
+        caret.setStart(target.node, target.offset);
         caret.collapse(true);
         editor.focus({ preventScroll: true });
         selection.removeAllRanges();
