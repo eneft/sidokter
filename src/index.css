@@ -3641,3 +3641,22 @@ body,
   overflow-wrap: break-word !important;
   hyphens: none !important;
 }
+
+/* Canonical media height: Preview previously capped images at 280px and PDF
+   at 250px while the Live editor left them uncapped. The same authored image
+   must occupy the same physical A4 height in all three surfaces. Positioning
+   and sizing metadata on a figure wrapper remain untouched. */
+.sop-a4-rich-body img,
+#printable-sop-official-document .sop-a4-rich-body img {
+  max-width: 100% !important;
+  max-height: 280px !important;
+  height: auto !important;
+  object-fit: contain !important;
+}
+.sop-a4-rich-body > img,
+.sop-a4-rich-body > p > img,
+#printable-sop-official-document .sop-a4-rich-body > img,
+#printable-sop-official-document .sop-a4-rich-body > p > img {
+  display: block !important;
+  margin: 8px auto !important;
+}
