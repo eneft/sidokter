@@ -3615,3 +3615,12 @@ body,
 :is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="square"] > li {
   list-style-type: square !important;
 }
+
+/* Per-item numbering override: <li value="N"> is the semantic source and
+   --sop-manual-number allows our explicit pseudo-markers to follow that value.
+   Items after an override resume from its chosen number, not from the page's
+   physical position. Imported/legacy lists without the flag are unchanged. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format] > li[data-sop-manual-number] {
+  counter-increment: sop-list 0 !important;
+  counter-set: sop-list var(--sop-manual-number) !important;
+}
