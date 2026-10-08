@@ -3718,3 +3718,49 @@ body,
   padding-left: 1.75em !important;
   margin-left: 0 !important;
 }
+
+
+/* Inline marker editing: the source stays semantic LI/OL, while the directly
+   typed marker is rendered identically in Live SPO, Preview and print/PDF.
+   No extra characters are inserted into the document body or its paragraph. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document)
+  :is(ol,ul)[data-sop-inline-markers="true"] > li[data-sop-marker-label] {
+  list-style: none !important;
+  list-style-type: none !important;
+  position: relative !important;
+  display: block !important;
+  padding-left: 1.75em !important;
+  text-indent: -1.75em !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document)
+  :is(ol,ul)[data-sop-inline-markers="true"] > li[data-sop-marker-label]::before {
+  content: attr(data-sop-marker-label) !important;
+  display: inline-block !important;
+  min-width: 1.45em !important;
+  width: auto !important;
+  margin-right: 0.3em !important;
+  text-align: left !important;
+  font-weight: normal !important;
+  text-indent: 0 !important;
+}
+/* Show that the marker is clickable, but never turn the text itself into
+   an editable numbering prefix or shift the physical A4 page geometry. */
+.rich-text-editor-content :is(ol,ul)[data-sop-inline-markers="true"] > li::before {
+  cursor: text !important;
+}
+.sop-inline-marker-input {
+  position: absolute;
+  z-index: 90;
+  min-height: 23px;
+  max-width: 90px;
+  border: 1px solid #6366f1;
+  border-radius: 3px;
+  background: white;
+  color: #1e293b;
+  box-shadow: 0 1px 6px #0002;
+  font: inherit;
+  line-height: 1.3;
+  text-align: left;
+  outline: 2px solid #e0e7ff;
+  outline-offset: 0;
+}
