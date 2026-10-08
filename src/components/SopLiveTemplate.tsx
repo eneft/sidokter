@@ -438,7 +438,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   // ---------------------------------------------------------------------------
   // Render Official Hospital Header for Page X
   // ---------------------------------------------------------------------------
-  const renderOfficialHeader = (pageNumber: number, total: number) => {
+  const renderOfficialHeader = (pageNumber: number, total: number, measureReadonly = false) => {
     return (
       <thead>
         <tr>
@@ -448,7 +448,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="font-extrabold text-[11px] leading-tight uppercase text-black">LAMONGAN</div>
           </th>
           <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
-            {titleEditable && pageNumber === 1 ? (
+            {titleEditable && pageNumber === 1 && !measureReadonly ? (
               <textarea
                 rows={1}
                 value={title}
@@ -869,7 +869,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               <col style={{ width: '24%' }} />
               <col style={{ width: '24%' }} />
             </colgroup>
-            {React.cloneElement(renderOfficialHeader(1, 1), { 'data-live-measure-header': true })}
+            {React.cloneElement(renderOfficialHeader(1, 1, true), { 'data-live-measure-header': true })}
             <tbody>
               {React.cloneElement(renderPublicationRow(), { 'data-live-measure-publication': true })}
             </tbody>
