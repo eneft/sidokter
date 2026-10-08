@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { measureCanonicalA4RowHeight } from '../src/utils/canonicalA4Pagination';
 
 const css = readFileSync('src/index.css', 'utf8');
 const paginator = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
@@ -63,4 +64,25 @@ test('Live editor, readonly Preview and paginator use the same A4 text/height bu
   assert.match(paginator, /sop-a4-rich-body rich-text-output rich-text-document-content/);
   assert.match(renderer, /className=\{\`font-bookman text-black rich-text-output/);
   assert.match(css, /\.sop-a4-rich-body \{[\s\S]*font-size: 12pt !important;/);
+});
+
+test('physical row height ignores preview zoom and supports fallback', () => {
+  const measured = {
+    offsetHeight: 187,
+    getBoundingClientRect: () => ({ height: 93.5 })
+  } as unknown as HTMLElement;
+  assert.equal(measureCanonicalA4RowHeight(measured, 0.5), 187);
+
+  const fallback = {
+    offsetHeight: 0,
+    getBoundingClientRect: () => ({ height: 93.5 })
+  } as unknown as HTMLElement;
+  assert.equal(measureCanonicalA4RowHeight(fallback, 0.5), 187);
+  assert.equal(measureCanonicalA4RowHeight(fallback, Number.NaN), 93.5);
+});
+
+test('Live header measurement uses the actual first-page KOP identity', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  assert.match(live, /renderOfficialHeader\(1, 1\), \{ 'data-live-measure-header': true \}/);
+  assert.doesNotMatch(live, /renderOfficialHeader\(2, 2\), \{ 'data-live-measure-header': true \}/);
 });
