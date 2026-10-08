@@ -800,6 +800,92 @@ async function main() {
       'selection-wide list formatting must preserve authored content');
     console.log('LiveSPO multi-selection numbering style: PASS');
 
+    // Direct marker editing: click the visible pseudo-marker gutter and type a
+    // new number/letter instead of opening the toolbar or modal.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">' +
+        '<li>Pertama pemeriksaan</li><li>Kedua pemeriksaan</li>' +
+        '<li>Ketiga pemeriksaan</li><li>Keempat pemeriksaan</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 4);
+    const clickMarker = async (index) => {
+      const pt=await page.evaluate(index=>{
+        const li=document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li')[index];
+        const r=li.getBoundingClientRect();
+        return {x:r.left+8,y:r.top+9};
+      },index);
+      await page.mouse.click(pt.x,pt.y);
+      await page.waitForSelector('[data-sop-inline-marker-input="true"]');
+    };
+    await clickMarker(1);
+    await page.evaluate(() => {
+      const i=document.querySelector('[data-sop-inline-marker-input="true"]');
+      i.value='5.';
+      i.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('data-sop-marker-label="6."'));
+    const numericDirect = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return {labels:[...d.querySelectorAll('ol > li')].map(x=>x.getAttribute('data-sop-marker-label')),
+        explicit:d.querySelectorAll('ol > li')[1].getAttribute('value'),
+        sentences:d.body.textContent};
+    });
+    assert.deepEqual(numericDirect.labels,['1.','5.','6.','7.']);
+    assert.equal(numericDirect.explicit,'5');
+    assert.equal(numericDirect.sentences,
+      'Pertama pemeriksaanKedua pemeriksaanKetiga pemeriksaanKeempat pemeriksaan');
+    console.log('LiveSPO direct numeric override 1,5,6,7: PASS');
+
+    await clickMarker(2);
+    await page.evaluate(() => {
+      document.querySelector('[data-sop-inline-marker-input="true"]').value='c.';
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('data-sop-marker-label="d."'));
+    const alphabeticDirect = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return [...d.querySelectorAll('ol > li')].map(x=>x.getAttribute('data-sop-marker-label'));
+    });
+    assert.deepEqual(alphabeticDirect,['1.','5.','c.','d.']);
+    console.log('LiveSPO direct alpha override with automatic next: PASS');
+
+    // Native Enter must continue the edited alpha sequence, not duplicate
+    // manual LI values or snap back to decimal numbering on a new page.
+    await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const last=editor.querySelector('ol > li:last-child');
+      const range=document.createRange();
+      range.selectNodeContents(last);
+      range.collapse(false);
+      editor.focus();
+      const s=window.getSelection();s.removeAllRanges();s.addRange(range);
+    });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Kelima pemeriksaan');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('Kelima pemeriksaan'));
+    const autoAfterEnter = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return [...d.querySelectorAll('ol > li')].map(x=>x.getAttribute('data-sop-marker-label'));
+    });
+    assert.equal(autoAfterEnter[4],'e.','Enter must keep automatic alpha numbering after a manual override');
+    console.log('LiveSPO direct marker keeps auto numbering after Enter: PASS');
+
+    await clickMarker(2);
+    await page.evaluate(() => {
+      document.querySelector('[data-sop-inline-marker-input="true"]').value='•';
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('data-sop-marker-label="•"'));
+    const bulletDirect = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return [...d.querySelectorAll('ol > li')].map(x=>x.getAttribute('data-sop-marker-label'));
+    });
+    assert.equal(bulletDirect[2],'•');
+    assert.equal(bulletDirect[3],'6.','bullet must not increment its list numeric counter');
+    console.log('LiveSPO direct bullet marker: PASS');
+
+
     // Stage 4: after pagination moves the logical caret to a lower page,
     // focus({preventScroll:true}) alone must NOT leave that caret offscreen.
     await page.evaluate(() => window.__mountRichEditor(
