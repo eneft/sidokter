@@ -556,7 +556,7 @@ export function createMeasureHost(template?: HTMLElement | null): HTMLElement {
   // this host carries sop-batang-tubuh-content, CSS adds 3mm here and every
   // extracted paragraph/list/table block gets the inset again.
   host.className =
-    'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+    'font-bookman text-black sop-a4-rich-body rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
 
   if (template?.parentElement) {
     template.parentElement.appendChild(host);
