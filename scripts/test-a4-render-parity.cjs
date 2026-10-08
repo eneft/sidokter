@@ -64,7 +64,8 @@ async function snapshot(page) {
           return {
             tag: node.tagName, x: rect.left - origin.left, y: rect.top - origin.top,
             w: rect.width, h: rect.height, font: style.fontFamily,
-            size: style.fontSize, line: style.lineHeight
+            size: style.fontSize, line: style.lineHeight,
+            marginTop: style.marginTop, marginBottom: style.marginBottom
           };
         })
       };
@@ -118,6 +119,18 @@ async function main() {
     // A4 content must not reflow on export. The physical page-break engine
     // operates on screen CSS geometry; PDF must preserve those same positions.
     const screenPreview = screen[1], printPreview = printed[1];
+    console.log('A4 screen/print deltas:',
+      screenPreview.parts.map((part, i) => {
+        const other = printPreview.parts[i];
+        return {
+          index: i, tag: part.tag,
+          dy: Number((other.y - part.y).toFixed(2)),
+          dh: Number((other.h - part.h).toFixed(2)),
+          marginScreen: [part.marginTop, part.marginBottom],
+          marginPrint: [other.marginTop, other.marginBottom]
+        };
+      }).filter(part => Math.abs(part.dy) > 0.1 || Math.abs(part.dh) > 0.1 ||
+        String(part.marginScreen) !== String(part.marginPrint)));
     const near = (a, b, label) =>
       assert.ok(Math.abs(a - b) <= 1, 'screen/print mismatch ' + label + ': ' + a + ' vs ' + b);
     near(screenPreview.width, printPreview.width, 'body width');
