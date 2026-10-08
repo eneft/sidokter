@@ -1650,7 +1650,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const raw = numberOrLetter?.trim() || '';
     let number: number | null = null;
     if (raw) {
-      if (/^[1-9]\\d{0,3}$/.test(raw)) {
+      if (/^[1-9]\d{0,3}$/.test(raw)) {
         number = Number(raw);
       } else if (/^[a-zA-Z]{1,3}$/.test(raw)) {
         number = [...raw.toUpperCase()].reduce((value, char) =>
