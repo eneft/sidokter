@@ -861,7 +861,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               <col style={{ width: '24%' }} />
               <col style={{ width: '24%' }} />
             </colgroup>
-            {React.cloneElement(renderOfficialHeader(2, 2), { 'data-live-measure-header': true })}
+            {React.cloneElement(renderOfficialHeader(1, 1), { 'data-live-measure-header': true })}
             <tbody>
               {React.cloneElement(renderPublicationRow(), { 'data-live-measure-publication': true })}
             </tbody>
