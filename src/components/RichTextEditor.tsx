@@ -1709,9 +1709,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
         const anchor = selection.anchorNode;
         const li = anchor ? (anchor.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement).closest('li') : anchor.parentElement?.closest('li')) : null;
-        if (li) {
-          const text = (li.textContent || '').trim();
-          if (!text || text === '') {
+        if (li && editorRef.current?.contains(li)) {
+          // A visually empty parent LI can still contain a nested list.
+          // Outdenting it would detach or renumber its child items.
+          const hasNestedContent = Boolean(li.querySelector('ol,ul,table,img,figure'));
+          const text = (li.textContent || '').replace(/\u00a0/g, ' ').trim();
+          if (!text && !hasNestedContent) {
             e.preventDefault();
             executeCommand('outdent');
             return;
