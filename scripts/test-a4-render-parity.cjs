@@ -528,6 +528,29 @@ async function main() {
       'direct typing must reach the logical section callback');
     console.log('LiveSPO actual keyboard input: PASS');
 
+    // Audit regression: an in-flight pagination pass must not re-focus the
+    // previous section after the user intentionally switches to another
+    // contentEditable field. Current pending-caret logic only checks if the
+    // new focus is "not contenteditable", so it may steal focus back.
+    await page.evaluate(() => window.__mountLive());
+    await page.waitForFunction(() => window.__savedProcedure === '');
+    const tujuanSelector = '[contenteditable="true"][data-placeholder="Isi tujuan..."]';
+    await page.waitForSelector(tujuanSelector);
+    await page.waitForSelector(procedureSelector);
+    await page.click(procedureSelector);
+    await page.keyboard.type('KETIK PROSEDUR LALU PINDAH');
+    await page.click(tujuanSelector);
+    await new Promise(resolve => setTimeout(resolve, 850));
+    const focusAfterSwitch = await page.evaluate(() => ({
+      placeholder: document.activeElement?.getAttribute('data-placeholder'),
+      saved: window.__savedProcedure
+    }));
+    console.log('AUDIT A4 focus after switching sections:', focusAfterSwitch);
+    assert.equal(focusAfterSwitch.placeholder, 'Isi tujuan...',
+      'pagination triggered by typing in PROSEDUR must not steal focus back from TUJUAN');
+    console.log('AUDIT A4 focus retention after manual section switch: PASS');
+
+
     // Regression: Enter creates a blank second LI whose textContent has
     // zero length. A text-only caret bookmark aliases its start with the END
     // of the preceding LI. On the next 250ms canonical refresh the caret
