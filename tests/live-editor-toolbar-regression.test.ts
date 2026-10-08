@@ -126,3 +126,61 @@ test('image selection publishes shared toolbar context synchronously without par
   assert.match(selectFigure, /context:\s*'image'/);
   assert.doesNotMatch(selectFigure, /setActiveFormatting\(current\s*=>[\s\S]*onFormattingChange/);
 });
+
+test('typed numbering prefixes stay literal and five explicit list styles are selectable', () => {
+  const keydown = editor.slice(editor.indexOf('const handleEditorKeyDown'), editor.indexOf('const handleApplyColor'));
+  assert.doesNotMatch(keydown, /insertOrderedList|insertUnorderedList/);
+  assert.doesNotMatch(keydown, /numMatch|alphaMatch|romanMatch|bulletMatch/);
+  const list = editor.slice(editor.indexOf('const insertCustomList'), editor.indexOf('const applyFontSize'));
+  assert.match(list, /if \(!sameKind\)/);
+  assert.match(list, /data-sop-list-format/);
+  assert.match(list, /data-sop-bullet/);
+  for (const marker of ['A', '1', 'a', 'disc', 'square']) {
+    assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
+    assert.ok(template.includes(`value="${marker}"`), `Missing visible Live SPO marker ${marker}`);
+  }
+  for (const removed of ['a)', '1)', 'bullet']) {
+    assert.ok(!template.includes(`value="${removed}"`), `Legacy extra marker ${removed} should not appear`);
+  }
+});
+
+test('A4 fragment reconciliation preserves active caret when canonical HTML changes after Enter', () => {
+  assert.match(editor, /const keepCaret = document\.activeElement === editor/);
+  assert.match(editor, /beforeCaret\.setEnd\(activeSelection\.anchorNode, activeSelection\.anchorOffset\)/);
+  assert.match(editor, /selection\?\.addRange\(caret\)/);
+});
+
+test('selected marker CSS persists for every listed SPO surface and square bullets', () => {
+  const css = readFileSync('src/index.css', 'utf8');
+  assert.match(css, /ol\[data-sop-list-format="a"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format="A"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format="1"\] > li::before/);
+  assert.match(css, /ol\[data-sop-list-format\] > li/);
+  assert.match(css, /ul\[data-sop-bullet="square"\] > li/);
+  assert.match(css, /list-style-type: square !important/);
+});
+
+test('Live SPO manual list-item override uses semantic LI values and a reversible toolbar control', () => {
+  const css = readFileSync('src/index.css', 'utf8');
+  const pagination = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  assert.match(editor, /setListItemNumber: \(numberOrLetter: string \| null\) => boolean/);
+  assert.match(editor, /item\.setAttribute\('value', String\(number\)\)/);
+  assert.match(editor, /item\.setAttribute\('data-sop-manual-number', String\(number\)\)/);
+  assert.match(editor, /item\.removeAttribute\('data-sop-manual-number'\)/);
+  assert.match(template, /aria-label="Ubah nomor item daftar secara manual"/);
+  assert.match(template, /Kembali otomatis/);
+  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
+  assert.match(css, /counter-set: sop-list var\(--sop-manual-number\) !important/);
+  assert.match(pagination, /orderedListItemNumbers\(items, explicitStart\)/);
+  assert.match(pagination, /const number = continuationNumber \?\? numberAtIndex\(startIndex\)/);
+});
+
+test('manual numbering toolbar is shared by A4 page one and later pages', () => {
+  const control = template.indexOf('aria-label="Ubah nomor item daftar secara manual"');
+  const pages = template.indexOf('calculatedPages.map((pageBlocks, pageIndex)');
+  assert.ok(control >= 0 && pages > control, 'Manual edit must be in the shared toolbar, outside page loop');
+  assert.match(template, /const focusedFragment = editorRefs\.current\[activeKey\]/);
+  assert.match(template, /editorRefs\.current\[editorKey\] = el/);
+  assert.match(template, /activeEditorKeyRef\.current = editorKey/);
+  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
+});

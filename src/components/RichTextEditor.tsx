@@ -127,7 +127,9 @@ export interface RichTextFormattingState {
 
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
-  insertCustomList: (listType: '1' | 'a' | 'i') => void;
+  insertCustomList: (listType: '1' | 'A' | 'a' | 'disc' | 'square') => void;
+  /** Set or clear a per-item numbering override. Returns false outside an ordered list or on invalid input. */
+  setListItemNumber: (numberOrLetter: string | null) => boolean;
   applyFontSize: (fontSize: LiveSopFontSize) => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
@@ -1012,11 +1014,56 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
+    // The A4 paginator may return a canonical HTML fragment after Enter.
+    // Replacing focused contentEditable markup without restoring its caret
+    // makes the next keystroke jump to the start (and seemingly resets lists).
+    const activeSelection = window.getSelection();
+    const keepCaret = document.activeElement === editor &&
+      activeSelection?.rangeCount && activeSelection.isCollapsed &&
+      editor.contains(activeSelection.anchorNode);
+    let caretOffset: number | null = null;
+    if (keepCaret && activeSelection?.anchorNode) {
+      try {
+        const beforeCaret = document.createRange();
+        beforeCaret.selectNodeContents(editor);
+        beforeCaret.setEnd(activeSelection.anchorNode, activeSelection.anchorOffset);
+        caretOffset = beforeCaret.toString().length;
+      } catch {
+        caretOffset = null;
+      }
+    }
+
     lastEmittedValueRef.current = incoming;
     isUpdatingFromPropRef.current = true;
     editor.innerHTML = incoming;
     savedRangeRef.current = null;
     isUpdatingFromPropRef.current = false;
+    if (caretOffset !== null) {
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let remaining = caretOffset;
+      let target: Node | null = null;
+      let targetOffset = 0;
+      let textNode: Node | null;
+      while ((textNode = walker.nextNode())) {
+        target = textNode;
+        const length = textNode.textContent?.length || 0;
+        if (remaining <= length) {
+          targetOffset = remaining;
+          break;
+        }
+        remaining -= length;
+        targetOffset = length;
+      }
+      if (target) {
+        const caret = document.createRange();
+        caret.setStart(target, targetOffset);
+        caret.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(caret);
+        savedRangeRef.current = caret.cloneRange();
+      }
+    }
     if (selectedFigure && !editor.contains(selectedFigure)) {
       setSelectedFigure(null);
       setFigureRect(null);
@@ -1539,33 +1586,105 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
-  const insertCustomList = (listType: '1' | 'a' | 'i') => {
-    if (!editorRef.current || selectedFigure) return;
-    if (!restoreSavedSelection()) return;
+  // Explicit list formats are attached to the semantic list element. They survive
+  // native Enter splits, saving, pagination, and print without hard-coded labels.
+  const insertCustomList = (listType: '1' | 'A' | 'a' | 'disc' | 'square') => {
+    const editor = editorRef.current;
+    if (!editor || selectedFigure || !restoreSavedSelection()) return;
+    const selectionBefore = window.getSelection();
+    const anchorBefore = selectionBefore?.anchorNode;
+    const currentElement = anchorBefore instanceof Element ? anchorBefore : anchorBefore?.parentElement;
+    const existing = currentElement?.closest('ol,ul');
+    const owned = existing && editor.contains(existing) ? existing : null;
+    const unordered = listType === 'disc' || listType === 'square';
+    const sameKind = owned && owned.tagName.toLowerCase() === (unordered ? 'ul' : 'ol');
+
     try {
-      document.execCommand('insertOrderedList', false);
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0) {
-        let node: Node | null = sel.anchorNode;
-        while (node && node !== editorRef.current) {
-          if (node.nodeName === 'OL') {
-            (node as HTMLOListElement).type = listType;
-            (node as HTMLElement).style.listStyleType =
-              listType === 'a' ? 'lower-alpha' : listType === 'i' ? 'lower-roman' : 'decimal';
-            break;
-          }
-          node = node.parentNode;
+      // execCommand is a TOGGLE. Do not call it when just changing an existing
+      // list's marker: that would turn the list off and make Enter jump back.
+      if (!sameKind) {
+        document.execCommand(unordered ? 'insertUnorderedList' : 'insertOrderedList', false);
+      }
+      const selection = window.getSelection();
+      const anchor = selection?.anchorNode;
+      const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+      const list = element?.closest(unordered ? 'ul' : 'ol');
+      if (list && editor.contains(list)) {
+        if (unordered) {
+          list.setAttribute('data-sop-bullet', listType);
+          list.removeAttribute('data-sop-list-format');
+          (list as HTMLElement).style.listStyleType = listType === 'square' ? 'square' : 'disc';
+        } else {
+          list.setAttribute('data-sop-list-format', listType);
+          list.removeAttribute('data-sop-bullet');
+          (list as HTMLOListElement).type = listType;
+          (list as HTMLElement).style.listStyleType =
+            listType === 'A' ? 'upper-alpha' : listType === 'a' ? 'lower-alpha' : 'decimal';
         }
       }
     } catch {
-      // safe fallback
+      // Keep existing authored text intact if browser formatting is unavailable.
     }
     handleInput();
     updateActiveFormatting();
     const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
       savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
+  };
+
+  // A single <li> can have a nonconsecutive label, independent of page breaks.
+  // Keep the semantic HTML value attribute as the source of truth; a CSS
+  // counter-set supplies consistent rendering across editor/A4/print surfaces.
+  const setListItemNumber = (numberOrLetter: string | null): boolean => {
+    const editor = editorRef.current;
+    if (!editor || selectedFigure || !restoreSavedSelection()) return false;
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+    const item = element?.closest('li');
+    const list = item?.parentElement;
+    if (!item || !list || list.tagName.toLowerCase() !== 'ol' ||
+        !editor.contains(item)) return false;
+
+    const raw = numberOrLetter?.trim() || '';
+    let number: number | null = null;
+    if (raw) {
+      if (/^[1-9]\d{0,3}$/.test(raw)) {
+        number = Number(raw);
+      } else if (/^[a-zA-Z]{1,3}$/.test(raw)) {
+        number = [...raw.toUpperCase()].reduce((value, char) =>
+          value * 26 + char.charCodeAt(0) - 64, 0);
+      } else {
+        return false;
+      }
+      if (!Number.isSafeInteger(number) || number < 1 || number > 9999) return false;
+    }
+
+    // Existing imported ordered lists may not yet carry an explicit style
+    // marker. Attach its current semantic type without rewriting any content.
+    if (!list.hasAttribute('data-sop-list-format')) {
+      const currentType = list.getAttribute('type') || '1';
+      list.setAttribute('data-sop-list-format',
+        currentType === 'A' ? 'A' : currentType === 'a' ? 'a' : '1');
+    }
+
+    if (number === null) {
+      item.removeAttribute('value');
+      item.removeAttribute('data-sop-manual-number');
+      (item as HTMLElement).style.removeProperty('--sop-manual-number');
+    } else {
+      item.setAttribute('value', String(number));
+      item.setAttribute('data-sop-manual-number', String(number));
+      (item as HTMLElement).style.setProperty('--sop-manual-number', String(number));
+    }
+    handleInput();
+    updateActiveFormatting();
+    const current = window.getSelection();
+    if (current?.rangeCount && editor.contains(current.anchorNode)) {
+      savedRangeRef.current = current.getRangeAt(0).cloneRange();
+    }
+    return true;
   };
 
   const applyFontSize = (fontSize: LiveSopFontSize) => {
@@ -1623,7 +1742,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
       const activeListItem = element?.closest('li');
       const inList = Boolean(activeListItem && editorRef.current?.contains(activeListItem));
-      const inCell = Boolean(element?.closest('td,th'));
+      const activeCell = element?.closest('td,th');
+      const inCell = Boolean(activeCell && editorRef.current?.contains(activeCell));
       // Tab inside a table must remain a caret/navigation concern for the
       // table editor. Outside tables it changes semantic list nesting.
       // Never accidentally indent a list belonging to another editor.
@@ -1635,63 +1755,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
-    // 2. Space key: Auto-convert typed markdown/prefixes like "1. ", "a. ", "- " into native lists
-    if (e.key === ' ') {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
-        const range = selection.getRangeAt(0);
-        const node = range.startContainer;
-        if (node && node.nodeType === Node.TEXT_NODE) {
-          const text = node.textContent || '';
-          const offset = range.startOffset;
-          const textBefore = text.slice(0, offset);
-
-          // Numeric ordered list: "1." or "1)"
-          const numMatch = textBefore.match(/^(\d+)[\.\)]$/);
-          // Alphabetical ordered list: "a." or "a)" or "A." or "A)"
-          const alphaMatch = textBefore.match(/^([a-zA-Z])[\.\)]$/);
-          // Roman ordered list: "i." or "i)" or "iv."
-          const romanMatch = textBefore.match(/^([ivxIVX]+)[\.\)]$/);
-          // Unordered list / bullet: "-", "*", "•", "·"
-          const bulletMatch = textBefore.match(/^[-*•·]$/);
-
-          if (numMatch || alphaMatch || romanMatch || bulletMatch) {
-            e.preventDefault();
-            // Remove the typed prefix
-            node.textContent = text.slice(offset);
-            const newRange = document.createRange();
-            newRange.setStart(node, 0);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-
-            if (bulletMatch) {
-              executeCommand('insertUnorderedList');
-            } else {
-              executeCommand('insertOrderedList');
-              const curSelection = window.getSelection();
-              const li = curSelection?.anchorNode ? (curSelection.anchorNode as HTMLElement).parentElement?.closest('li') : null;
-              const ol = li?.closest('ol');
-              if (ol) {
-                if (alphaMatch) {
-                  const isUpper = alphaMatch[1] === alphaMatch[1].toUpperCase();
-                  ol.setAttribute('type', isUpper ? 'A' : 'a');
-                } else if (romanMatch) {
-                  const isUpper = romanMatch[1] === romanMatch[1].toUpperCase();
-                  ol.setAttribute('type', isUpper ? 'I' : 'i');
-                } else if (numMatch) {
-                  const startVal = parseInt(numMatch[1], 10);
-                  if (startVal > 1) {
-                    ol.setAttribute('start', String(startVal));
-                  }
-                }
-              }
-            }
-            return;
-          }
-        }
-      }
-    }
+    // Numbering and bullet formats are selected explicitly from the toolbar.
+    // Never reinterpret typed prefixes such as "1. ", "a) ", or "- ":
+    // authored document text must remain untouched.
 
     // 3. Enter key on empty list item: exit list cleanly
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1699,9 +1765,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
         const anchor = selection.anchorNode;
         const li = anchor ? (anchor.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement).closest('li') : anchor.parentElement?.closest('li')) : null;
-        if (li) {
-          const text = (li.textContent || '').trim();
-          if (!text || text === '') {
+        if (li && editorRef.current?.contains(li)) {
+          // A visually empty parent LI can still contain a nested list.
+          // Outdenting it would detach or renumber its child items.
+          const hasNestedContent = Boolean(li.querySelector('ol,ul,table,img,figure'));
+          const text = (li.textContent || '').replace(/\u00a0/g, ' ').trim();
+          if (!text && !hasNestedContent) {
             e.preventDefault();
             executeCommand('outdent');
             return;
@@ -2636,6 +2705,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   useImperativeHandle(forwardedRef, () => ({
     executeCommand,
     insertCustomList,
+    setListItemNumber,
     applyFontSize,
     insertImageFiles: async (files) => processAndInsertImageFiles(files),
     insertTable,
@@ -2743,7 +2813,52 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
         {/* TOOLBAR — compact editor controls without an intrusive toggle */}
         {(!hideToolbar || isFullscreen) && (
-          <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar touch-pan-x text-slate-700 select-none shrink-0">
+          <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto touch-pan-x text-slate-700 select-none shrink-0">
+              {/* Explicit list styles; typing prefixes never triggers conversion. */}
+              <div className="flex items-center gap-1 shrink-0">
+                <select
+                  aria-label="Pilih format numbering atau bullet"
+                  title="Pilih format daftar (tidak otomatis)"
+                  defaultValue=""
+                  onPointerDownCapture={() => {
+                    // Preserve the editor caret before the native select takes focus.
+                    const selection = window.getSelection();
+                    const editor = editorRef.current;
+                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
+                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const format = e.target.value;
+                    if (format) insertCustomList(format as '1' | 'A' | 'a' | 'disc' | 'square');
+                    e.target.value = '';
+                  }}
+                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
+                >
+                  <option value="" disabled>Daftar ▾</option>
+                  <option value="A">A. B. C.</option>
+                  <option value="1">1. 2. 3.</option>
+                  <option value="a">a. b. c.</option>
+                  <option value="disc">• Bullet</option>
+                  <option value="square">▪ Bullet kotak</option>
+                </select>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeCommand('removeFormat')}
+                  title="Reset Format"
+                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* INSERT: one compact command path for tables and existing image flow. */}
+              {allowImageUpload && (
+                <>
+    
+            <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
             {/* Riwayat Undo/Redo */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
@@ -2871,6 +2986,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
+              <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+
               {/* Perataan Teks */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
@@ -2937,50 +3054,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
-              {/* Presets Penomoran Standar SPO (1., a., •) */}
-              <div className="flex items-center gap-0.5 shrink-0">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertCustomList('1')}
-                  title="Nomor Utama (1., 2., 3...)"
-                  className={`h-5.5 px-1.5 text-[10px] font-bold rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center ${activeFormatting.orderedList ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-slate-200/80 text-indigo-700'}`}
-                >
-                  1.
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertCustomList('a')}
-                  title="Sub-Poin Huruf (a., b., c...)"
-                  className="h-5.5 px-1.5 text-[10px] font-bold rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center hover:bg-slate-200/80 text-indigo-700"
-                >
-                  a.
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('insertUnorderedList')}
-                  title="Poin / Bullet List (•)"
-                  className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center ${activeFormatting.unorderedList ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-slate-200/80 hover:text-indigo-600 text-slate-700'}`}
-                >
-                  <List className="w-3 h-3 text-indigo-600" />
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('removeFormat')}
-                  title="Reset Format"
-                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                </button>
-              </div>
-
-              {/* INSERT: one compact command path for tables and existing image flow. */}
-              {allowImageUpload && (
-                <>
-                  <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+              <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
                   <div className="flex items-center shrink-0">
                     <input
                       ref={fileInputRef}

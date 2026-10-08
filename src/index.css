@@ -3559,3 +3559,68 @@ body,
     color: #94a3b8;
   }
 }
+
+/* Explicit Live SPO list formats. Shared by editor, A4 preview and print. */
+@counter-style sop-decimal-paren {
+  system: numeric;
+  symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9";
+  suffix: ") ";
+}
+@counter-style sop-alpha-paren {
+  system: alphabetic;
+  symbols: "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z";
+  suffix: ") ";
+}
+
+/* Explicit list marker selection overrides the legacy level-based defaults.
+   Apply to all Live, preview and printable SPO surfaces. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[type="A"] > li::before {
+  content: counter(sop-list, upper-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[type="a"] > li::before {
+  content: counter(sop-list, lower-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[style*="sop-alpha-paren"] > li::before {
+  content: counter(sop-list, lower-alpha) ")" !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[style*="sop-decimal-paren"] > li::before {
+  content: counter(sop-list, decimal) ")" !important;
+}
+
+/* Explicit SPO list formats: semantic OL/UL retains the selected style after
+   Enter and during canonical pagination. These rules intentionally scope only
+   newly formatted lists, leaving legacy uploaded documents unchanged. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="a"] {
+  counter-reset: sop-list var(--sop-start-offset, 0) !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format] > li {
+  counter-increment: sop-list !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="A"] > li::before {
+  content: counter(sop-list, upper-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="1"] > li::before {
+  content: counter(sop-list, decimal) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="a"] > li::before {
+  content: counter(sop-list, lower-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="disc"] > li,
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="square"] > li {
+  display: list-item !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="disc"] > li {
+  list-style-type: disc !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="square"] > li {
+  list-style-type: square !important;
+}
+
+/* Per-item numbering override: <li value="N"> is the semantic source and
+   --sop-manual-number allows our explicit pseudo-markers to follow that value.
+   Items after an override resume from its chosen number, not from the page's
+   physical position. Imported/legacy lists without the flag are unchanged. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format] > li[data-sop-manual-number] {
+  counter-increment: sop-list 0 !important;
+  counter-set: sop-list var(--sop-manual-number) !important;
+}

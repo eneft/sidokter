@@ -146,6 +146,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   >('pengertian');
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
+  const [showManualNumberMenu, setShowManualNumberMenu] = useState(false);
+  const [manualNumberInput, setManualNumberInput] = useState('');
+  const [manualNumberError, setManualNumberError] = useState(false);
   const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -224,8 +227,20 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     getActiveEditor()?.executeCommand(cmd, val || undefined);
   };
 
-  const handleInsertList = (type: '1' | 'a') => {
+  const handleInsertList = (type: '1' | 'A' | 'a' | 'disc' | 'square') => {
     getActiveEditor()?.insertCustomList(type);
+  };
+
+  const applyManualListNumber = (value: string | null) => {
+    // The active editor owns the caret even when its A4 section spans pages.
+    const applied = getActiveEditor()?.setListItemNumber(value) ?? false;
+    if (applied) {
+      setShowManualNumberMenu(false);
+      setManualNumberInput('');
+      setManualNumberError(false);
+    } else {
+      setManualNumberError(true);
+    }
   };
 
   const handleInsertImageToActiveSection = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -702,8 +717,59 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="toolbar-command-group">
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleInsertList('1')} title="Penomoran" aria-label="Penomoran" aria-pressed={activeFormatting.orderedList} className={`toolbar-icon ${activeFormatting.orderedList ? 'is-active' : ''}`}><ListOrdered /></button>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('insertUnorderedList')} title="Bullet" aria-label="Bullet" aria-pressed={activeFormatting.unorderedList} className={`toolbar-icon ${activeFormatting.unorderedList ? 'is-active' : ''}`}><List /></button>
+              <select
+                aria-label="Pilih format numbering atau bullet"
+                title="Pilih format daftar"
+                defaultValue=""
+                onMouseDown={() => getActiveEditor()?.captureSelection()}
+                onChange={(e) => {
+                  const format = e.target.value;
+                  if (format) handleInsertList(format as '1' | 'A' | 'a' | 'disc' | 'square');
+                  e.target.value = '';
+                }}
+                className="h-7 w-28 shrink-0 rounded border border-slate-200 bg-white px-1 text-[11px] font-semibold"
+              >
+                <option value="" disabled>Daftar ▾</option>
+                <option value="A">A. B. C.</option>
+                <option value="1">1. 2. 3.</option>
+                <option value="a">a. b. c.</option>
+                <option value="disc">• Bullet</option>
+                <option value="square">▪ Bullet kotak</option>
+              </select>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label="Ubah nomor item daftar secara manual"
+                  aria-expanded={showManualNumberMenu}
+                  title="Atur nomor atau huruf item tertentu, tidak harus berurutan"
+                  onMouseDown={(e) => { e.preventDefault(); getActiveEditor()?.captureSelection(); }}
+                  onClick={() => { setManualNumberError(false); setShowManualNumberMenu((previous) => !previous); }}
+                  className="h-7 rounded border border-slate-200 bg-white px-2 text-[11px] font-semibold hover:bg-slate-100"
+                >
+                  Nomor…
+                </button>
+                {showManualNumberMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-60 rounded-lg border border-slate-200 bg-white p-3 shadow-lg z-50 text-slate-700">
+                    <p className="text-[11px] font-semibold mb-1">Nomor item terpilih</p>
+                    <p className="text-[10px] text-slate-500 mb-2">Klik item bernomor dahulu. Isi a, e, g atau 1, 4, 7.</p>
+                    <input
+                      aria-label="Nomor atau huruf manual"
+                      type="text"
+                      value={manualNumberInput}
+                      onMouseDown={() => getActiveEditor()?.captureSelection()}
+                      onChange={(e) => { setManualNumberInput(e.target.value); setManualNumberError(false); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyManualListNumber(manualNumberInput); } }}
+                      placeholder="Contoh: e atau 5"
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                    />
+                    {manualNumberError && <p className="mt-1 text-[10px] text-rose-600">Pilih item dalam daftar A./1./a. dan isi huruf atau angka yang sah.</p>}
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyManualListNumber(null)} className="text-[11px] text-slate-600 hover:underline">Kembali otomatis</button>
+                      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyManualListNumber(manualNumberInput)} className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white">Terapkan</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="toolbar-command-group">
               <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />

@@ -217,6 +217,7 @@ export function hasHtmlTags(str: string): boolean {
 export function normalizeOrderedListContinuityAroundTables(root: ParentNode): void {
   const children = Array.from(root.children || []) as HTMLElement[];
   let nextOrderedStart: number | null = null;
+  let previousListType: string | null = null;
   let bridgeHasTable = false;
 
   const isEmptySpacer = (element: HTMLElement) => {
@@ -233,13 +234,26 @@ export function normalizeOrderedListContinuityAroundTables(root: ParentNode): vo
       const rawStart = element.getAttribute('start');
       const parsedStart = rawStart ? Number.parseInt(rawStart, 10) : Number.NaN;
       const hasExplicitStart = Number.isFinite(parsedStart) && parsedStart > 0;
-      const shouldContinue = !hasExplicitStart && bridgeHasTable && nextOrderedStart !== null;
+      // A table may interrupt a list, but it must not silently turn a
+      // decimal sequence into an alphabetic/Roman sequence (or vice versa).
+      const listType = element.getAttribute('type') || '1';
+      const shouldContinue = !hasExplicitStart && bridgeHasTable &&
+        nextOrderedStart !== null && previousListType === listType;
       const effectiveStart = hasExplicitStart ? parsedStart : (shouldContinue ? nextOrderedStart! : 1);
       if (shouldContinue && effectiveStart > 1) {
         element.setAttribute('start', String(effectiveStart));
       }
       element.style.setProperty('--sop-start-offset', String(Math.max(0, effectiveStart - 1)));
-      nextOrderedStart = effectiveStart + directItems.length;
+      // LI[value] explicitly changes the visible number. Carry that value
+      // across the table instead of assuming every LI increments from start.
+      let lastNumber = effectiveStart - 1;
+      directItems.forEach((item) => {
+        const rawValue = item.getAttribute('value');
+        const value = rawValue === null ? Number.NaN : Number.parseInt(rawValue, 10);
+        lastNumber = Number.isFinite(value) ? value : lastNumber + 1;
+      });
+      nextOrderedStart = lastNumber + 1;
+      previousListType = listType;
       bridgeHasTable = false;
       return;
     }
@@ -256,7 +270,29 @@ export function normalizeOrderedListContinuityAroundTables(root: ParentNode): vo
       normalizeOrderedListContinuityAroundTables(element);
     }
     nextOrderedStart = null;
+    previousListType = null;
     bridgeHasTable = false;
+  });
+}
+
+/**
+ * Resolve the actual numeric value of each semantic ordered-list item.
+ * The HTML <li value="N"> attribute is authoritative, even for nonconsecutive
+ * alphabetic labels such as a., b., g., a. With no override, the next
+ * item simply follows the last actual value.
+ */
+export function orderedListItemNumbers(
+  items: Array<Pick<Element, 'getAttribute'>>,
+  start = 1
+): number[] {
+  let next = Number.isSafeInteger(start) ? start : 1;
+  return items.map((item) => {
+    const raw = item.getAttribute('value') ?? item.getAttribute('data-sop-manual-number');
+    const override = raw && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    const current = Number.isSafeInteger(override) && override >= 1
+      ? override : next;
+    next = current + 1;
+    return current;
   });
 }
 
@@ -811,6 +847,10 @@ export function splitHtmlForCapacity(
       const items = Array.from(first.children).filter(
         (el) => el.tagName.toLowerCase() === 'li'
       ) as HTMLElement[];
+      const itemNumbers = isOl ? orderedListItemNumbers(items, explicitStart) : [];
+      const numberAtIndex = (index: number): number =>
+        itemNumbers[index] ?? ((itemNumbers[itemNumbers.length - 1] ?? (explicitStart - 1))
+          + 1 + Math.max(0, index - itemNumbers.length));
       // Empty lists are kept as-authored; their markers must never become
       // fabricated pagination content.
       if (items.length === 0) {
@@ -841,7 +881,7 @@ export function splitHtmlForCapacity(
         continuation = false,
         continuationNumber?: number
       ) => {
-        const number = continuationNumber ?? explicitStart + startIndex;
+        const number = continuationNumber ?? numberAtIndex(startIndex);
         const itemsWithContinuationMarker = continuation
           ? itemHtmls.map((itemHtml) =>
               itemHtml.replace(
@@ -899,14 +939,14 @@ export function splitHtmlForCapacity(
                     [...prefixItemHtmls, li.outerHTML],
                     0,
                     false,
-                    explicitStart
+                    numberAtIndex(0)
                   );
                 }
                 return makeList(
                   [li.outerHTML],
                   fitCount,
                   true,
-                  explicitStart + fitCount
+                  numberAtIndex(fitCount)
                 );
               },
               template
@@ -922,7 +962,7 @@ export function splitHtmlForCapacity(
                     laterItems,
                     fitCount + 1,
                     false,
-                    explicitStart + fitCount + 1
+                    numberAtIndex(fitCount + 1)
                   )
                 : '';
               return [
@@ -938,7 +978,7 @@ export function splitHtmlForCapacity(
             items.slice(fitCount).map((el) => el.outerHTML),
             fitCount,
             false,
-            explicitStart + fitCount
+            numberAtIndex(fitCount)
           );
           return [firstPart, remainingPart];
         }
@@ -959,7 +999,7 @@ export function splitHtmlForCapacity(
                 [clonedItem.outerHTML],
                 0,
                 continuation,
-                explicitStart
+                numberAtIndex(0)
               );
             };
             const tableParts = splitStructuredTableV2(
@@ -975,7 +1015,7 @@ export function splitHtmlForCapacity(
                 .slice(1)
                 .map((el) => el.outerHTML);
               const remainingList = remainingItems.length
-                ? makeList(remainingItems, 1, false, explicitStart + 1)
+                ? makeList(remainingItems, 1, false, numberAtIndex(1))
                 : '';
               host.remove();
               return [
@@ -992,7 +1032,7 @@ export function splitHtmlForCapacity(
               li.removeAttribute('id');
               li.innerHTML = '';
               li.appendChild(fragment);
-              return makeList([li.outerHTML], 0, !isFirstChunk, explicitStart);
+              return makeList([li.outerHTML], 0, !isFirstChunk, numberAtIndex(0));
             },
             template
           );
@@ -1003,7 +1043,7 @@ export function splitHtmlForCapacity(
             const continuation = [
               ...restItemParts,
               ...(remainingItems.length
-                ? [makeList(remainingItems, 1, false, explicitStart + 1)]
+                ? [makeList(remainingItems, 1, false, numberAtIndex(1))]
                 : [])
             ].join('');
             host.remove();
