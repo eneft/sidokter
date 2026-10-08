@@ -873,9 +873,11 @@ export function splitHtmlForCapacity(
         !onlyCell.querySelector('table') &&
         Number(onlyCell.getAttribute('colspan') || '1') === 1 &&
         Number(onlyCell.getAttribute('rowspan') || '1') === 1;
-      const cellHtml = onlyCell?.innerHTML.trim() || '';
+      // Preserve authored leading/trailing text nodes: trimming the payload
+      // before pagination silently drops spaces from imported DOCX cells.
+      const cellHtml = onlyCell?.innerHTML || '';
 
-      if (isSimpleOneCellTable && cellHtml &&
+      if (isSimpleOneCellTable && cellHtml.trim() &&
           onlyCell?.querySelector('ol,ul') &&
           !onlyCell.querySelector('img,figure,svg,video,iframe') &&
           maxHeight >= 40) {
