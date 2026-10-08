@@ -1,3 +1,5 @@
+import { markLayoutTableForReassembly } from './paginationReassembly';
+export { reassemblePaginatedSection, prepareEditedPaginationFragment } from './paginationReassembly';
 import { SPO_A4 } from './a4Layout';
 import { splitStructuredTableV2 } from './structuredTablePaginationV2';
 
@@ -877,12 +879,14 @@ export function splitHtmlForCapacity(
         Number(onlyCell.getAttribute('rowspan') || '1') === 1;
       // Preserve authored leading/trailing text nodes: trimming the payload
       // before pagination silently drops spaces from imported DOCX cells.
-      const cellHtml = onlyCell?.innerHTML || '';
+      let cellHtml = onlyCell?.innerHTML || '';
 
       if (isSimpleOneCellTable && cellHtml.trim() &&
           onlyCell?.querySelector('ol,ul') &&
           !onlyCell.querySelector('img,figure,svg,video,iframe') &&
           maxHeight >= 40) {
+        markLayoutTableForReassembly(table);
+        cellHtml = onlyCell.innerHTML;
         const wrapTableFragment = (fragment: string, continuation: boolean) => {
           const cloned = table.cloneNode(true) as HTMLTableElement;
           const cell = cloned.querySelector('td,th') as HTMLElement | null;
@@ -974,8 +978,9 @@ export function splitHtmlForCapacity(
               )
             )
           : itemHtmls;
-        const counterStyle = isOl
-          ? ` style="counter-reset: sop-list ${number - 1};--sop-start-offset: ${number - 1};"`
+        const listStyle = first.style.cssText;
+        const counterStyle = (isOl || listStyle)
+          ? ` style="${listStyle.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}${isOl ? `;counter-reset: sop-list ${number - 1};--sop-start-offset: ${number - 1};` : ''}"`
           : '';
         return `<${listTag}${listAttrs}${isOl && !continuation ? ` start="${number}"` : ''}${counterStyle}${continuation ? ` data-sop-list-continuation="true" data-sop-continuation-number="${number}"` : ''}>${itemsWithContinuationMarker.join('')}</${listTag}>`;
       };
