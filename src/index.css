@@ -3586,3 +3586,32 @@ body,
 :is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[style*="sop-decimal-paren"] > li::before {
   content: counter(sop-list, decimal) ")" !important;
 }
+
+/* Explicit SPO list formats: semantic OL/UL retains the selected style after
+   Enter and during canonical pagination. These rules intentionally scope only
+   newly formatted lists, leaving legacy uploaded documents unchanged. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="a"] {
+  counter-reset: sop-list var(--sop-start-offset, 0) !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format] > li {
+  counter-increment: sop-list !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="A"] > li::before {
+  content: counter(sop-list, upper-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="1"] > li::before {
+  content: counter(sop-list, decimal) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[data-sop-list-format="a"] > li::before {
+  content: counter(sop-list, lower-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="disc"] > li,
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="square"] > li {
+  display: list-item !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="disc"] > li {
+  list-style-type: disc !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ul[data-sop-bullet="square"] > li {
+  list-style-type: square !important;
+}
