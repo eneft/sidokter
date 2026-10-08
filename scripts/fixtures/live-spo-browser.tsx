@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SopLiveTemplate } from '../../src/components/SopLiveTemplate';
+import { RichTextEditor } from '../../src/components/RichTextEditor';
 
 function Fixture({ seed }: { seed: string; key?: number }) {
   const [prosedur, setProsedur] = useState(seed);
@@ -21,3 +22,14 @@ const root = createRoot(document.getElementById('live-app')!);
 let mountId = 0;
 (window as any).__mountLive = (seed = '') => root.render(<Fixture key={++mountId} seed={seed} />);
 (window as any).__mountLive();
+
+// Isolated contentEditable fixture for testing selection after canonical HTML updates.
+function SelectionFixture({ seed }: { seed: string; key?: number }) {
+  const [html, setHtml] = useState(seed);
+  (window as any).__savedRichHtml = html;
+  (window as any).__setRichHtml = setHtml;
+  return <RichTextEditor value={html} onChange={setHtml} variant="seamless" hideToolbar
+    placeholder="Uji seleksi editor" />;
+}
+(window as any).__mountRichEditor = (seed = '') =>
+  root.render(<SelectionFixture key={++mountId} seed={seed} />);
