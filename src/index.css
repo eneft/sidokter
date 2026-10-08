@@ -3571,3 +3571,18 @@ body,
   symbols: "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z";
   suffix: ") ";
 }
+
+/* Explicit list marker selection overrides the legacy level-based defaults.
+   Apply to all Live, preview and printable SPO surfaces. */
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[type="A"] > li::before {
+  content: counter(sop-list, upper-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[type="a"] > li::before {
+  content: counter(sop-list, lower-alpha) "." !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[style*="sop-alpha-paren"] > li::before {
+  content: counter(sop-list, lower-alpha) ")" !important;
+}
+:is(.rich-text-editor-content,.sop-batang-tubuh-content,.rich-text-output,.rich-text-document-content,#printable-sop-official-document) ol[style*="sop-decimal-paren"] > li::before {
+  content: counter(sop-list, decimal) ")" !important;
+}
