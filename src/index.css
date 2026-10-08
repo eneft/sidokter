@@ -3624,3 +3624,20 @@ body,
   counter-increment: sop-list 0 !important;
   counter-set: sop-list var(--sop-manual-number) !important;
 }
+
+/* Canonical Batang Tubuh typography shared by the editable A4 content,
+   the readonly official Preview/PDF and the off-screen paginator.
+   Scope to opted-in roots to avoid changing other rich-text interfaces. */
+.sop-a4-rich-body {
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
+  font-size: 12pt !important;
+  line-height: 1.5 !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  hyphens: none !important;
+}
