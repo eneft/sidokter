@@ -244,7 +244,9 @@ async function main() {
           alpha + '</td></tr></tbody></table>',
         nestedTable: '<table><tbody><tr><td><table><tbody><tr><td>Subtabel</td></tr></tbody></table>' +
           alpha + '</td></tr></tbody></table>',
-        colspan: '<table><tbody><tr><td colspan="2">' + alpha + '</td></tr></tbody></table>'
+        colspan: '<table><tbody><tr><td colspan="2">' + alpha + '</td></tr></tbody></table>',
+        headerOnly: '<table><thead><tr><th>' + alpha + '</th></tr></thead></table>',
+        footerOnly: '<table><tfoot><tr><td>' + alpha + '</td></tr></tfoot></table>'
       };
       const parts = {};
       for (const [name, html] of Object.entries(cases)) {
@@ -253,7 +255,7 @@ async function main() {
       return parts;
     });
     console.log('A4 protected table structures:', protectedTables);
-    for (const name of ['multiCell','mediaCell','nestedTable','colspan']) {
+    for (const name of ['multiCell','mediaCell','nestedTable','colspan','headerOnly','footerOnly']) {
       assert.equal(protectedTables[name], 1,
         'A4: do not split protected ' + name + ' table internals');
     }
