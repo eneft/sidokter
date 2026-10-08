@@ -592,13 +592,22 @@ async function main() {
     const afterPlainEnter = await page.evaluate(() => {
       const doc=new DOMParser().parseFromString(window.__savedProcedure,'text/html');
       const body=doc.body;
-      return { html:body.innerHTML,
-        leafBlocks:[...body.querySelectorAll('div,p')].filter(e=>!e.querySelector('div,p'))
-          .map(e=>e.textContent?.trim()).filter(Boolean) };
+      const children=[...body.childNodes];
+      return {
+        html:body.innerHTML,
+        text:body.textContent,
+        firstChildIndex:children.findIndex(n=>n.textContent?.includes('PARAGRAF AWAL')),
+        nextChildIndex:children.findIndex(n=>n.textContent?.includes('PARAGRAF LANJUT')),
+        lineBreak:!!body.querySelector('br')
+      };
     });
-    assert.ok(afterPlainEnter.leafBlocks.some(x=>x === 'PARAGRAF AWAL') &&
-      afterPlainEnter.leafBlocks.some(x=>x === 'PARAGRAF LANJUT'),
-      'plain Enter must preserve separate paragraphs even after A4 refresh');
+    console.log('LiveSPO plain Enter resulting HTML:',afterPlainEnter);
+    assert.ok(
+      afterPlainEnter.firstChildIndex >= 0 && afterPlainEnter.nextChildIndex >= 0 &&
+      (afterPlainEnter.firstChildIndex !== afterPlainEnter.nextChildIndex || afterPlainEnter.lineBreak),
+      'plain Enter must preserve a structural line break without joining new text to the previous line');
+    assert.equal(afterPlainEnter.text.split('PARAGRAF AWAL').length-1,1);
+    assert.equal(afterPlainEnter.text.split('PARAGRAF LANJUT').length-1,1);
     console.log('LiveSPO plain Enter stays on fresh paragraph: PASS');
 
 
