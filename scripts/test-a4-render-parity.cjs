@@ -469,7 +469,20 @@ async function main() {
       const doc=parse(saved);
       const sourceText=parse(source).body.textContent;
       const outputText=parse(pieces.join('')).body.textContent;
+      let repeated = saved;
+      for (let cycle=0; cycle<3; cycle++) {
+        const again=pager.computeCanonicalA4Pages(
+          [...intro,{id:'nested-numbering',section:'PROSEDUR',html:repeated}],
+          {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+        repeated=pager.reassemblePaginatedSection(again.flat()
+          .filter(b=>b.id.startsWith('nested-numbering')).map(b=>b.html).join(''));
+      }
+      const roundTrip=parse(repeated);
       return {firstNestedCount, page:containing+1, totalPages:pages.length,
+        roundTripText:roundTrip.body.textContent,
+        roundTripRoots:roundTrip.body.querySelectorAll(':scope > ol').length,
+        roundTripParents:roundTrip.querySelectorAll('ol[type="1"] > li').length,
+        roundTripChildren:roundTrip.querySelectorAll('ol[type="a"] > li').length,
         sourceText,outputText,
         sourceItems:parse(source).querySelectorAll('ol[type="a"] > li').length,
         restoredItems:doc.querySelectorAll('ol[type="a"] > li').length,
@@ -491,6 +504,14 @@ async function main() {
       'pagination must not permanently split a logical nested list');
     assert.equal(nestedNumbering.manual, '7',
       'nonsequential manual alpha value must remain editable and intact');
+    assert.equal(nestedNumbering.roundTripText,nestedNumbering.sourceText,
+      'repeated pagination/save must preserve nested authored text');
+    assert.equal(nestedNumbering.roundTripRoots,1,
+      'three save/reopen cycles must not multiply root lists');
+    assert.equal(nestedNumbering.roundTripParents,1,
+      'three save/reopen cycles must preserve the single decimal parent');
+    assert.equal(nestedNumbering.roundTripChildren,nestedNumbering.sourceItems,
+      'three save/reopen cycles must preserve all alpha children');
     // Mount the production React editor and TYPE using real keyboard events.
     await page.evaluate(() => {
       document.body.innerHTML = '<div id="live-app"></div>';
