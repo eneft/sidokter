@@ -3702,3 +3702,19 @@ body,
   margin-top: 0 !important;
   margin-bottom: 4px !important;
 }
+
+/* A4 WYSIWYG: keep alpha sub-numbering indented under its parent item.
+   The older official-cell rule (#printable... .sop-batang-tubuh-content ol)
+   sets padding-left:0 on *all* ordered lists. Its high specificity erased
+   the 1.75em second-level indent only in readonly Preview and PDF.
+   Restore the existing Live editor spacing without changing authored HTML,
+   counter styles, manual LI[value] or first-level decimal lists. */
+.sop-batang-tubuh-content .sop-a4-rich-body ol ol,
+.sop-batang-tubuh-content .sop-a4-rich-body ol[type="a"],
+.sop-batang-tubuh-content .sop-a4-rich-body ol[data-sop-list-format="a"],
+#printable-sop-official-document .sop-batang-tubuh-content .sop-a4-rich-body ol ol,
+#printable-sop-official-document .sop-batang-tubuh-content .sop-a4-rich-body ol[type="a"],
+#printable-sop-official-document .sop-batang-tubuh-content .sop-a4-rich-body ol[data-sop-list-format="a"] {
+  padding-left: 1.75em !important;
+  margin-left: 0 !important;
+}
