@@ -200,6 +200,12 @@ async function main() {
       return cases;
     });
     console.log('A4 nested-list page-break diagnostics:', JSON.stringify(paginationCases));
+    const layoutTable = paginationCases['tableWrapped:135'];
+    assert.ok(layoutTable.length > 1 && layoutTable[0].nAlpha >= 1,
+      'A4: split a one-cell Word layout table and keep nested alpha lines on the current page');
+    assert.ok(layoutTable[0].height <= 135,
+      'A4: the first table fragment must fit the available physical height');
+
     const pagePacking = await page.evaluate(() => {
       const pager = window.SopA4Pagination;
       const alpha = '<ol type="a" data-sop-list-format="a">' +
