@@ -655,7 +655,6 @@ async function main() {
     // intersected authored ordered lists, not only the anchor's first list.
     await page.evaluate(() => window.__mountRichEditor(
       '<ol type="1" data-sop-list-format="1"><li>Butir A keamanan</li></ol>' +
-      '<p>Catatan peralihan</p>' +
       '<ol type="1" data-sop-list-format="1"><li value="7" data-sop-manual-number="7">Butir B pengawasan</li></ol>'));
     await page.waitForFunction(() =>
       document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol').length === 2);
