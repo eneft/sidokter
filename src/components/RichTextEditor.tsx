@@ -1646,63 +1646,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
-    // 2. Space key: Auto-convert typed markdown/prefixes like "1. ", "a. ", "- " into native lists
-    if (e.key === ' ') {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
-        const range = selection.getRangeAt(0);
-        const node = range.startContainer;
-        if (node && node.nodeType === Node.TEXT_NODE) {
-          const text = node.textContent || '';
-          const offset = range.startOffset;
-          const textBefore = text.slice(0, offset);
-
-          // Numeric ordered list: "1." or "1)"
-          const numMatch = textBefore.match(/^(\d+)[\.\)]$/);
-          // Alphabetical ordered list: "a." or "a)" or "A." or "A)"
-          const romanMatch = textBefore.match(/^([ivxIVX]+)[\.\)]$/);
-          // Roman prefixes take precedence over alphabetic ones (i., v., x.).
-          const alphaMatch = romanMatch ? null : textBefore.match(/^([a-zA-Z])[\.\)]$/);
-          // Unordered list / bullet: "-", "*", "•", "·"
-          const bulletMatch = textBefore.match(/^[-*•·]$/);
-
-          if (numMatch || alphaMatch || romanMatch || bulletMatch) {
-            e.preventDefault();
-            // Remove the typed prefix
-            node.textContent = text.slice(offset);
-            const newRange = document.createRange();
-            newRange.setStart(node, 0);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-
-            if (bulletMatch) {
-              executeCommand('insertUnorderedList');
-            } else {
-              executeCommand('insertOrderedList');
-              const curSelection = window.getSelection();
-              const li = curSelection?.anchorNode ? (curSelection.anchorNode as HTMLElement).parentElement?.closest('li') : null;
-              const ol = li?.closest('ol');
-              if (ol) {
-                if (alphaMatch) {
-                  const isUpper = alphaMatch[1] === alphaMatch[1].toUpperCase();
-                  ol.setAttribute('type', isUpper ? 'A' : 'a');
-                } else if (romanMatch) {
-                  const isUpper = romanMatch[1] === romanMatch[1].toUpperCase();
-                  ol.setAttribute('type', isUpper ? 'I' : 'i');
-                } else if (numMatch) {
-                  const startVal = parseInt(numMatch[1], 10);
-                  if (startVal > 1) {
-                    ol.setAttribute('start', String(startVal));
-                  }
-                }
-              }
-            }
-            return;
-          }
-        }
-      }
-    }
+    // Numbering and bullet formats are selected explicitly from the toolbar.
+    // Never reinterpret typed prefixes such as "1. ", "a) ", or "- ":
+    // authored document text must remain untouched.
 
     // 3. Enter key on empty list item: exit list cleanly
     if (e.key === 'Enter' && !e.shiftKey) {
