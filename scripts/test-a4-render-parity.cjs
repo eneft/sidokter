@@ -233,6 +233,30 @@ async function main() {
         sizes
       };
     });
+    const protectedTables = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a"><li>Pemeriksaan identitas dilakukan untuk setiap pengunjung rumah sakit.</li>' +
+        '<li>Petugas wajib melaporkan potensi gangguan keamanan kepada koordinator.</li>' +
+        '<li>Pemantauan CCTV dan jalur akses dilakukan setiap pergantian jaga.</li></ol>';
+      const cases = {
+        multiCell: '<table><tbody><tr><td>' + alpha + '</td><td>Kolom data lain</td></tr></tbody></table>',
+        mediaCell: '<table><tbody><tr><td><img src="/__image.svg" width="500" height="420">' +
+          alpha + '</td></tr></tbody></table>',
+        nestedTable: '<table><tbody><tr><td><table><tbody><tr><td>Subtabel</td></tr></tbody></table>' +
+          alpha + '</td></tr></tbody></table>',
+        colspan: '<table><tbody><tr><td colspan="2">' + alpha + '</td></tr></tbody></table>'
+      };
+      const parts = {};
+      for (const [name, html] of Object.entries(cases)) {
+        parts[name] = pager.splitHtmlForCapacity(html, 90, null).length;
+      }
+      return parts;
+    });
+    console.log('A4 protected table structures:', protectedTables);
+    for (const name of ['multiCell','mediaCell','nestedTable','colspan']) {
+      assert.equal(protectedTables[name], 1,
+        'A4: do not split protected ' + name + ' table internals');
+    }
     console.log('A4 Word-wrapped numbering integrity:', wrappedIntegrity);
     assert.ok(wrappedIntegrity.parts > 1, 'single-cell list requires fragmentation');
     assert.ok(wrappedIntegrity.sameText, 'all authored text must survive table fragmentation');
