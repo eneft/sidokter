@@ -1012,11 +1012,56 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
+    // The A4 paginator may return a canonical HTML fragment after Enter.
+    // Replacing focused contentEditable markup without restoring its caret
+    // makes the next keystroke jump to the start (and seemingly resets lists).
+    const activeSelection = window.getSelection();
+    const keepCaret = document.activeElement === editor &&
+      activeSelection?.rangeCount && activeSelection.isCollapsed &&
+      editor.contains(activeSelection.anchorNode);
+    let caretOffset: number | null = null;
+    if (keepCaret && activeSelection?.anchorNode) {
+      try {
+        const beforeCaret = document.createRange();
+        beforeCaret.selectNodeContents(editor);
+        beforeCaret.setEnd(activeSelection.anchorNode, activeSelection.anchorOffset);
+        caretOffset = beforeCaret.toString().length;
+      } catch {
+        caretOffset = null;
+      }
+    }
+
     lastEmittedValueRef.current = incoming;
     isUpdatingFromPropRef.current = true;
     editor.innerHTML = incoming;
     savedRangeRef.current = null;
     isUpdatingFromPropRef.current = false;
+    if (caretOffset !== null) {
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let remaining = caretOffset;
+      let target: Node | null = null;
+      let targetOffset = 0;
+      let textNode: Node | null;
+      while ((textNode = walker.nextNode())) {
+        target = textNode;
+        const length = textNode.textContent?.length || 0;
+        if (remaining <= length) {
+          targetOffset = remaining;
+          break;
+        }
+        remaining -= length;
+        targetOffset = length;
+      }
+      if (target) {
+        const caret = document.createRange();
+        caret.setStart(target, targetOffset);
+        caret.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(caret);
+        savedRangeRef.current = caret.cloneRange();
+      }
+    }
     if (selectedFigure && !editor.contains(selectedFigure)) {
       setSelectedFigure(null);
       setFigureRect(null);
