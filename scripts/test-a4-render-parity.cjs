@@ -208,7 +208,7 @@ async function main() {
         'Khusus untuk ayah kandung yang datang tidak bersamaan dengan ibu bayi dilakukan konfirmasi identitas tambahan.',
         'Selama ada bayi di ruang bayi, perawat tidak boleh meninggalkan ruangan tanpa pengawasan.'
       ];
-      const prelude = texts.map(t => '<li>' + t + '</li>').join('');
+      const prelude = texts.map(t => '<li>' + (t + ' ').repeat(3) + '</li>').join('');
       const nextItems = Array.from({length: 11}, (_,i) =>
         '<li>Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu sesuai jam dinas bagian ' + (i+1) + '.</li>').join('');
       const source = '<ol type="1"><li>Akses masuk ruang Neonatus' +
