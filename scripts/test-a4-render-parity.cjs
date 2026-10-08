@@ -935,6 +935,39 @@ async function main() {
     assert.deepEqual(nestedAlpha,['a.','g.','h.']);
     console.log('LiveSPO editable alpha level auto-continuation: PASS');
 
+    const inlineAcrossPages = await page.evaluate(() => {
+      const original = new DOMParser().parseFromString(
+        '<ol data-sop-inline-markers="true" type="1" data-sop-list-format="1">' +
+        Array.from({length:30},(_,i) => {
+          const n=i<3 ? i+1 : i+5;
+          return '<li data-sop-marker-label="'+n+'.">'+
+            'Langkah patroli keamanan ke-'+(i+1)+': petugas melakukan pemeriksaan '+
+            'kelengkapan akses serta mencatat temuan penting sebelum melanjutkan patroli.</li>';
+        }).join('')+'</ol>', 'text/html');
+      const html=original.body.innerHTML;
+      const pager=window.SopA4Pagination;
+      const pages=pager.computeCanonicalA4Pages(
+        [{id:'inline-markers',section:'PROSEDUR',html}],
+        {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24}
+      );
+      const parts=pages.flat().filter(b=>b.id.startsWith('inline-markers')).map(b=>b.html);
+      const restored=pager.reassemblePaginatedSection(parts.join(''));
+      const d=new DOMParser().parseFromString(restored,'text/html');
+      const markers=[...d.querySelectorAll('ol > li')].map(li=>li.getAttribute('data-sop-marker-label'));
+      return {pages:pages.length,
+        original:[...original.querySelectorAll('ol > li')].map(li=>li.getAttribute('data-sop-marker-label')),
+        markers,
+        preservedRoot:!!d.querySelector('ol[data-sop-inline-markers="true"]'),
+        textRestored:d.body.textContent===original.body.textContent};
+    });
+    assert.ok(inlineAcrossPages.pages>=2,'long inline-edited lists must paginate into multiple A4 pages');
+    assert.deepEqual(inlineAcrossPages.markers,inlineAcrossPages.original,
+      'all custom and automatic visible markers must survive page fragmentation and reassembly');
+    assert.ok(inlineAcrossPages.preservedRoot && inlineAcrossPages.textRestored,
+      'A4 continuation must preserve list identity and authored text');
+    console.log('LiveSPO inline marker labels survive A4 page break: PASS');
+
+
 
 
     // Stage 4: after pagination moves the logical caret to a lower page,
