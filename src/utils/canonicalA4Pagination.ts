@@ -968,6 +968,14 @@ export function splitHtmlForCapacity(
         return [source];
       }
 
+      // Physical A4 fragments are NOT independent authored lists. Every
+      // ordered/unordered list (including nested alpha/roman LI children)
+      // needs stable temporary identity before its item boundaries are split.
+      // Otherwise save/reopen concatenates duplicate OL/LI structures, which
+      // changes numbering and can cause later repagination to leave dead space.
+      // The identities are removed by reassemblePaginatedSection before save.
+      markLayoutTableForReassembly(first);
+
       const listTag = first.tagName.toLowerCase();
       const listAttrs = Array.from(first.attributes)
         .filter((attr) => {
