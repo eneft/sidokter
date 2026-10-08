@@ -54,6 +54,9 @@ jobs:
       - name: Build Web Client
         run: npm run build:client
 
+      - name: Verify A4 Editor Preview Print Geometry
+        run: node scripts/test-a4-render-parity.cjs
+
   deploy:
     name: Deploy Firebase Production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
