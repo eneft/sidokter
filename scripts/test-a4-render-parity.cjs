@@ -251,6 +251,48 @@ async function main() {
     });
     console.log('A4 real-procedure page packing diagnostic:', pagePacking);
 
+    // Imported Word commonly represents a parent numeral and its child
+    // alphabetic list as SIBLING <ol> blocks, not a single nested <li>.
+    // Test this shape too; it is visually indistinguishable from nested HTML.
+    const siblingPacking = await page.evaluate(() => {
+      const longItem = 'Orang tua harus melakukan pemeriksaan identitas dan menaati ketertiban ruang Neonatus sesuai ketentuan rumah sakit. ';
+      const firstList = Array.from({length:5}, (_,i)=>'<li>' + (longItem+String(i+1)+' ').repeat(3) + '</li>').join('');
+      const child = 'Petugas keamanan di RSUD Dr. Soegiri melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu secara rutin. ';
+      const secondList = Array.from({length:8}, (_,i)=>'<li>' + child + 'Instruksi '+i+'.</li>').join('');
+      const proc = '<ol type="1"><li>Akses masuk ruang Neonatus</li></ol>' +
+        '<ol type="a" data-sop-list-format="a">' + firstList + '</ol>' +
+        '<ol type="1" start="2"><li>Pemantauan Oleh petugas keamanan</li></ol>' +
+        '<ol type="a" data-sop-list-format="a">' + secondList + '</ol>';
+      const blocks=A4Canonical.buildOfficialBlocks({
+        pengertian:'<p>Keamanan ruang bayi adalah suatu sistem pengamanan yang diterapkan oleh rumah sakit.</p>',
+        tujuan:'<p>Untuk pencegahan gangguan keamanan terhadap bayi oleh orang yang tidak bertanggung jawab.</p>',
+        kebijakan:'<ol><li>Peraturan Menteri Kesehatan Tahun 2017.</li><li>Keputusan Direktur RSUD Dr. Soegiri.</li></ol>',
+        prosedur:proc
+      },{omitEmptyAlur:true}).filter(b=>b.html);
+      const header=125,pub=185,cap=1122.5-151.2-header-24;
+      const pages=A4Canonical.computeCanonicalA4Pages(blocks,{headerHeightPx:header,publicationHeightPx:pub,safetyBufferPx:24});
+      const host=A4Canonical.createMeasureHost();
+      const result=pages.map((page,i)=>{
+        let used=0,section='',raw=0;
+        for(const b of page){
+          host.innerHTML=b.html;
+          const h=host.getBoundingClientRect().height;
+          const first=section!==b.section;
+          const min=Math.max(24,A4Canonical.getCanonicalSectionLabelMinimumHeightPx(b.section));
+          used+=A4Canonical.sectionFlowContributionPx(raw,h,first,min)+
+            (first?A4Canonical.getCanonicalSectionRowChromePx():0);
+          raw=first?h:raw+h;section=b.section;
+        }
+        const text=page.map(b=>new DOMParser().parseFromString(b.html,'text/html').body.textContent).join(' ');
+        return {page:i+1,remaining:Math.round(cap-(i===0?pub:0)-used),
+          count:page.length,chars:text.length,hasParent2:text.includes('Pemantauan Oleh'),
+          hasChild2:text.includes('Instruksi 0.'),tail:text.slice(-100)};
+      });
+      host.remove();
+      return result;
+    });
+    console.log('A4 sibling-list page packing diagnostic:', siblingPacking);
+
   } finally {
     if (browser) await browser.close();
     server.close();
