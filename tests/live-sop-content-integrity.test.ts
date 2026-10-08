@@ -258,7 +258,7 @@ test('canonical WYSIWYG body geometry counts official cell chrome exactly once',
 
 test('Live seamless editor has no second inner padding layer', () => {
   const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
-  assert.match(editor, /variant === 'seamless' \? 'p-0' : 'p-2 sm:p-2\.5'/);
+  assert.match(editor, /variant === 'seamless' \? 'sop-a4-rich-body p-0' : 'p-2 sm:p-2\.5'/);
 });
 
 test('Live A4 section-label flow matches Preview geometry and contains no layout helper text', () => {
