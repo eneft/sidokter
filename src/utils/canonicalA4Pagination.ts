@@ -217,6 +217,7 @@ export function hasHtmlTags(str: string): boolean {
 export function normalizeOrderedListContinuityAroundTables(root: ParentNode): void {
   const children = Array.from(root.children || []) as HTMLElement[];
   let nextOrderedStart: number | null = null;
+  let previousListType: string | null = null;
   let bridgeHasTable = false;
 
   const isEmptySpacer = (element: HTMLElement) => {
@@ -233,13 +234,26 @@ export function normalizeOrderedListContinuityAroundTables(root: ParentNode): vo
       const rawStart = element.getAttribute('start');
       const parsedStart = rawStart ? Number.parseInt(rawStart, 10) : Number.NaN;
       const hasExplicitStart = Number.isFinite(parsedStart) && parsedStart > 0;
-      const shouldContinue = !hasExplicitStart && bridgeHasTable && nextOrderedStart !== null;
+      // A table may interrupt a list, but it must not silently turn a
+      // decimal sequence into an alphabetic/Roman sequence (or vice versa).
+      const listType = element.getAttribute('type') || '1';
+      const shouldContinue = !hasExplicitStart && bridgeHasTable &&
+        nextOrderedStart !== null && previousListType === listType;
       const effectiveStart = hasExplicitStart ? parsedStart : (shouldContinue ? nextOrderedStart! : 1);
       if (shouldContinue && effectiveStart > 1) {
         element.setAttribute('start', String(effectiveStart));
       }
       element.style.setProperty('--sop-start-offset', String(Math.max(0, effectiveStart - 1)));
-      nextOrderedStart = effectiveStart + directItems.length;
+      // LI[value] explicitly changes the visible number. Carry that value
+      // across the table instead of assuming every LI increments from start.
+      let lastNumber = effectiveStart - 1;
+      directItems.forEach((item) => {
+        const rawValue = item.getAttribute('value');
+        const value = rawValue === null ? Number.NaN : Number.parseInt(rawValue, 10);
+        lastNumber = Number.isFinite(value) ? value : lastNumber + 1;
+      });
+      nextOrderedStart = lastNumber + 1;
+      previousListType = listType;
       bridgeHasTable = false;
       return;
     }
@@ -256,6 +270,7 @@ export function normalizeOrderedListContinuityAroundTables(root: ParentNode): vo
       normalizeOrderedListContinuityAroundTables(element);
     }
     nextOrderedStart = null;
+    previousListType = null;
     bridgeHasTable = false;
   });
 }
