@@ -144,10 +144,11 @@ test('typed numbering prefixes stay literal and five explicit list styles are se
   }
 });
 
-test('A4 fragment reconciliation preserves active caret when canonical HTML changes after Enter', () => {
-  assert.match(editor, /const keepCaret = document\.activeElement === editor/);
-  assert.match(editor, /beforeCaret\.setEnd\(activeSelection\.anchorNode, activeSelection\.anchorOffset\)/);
-  assert.match(editor, /selection\?\.addRange\(caret\)/);
+test('A4 fragment reconciliation preserves focused selection and caret after canonical refresh', () => {
+  assert.match(editor, /const ownsSelection = document\.activeElement === editor/);
+  assert.match(editor, /textOffsetBefore\(activeSelection\.anchorNode, activeSelection\.anchorOffset\)/);
+  assert.match(editor, /textOffsetBefore\(activeSelection\.focusNode, activeSelection\.focusOffset\)/);
+  assert.match(editor, /activeSelection\.setBaseAndExtent\(/);
 });
 
 test('selected marker CSS persists for every listed SPO surface and square bullets', () => {
