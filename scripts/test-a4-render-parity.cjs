@@ -693,6 +693,59 @@ async function main() {
       'selection-wide list formatting must preserve authored content');
     console.log('LiveSPO multi-selection numbering style: PASS');
 
+    // Real clipboard HTML (not DOCX import): multi-level numbered procedures
+    // should fill remaining A4 space and survive save/reopen without reflow
+    // duplicating list items. This reproduces the user's paste workflow.
+    await page.evaluate(() => window.__mountLive());
+    await page.waitForFunction(() => window.__savedProcedure === '');
+    await page.waitForSelector(procedureSelector);
+    await page.click(procedureSelector);
+    const clipboardPaste = await page.evaluate((selector) => {
+      const editor = document.querySelector(selector);
+      const items = Array.from({length:12},(_,i) => {
+        const number = i+1;
+        return '<li>Prosedur langkah '+number+
+          ': Petugas memeriksa akses keamanan rumah sakit dan mencatat kondisi setiap area layanan.'+
+          '<ol type="a">'+
+          '<li>Pemeriksaan identitas pengunjung dan pengamanan area sesuai ketentuan SPO rumah sakit.</li>'+
+          '<li>Pencatatan temuan dan pelaporan berjenjang kepada penanggung jawab keamanan rumah sakit.</li>'+
+          '</ol></li>';
+      }).join('');
+      const html = '<p><strong>PEMERIKSAAN RUTIN</strong></p><ol type="1">'+items+'</ol>';
+      const transfer = new DataTransfer();
+      transfer.setData('text/html',html);
+      transfer.setData('text/plain',new DOMParser().parseFromString(html,'text/html').body.textContent || '');
+      const event = new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:transfer});
+      return {accepted:editor.dispatchEvent(event),bytes:html.length};
+    },procedureSelector);
+    await page.waitForFunction(() => window.__savedProcedure?.includes('Prosedur langkah 12'));
+    await page.waitForFunction(() => document.querySelectorAll('.sop-live-a4-page').length >= 2);
+    const pasted = await page.evaluate(() => {
+      const html = window.__savedProcedure;
+      const doc = new DOMParser().parseFromString(html,'text/html');
+      const gaps = [...document.querySelectorAll('.sop-live-a4-page')].slice(0,-1)
+        .map(page=>{
+          const editors=page.querySelectorAll('[contenteditable="true"]');
+          const last=editors[editors.length-1];
+          const frame=page.querySelector('.sop-a4-content-frame');
+          const scale=page.getBoundingClientRect().width / page.offsetWidth;
+          return (frame.getBoundingClientRect().bottom-last.getBoundingClientRect().bottom)/scale;
+        });
+      return {pages:document.querySelectorAll('.sop-live-a4-page').length,
+        parents:doc.querySelectorAll('ol[type="1"] > li').length,
+        children:doc.querySelectorAll('ol[type="a"] > li').length,
+        text:doc.body.textContent,gaps};
+    });
+    console.log('LiveSPO clipboard numbering pagination:',clipboardPaste,pasted);
+    assert.equal(pasted.parents,12,'paste must preserve 12 parent items');
+    assert.equal(pasted.children,24,'paste must preserve all nested alphabetic items');
+    for (let i=1;i<=12;i++) assert.equal(pasted.text.split('Prosedur langkah '+i+':').length-1,1,
+      'paste must preserve each numbered item exactly once');
+    for (const gap of pasted.gaps) assert.ok(gap < 150,
+      'pasted nested numbering must pack remaining A4 page space; gap='+gap.toFixed(1));
+    console.log('LiveSPO clipboard multi-level numbering A4: PASS');
+
+
 
 
 
