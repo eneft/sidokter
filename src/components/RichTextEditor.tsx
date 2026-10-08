@@ -2855,8 +2855,11 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
             : caretRect.bottom > visibleBottom
               ? caretRect.bottom - visibleBottom : 0;
           if (Math.abs(delta) > 1) {
-            if (scrollParent) scrollParent.scrollBy({ top: delta, behavior: 'auto' });
-            else window.scrollBy({ top: delta, behavior: 'auto' });
+            // Override the global html{scroll-behavior:smooth} contract for
+            // typing/caret recovery. A delayed scroll animation leaves the
+            // next keystroke offscreen and feels like the editor is jumping.
+            if (scrollParent) scrollParent.scrollBy({ top: delta, behavior: 'instant' as ScrollBehavior });
+            else window.scrollBy({ top: delta, behavior: 'instant' as ScrollBehavior });
           }
         }
       } catch {
