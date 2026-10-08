@@ -1540,30 +1540,40 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
   const insertCustomList = (listType: '1' | 'a' | 'i') => {
-    if (!editorRef.current || selectedFigure) return;
+    const editor = editorRef.current;
+    if (!editor || selectedFigure) return;
     if (!restoreSavedSelection()) return;
+
+    // Switching numbering style on an existing OL should not toggle the list
+    // off. Native insertOrderedList is a toggle, so only invoke it when the
+    // caret is not already inside an ordered list.
+    const selectionBefore = window.getSelection();
+    const anchorBefore = selectionBefore?.anchorNode;
+    const elementBefore = anchorBefore instanceof Element
+      ? anchorBefore : anchorBefore?.parentElement;
+    const existingList = elementBefore?.closest('ol');
+    const inCurrentOrderedList = Boolean(existingList && editor.contains(existingList));
+
     try {
-      document.execCommand('insertOrderedList', false);
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0) {
-        let node: Node | null = sel.anchorNode;
-        while (node && node !== editorRef.current) {
-          if (node.nodeName === 'OL') {
-            (node as HTMLOListElement).type = listType;
-            (node as HTMLElement).style.listStyleType =
-              listType === 'a' ? 'lower-alpha' : listType === 'i' ? 'lower-roman' : 'decimal';
-            break;
-          }
-          node = node.parentNode;
-        }
+      if (!inCurrentOrderedList) {
+        document.execCommand('insertOrderedList', false);
+      }
+      const selection = window.getSelection();
+      const anchor = selection?.anchorNode;
+      const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+      const list = element?.closest('ol');
+      if (list && editor.contains(list)) {
+        (list as HTMLOListElement).type = listType;
+        (list as HTMLElement).style.listStyleType =
+          listType === 'a' ? 'lower-alpha' : listType === 'i' ? 'lower-roman' : 'decimal';
       }
     } catch {
-      // safe fallback
+      // Keep editor content intact if native formatting is unsupported.
     }
     handleInput();
     updateActiveFormatting();
     const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
+    if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
       savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
   };
