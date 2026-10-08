@@ -1624,8 +1624,10 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const activeListItem = element?.closest('li');
       const inList = Boolean(activeListItem && editorRef.current?.contains(activeListItem));
       const inCell = Boolean(element?.closest('td,th'));
-      // Never let the browser use Tab to jump between table cells: in a list it
-      // changes semantic nesting, while a plain cell simply retains its caret.
+      // Tab inside a table must remain a caret/navigation concern for the
+      // table editor. Outside tables it changes semantic list nesting.
+      // Never accidentally indent a list belonging to another editor.
+
       if (inList || inCell) e.preventDefault();
       if (inList) executeCommand(e.shiftKey ? 'outdent' : 'indent');
       return;
