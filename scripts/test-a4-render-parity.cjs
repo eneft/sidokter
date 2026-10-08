@@ -706,7 +706,19 @@ async function main() {
       window.__richEditorHandle.focusAtTextOffset(measure.body.textContent.length);
       const selection = window.getSelection();
       const rect = selection.getRangeAt(0).getBoundingClientRect();
-      return {scroll:window.scrollY, top:rect.top, bottom:rect.bottom, viewport:window.innerHeight};
+      const editor = document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const ancestors = [];
+      let a = editor?.parentElement;
+      while(a && ancestors.length < 12) {
+        const style = getComputedStyle(a);
+        ancestors.push({node:a.tagName.toLowerCase()+(a.id?'#'+a.id:''),
+          overflowY:style.overflowY,scrollTop:a.scrollTop,
+          scrollHeight:a.scrollHeight,clientHeight:a.clientHeight});
+        a = a.parentElement;
+      }
+      return {scroll:window.scrollY, top:rect.top, bottom:rect.bottom,
+        viewport:window.innerHeight, documentHeight:document.documentElement.scrollHeight,
+        rootScroller:document.scrollingElement?.tagName, ancestors};
     });
     console.log('LiveSPO reflow caret visibility:',caretVisibility);
     assert.ok(caretVisibility.scroll > 0,
