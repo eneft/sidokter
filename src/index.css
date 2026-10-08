@@ -3693,3 +3693,12 @@ body,
   margin-top: 2.4px !important;
   margin-bottom: 2.4px !important;
 }
+
+/* The legacy ol[type="a"] > li selector is more specific than the generic
+   rich-body LI rule. Its 0.25rem margin shrank to 3.667px in print instead
+   of 4px on screen. Raise specificity ONLY for opted-in A4 body list items. */
+:is(.sop-a4-rich-body, #printable-sop-official-document .sop-a4-rich-body) ol > li,
+:is(.sop-a4-rich-body, #printable-sop-official-document .sop-a4-rich-body) ul > li {
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+}
