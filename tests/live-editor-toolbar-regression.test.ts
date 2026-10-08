@@ -126,3 +126,22 @@ test('image selection publishes shared toolbar context synchronously without par
   assert.match(selectFigure, /context:\s*'image'/);
   assert.doesNotMatch(selectFigure, /setActiveFormatting\(current\s*=>[\s\S]*onFormattingChange/);
 });
+
+test('typed numbering prefixes stay literal and explicit list formats are selectable', () => {
+  const keydown = editor.slice(editor.indexOf('const handleEditorKeyDown'), editor.indexOf('const handleApplyColor'));
+  assert.doesNotMatch(keydown, /insertOrderedList|insertUnorderedList/);
+  assert.doesNotMatch(keydown, /numMatch|alphaMatch|romanMatch|bulletMatch/);
+  const list = editor.slice(editor.indexOf('const insertCustomList'), editor.indexOf('const applyFontSize'));
+  assert.match(list, /if \(!inCurrentOrderedList\)/);
+  for (const marker of ['A', '1', 'a', 'a)', '1)', 'bullet']) {
+    assert.ok(editor.includes(`value="${marker}"`), `Missing explicit marker ${marker}`);
+  }
+});
+
+test('parenthesized list styles and preview marker overrides exist', () => {
+  const css = readFileSync('src/index.css', 'utf8');
+  assert.match(css, /ol\[style\*="sop-alpha-paren"\] > li::before/);
+  assert.match(css, /ol\[style\*="sop-decimal-paren"\] > li::before/);
+  assert.match(css, /counter\(sop-list, lower-alpha\) "\)"/);
+  assert.match(css, /counter\(sop-list, decimal\) "\)"/);
+});
