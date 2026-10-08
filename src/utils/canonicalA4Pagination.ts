@@ -811,6 +811,12 @@ export function splitHtmlForCapacity(
       const items = Array.from(first.children).filter(
         (el) => el.tagName.toLowerCase() === 'li'
       ) as HTMLElement[];
+      // Empty lists are kept as-authored; their markers must never become
+      // fabricated pagination content.
+      if (items.length === 0) {
+        host.remove();
+        return [source];
+      }
 
       const listTag = first.tagName.toLowerCase();
       const listAttrs = Array.from(first.attributes)
