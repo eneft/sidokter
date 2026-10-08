@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const puppeteer = require('puppeteer-core');
+const esbuild = require('esbuild');
 
 const dist = path.resolve(__dirname, '..', 'dist');
 const css = fs.readdirSync(path.join(dist, 'assets')).filter(f => f.endsWith('.css'))
@@ -149,6 +150,55 @@ async function main() {
         near(part[prop], other[prop], 'element ' + i + ' ' + prop);
     });
     console.log('A4 screen-to-PDF geometry: PASS');
+
+    // Regression from real SOP: parent 2. Pemantauan is at the end of page 2
+    // while an entire nested a./b./c. list is deferred to page 3 despite
+    // enough space for the first nested rows. Exercise the actual TS paginator.
+    const compiled = esbuild.buildSync({
+      entryPoints: [path.resolve(__dirname, '..', 'src/utils/canonicalA4Pagination.ts')],
+      bundle: true, write: false, format: 'iife', platform: 'browser',
+      globalName: 'A4Canonical', target: 'es2022'
+    }).outputFiles[0].text;
+    await page.addScriptTag({ content: compiled });
+    await page.emulateMediaType('screen');
+    const pagination = await page.evaluate(() => {
+      const childTexts = [
+        'Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+        'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan petugas.',
+        'Koridor ruangan selalu dilengkapi dengan titik pengawasan dan laporan pengamanan.',
+        'Petugas memeriksa identitas serta menegakkan tata tertib pengunjung rumah sakit.',
+        'Pengamanan dilakukan secara berkala selama pergantian jadwal dinas.'
+      ];
+      const childItems = childTexts.map(t => '<li>' + t + '</li>');
+      const source = '<ol type="1" data-sop-list-format="1" start="2"><li>Pemantauan Oleh petugas keamanan' +
+        '<ol type="a" data-sop-list-format="a">' + childItems.join('') + '</ol></li></ol>';
+      const doc = new DOMParser().parseFromString(source, 'text/html');
+      const firstList = doc.body.firstElementChild;
+      const prefix = firstList.cloneNode(true);
+      [...prefix.querySelectorAll('ol[type="a"] > li')].slice(2).forEach(li => li.remove());
+      const host = A4Canonical.createMeasureHost();
+      host.innerHTML = prefix.outerHTML;
+      const capacity = Math.ceil(host.getBoundingClientRect().height + 18);
+      host.innerHTML = source;
+      const completeHeight = host.getBoundingClientRect().height;
+      const parts = A4Canonical.splitHtmlForCapacity(source, capacity, null);
+      host.remove();
+      const firstDoc = new DOMParser().parseFromString(parts[0] || '', 'text/html');
+      const firstChildCount = firstDoc.querySelectorAll('ol[type="a"] > li').length;
+      const joinedText = parts.map(html => new DOMParser().parseFromString(html, 'text/html').body.textContent || '').join('');
+      const sourceText = doc.body.textContent || '';
+      return { capacity, completeHeight, numberOfParts: parts.length, firstChildCount,
+        sameText: joinedText === sourceText, firstHtml: parts[0]?.slice(0, 360) };
+    });
+    console.log('A4 nested-list page-fill debug:', pagination);
+    assert.ok(pagination.completeHeight > pagination.capacity + 20,
+      'Regression fixture must exceed remaining page space');
+    assert.ok(pagination.numberOfParts > 1,
+      'Nested procedure lists should paginate rather than move whole block');
+    assert.ok(pagination.firstChildCount >= 1,
+      'Use dead space for at least one nested a./b./c. item');
+    assert.ok(pagination.sameText, 'Split must preserve every authored word exactly');
+    console.log('A4 nested procedure page-fill: PASS');
   } finally {
     if (browser) await browser.close();
     server.close();
