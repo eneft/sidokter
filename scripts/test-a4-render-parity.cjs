@@ -270,6 +270,45 @@ async function main() {
       return result;
     });
     console.log('A4 complete pagination page-pack diagnostics:', JSON.stringify(pagePacking));
+    const tablePagePacking = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a" data-sop-list-format="a">' +
+        ['Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+         'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan oleh petugas.',
+         'Koridor ruang bayi dilengkapi dengan titik pengawasan, catatan, dan pemeriksaan identitas setiap pengunjung.',
+         'Petugas juga melakukan pelaporan berjenjang terhadap seluruh kejadian keamanan di area rawat inap.']
+          .map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const blocks = Array.from({length:8}, (_,i) => ({
+        id:'intro-'+i, section:'PROSEDUR',
+        html:'<p>Petugas melakukan pemeriksaan serta pemantauan keamanan rumah sakit secara berkala dan terkoordinasi.</p>'
+      }));
+      blocks.push({id:'parent-2', section:'PROSEDUR',
+        html:'<ol type="1" start="2"><li>Pemantauan Oleh petugas keamanan</li></ol>'});
+      blocks.push({id:'alpha-table', section:'PROSEDUR',
+        html:'<table><tbody><tr><td>' + alpha + '</td></tr></tbody></table>'});
+      const pages=pager.computeCanonicalA4Pages(blocks,
+        {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+      const parentPage=pages.findIndex(blocks => blocks.some(block => block.id==='parent-2'));
+      const childOnParentPage=pages[parentPage]?.filter(block=>block.id.startsWith('alpha-table'))||[];
+      const childCount=childOnParentPage.reduce((count,block)=>{
+        const doc=new DOMParser().parseFromString(block.html,'text/html');
+        return count+doc.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+      },0);
+      const nextPageCount=pages.slice(parentPage+1).reduce((sum,p)=>sum+p
+        .filter(b=>b.id.startsWith('alpha-table')).reduce((n,b)=>{
+          const doc=new DOMParser().parseFromString(b.html,'text/html');
+          return n+doc.querySelectorAll('ol[type="a"] > li').length;
+        },0),0);
+      return {parentPage:parentPage+1, childOnParentPage:childCount,
+        nextPageCount, totalPages:pages.length, idList:pages.map(p=>p.map(b=>b.id))};
+    });
+    console.log('A4 Word-table full page packing:', tablePagePacking);
+    assert.ok(tablePagePacking.parentPage > 0, 'fixture parent heading must be present');
+    assert.ok(tablePagePacking.childOnParentPage >= 1,
+      'A4 must place some nested child numbering below parent 2 on same page when space remains');
+    assert.ok(tablePagePacking.nextPageCount >= 1,
+      'fixture must still have later list items requiring a next page');
+
 
 
   } finally {
