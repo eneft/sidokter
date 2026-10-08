@@ -2707,7 +2707,54 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
         {/* TOOLBAR — compact editor controls without an intrusive toggle */}
         {(!hideToolbar || isFullscreen) && (
-          <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto no-scrollbar touch-pan-x text-slate-700 select-none shrink-0">
+          <div className="rich-text-toolbar sticky top-0 z-30 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200/90 px-1.5 py-0.5 flex items-center gap-0.5 overflow-x-auto touch-pan-x text-slate-700 select-none shrink-0">
+              {/* Explicit list styles; typing prefixes never triggers conversion. */}
+              <div className="flex items-center gap-1 shrink-0">
+                <select
+                  aria-label="Pilih format numbering atau bullet"
+                  title="Pilih format daftar (tidak otomatis)"
+                  defaultValue=""
+                  onPointerDownCapture={() => {
+                    // Preserve the editor caret before the native select takes focus.
+                    const selection = window.getSelection();
+                    const editor = editorRef.current;
+                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
+                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const format = e.target.value;
+                    if (format === 'bullet') executeCommand('insertUnorderedList');
+                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                    e.target.value = '';
+                  }}
+                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
+                >
+                  <option value="" disabled>Daftar ▾</option>
+                  <option value="A">A. B. C.</option>
+                  <option value="1">1. 2. 3.</option>
+                  <option value="a">a. b. c.</option>
+                  <option value="a)">a) b) c)</option>
+                  <option value="1)">1) 2) 3)</option>
+                  <option value="bullet">• Bullet</option>
+                </select>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeCommand('removeFormat')}
+                  title="Reset Format"
+                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* INSERT: one compact command path for tables and existing image flow. */}
+              {allowImageUpload && (
+                <>
+    
+            <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
             {/* Riwayat Undo/Redo */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
@@ -2835,52 +2882,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
-              {/* Explicit list styles; typing prefixes never triggers conversion. */}
-              <div className="flex items-center gap-1 shrink-0">
-                <select
-                  aria-label="Pilih format numbering atau bullet"
-                  title="Pilih format daftar (tidak otomatis)"
-                  defaultValue=""
-                  onPointerDownCapture={() => {
-                    // Preserve the editor caret before the native select takes focus.
-                    const selection = window.getSelection();
-                    const editor = editorRef.current;
-                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
-                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    const format = e.target.value;
-                    if (format === 'bullet') executeCommand('insertUnorderedList');
-                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
-                    e.target.value = '';
-                  }}
-                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
-                >
-                  <option value="" disabled>Daftar ▾</option>
-                  <option value="A">A. B. C.</option>
-                  <option value="1">1. 2. 3.</option>
-                  <option value="a">a. b. c.</option>
-                  <option value="a)">a) b) c)</option>
-                  <option value="1)">1) 2) 3)</option>
-                  <option value="bullet">• Bullet</option>
-                </select>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('removeFormat')}
-                  title="Reset Format"
-                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                </button>
-              </div>
-
-              {/* INSERT: one compact command path for tables and existing image flow. */}
-              {allowImageUpload && (
-                <>
-                  <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+              <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
               {/* Perataan Teks */}
               <div className="flex items-center gap-0.5 shrink-0">
