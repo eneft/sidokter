@@ -693,6 +693,30 @@ async function main() {
       'selection-wide list formatting must preserve authored content');
     console.log('LiveSPO multi-selection numbering style: PASS');
 
+    // Stage 4: after pagination moves the logical caret to a lower page,
+    // focus({preventScroll:true}) alone must NOT leave that caret offscreen.
+    await page.evaluate(() => window.__mountRichEditor(
+      Array.from({length:65},(_,i) => '<p>Baris '+i+': pemeriksaan keamanan dilakukan setiap shift jaga.</p>').join('')));
+    await page.waitForFunction(() =>
+      document.querySelector('[data-placeholder="Uji seleksi editor"]')?.querySelectorAll('p').length === 65);
+    const caretVisibility = await page.evaluate(() => {
+      window.scrollTo(0,0);
+      const html = window.__savedRichHtml;
+      const measure = new DOMParser().parseFromString(html,'text/html');
+      window.__richEditorHandle.focusAtTextOffset(measure.body.textContent.length);
+      const selection = window.getSelection();
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      return {scroll:window.scrollY, top:rect.top, bottom:rect.bottom,
+        viewport:window.innerHeight};
+    });
+    console.log('LiveSPO reflow caret visibility:',caretVisibility);
+    assert.ok(caretVisibility.scroll > 0,
+      'relocated caret below viewport must scroll into visible editing area');
+    assert.ok(caretVisibility.top >= 0 && caretVisibility.bottom <= caretVisibility.viewport,
+      'relocated caret must be visible rather than hidden beyond viewport');
+    console.log('LiveSPO caret visibility after page reflow: PASS');
+
+
     // Real clipboard HTML (not DOCX import): multi-level numbered procedures
     // should fill remaining A4 space and survive save/reopen without reflow
     // duplicating list items. This reproduces the user's paste workflow.

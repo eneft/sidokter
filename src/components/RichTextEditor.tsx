@@ -2817,6 +2817,51 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
         selection.removeAllRanges();
         selection.addRange(caret);
         savedRangeRef.current = caret.cloneRange();
+
+        // focus({preventScroll:true}) avoids page jumps, but the relocated
+        // caret can be outside the visible viewport after A4 repagination.
+        // Scroll by the smallest distance required to clear the sticky toolbar
+        // and the virtual keyboard; never center or jump a visible caret.
+        const caretRect = caret.getBoundingClientRect();
+        const visual = window.visualViewport;
+        const viewportTop = visual?.offsetTop || 0;
+        const viewportBottom = viewportTop + (visual?.height || window.innerHeight);
+        const toolbar = document.querySelector<HTMLElement>('.live-spo-context-toolbar');
+        const toolbarRect = toolbar?.getBoundingClientRect();
+        const toolbarBottom = toolbarRect && toolbarRect.top < viewportTop + 110 &&
+          toolbarRect.bottom > viewportTop ? toolbarRect.bottom : viewportTop;
+
+        let scrollParent: HTMLElement | null = editor.parentElement;
+        // In standards-mode browsers the root scroller is window, not BODY.
+        // Calling body.scrollBy() leaves the caret beyond the viewport.
+        while (scrollParent && scrollParent !== document.body &&
+               scrollParent !== document.documentElement) {
+          const style = window.getComputedStyle(scrollParent);
+          if (/(auto|scroll)/.test(style.overflowY) &&
+              scrollParent.scrollHeight > scrollParent.clientHeight + 8) break;
+          scrollParent = scrollParent.parentElement;
+        }
+        if (scrollParent === document.body || scrollParent === document.documentElement) {
+          scrollParent = null;
+        }
+        const scrollRect = scrollParent?.getBoundingClientRect();
+        const visibleTop = Math.max(viewportTop + 12, toolbarBottom + 12,
+          scrollRect ? scrollRect.top + 12 : viewportTop);
+        const visibleBottom = Math.min(viewportBottom - 20,
+          scrollRect ? scrollRect.bottom - 12 : viewportBottom);
+        if (visibleBottom > visibleTop + 32 && caretRect.height > 0) {
+          const delta = caretRect.top < visibleTop
+            ? caretRect.top - visibleTop
+            : caretRect.bottom > visibleBottom
+              ? caretRect.bottom - visibleBottom : 0;
+          if (Math.abs(delta) > 1) {
+            // Override the global html{scroll-behavior:smooth} contract for
+            // typing/caret recovery. A delayed scroll animation leaves the
+            // next keystroke offscreen and feels like the editor is jumping.
+            if (scrollParent) scrollParent.scrollBy({ top: delta, behavior: 'instant' as ScrollBehavior });
+            else window.scrollBy({ top: delta, behavior: 'instant' as ScrollBehavior });
+          }
+        }
       } catch {
         // A detached fragment should never throw into the editor workflow.
       }
