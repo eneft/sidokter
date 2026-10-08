@@ -1061,7 +1061,7 @@ export const SopDetailModal: React.FC<SopDetailModalProps> = ({
           }}
         >
           <div data-measure-content={measure ? representative.id : undefined} style={{ overflow: 'visible', maxHeight: 'none' }}>
-            <RichTextRenderer content={html} fallback="-" />
+            <RichTextRenderer content={html} fallback="-" className="sop-a4-rich-body" />
           </div>
         </td>
       </tr>
