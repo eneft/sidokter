@@ -42,7 +42,7 @@ test('physical A4 chrome is viewport-invariant in Preview and LiveSPO', () => {
   assert.ok(detailStart >= 0 && detailEnd > detailStart);
   assert.doesNotMatch(detail.slice(detailStart, detailEnd), /\bsm:/);
 
-  const liveStart = live.indexOf('const renderOfficialHeader = (pageNumber: number, total: number)');
+  const liveStart = live.indexOf('const renderOfficialHeader = (pageNumber: number, total: number, measureReadonly = false)');
   const liveEnd = live.indexOf('// Helper to map OfficialSectionKey to active state and callbacks', liveStart);
   assert.ok(liveStart >= 0 && liveEnd > liveStart);
   assert.doesNotMatch(live.slice(liveStart, liveEnd), /\bsm:/);
