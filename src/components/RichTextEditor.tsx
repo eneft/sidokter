@@ -1014,22 +1014,33 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       return;
     }
 
-    // The A4 paginator may return a canonical HTML fragment after Enter.
-    // Replacing focused contentEditable markup without restoring its caret
-    // makes the next keystroke jump to the start (and seemingly resets lists).
+    // Preserve BOTH endpoints of a selection while the canonical paginator
+    // replaces a physical-page fragment. Previously only collapsed carets were
+    // restored: highlighted text disappeared when the React editor received
+    // normalized/paginated HTML. Absolute text offsets survive markup changes
+    // (e.g. a paragraph receiving a <strong> wrapper) and repeated LI nodes.
     const activeSelection = window.getSelection();
-    const keepCaret = document.activeElement === editor &&
-      activeSelection?.rangeCount && activeSelection.isCollapsed &&
-      editor.contains(activeSelection.anchorNode);
-    let caretOffset: number | null = null;
-    if (keepCaret && activeSelection?.anchorNode) {
+    const ownsSelection = document.activeElement === editor &&
+      Boolean(activeSelection?.rangeCount) &&
+      Boolean(activeSelection?.anchorNode && editor.contains(activeSelection.anchorNode)) &&
+      Boolean(activeSelection?.focusNode && editor.contains(activeSelection.focusNode));
+
+    const textOffsetBefore = (node: Node, offset: number): number => {
+      const prefix = document.createRange();
+      prefix.selectNodeContents(editor);
+      prefix.setEnd(node, offset);
+      return prefix.toString().length;
+    };
+    let selectionBookmark: { anchor: number; focus: number } | null = null;
+    if (ownsSelection && activeSelection?.anchorNode && activeSelection.focusNode) {
       try {
-        const beforeCaret = document.createRange();
-        beforeCaret.selectNodeContents(editor);
-        beforeCaret.setEnd(activeSelection.anchorNode, activeSelection.anchorOffset);
-        caretOffset = beforeCaret.toString().length;
+        selectionBookmark = {
+          anchor: textOffsetBefore(activeSelection.anchorNode, activeSelection.anchorOffset),
+          focus: textOffsetBefore(activeSelection.focusNode, activeSelection.focusOffset)
+        };
       } catch {
-        caretOffset = null;
+        // Detached selection during an active pagination frame; prefer keeping
+        // the document content over attempting a stale Range mutation.
       }
     }
 
@@ -1038,30 +1049,40 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     editor.innerHTML = incoming;
     savedRangeRef.current = null;
     isUpdatingFromPropRef.current = false;
-    if (caretOffset !== null) {
-      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-      let remaining = caretOffset;
-      let target: Node | null = null;
-      let targetOffset = 0;
-      let textNode: Node | null;
-      while ((textNode = walker.nextNode())) {
-        target = textNode;
-        const length = textNode.textContent?.length || 0;
-        if (remaining <= length) {
-          targetOffset = remaining;
-          break;
+
+    if (selectionBookmark && activeSelection) {
+      const resolveOffset = (absolute: number): { node: Node; offset: number } => {
+        let remaining = Math.max(0, absolute);
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        let last: Text | null = null;
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const textNode = node as Text;
+          const length = textNode.length;
+          last = textNode;
+          if (remaining <= length) return { node: textNode, offset: remaining };
+          remaining -= length;
         }
-        remaining -= length;
-        targetOffset = length;
-      }
-      if (target) {
-        const caret = document.createRange();
-        caret.setStart(target, targetOffset);
-        caret.collapse(true);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(caret);
-        savedRangeRef.current = caret.cloneRange();
+        if (last) return { node: last, offset: last.length };
+        // An empty paragraph contains no text node. Put the caret inside it,
+        // not after the editor, so Enter and ordinary typing still work.
+        const first = editor.firstElementChild;
+        return first
+          ? { node: first, offset: 0 }
+          : { node: editor, offset: 0 };
+      };
+
+      try {
+        const anchor = resolveOffset(selectionBookmark.anchor);
+        const focus = resolveOffset(selectionBookmark.focus);
+        activeSelection.setBaseAndExtent(
+          anchor.node, anchor.offset, focus.node, focus.offset
+        );
+        if (activeSelection.rangeCount) {
+          savedRangeRef.current = activeSelection.getRangeAt(0).cloneRange();
+        }
+      } catch {
+        // Do not block rendering if Safari invalidated a Range during reflow.
       }
     }
     if (selectedFigure && !editor.contains(selectedFigure)) {
