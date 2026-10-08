@@ -769,6 +769,28 @@ export function splitHtmlForCapacity(
             return [firstPart, secondPart, ...laterParts];
           }
 
+          // An authored one-cell table may wrap a typed/pasted procedure list.
+          // Row-only splitting cannot break that single row; retry with the
+          // content-aware splitter using the actual space left on this page.
+          host.innerHTML = prefixHtml;
+          const occupiedHeight = host.getBoundingClientRect().height;
+          const remainingTableHeight = Math.max(0, maxHeight - occupiedHeight);
+          if (remainingTableHeight >= 40) {
+            const contentAwareParts = splitHtmlForCapacity(
+              nextEl.outerHTML, remainingTableHeight, template
+            );
+            if (contentAwareParts.length > 1 &&
+                contentAwareParts[0].trim() &&
+                fits(prefixHtml + contentAwareParts[0])) {
+              host.remove();
+              return [
+                prefixHtml + contentAwareParts[0],
+                [...contentAwareParts.slice(1),
+                  ...elements.slice(fitCount + 1).map(el => el.outerHTML)].join('')
+              ];
+            }
+          }
+
           // Table could NOT fit even 1 row on this page (tableParts.length <= 1):
           // Check if the element right before the table is a heading (e.g. "C. INTERPRETASI HASIL").
           // If so, do NOT leave an orphan heading on this page with an empty gap!
