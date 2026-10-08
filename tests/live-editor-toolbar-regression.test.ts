@@ -159,3 +159,18 @@ test('selected marker CSS persists for every listed SPO surface and square bulle
   assert.match(css, /ul\[data-sop-bullet="square"\] > li/);
   assert.match(css, /list-style-type: square !important/);
 });
+
+test('Live SPO manual list-item override uses semantic LI values and a reversible toolbar control', () => {
+  const css = readFileSync('src/index.css', 'utf8');
+  const pagination = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  assert.match(editor, /setListItemNumber: \(numberOrLetter: string \| null\) => boolean/);
+  assert.match(editor, /item\.setAttribute\('value', String\(number\)\)/);
+  assert.match(editor, /item\.setAttribute\('data-sop-manual-number', String\(number\)\)/);
+  assert.match(editor, /item\.removeAttribute\('data-sop-manual-number'\)/);
+  assert.match(template, /aria-label="Ubah nomor item daftar secara manual"/);
+  assert.match(template, /Kembali otomatis/);
+  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
+  assert.match(css, /counter-set: sop-list var\(--sop-manual-number\) !important/);
+  assert.match(pagination, /orderedListItemNumbers\(items, explicitStart\)/);
+  assert.match(pagination, /const number = continuationNumber \?\? numberAtIndex\(startIndex\)/);
+});
