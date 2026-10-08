@@ -1621,7 +1621,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const selection = window.getSelection();
       const anchor = selection?.anchorNode;
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
-      const inList = Boolean(element?.closest('li'));
+      const activeListItem = element?.closest('li');
+      const inList = Boolean(activeListItem && editorRef.current?.contains(activeListItem));
       const inCell = Boolean(element?.closest('td,th'));
       // Never let the browser use Tab to jump between table cells: in a list it
       // changes semantic nesting, while a plain cell simply retains its caret.
