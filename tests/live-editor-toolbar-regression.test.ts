@@ -174,3 +174,13 @@ test('Live SPO manual list-item override uses semantic LI values and a reversibl
   assert.match(pagination, /orderedListItemNumbers\(items, explicitStart\)/);
   assert.match(pagination, /const number = continuationNumber \?\? numberAtIndex\(startIndex\)/);
 });
+
+test('manual numbering toolbar is shared by A4 page one and later pages', () => {
+  const control = template.indexOf('aria-label="Ubah nomor item daftar secara manual"');
+  const pages = template.indexOf('calculatedPages.map((pageBlocks, pageIndex)');
+  assert.ok(control >= 0 && pages > control, 'Manual edit must be in the shared toolbar, outside page loop');
+  assert.match(template, /const focusedFragment = editorRefs\.current\[activeKey\]/);
+  assert.match(template, /editorRefs\.current\[editorKey\] = el/);
+  assert.match(template, /activeEditorKeyRef\.current = editorKey/);
+  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
+});
