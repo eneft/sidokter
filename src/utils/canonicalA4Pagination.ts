@@ -870,6 +870,8 @@ export function splitHtmlForCapacity(
       const isSimpleOneCellTable =
         rows.length === 1 &&
         onlyCell !== null &&
+        onlyCell.tagName.toLowerCase() === 'td' &&
+        !table.querySelector('thead, tfoot') &&
         !onlyCell.querySelector('table') &&
         Number(onlyCell.getAttribute('colspan') || '1') === 1 &&
         Number(onlyCell.getAttribute('rowspan') || '1') === 1;
