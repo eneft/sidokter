@@ -87,3 +87,12 @@ test('Live header measurement uses the actual first-page KOP identity', () => {
   assert.doesNotMatch(live, /renderOfficialHeader\(2, 2\), \{ 'data-live-measure-header': true \}/);
   assert.match(live, /titleEditable && pageNumber === 1 && !measureReadonly/);
 });
+
+test('editable first-page title inherits readonly Preview row height, not textarea rows', () => {
+  const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
+  assert.match(live, /className="relative w-full min-h-\[20px\]"/);
+  assert.match(live, /aria-hidden="true"[\s\S]*?className="invisible text-center font-extrabold uppercase text-sm/);
+  assert.match(live, /aria-label="Judul SPO"/);
+  assert.match(live, /className="absolute inset-0 h-full w-full p-0 m-0 text-center/);
+  assert.doesNotMatch(live, /target\.style\.height = \x60\$\{target\.scrollHeight\}px\x60/);
+});
