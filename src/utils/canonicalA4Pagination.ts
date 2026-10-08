@@ -875,7 +875,7 @@ export function splitHtmlForCapacity(
         Number(onlyCell.getAttribute('rowspan') || '1') === 1;
       const cellHtml = onlyCell?.innerHTML.trim() || '';
 
-      if (isSimpleOneCellTable && cellHtml && maxHeight >= 40) {
+      if (isSimpleOneCellTable && cellHtml && onlyCell?.querySelector('ol,ul') && maxHeight >= 40) {
         const wrapTableFragment = (fragment: string, continuation: boolean) => {
           const cloned = table.cloneNode(true) as HTMLTableElement;
           const cell = cloned.querySelector('td,th') as HTMLElement | null;
@@ -894,7 +894,7 @@ export function splitHtmlForCapacity(
 
         // Table borders/cell padding may vary with their content. Recheck the
         // actual wrapped fragment rather than trusting an estimated row inset.
-        for (let attempt = 0; attempt < 16 && cellCapacity >= 24; attempt += 1) {
+        for (let attempt = 0; attempt < 8 && cellCapacity >= 24; attempt += 1) {
           const contentParts = splitHtmlForCapacity(cellHtml, cellCapacity, template);
           if (contentParts.length > 1 &&
               contentParts[0].trim() &&
@@ -907,7 +907,7 @@ export function splitHtmlForCapacity(
               return wrapped;
             }
           }
-          cellCapacity -= 4;
+          cellCapacity -= 6;
         }
       }
 
