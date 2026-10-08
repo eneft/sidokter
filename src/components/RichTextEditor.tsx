@@ -2832,11 +2832,17 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           toolbarRect.bottom > viewportTop ? toolbarRect.bottom : viewportTop;
 
         let scrollParent: HTMLElement | null = editor.parentElement;
-        while (scrollParent) {
+        // In standards-mode browsers the root scroller is window, not BODY.
+        // Calling body.scrollBy() leaves the caret beyond the viewport.
+        while (scrollParent && scrollParent !== document.body &&
+               scrollParent !== document.documentElement) {
           const style = window.getComputedStyle(scrollParent);
           if (/(auto|scroll)/.test(style.overflowY) &&
               scrollParent.scrollHeight > scrollParent.clientHeight + 8) break;
           scrollParent = scrollParent.parentElement;
+        }
+        if (scrollParent === document.body || scrollParent === document.documentElement) {
+          scrollParent = null;
         }
         const scrollRect = scrollParent?.getBoundingClientRect();
         const visibleTop = Math.max(viewportTop + 12, toolbarBottom + 12,
