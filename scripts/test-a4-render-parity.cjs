@@ -885,6 +885,57 @@ async function main() {
     assert.equal(bulletDirect[3],'6.','bullet must not increment its list numeric counter');
     console.log('LiveSPO direct bullet marker: PASS');
 
+    // Arbitrary overrides can run backwards and are not forced into a sorted
+    // sequence. The next Enter continues from the last MANUALLY typed number.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">' +
+      '<li>Langkah satu</li><li>Langkah dua</li><li>Langkah tiga</li><li>Langkah empat</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 4);
+    for (const [index, marker] of [[1,'3.'],[2,'7.'],[3,'2.']]) {
+      await clickMarker(index);
+      await page.evaluate((value) => {
+        document.querySelector('[data-sop-inline-marker-input="true"]').value = value;
+      }, marker);
+      await page.keyboard.press('Enter');
+    }
+    const manualOrder = await page.evaluate(() => {
+      const d = new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return [...d.querySelectorAll('ol > li')].map(li=>li.getAttribute('data-sop-marker-label'));
+    });
+    assert.deepEqual(manualOrder,['1.','3.','7.','2.']);
+    console.log('LiveSPO arbitrary nonconsecutive order 1,3,7,2: PASS');
+
+    // On a cross-page split, a bullet must NOT increment the hidden
+    // ordered-list number used to start a continuation fragment.
+    const semanticContinuation = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(
+        '<ol><li>one</li><li value="5">five</li><li data-sop-marker-kind="disc">bullet</li><li>six</li></ol>',
+        'text/html');
+      return window.SopA4Pagination.orderedListItemNumbers([...d.querySelectorAll('li')],1);
+    });
+    assert.deepEqual(semanticContinuation,[1,5,5,6],
+      'manual bullet must not consume a sequential ordinal at A4 page break');
+    console.log('LiveSPO bullet continuation across A4 page break: PASS');
+
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="a" data-sop-list-format="a"><li>Pemeriksaan alpha satu</li>' +
+      '<li>Pemeriksaan alpha dua</li><li>Pemeriksaan alpha tiga</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    await clickMarker(1);
+    await page.evaluate(() => {
+      document.querySelector('[data-sop-inline-marker-input="true"]').value='g.';
+    });
+    await page.keyboard.press('Enter');
+    const nestedAlpha = await page.evaluate(() => {
+      const d=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      return [...d.querySelectorAll('ol > li')].map(li=>li.getAttribute('data-sop-marker-label'));
+    });
+    assert.deepEqual(nestedAlpha,['a.','g.','h.']);
+    console.log('LiveSPO editable alpha level auto-continuation: PASS');
+
+
 
     // Stage 4: after pagination moves the logical caret to a lower page,
     // focus({preventScroll:true}) alone must NOT leave that caret offscreen.
