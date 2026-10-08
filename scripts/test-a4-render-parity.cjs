@@ -299,8 +299,17 @@ async function main() {
           const doc=new DOMParser().parseFromString(b.html,'text/html');
           return n+doc.querySelectorAll('ol[type="a"] > li').length;
         },0),0);
+      const parseText = (html) => new DOMParser().parseFromString(html,'text/html').body.textContent || '';
+      const sourceText = blocks.map(b=>parseText(b.html)).join('');
+      const outputText = pages.flat().map(b=>parseText(b.html)).join('');
+      const distinctAlphaItems = pages.flat().filter(b=>b.id.startsWith('alpha-table')).reduce((sum,b)=>{
+        const doc=new DOMParser().parseFromString(b.html,'text/html');
+        return sum+doc.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+      },0);
       return {parentPage:parentPage+1, childOnParentPage:childCount,
-        nextPageCount, totalPages:pages.length, idList:pages.map(p=>p.map(b=>b.id))};
+        nextPageCount, totalPages:pages.length,
+        textPreserved:sourceText===outputText, distinctAlphaItems,
+        idList:pages.map(p=>p.map(b=>b.id))};
     });
     console.log('A4 Word-table full page packing:', tablePagePacking);
     assert.ok(tablePagePacking.parentPage > 0, 'fixture parent heading must be present');
@@ -308,6 +317,10 @@ async function main() {
       'A4 must place some nested child numbering below parent 2 on same page when space remains');
     assert.ok(tablePagePacking.nextPageCount >= 1,
       'fixture must still have later list items requiring a next page');
+    assert.ok(tablePagePacking.textPreserved,
+      'full pagination must preserve source text across all A4 pages');
+    assert.equal(tablePagePacking.distinctAlphaItems, 4,
+      'a/b/c/d numbering must remain four distinct items even when text continues across pages');
 
 
 
