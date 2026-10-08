@@ -58,9 +58,15 @@ export function refreshInlineListMarkers(list: HTMLOListElement | HTMLUListEleme
     ? (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'a' ? 'a'
       : (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'A' ? 'A' : '1'
     : list.getAttribute('data-sop-bullet') === 'square' ? 'square' : 'disc';
-  let currentKind = initialKind;
+  const items = childItems(list);
+  // Physical A4 pagination can split an OL after a mode switch (e.g. 5. → c.).
+  // The first LI of the next physical fragment carries its inherited marker
+  // mode, so re-editing page 2 must not silently revert c,d,e to 6,7,8.
+  const inherited = items[0]?.getAttribute('data-sop-marker-inherited-kind') as EditableMarkerKind | null;
+  let currentKind = inherited && ['1','a','A'].includes(inherited)
+    ? inherited : initialKind;
   let next = isOrdered ? Math.max(1, list.start || 1) : 1;
-  for (const item of childItems(list)) {
+  for (const item of items) {
     const override = item.getAttribute('data-sop-marker-kind') as EditableMarkerKind | null;
     const kind = override && ['1','a','A','disc','square'].includes(override)
       ? override : currentKind;
@@ -73,6 +79,7 @@ export function refreshInlineListMarkers(list: HTMLOListElement | HTMLUListEleme
     } else {
       item.setAttribute('data-sop-marker-label', formatMarker(kind, next));
     }
+    item.setAttribute('data-sop-marker-inherited-kind', currentKind);
   }
 }
 
