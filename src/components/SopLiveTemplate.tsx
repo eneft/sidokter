@@ -351,14 +351,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
         const header = root.querySelector<HTMLElement>('[data-live-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-live-measure-publication]');
         if (!header || !publication) return;
-        // The first-page title is editable: React's one-row textarea does not
-        // auto-grow in the hidden measurement shell. Match the visible editor's
-        // onInput auto-height before measuring the official KOP.
-        const measuredTitle = header.querySelector<HTMLTextAreaElement>('textarea');
-        if (measuredTitle) {
-          measuredTitle.style.height = 'auto';
-          measuredTitle.style.height = `${measuredTitle.scrollHeight}px`;
-        }
+        // Hidden header uses readonly first-page title markup, matching
+        // the official Preview measurement. The visible editable textarea
+        // stays an editing control and must not affect page calculations.
         // Physical page heights must be measured in unscaled CSS pixels,
         // exactly like the readonly Preview/PDF measurement shell.
         const headerHeightPx = measureCanonicalA4RowHeight(header);
