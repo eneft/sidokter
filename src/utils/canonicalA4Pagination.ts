@@ -288,7 +288,7 @@ export function orderedListItemNumbers(
   let next = Number.isSafeInteger(start) ? start : 1;
   return items.map((item) => {
     const raw = item.getAttribute('value') ?? item.getAttribute('data-sop-manual-number');
-    const override = raw && /^\\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    const override = raw && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
     const current = Number.isSafeInteger(override) && override >= 1
       ? override : next;
     next = current + 1;
