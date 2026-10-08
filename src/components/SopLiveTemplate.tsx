@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import type { TableCommand } from '../utils/editorTableCommands';
 import { RichTextEditor, type LiveSopFontSize, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
+import { logicalHtmlLength } from '../utils/editorCaretBookmark';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
@@ -399,11 +400,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     const pending = pendingLogicalCaretRef.current;
     if (!pending || !calculatedPages.length || Date.now() - pending.at > 5000) return;
     if (typeof document === 'undefined') return;
-    const textLength = (html: string): number => {
-      const measure = document.createElement('div');
-      measure.innerHTML = html;
-      return measure.textContent?.length || 0;
-    };
+    const textLength = logicalHtmlLength;
     let consumed = 0;
     let candidate: { key: string; offset: number } | null = null;
     for (let i = 0; i < calculatedPages.length; i += 1) {
@@ -1112,11 +1109,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                     const precedingHtml = calculatedPages.slice(0, pageIndex)
                                       .flatMap((page) => page.filter((block) => block.section === group.section)
                                         .map((block) => block.html)).join('');
-                                    const measure = document.createElement('div');
-                                    measure.innerHTML = precedingHtml;
                                     pendingLogicalCaretRef.current = {
                                       section: cfg.id,
-                                      offset: (measure.textContent?.length || 0) + caretInFragment,
+                                      offset: logicalHtmlLength(precedingHtml) + caretInFragment,
                                       sourceKey: editorKey,
                                       at: Date.now()
                                     };
