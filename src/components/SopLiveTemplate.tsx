@@ -416,12 +416,17 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     if (!candidate) return;
     const editor = editorRefs.current[candidate.key];
     if (!editor) return;
-    // An intentional click into another control must not be undone by reflow.
+    // Reflow may detach the previously focused DOM node, leaving BODY focused:
+    // that is the ONLY reason to restore focus without an existing selection.
+    // If the user explicitly focused another field, never steal it back.
     const focused = document.activeElement;
-    const editingAnotherField = focused instanceof HTMLElement &&
-      focused !== document.body && focused.getAttribute('contenteditable') !== 'true' &&
-      !focused.closest('.sop-canonical-viewport');
-    if (editingAnotherField) {
+    const sourceStillOwnsFocus = activeEditorKeyRef.current === pending.sourceKey;
+    const focusedOnOtherControl =
+      focused instanceof HTMLElement &&
+      focused !== document.body &&
+      focused !== document.documentElement &&
+      !(focused.getAttribute('contenteditable') === 'true' && sourceStillOwnsFocus);
+    if (!sourceStillOwnsFocus || focusedOnOtherControl) {
       pendingLogicalCaretRef.current = null;
       return;
     }
@@ -1144,6 +1149,14 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 paginationEpoch={debouncedBlocks}
                                 onHistoryCommand={(command) => handleSectionHistory(cfg.id, command)}
                                 onFocus={() => {
+                                  // A deliberate change of editing target wins over any
+                                  // in-flight A4 page recomputation from the prior field.
+                                  // Preserve the bookmark only when the SAME editor
+                                  // gets focus again (e.g. after its own re-render).
+                                  if (pendingLogicalCaretRef.current &&
+                                      pendingLogicalCaretRef.current.sourceKey !== editorKey) {
+                                    pendingLogicalCaretRef.current = null;
+                                  }
                                   setActiveTableSection(cfg.id);
                                   activeEditorKeyRef.current = editorKey;
                                   const currentEl = editorRefs.current[editorKey] || editorRefs.current[cfg.id];
