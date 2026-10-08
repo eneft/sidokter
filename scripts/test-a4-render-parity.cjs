@@ -595,6 +595,39 @@ async function main() {
     assert.equal(afterEnter, 4, 'Enter in a table continuation must create a NEW logical list item');
     console.log('LiveSPO continuation Enter: PASS');
 
+    // A canonical HTML reflow must not discard selected text while editing.
+    // This reproduces the toolbar/selection UX regression: the document text
+    // stays identical but its inline markup changes during re-render.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<p>Jangan mengubah seleksi teks di editor SPO.</p>'));
+    await page.waitForSelector('[contenteditable="true"][data-placeholder="Uji seleksi editor"]');
+    const selectedBefore = await page.evaluate(() => {
+      const editor = document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const textNode = editor.querySelector('p').firstChild;
+      const start = textNode.textContent.indexOf('seleksi');
+      const range = document.createRange();
+      range.setStart(textNode, start);
+      range.setEnd(textNode, start + 'seleksi teks'.length);
+      editor.focus();
+      const selection = window.getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
+      window.__setRichHtml('<p><strong>Jangan</strong> mengubah seleksi teks di editor SPO.</p>');
+      return selection.toString();
+    });
+    assert.equal(selectedBefore, 'seleksi teks');
+    await page.waitForFunction(() => !!document.querySelector('[data-placeholder="Uji seleksi editor"] strong'));
+    const selectedAfter = await page.evaluate(() => {
+      const editor = document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      return { selected: window.getSelection()?.toString(),
+        active: document.activeElement === editor };
+    });
+    assert.equal(selectedAfter.selected, 'seleksi teks',
+      'canonical HTML refresh must preserve an expanded text selection');
+    assert.equal(selectedAfter.active, true,
+      'canonical HTML refresh must not steal editor focus');
+    console.log('LiveSPO selection across rich HTML refresh: PASS');
+
+
 
 
 
