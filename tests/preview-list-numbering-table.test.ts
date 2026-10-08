@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DOMParser as LinkedomDOMParser } from 'linkedom';
-import { normalizeOrderedListContinuityAroundTables } from '../src/utils/canonicalA4Pagination';
+import { normalizeOrderedListContinuityAroundTables, orderedListItemNumbers } from '../src/utils/canonicalA4Pagination';
 
 const parseBody = (html: string): HTMLElement => {
   const doc = new LinkedomDOMParser().parseFromString(
@@ -88,4 +88,32 @@ test('matching alphabetical lists continue across a table', () => {
   normalizeOrderedListContinuityAroundTables(body);
   const lists = body.querySelectorAll('ol');
   assert.equal(lists[1].getAttribute('start'), '3');
+});
+
+test('page-break numbering uses actual item values, including skips and manual restarts', () => {
+  const body = parseBody(
+    '<ol type="a" data-sop-list-format="a">' +
+      '<li>Huruf a</li>' +
+      '<li>Huruf b</li>' +
+      '<li value="7" data-sop-manual-number="7" style="--sop-manual-number:7">Huruf g (manual)</li>' +
+      '<li>Huruf h</li>' +
+      '<li value="2">Huruf b (manual lagi)</li>' +
+      '<li>Huruf c</li>' +
+    '</ol>'
+  );
+  const list = body.querySelector('ol')!;
+  const items = Array.from(list.children);
+  assert.deepEqual(orderedListItemNumbers(items, 1), [1, 2, 7, 8, 2, 3]);
+  assert.equal(items[2].getAttribute('data-sop-manual-number'), '7');
+  assert.equal(items[4].getAttribute('value'), '2');
+});
+
+test('page-break numbering respects an explicit OL start and value overrides', () => {
+  const body = parseBody(
+    '<ol start="4" type="1">' +
+      '<li>Empat</li><li value="10">Sepuluh</li><li>Sebelas</li><li value="3">Tiga</li><li>Empat lagi</li>' +
+    '</ol>'
+  );
+  const list = body.querySelector('ol')!;
+  assert.deepEqual(orderedListItemNumbers(Array.from(list.children), 4), [4, 10, 11, 3, 4]);
 });
