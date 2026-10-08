@@ -83,7 +83,7 @@ test('physical row height ignores preview zoom and supports fallback', () => {
 
 test('Live header measurement uses the actual first-page KOP identity', () => {
   const live = readFileSync('src/components/SopLiveTemplate.tsx', 'utf8');
-  assert.match(live, /renderOfficialHeader\(1, 1\), \{ 'data-live-measure-header': true \}/);
+  assert.match(live, /renderOfficialHeader\(1, 1, true\), \{ 'data-live-measure-header': true \}/);
   assert.doesNotMatch(live, /renderOfficialHeader\(2, 2\), \{ 'data-live-measure-header': true \}/);
-  assert.match(live, /measuredTitle\.scrollHeight/);
+  assert.match(live, /titleEditable && pageNumber === 1 && !measureReadonly/);
 });
