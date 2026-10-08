@@ -875,7 +875,10 @@ export function splitHtmlForCapacity(
         Number(onlyCell.getAttribute('rowspan') || '1') === 1;
       const cellHtml = onlyCell?.innerHTML.trim() || '';
 
-      if (isSimpleOneCellTable && cellHtml && onlyCell?.querySelector('ol,ul') && maxHeight >= 40) {
+      if (isSimpleOneCellTable && cellHtml &&
+          onlyCell?.querySelector('ol,ul') &&
+          !onlyCell.querySelector('img,figure,svg,video,iframe') &&
+          maxHeight >= 40) {
         const wrapTableFragment = (fragment: string, continuation: boolean) => {
           const cloned = table.cloneNode(true) as HTMLTableElement;
           const cell = cloned.querySelector('td,th') as HTMLElement | null;
