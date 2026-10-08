@@ -527,6 +527,44 @@ async function main() {
     assert.ok((await page.evaluate(() => window.__savedProcedure)).includes('Pemantauan'),
       'direct typing must reach the logical section callback');
     console.log('LiveSPO actual keyboard input: PASS');
+
+    // Regression: Enter creates a blank second LI whose textContent has
+    // zero length. A text-only caret bookmark aliases its start with the END
+    // of the preceding LI. On the next 250ms canonical refresh the caret
+    // jumped backwards and typed into the old item.
+    await page.evaluate(() => window.__mountLive());
+    await page.waitForFunction(() => window.__savedProcedure === '');
+    await page.waitForSelector(procedureSelector);
+    await page.click(procedureSelector);
+    await page.evaluate(() => document.execCommand('insertOrderedList'));
+    await page.keyboard.type('PERTAMA - jangan ditimpa');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('PERTAMA'));
+    await new Promise(resolve => setTimeout(resolve, 800));
+    const afterEnterCaret = await page.evaluate(() => {
+      const sel=window.getSelection();
+      const anchor=sel?.anchorNode;
+      const el=anchor?.nodeType === Node.ELEMENT_NODE ? anchor : anchor?.parentElement;
+      const li=el?.closest('li');
+      return {index: li && li.parentElement
+          ? Array.from(li.parentElement.children).indexOf(li) : -1,
+        collapsed:sel?.isCollapsed,
+        editor:document.activeElement?.getAttribute('contenteditable')};
+    });
+    assert.equal(afterEnterCaret.index, 1,
+      'after Enter and A4 refresh the caret must remain in the newly created second numbered item');
+    assert.equal(afterEnterCaret.editor, 'true',
+      'editor focus must survive Enter and page reflow');
+    await page.keyboard.type('KEDUA - di baris baru');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('KEDUA'));
+    const afterEnterSaved = await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedProcedure,'text/html');
+      return [...doc.querySelectorAll('ol > li')].map(li=>li.textContent?.trim());
+    });
+    assert.deepEqual(afterEnterSaved.slice(0,2),['PERTAMA - jangan ditimpa','KEDUA - di baris baru'],
+      'typing after Enter must not be inserted into the prior numbered item');
+    console.log('LiveSPO Enter stays on fresh LI through pagination: PASS');
+
     // Type a long procedure from an empty editor (no DOCX/imported HTML).
     await page.evaluate(() => window.__mountLive());
     await page.waitForFunction(() => window.__savedProcedure === '');
