@@ -205,6 +205,39 @@ async function main() {
       'A4: split a one-cell Word layout table and keep nested alpha lines on the current page');
     assert.ok(layoutTable[0].height <= 135,
       'A4: the first table fragment must fit the available physical height');
+    const wrappedIntegrity = await page.evaluate(() => {
+      const src = '<table class="word-layout" style="width:100%;border:0"><tbody><tr><td style="padding:4px">' +
+        '<ol type="a" data-sop-list-format="a">' +
+        '<li>Petugas keamanan melakukan pemeriksaan pada ruang Neonatus dan ruang tunggu setiap pergantian jaga.</li>' +
+        '<li value="7" data-sop-manual-number="7" style="--sop-manual-number:7">Akses masuk ruang Neonatus dilakukan pemantauan dua puluh empat jam menggunakan kamera CCTV dan daftar pengunjung.</li>' +
+        '<li>Koridor ruang bayi diperiksa dan dilaporkan kepada koordinator apabila ada kondisi tidak aman.</li>' +
+        '</ol></td></tr></tbody></table>';
+      const fragments = window.SopA4Pagination.splitHtmlForCapacity(src, 140, null);
+      const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+      const text = (html) => parse(html).body.textContent;
+      const values = fragments.flatMap(html => [...parse(html).querySelectorAll('li[value]')]
+        .map(li => ({ value: li.getAttribute('value'), manual: li.getAttribute('data-sop-manual-number') })));
+      const sizes = fragments.map(html => {
+        const host = window.SopA4Pagination.createMeasureHost();
+        host.innerHTML = html;
+        const height = host.getBoundingClientRect().height;
+        host.remove();
+        return Number(height.toFixed(2));
+      });
+      return {
+        parts: fragments.length,
+        sameText: fragments.map(text).join('') === text(src),
+        allTables: fragments.every(html => parse(html).querySelectorAll('table > tbody > tr > td').length === 1),
+        manualPreserved: values.some(value => value.value === '7' && value.manual === '7'),
+        sizes
+      };
+    });
+    console.log('A4 Word-wrapped numbering integrity:', wrappedIntegrity);
+    assert.ok(wrappedIntegrity.parts > 1, 'single-cell list requires fragmentation');
+    assert.ok(wrappedIntegrity.sameText, 'all authored text must survive table fragmentation');
+    assert.ok(wrappedIntegrity.allTables, 'the original table/cell wrapper must survive each fragment');
+    assert.ok(wrappedIntegrity.manualPreserved, 'manual LI[value] numbering must survive pagination');
+    assert.ok(wrappedIntegrity.sizes[0] <= 140, 'first Word table fragment must fit the page budget');
 
     const pagePacking = await page.evaluate(() => {
       const pager = window.SopA4Pagination;
