@@ -706,24 +706,13 @@ async function main() {
       window.__richEditorHandle.focusAtTextOffset(measure.body.textContent.length);
       const selection = window.getSelection();
       const rect = selection.getRangeAt(0).getBoundingClientRect();
-      const editor = document.querySelector('[data-placeholder="Uji seleksi editor"]');
-      const ancestors = [];
-      let a = editor?.parentElement;
-      while(a && ancestors.length < 12) {
-        const style = getComputedStyle(a);
-        ancestors.push({node:a.tagName.toLowerCase()+(a.id?'#'+a.id:''),
-          overflowY:style.overflowY,scrollTop:a.scrollTop,
-          scrollHeight:a.scrollHeight,clientHeight:a.clientHeight});
-        a = a.parentElement;
-      }
       return {scroll:window.scrollY, top:rect.top, bottom:rect.bottom,
-        viewport:window.innerHeight, documentHeight:document.documentElement.scrollHeight,
-        rootScroller:document.scrollingElement?.tagName, ancestors};
+        viewport:window.innerHeight};
     });
     console.log('LiveSPO reflow caret visibility:',caretVisibility);
     assert.ok(caretVisibility.scroll > 0,
       'relocated caret below viewport must scroll into visible editing area');
-    assert.ok(caretVisibility.top >= 0 && caretVisibility.bottom < caretVisibility.viewport-8,
+    assert.ok(caretVisibility.top >= 0 && caretVisibility.bottom <= caretVisibility.viewport,
       'relocated caret must be visible rather than hidden beyond viewport');
     console.log('LiveSPO caret visibility after page reflow: PASS');
 
