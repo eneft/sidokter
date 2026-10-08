@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const puppeteer = require('puppeteer-core');
+const paginatorBundle = require('esbuild').buildSync({
+  entryPoints: [path.resolve(__dirname, '..', 'src/utils/canonicalA4Pagination.ts')],
+  bundle: true, platform: 'browser', format: 'iife',
+  globalName: 'SopA4Pagination', write: false
+}).outputFiles[0].text;
 
 const dist = path.resolve(__dirname, '..', 'dist');
 const css = fs.readdirSync(path.join(dist, 'assets')).filter(f => f.endsWith('.css'))
@@ -31,12 +36,17 @@ const html = title + localStyle + '</head><body><div class="fixture">' +
   '<div id="live" contenteditable="true" class="rich-text-editor-content sop-a4-rich-body font-bookman">' + text + '</div></section>' +
   '<div id="printable-sop-official-document"><section class="sop-batang-tubuh-content font-bookman">' +
   '<div id="preview" class="rich-text-output rich-text-document-content sop-a4-rich-body font-bookman">' + text + '</div></section></div>' +
-  '</div></body></html>';
+  '</div><script src="/__paginator.js"></script></body></html>';
 
 const server = http.createServer((req, res) => {
   const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   if (pathname === '/__a4') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); return;
+  }
+  if (pathname === '/__paginator.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    res.end(paginatorBundle);
+    return;
   }
   if (pathname === '/__image.svg') {
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
@@ -149,6 +159,39 @@ async function main() {
         near(part[prop], other[prop], 'element ' + i + ' ' + prop);
     });
     console.log('A4 screen-to-PDF geometry: PASS');
+    await page.emulateMediaType('screen');
+    const paginationCases = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const subitems = [
+        'Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu setiap pergantian jaga.',
+        'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan dicatat petugas keamanan.',
+        'Koridor ruang bayi dilengkapi titik pemeriksaan dan setiap pengunjung harus diverifikasi identitasnya.',
+        'Setiap kejadian keamanan dalam ruang bayi dilaporkan secara berjenjang kepada atasan dan manajemen rumah sakit.'
+      ];
+      const nested = '<ol type="1" start="2"><li>Pemantauan oleh petugas keamanan<ol type="a" data-sop-list-format="a">' +
+        subitems.map(x => '<li>' + x + '</li>').join('') + '</ol></li></ol>';
+      const separate = '<ol type="a" data-sop-list-format="a">' +
+        subitems.map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const cases = {};
+      for (const cap of [135, 190, 250, 325]) {
+        for (const [name, source] of [['nested', nested], ['separate', separate]]) {
+          const parts = pager.splitHtmlForCapacity(source, cap, null);
+          const summaries = parts.map((html) => {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const host = pager.createMeasureHost();
+            host.innerHTML = html;
+            const height = host.getBoundingClientRect().height;
+            host.remove();
+            return { height: Number(height.toFixed(1)), nAlpha: doc.body.querySelectorAll('ol[type="a"] > li').length,
+              nParent: doc.body.querySelectorAll('ol[type="1"] > li').length, text: doc.body.textContent.slice(0, 90) };
+          });
+          cases[name + ':' + cap] = summaries;
+        }
+      }
+      return cases;
+    });
+    console.log('A4 nested-list page-break diagnostics:', JSON.stringify(paginationCases));
+
   } finally {
     if (browser) await browser.close();
     server.close();
