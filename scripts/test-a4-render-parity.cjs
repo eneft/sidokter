@@ -565,6 +565,43 @@ async function main() {
       'typing after Enter must not be inserted into the prior numbered item');
     console.log('LiveSPO Enter stays on fresh LI through pagination: PASS');
 
+    // A second Enter must not reuse the first empty item bookmark.
+    await page.keyboard.press('Enter');
+    await new Promise(resolve => setTimeout(resolve, 650));
+    await page.keyboard.type('KETIGA - nomor berikutnya');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('KETIGA'));
+    const afterRepeatedEnter = await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedProcedure,'text/html');
+      return [...doc.querySelectorAll('ol > li')].map(li=>li.textContent?.trim());
+    });
+    assert.deepEqual(afterRepeatedEnter.slice(0,3),[
+      'PERTAMA - jangan ditimpa','KEDUA - di baris baru','KETIGA - nomor berikutnya'
+    ],'repeated Enter must keep adding items forward, not return to previous numbering');
+    console.log('LiveSPO repeated Enter on ordered list: PASS');
+
+    // The same cursor issue affects plain paragraphs created by Enter.
+    await page.evaluate(() => window.__mountLive());
+    await page.waitForFunction(() => window.__savedProcedure === '');
+    await page.waitForSelector(procedureSelector);
+    await page.click(procedureSelector);
+    await page.keyboard.type('PARAGRAF AWAL');
+    await page.keyboard.press('Enter');
+    await new Promise(resolve => setTimeout(resolve, 650));
+    await page.keyboard.type('PARAGRAF LANJUT');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('PARAGRAF LANJUT'));
+    const afterPlainEnter = await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedProcedure,'text/html');
+      const body=doc.body;
+      return { html:body.innerHTML,
+        leafBlocks:[...body.querySelectorAll('div,p')].filter(e=>!e.querySelector('div,p'))
+          .map(e=>e.textContent?.trim()).filter(Boolean) };
+    });
+    assert.ok(afterPlainEnter.leafBlocks.some(x=>x === 'PARAGRAF AWAL') &&
+      afterPlainEnter.leafBlocks.some(x=>x === 'PARAGRAF LANJUT'),
+      'plain Enter must preserve separate paragraphs even after A4 refresh');
+    console.log('LiveSPO plain Enter stays on fresh paragraph: PASS');
+
+
     // Type a long procedure from an empty editor (no DOCX/imported HTML).
     await page.evaluate(() => window.__mountLive());
     await page.waitForFunction(() => window.__savedProcedure === '');
