@@ -885,6 +885,45 @@ async function main() {
     assert.equal(bulletDirect[3],'6.','bullet must not increment its list numeric counter');
     console.log('LiveSPO direct bullet marker: PASS');
 
+    // Mobile A4 pages are CSS-transformed to fit narrow screens. The old
+    // marker hit test compared SCALED clientX with an UNSCALED 1.68em gutter:
+    // tapping the first character opened numbering instead of placing caret.
+    await page.evaluate(() => {
+      window.__mountRichEditor('<ol><li>TEKS HARUS BISA DIKLIK</li><li>Butir lain</li></ol>');
+      const root = document.querySelector('#live-app');
+      root.style.transform = 'scale(0.5)';
+      root.style.transformOrigin = 'top left';
+    });
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 2);
+    const mobileTap = await page.evaluate(() => {
+      const li=document.querySelector('[data-placeholder="Uji seleksi editor"] ol > li');
+      const range=document.createRange();
+      range.setStart(li.firstChild,0);range.setEnd(li.firstChild,4);
+      const text=range.getBoundingClientRect();
+      const r=li.getBoundingClientRect();
+      return {textX:text.left+Math.min(3,text.width/4),textY:text.top+text.height/2,
+        markerX:r.left+4,markerY:r.top+5,liLeft:r.left,textLeft:text.left,
+        rectWidth:r.width,offsetWidth:li.offsetWidth,
+        fontSize:getComputedStyle(li).fontSize};
+    });
+    await page.mouse.click(mobileTap.textX,mobileTap.textY);
+    const accidentalMarker = await page.evaluate(() =>
+      !!document.querySelector('[data-sop-inline-marker-input="true"]'));
+    assert.equal(accidentalMarker,false,
+      'scaled A4 first-character tap must NOT invoke inline marker editing');
+    await page.mouse.click(mobileTap.markerX,mobileTap.markerY);
+    await page.waitForSelector('[data-sop-inline-marker-input="true"]');
+    await page.evaluate(() => {
+      document.querySelector('[data-sop-inline-marker-input="true"]').value='5.';
+    });
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('data-sop-marker-label="5."'));
+    console.log('LiveSPO scaled A4 marker tap boundary:',mobileTap);
+    console.log('LiveSPO mobile text tap vs marker tap: PASS');
+    await page.evaluate(() => { document.querySelector('#live-app').style.transform=''; });
+
+
     // Arbitrary overrides can run backwards and are not forced into a sorted
     // sequence. The next Enter continues from the last MANUALLY typed number.
     await page.evaluate(() => window.__mountRichEditor(

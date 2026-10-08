@@ -1121,10 +1121,18 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const rect = li.getBoundingClientRect();
     const style = window.getComputedStyle(li);
     const fontSize = parseFloat(style.fontSize) || 16;
-    const markerWidth = Math.max(21, fontSize * 1.68);
-    const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.5;
-    if (event.clientX < rect.left - 3 || event.clientX > rect.left + markerWidth ||
-        event.clientY < rect.top - 3 || event.clientY > rect.top + lineHeight + 3) return;
+    const markerWidthCss = Math.max(21, fontSize * 1.68);
+    const lineHeightCss = parseFloat(style.lineHeight) || fontSize * 1.5;
+    // A4 is transformed (often ~50% on a phone). Pointer coordinates and
+    // getBoundingClientRect are VIEWPORT pixels, while computed font size,
+    // line-height and offsetWidth/Height are UNSCALED CSS pixels. Mixing the
+    // two made a tap on the first character open the marker input instead.
+    const scaleX = li.offsetWidth > 0 ? rect.width / li.offsetWidth : 1;
+    const scaleY = li.offsetHeight > 0 ? rect.height / li.offsetHeight : scaleX;
+    const markerWidthVisual = markerWidthCss * scaleX;
+    const lineHeightVisual = lineHeightCss * scaleY;
+    if (event.clientX < rect.left - 3 || event.clientX > rect.left + markerWidthVisual ||
+        event.clientY < rect.top - 3 || event.clientY > rect.top + lineHeightVisual + 3) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -1144,9 +1152,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     input.value = currentInlineMarker(li);
     input.style.left = Math.max(0, (rect.left - frame.left) / scale) + 'px';
     input.style.top = Math.max(0, (rect.top - frame.top) / scale) + 'px';
-    input.style.width = Math.max(34, markerWidth / scale + 5) + 'px';
+    input.style.width = Math.max(34, markerWidthVisual / scale + 5) + 'px';
     input.style.fontSize = style.fontSize;
-    input.style.height = Math.max(24, lineHeight) + 'px';
+    input.style.height = Math.max(24, lineHeightCss) + 'px';
     markerInputRef.current = input;
     container.appendChild(input);
 
