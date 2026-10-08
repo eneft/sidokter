@@ -224,7 +224,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     getActiveEditor()?.executeCommand(cmd, val || undefined);
   };
 
-  const handleInsertList = (type: '1' | 'a') => {
+  const handleInsertList = (type: '1' | 'A' | 'a' | '1)' | 'a)') => {
     getActiveEditor()?.insertCustomList(type);
   };
 
@@ -702,8 +702,27 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="toolbar-command-group">
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleInsertList('1')} title="Penomoran" aria-label="Penomoran" aria-pressed={activeFormatting.orderedList} className={`toolbar-icon ${activeFormatting.orderedList ? 'is-active' : ''}`}><ListOrdered /></button>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('insertUnorderedList')} title="Bullet" aria-label="Bullet" aria-pressed={activeFormatting.unorderedList} className={`toolbar-icon ${activeFormatting.unorderedList ? 'is-active' : ''}`}><List /></button>
+              <select
+                aria-label="Pilih format numbering atau bullet"
+                title="Pilih format daftar"
+                defaultValue=""
+                onMouseDown={() => getActiveEditor()?.captureSelection()}
+                onChange={(e) => {
+                  const format = e.target.value;
+                  if (format === 'bullet') handleExecCommand('insertUnorderedList');
+                  else if (format) handleInsertList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                  e.target.value = '';
+                }}
+                className="h-7 w-28 shrink-0 rounded border border-slate-200 bg-white px-1 text-[11px] font-semibold"
+              >
+                <option value="" disabled>Daftar ▾</option>
+                <option value="A">A. B. C.</option>
+                <option value="1">1. 2. 3.</option>
+                <option value="a">a. b. c.</option>
+                <option value="a)">a) b) c)</option>
+                <option value="1)">1) 2) 3)</option>
+                <option value="bullet">• Bullet</option>
+              </select>
             </div>
             <div className="toolbar-command-group">
               <input ref={tableFileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" multiple onChange={handleInsertImageToActiveSection} className="hidden" />
