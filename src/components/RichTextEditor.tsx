@@ -1539,7 +1539,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
-  const insertCustomList = (listType: '1' | 'a' | 'i') => {
+  const insertCustomList = (listType: '1' | 'A' | 'a' | '1)' | 'a)') => {
     const editor = editorRef.current;
     if (!editor || selectedFigure) return;
     if (!restoreSavedSelection()) return;
@@ -1563,9 +1563,13 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
       const list = element?.closest('ol');
       if (list && editor.contains(list)) {
-        (list as HTMLOListElement).type = listType;
+        const semanticType = listType === 'A' ? 'A' : listType === 'a' || listType === 'a)' ? 'a' : '1';
+        (list as HTMLOListElement).type = semanticType;
         (list as HTMLElement).style.listStyleType =
-          listType === 'a' ? 'lower-alpha' : listType === 'i' ? 'lower-roman' : 'decimal';
+          listType === '1)' ? 'sop-decimal-paren' :
+          listType === 'a)' ? 'sop-alpha-paren' :
+          listType === 'A' ? 'upper-alpha' :
+          listType === 'a' ? 'lower-alpha' : 'decimal';
       }
     } catch {
       // Keep editor content intact if native formatting is unsupported.
@@ -2897,35 +2901,29 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
-              {/* Presets Penomoran Standar SPO (1., a., •) */}
-              <div className="flex items-center gap-0.5 shrink-0">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertCustomList('1')}
-                  title="Nomor Utama (1., 2., 3...)"
-                  className={`h-5.5 px-1.5 text-[10px] font-bold rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center ${activeFormatting.orderedList ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-slate-200/80 text-indigo-700'}`}
+              {/* Explicit list styles; typing prefixes never triggers conversion. */}
+              <div className="flex items-center gap-1 shrink-0">
+                <select
+                  aria-label="Pilih format numbering atau bullet"
+                  title="Pilih format daftar (tidak otomatis)"
+                  defaultValue=""
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const format = e.target.value;
+                    if (format === 'bullet') executeCommand('insertUnorderedList');
+                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                    e.target.value = '';
+                  }}
+                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
                 >
-                  1.
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertCustomList('a')}
-                  title="Sub-Poin Huruf (a., b., c...)"
-                  className="h-5.5 px-1.5 text-[10px] font-bold rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center hover:bg-slate-200/80 text-indigo-700"
-                >
-                  a.
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('insertUnorderedList')}
-                  title="Poin / Bullet List (•)"
-                  className={`w-5.5 h-5.5 min-w-[22px] p-0.5 rounded transition-colors cursor-pointer touch-manipulation flex items-center justify-center ${activeFormatting.unorderedList ? 'bg-indigo-100 text-indigo-700 font-bold' : 'hover:bg-slate-200/80 hover:text-indigo-600 text-slate-700'}`}
-                >
-                  <List className="w-3 h-3 text-indigo-600" />
-                </button>
+                  <option value="" disabled>Daftar ▾</option>
+                  <option value="A">A. B. C.</option>
+                  <option value="1">1. 2. 3.</option>
+                  <option value="a">a. b. c.</option>
+                  <option value="a)">a) b) c)</option>
+                  <option value="1)">1) 2) 3)</option>
+                  <option value="bullet">• Bullet</option>
+                </select>
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
