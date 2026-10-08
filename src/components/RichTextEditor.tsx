@@ -1633,7 +1633,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
       const activeListItem = element?.closest('li');
       const inList = Boolean(activeListItem && editorRef.current?.contains(activeListItem));
-      const inCell = Boolean(element?.closest('td,th'));
+      const activeCell = element?.closest('td,th');
+      const inCell = Boolean(activeCell && editorRef.current?.contains(activeCell));
       // Tab inside a table must remain a caret/navigation concern for the
       // table editor. Outside tables it changes semantic list nesting.
       // Never accidentally indent a list belonging to another editor.
@@ -1659,9 +1660,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           // Numeric ordered list: "1." or "1)"
           const numMatch = textBefore.match(/^(\d+)[\.\)]$/);
           // Alphabetical ordered list: "a." or "a)" or "A." or "A)"
-          const alphaMatch = textBefore.match(/^([a-zA-Z])[\.\)]$/);
-          // Roman ordered list: "i." or "i)" or "iv."
           const romanMatch = textBefore.match(/^([ivxIVX]+)[\.\)]$/);
+          // Roman prefixes take precedence over alphabetic ones (i., v., x.).
+          const alphaMatch = romanMatch ? null : textBefore.match(/^([a-zA-Z])[\.\)]$/);
           // Unordered list / bullet: "-", "*", "•", "·"
           const bulletMatch = textBefore.match(/^[-*•·]$/);
 
