@@ -212,6 +212,7 @@ async function main() {
         '<li value="7" data-sop-manual-number="7" style="--sop-manual-number:7">Akses masuk ruang Neonatus dilakukan pemantauan dua puluh empat jam menggunakan kamera CCTV dan daftar pengunjung.</li>' +
         '<li>Koridor ruang bayi diperiksa dan dilaporkan kepada koordinator apabila ada kondisi tidak aman.</li>' +
         '</ol></td></tr></tbody></table>';
+      window.__wordTableListFixture = src;
       const fragments = window.SopA4Pagination.splitHtmlForCapacity(src, 140, null);
       const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
       const text = (html) => parse(html).body.textContent;
@@ -238,6 +239,31 @@ async function main() {
     assert.ok(wrappedIntegrity.allTables, 'the original table/cell wrapper must survive each fragment');
     assert.ok(wrappedIntegrity.manualPreserved, 'manual LI[value] numbering must survive pagination');
     assert.ok(wrappedIntegrity.sizes[0] <= 140, 'first Word table fragment must fit the page budget');
+    await page.emulateMediaType('print');
+    const wrappedPrint = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const source = window.__wordTableListFixture;
+      const parts = pager.splitHtmlForCapacity(source, 140, null);
+      const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+      const height = parts.map(html => {
+        const host = pager.createMeasureHost();
+        host.innerHTML = html;
+        const value = host.getBoundingClientRect().height;
+        host.remove();
+        return Number(value.toFixed(2));
+      });
+      return {
+        parts: parts.length,
+        textPreserved:parts.map(h=>parse(h).body.textContent).join('')===parse(source).body.textContent,
+        firstHeight:height[0]
+      };
+    });
+    console.log('A4 Word-table print/PDF continuation:', wrappedPrint);
+    assert.ok(wrappedPrint.parts > 1 && wrappedPrint.textPreserved,
+      'print/PDF must split Word layout lists without dropping text');
+    assert.ok(wrappedPrint.firstHeight <= 140,
+      'print/PDF table fragment must fit the same physical page budget');
+    await page.emulateMediaType('screen');
 
     const pagePacking = await page.evaluate(() => {
       const pager = window.SopA4Pagination;
