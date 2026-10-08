@@ -41,6 +41,8 @@ import {
   buildOfficialBlocks, 
   computeCanonicalA4Pages,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+  CANONICAL_A4_SAFETY_BUFFER_PX,
+  measureCanonicalA4RowHeight,
   type OfficialBlock, 
   type OfficialSectionKey 
 } from '../utils/canonicalA4Pagination';
@@ -349,8 +351,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
         const header = root.querySelector<HTMLElement>('[data-live-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-live-measure-publication]');
         if (!header || !publication) return;
-        const headerHeightPx = header.getBoundingClientRect().height;
-        const publicationHeightPx = publication.getBoundingClientRect().height;
+        // Physical page heights must be measured in unscaled CSS pixels,
+        // exactly like the readonly Preview/PDF measurement shell.
+        const headerHeightPx = measureCanonicalA4RowHeight(header);
+        const publicationHeightPx = measureCanonicalA4RowHeight(publication);
         if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
         setLivePageMetrics((prev) =>
           prev && Math.abs(prev.headerHeightPx - headerHeightPx) < 0.5 && Math.abs(prev.publicationHeightPx - publicationHeightPx) < 0.5
@@ -374,7 +378,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     // Never paginate from guessed KOP geometry. Until the scoped physical A4
     // shell has been measured, keep the source flow intact for this first frame.
     if (!livePageMetrics) return [];
-    return computeCanonicalA4Pages(debouncedBlocks, livePageMetrics);
+    return computeCanonicalA4Pages(debouncedBlocks, {
+      ...livePageMetrics,
+      safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX
+    });
   }, [debouncedBlocks, livePageMetrics]);
 
   const totalPages = Math.max(1, calculatedPages.length);
