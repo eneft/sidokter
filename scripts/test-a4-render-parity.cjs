@@ -549,6 +549,30 @@ async function main() {
       'typing across pages preserves each authored item exactly once');
     assert.equal(typed.tables, 0, 'direct typing must not fabricate DOCX layout tables');
     console.log('LiveSPO direct typing across A4 pages: PASS');
+
+    // A page-boundary reflow must keep focus on the logical item the user was
+    // typing. Regression: Enter/numbering + 250ms repagination unmounts the
+    // focused physical editor; subsequent keys disappear into the document.
+    const focusAfterPagination = await page.evaluate(() => {
+      const active = document.activeElement;
+      const selection = window.getSelection();
+      return { activeEditor: active?.getAttribute('contenteditable') === 'true',
+        selectedInside: !!(active && selection?.anchorNode && active.contains(selection.anchorNode)) };
+    });
+    assert.equal(focusAfterPagination.activeEditor, true,
+      'A4 page reflow must leave a contentEditable focused for uninterrupted typing');
+    assert.equal(focusAfterPagination.selectedInside, true,
+      'A4 page reflow must restore caret inside the focused editor');
+    await page.keyboard.sendCharacter(' PENUTUP-KURSOR');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('PENUTUP-KURSOR'));
+    const lastItem = await page.evaluate(() => {
+      const doc = new DOMParser().parseFromString(window.__savedProcedure,'text/html');
+      return doc.querySelector('li:last-child')?.textContent || '';
+    });
+    assert.ok(lastItem.includes('Butir 18:') && lastItem.includes('PENUTUP-KURSOR'),
+      'typing after page reflow must append to the same logical numbered item');
+    console.log('LiveSPO caret across pagination refresh: PASS');
+
     const typedGaps = await page.evaluate(() => [...document.querySelectorAll('.sop-live-a4-page')]
       .slice(0, -1).map(page => {
         const editors = page.querySelectorAll('[contenteditable="true"]');
