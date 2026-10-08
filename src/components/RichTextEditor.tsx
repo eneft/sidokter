@@ -143,6 +143,10 @@ export interface RichTextEditorHandle {
   deleteImage: () => void;
   /** Capture the current editor selection before an external/native toolbar control takes focus. */
   captureSelection: () => boolean;
+  /** Collapsed caret position in this fragment's text, or null when selection is elsewhere. */
+  getCaretTextOffset: () => number | null;
+  /** Restore a logical caret after page fragments have been redistributed. */
+  focusAtTextOffset: (offset: number) => void;
   focus: () => void;
 }
 
@@ -2753,6 +2757,51 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       }
       const saved = savedRangeRef.current;
       return Boolean(editor && saved && editor.contains(saved.commonAncestorContainer));
+    },
+    getCaretTextOffset: () => {
+      const editor = editorRef.current;
+      const selection = window.getSelection();
+      if (!editor || !selection?.isCollapsed || !selection.rangeCount ||
+          !selection.anchorNode || !editor.contains(selection.anchorNode)) return null;
+      try {
+        const prefix = document.createRange();
+        prefix.selectNodeContents(editor);
+        prefix.setEnd(selection.anchorNode, selection.anchorOffset);
+        return prefix.toString().length;
+      } catch {
+        return null;
+      }
+    },
+    focusAtTextOffset: (absolute) => {
+      const editor = editorRef.current;
+      if (!editor || !editor.isConnected) return;
+      const selection = window.getSelection();
+      if (!selection) return;
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      let remaining = Math.max(0, absolute);
+      let lastText: Text | null = null;
+      let current: Node | null;
+      while ((current = walker.nextNode())) {
+        const node = current as Text;
+        lastText = node;
+        if (remaining <= node.length) break;
+        remaining -= node.length;
+      }
+      const target: Node = current || lastText || editor.firstElementChild || editor;
+      const offset = target.nodeType === Node.TEXT_NODE
+        ? Math.min(remaining, (target as Text).length)
+        : 0;
+      const caret = document.createRange();
+      try {
+        caret.setStart(target, offset);
+        caret.collapse(true);
+        editor.focus({ preventScroll: true });
+        selection.removeAllRanges();
+        selection.addRange(caret);
+        savedRangeRef.current = caret.cloneRange();
+      } catch {
+        // A detached fragment should never throw into the editor workflow.
+      }
     },
     focus: () => editorRef.current?.focus(),
   }));
