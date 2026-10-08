@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const puppeteer = require('puppeteer-core');
+const paginatorBundle = require('esbuild').buildSync({
+  entryPoints: [path.resolve(__dirname, '..', 'src/utils/canonicalA4Pagination.ts')],
+  bundle: true, platform: 'browser', format: 'iife',
+  globalName: 'SopA4Pagination', write: false
+}).outputFiles[0].text;
 
 const dist = path.resolve(__dirname, '..', 'dist');
 const css = fs.readdirSync(path.join(dist, 'assets')).filter(f => f.endsWith('.css'))
@@ -31,12 +36,17 @@ const html = title + localStyle + '</head><body><div class="fixture">' +
   '<div id="live" contenteditable="true" class="rich-text-editor-content sop-a4-rich-body font-bookman">' + text + '</div></section>' +
   '<div id="printable-sop-official-document"><section class="sop-batang-tubuh-content font-bookman">' +
   '<div id="preview" class="rich-text-output rich-text-document-content sop-a4-rich-body font-bookman">' + text + '</div></section></div>' +
-  '</div></body></html>';
+  '</div><script src="/__paginator.js"></script></body></html>';
 
 const server = http.createServer((req, res) => {
   const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   if (pathname === '/__a4') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); return;
+  }
+  if (pathname === '/__paginator.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    res.end(paginatorBundle);
+    return;
   }
   if (pathname === '/__image.svg') {
     res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
@@ -149,6 +159,223 @@ async function main() {
         near(part[prop], other[prop], 'element ' + i + ' ' + prop);
     });
     console.log('A4 screen-to-PDF geometry: PASS');
+    await page.emulateMediaType('screen');
+    const paginationCases = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const subitems = [
+        'Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu setiap pergantian jaga.',
+        'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan dicatat petugas keamanan.',
+        'Koridor ruang bayi dilengkapi titik pemeriksaan dan setiap pengunjung harus diverifikasi identitasnya.',
+        'Setiap kejadian keamanan dalam ruang bayi dilaporkan secara berjenjang kepada atasan dan manajemen rumah sakit.'
+      ];
+      const nested = '<ol type="1" start="2"><li>Pemantauan oleh petugas keamanan<ol type="a" data-sop-list-format="a">' +
+        subitems.map(x => '<li>' + x + '</li>').join('') + '</ol></li></ol>';
+      const separate = '<ol type="a" data-sop-list-format="a">' +
+        subitems.map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const cases = {};
+      for (const cap of [135, 190, 250, 325]) {
+        const variants = [
+          ['nested', nested],
+          ['separate', separate],
+          ['wrappedNested', '<div>' + nested + '</div>'],
+          ['wrappedSeparate', '<div><p>2. Pemantauan oleh petugas keamanan</p>' + separate + '</div>'],
+          ['adjacent', '<p>2. Pemantauan oleh petugas keamanan</p>' + separate],
+          ['nestedInsideP', '<div><p>2. Pemantauan oleh petugas keamanan</p><div>' + separate + '</div></div>'],
+          ['tableWrapped', '<table><tbody><tr><td>' + separate + '</td></tr></tbody></table>']
+        ];
+        for (const [name, source] of variants) {
+          const parts = pager.splitHtmlForCapacity(source, cap, null);
+          const summaries = parts.map((html) => {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const host = pager.createMeasureHost();
+            host.innerHTML = html;
+            const height = host.getBoundingClientRect().height;
+            host.remove();
+            return { height: Number(height.toFixed(1)), nAlpha: doc.body.querySelectorAll('ol[type="a"] > li').length,
+              nParent: doc.body.querySelectorAll('ol[type="1"] > li').length, text: doc.body.textContent.slice(0, 90) };
+          });
+          cases[name + ':' + cap] = summaries;
+        }
+      }
+      return cases;
+    });
+    console.log('A4 nested-list page-break diagnostics:', JSON.stringify(paginationCases));
+    const layoutTable = paginationCases['tableWrapped:135'];
+    assert.ok(layoutTable.length > 1 && layoutTable[0].nAlpha >= 1,
+      'A4: split a one-cell Word layout table and keep nested alpha lines on the current page');
+    assert.ok(layoutTable[0].height <= 135,
+      'A4: the first table fragment must fit the available physical height');
+    const wrappedIntegrity = await page.evaluate(() => {
+      const src = '<table class="word-layout" style="width:100%;border:0"><tbody><tr><td style="padding:4px">' +
+        '<ol type="a" data-sop-list-format="a">' +
+        '<li>Petugas keamanan melakukan pemeriksaan pada ruang Neonatus dan ruang tunggu setiap pergantian jaga.</li>' +
+        '<li value="7" data-sop-manual-number="7" style="--sop-manual-number:7">Akses masuk ruang Neonatus dilakukan pemantauan dua puluh empat jam menggunakan kamera CCTV dan daftar pengunjung.</li>' +
+        '<li>Koridor ruang bayi diperiksa dan dilaporkan kepada koordinator apabila ada kondisi tidak aman.</li>' +
+        '</ol></td></tr></tbody></table>';
+      window.__wordTableListFixture = src;
+      const fragments = window.SopA4Pagination.splitHtmlForCapacity(src, 140, null);
+      const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+      const text = (html) => parse(html).body.textContent;
+      const values = fragments.flatMap(html => [...parse(html).querySelectorAll('li[value]')]
+        .map(li => ({ value: li.getAttribute('value'), manual: li.getAttribute('data-sop-manual-number') })));
+      const sizes = fragments.map(html => {
+        const host = window.SopA4Pagination.createMeasureHost();
+        host.innerHTML = html;
+        const height = host.getBoundingClientRect().height;
+        host.remove();
+        return Number(height.toFixed(2));
+      });
+      return {
+        parts: fragments.length,
+        sameText: fragments.map(text).join('') === text(src),
+        allTables: fragments.every(html => parse(html).querySelectorAll('table > tbody > tr > td').length === 1),
+        manualPreserved: values.some(value => value.value === '7' && value.manual === '7'),
+        sizes
+      };
+    });
+    const protectedTables = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a"><li>Pemeriksaan identitas dilakukan untuk setiap pengunjung rumah sakit.</li>' +
+        '<li>Petugas wajib melaporkan potensi gangguan keamanan kepada koordinator.</li>' +
+        '<li>Pemantauan CCTV dan jalur akses dilakukan setiap pergantian jaga.</li></ol>';
+      const cases = {
+        multiCell: '<table><tbody><tr><td>' + alpha + '</td><td>Kolom data lain</td></tr></tbody></table>',
+        mediaCell: '<table><tbody><tr><td><img src="/__image.svg" width="500" height="420">' +
+          alpha + '</td></tr></tbody></table>',
+        nestedTable: '<table><tbody><tr><td><table><tbody><tr><td>Subtabel</td></tr></tbody></table>' +
+          alpha + '</td></tr></tbody></table>',
+        colspan: '<table><tbody><tr><td colspan="2">' + alpha + '</td></tr></tbody></table>',
+        headerOnly: '<table><thead><tr><th>' + alpha + '</th></tr></thead></table>',
+        footerOnly: '<table><tfoot><tr><td>' + alpha + '</td></tr></tfoot></table>'
+      };
+      const parts = {};
+      for (const [name, html] of Object.entries(cases)) {
+        parts[name] = pager.splitHtmlForCapacity(html, 90, null).length;
+      }
+      return parts;
+    });
+    console.log('A4 protected table structures:', protectedTables);
+    for (const name of ['multiCell','mediaCell','nestedTable','colspan','headerOnly','footerOnly']) {
+      assert.equal(protectedTables[name], 1,
+        'A4: do not split protected ' + name + ' table internals');
+    }
+    console.log('A4 Word-wrapped numbering integrity:', wrappedIntegrity);
+    assert.ok(wrappedIntegrity.parts > 1, 'single-cell list requires fragmentation');
+    assert.ok(wrappedIntegrity.sameText, 'all authored text must survive table fragmentation');
+    assert.ok(wrappedIntegrity.allTables, 'the original table/cell wrapper must survive each fragment');
+    assert.ok(wrappedIntegrity.manualPreserved, 'manual LI[value] numbering must survive pagination');
+    assert.ok(wrappedIntegrity.sizes[0] <= 140, 'first Word table fragment must fit the page budget');
+    await page.emulateMediaType('print');
+    const wrappedPrint = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const source = window.__wordTableListFixture;
+      const parts = pager.splitHtmlForCapacity(source, 140, null);
+      const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+      const height = parts.map(html => {
+        const host = pager.createMeasureHost();
+        host.innerHTML = html;
+        const value = host.getBoundingClientRect().height;
+        host.remove();
+        return Number(value.toFixed(2));
+      });
+      return {
+        parts: parts.length,
+        textPreserved:parts.map(h=>parse(h).body.textContent).join('')===parse(source).body.textContent,
+        firstHeight:height[0]
+      };
+    });
+    console.log('A4 Word-table print/PDF continuation:', wrappedPrint);
+    assert.ok(wrappedPrint.parts > 1 && wrappedPrint.textPreserved,
+      'print/PDF must split Word layout lists without dropping text');
+    assert.ok(wrappedPrint.firstHeight <= 140,
+      'print/PDF table fragment must fit the same physical page budget');
+    await page.emulateMediaType('screen');
+
+    const pagePacking = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a" data-sop-list-format="a">' +
+        ['Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+         'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan oleh petugas.',
+         'Koridor ruang bayi dilengkapi dengan titik pengawasan, catatan, dan pemeriksaan identitas setiap pengunjung.',
+         'Petugas juga melakukan pelaporan berjenjang terhadap seluruh kejadian keamanan di area rawat inap.']
+          .map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const result = [];
+      for (const fillerCount of [8, 12, 16, 20, 24]) {
+        const blocks = [];
+        for (let i = 0; i < fillerCount; i++) {
+          blocks.push({id:'intro-'+i, section:'PROSEDUR',
+            html:'<p>Petugas melakukan pemeriksaan serta pemantauan keamanan rumah sakit secara berkala dan terkoordinasi.</p>'});
+        }
+        blocks.push({id:'parent-2',section:'PROSEDUR',html:'<ol type="1" start="2"><li>Pemantauan Oleh petugas keamanan</li></ol>'});
+        blocks.push({id:'children-a',section:'PROSEDUR',html:alpha});
+        const pages = pager.computeCanonicalA4Pages(blocks, {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+        const parentIndex=pages.findIndex(x=>x.some(y=>y.id==='parent-2'));
+        const childIndex=pages.findIndex(x=>x.some(y=>y.id.startsWith('children-a')));
+        const summaries=pages.map((p,i)=>({
+          page:i+1,blocks:p.map(b=>b.id).slice(-5),
+          childLi:p.filter(b=>b.id.startsWith('children-a')).reduce((n,b)=>{
+            const d=new DOMParser().parseFromString(b.html,'text/html');return n+d.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+          },0)
+        }));
+        result.push({fillerCount,parentIndex,childIndex,summaries});
+      }
+      return result;
+    });
+    console.log('A4 complete pagination page-pack diagnostics:', JSON.stringify(pagePacking));
+    const tablePagePacking = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = '<ol type="a" data-sop-list-format="a">' +
+        ['Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+         'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan oleh petugas.',
+         'Koridor ruang bayi dilengkapi dengan titik pengawasan, catatan, dan pemeriksaan identitas setiap pengunjung.',
+         'Petugas juga melakukan pelaporan berjenjang terhadap seluruh kejadian keamanan di area rawat inap.']
+          .map(x => '<li>' + x + '</li>').join('') + '</ol>';
+      const blocks = Array.from({length:8}, (_,i) => ({
+        id:'intro-'+i, section:'PROSEDUR',
+        html:'<p>Petugas melakukan pemeriksaan serta pemantauan keamanan rumah sakit secara berkala dan terkoordinasi.</p>'
+      }));
+      blocks.push({id:'parent-2', section:'PROSEDUR',
+        html:'<ol type="1" start="2"><li>Pemantauan Oleh petugas keamanan</li></ol>'});
+      blocks.push({id:'alpha-table', section:'PROSEDUR',
+        html:'<table><tbody><tr><td>' + alpha + '</td></tr></tbody></table>'});
+      const pages=pager.computeCanonicalA4Pages(blocks,
+        {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+      const parentPage=pages.findIndex(blocks => blocks.some(block => block.id==='parent-2'));
+      const childOnParentPage=pages[parentPage]?.filter(block=>block.id.startsWith('alpha-table'))||[];
+      const childCount=childOnParentPage.reduce((count,block)=>{
+        const doc=new DOMParser().parseFromString(block.html,'text/html');
+        return count+doc.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+      },0);
+      const nextPageCount=pages.slice(parentPage+1).reduce((sum,p)=>sum+p
+        .filter(b=>b.id.startsWith('alpha-table')).reduce((n,b)=>{
+          const doc=new DOMParser().parseFromString(b.html,'text/html');
+          return n+doc.querySelectorAll('ol[type="a"] > li').length;
+        },0),0);
+      const parseText = (html) => new DOMParser().parseFromString(html,'text/html').body.textContent || '';
+      const sourceText = blocks.map(b=>parseText(b.html)).join('');
+      const outputText = pages.flat().map(b=>parseText(b.html)).join('');
+      const distinctAlphaItems = pages.flat().filter(b=>b.id.startsWith('alpha-table')).reduce((sum,b)=>{
+        const doc=new DOMParser().parseFromString(b.html,'text/html');
+        return sum+doc.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+      },0);
+      return {parentPage:parentPage+1, childOnParentPage:childCount,
+        nextPageCount, totalPages:pages.length,
+        textPreserved:sourceText===outputText, distinctAlphaItems,
+        idList:pages.map(p=>p.map(b=>b.id))};
+    });
+    console.log('A4 Word-table full page packing:', tablePagePacking);
+    assert.ok(tablePagePacking.parentPage > 0, 'fixture parent heading must be present');
+    assert.ok(tablePagePacking.childOnParentPage >= 1,
+      'A4 must place some nested child numbering below parent 2 on same page when space remains');
+    assert.ok(tablePagePacking.nextPageCount >= 1,
+      'fixture must still have later list items requiring a next page');
+    assert.ok(tablePagePacking.textPreserved,
+      'full pagination must preserve source text across all A4 pages');
+    assert.equal(tablePagePacking.distinctAlphaItems, 4,
+      'a/b/c/d numbering must remain four distinct items even when text continues across pages');
+
+
+
   } finally {
     if (browser) await browser.close();
     server.close();
