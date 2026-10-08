@@ -437,6 +437,81 @@ async function main() {
       'full pagination must preserve source text across all A4 pages');
     assert.equal(tablePagePacking.distinctAlphaItems, 4,
       'a/b/c/d numbering must remain four distinct items even when text continues across pages');
+    // Regression for actual SPO: a numbered parent with alpha children.
+    // Ordinary paragraphs can flow correctly while this NESTED list used to
+    // move all children to the following page, leaving half a page empty.
+    const nestedNumbering = await page.evaluate(() => {
+      const pager = window.SopA4Pagination;
+      const alpha = [
+        'Petugas keamanan di RSUD Dr. Soegiri Lamongan melakukan pemantauan terhadap ruang Neonatus dan ruang tunggu.',
+        'Akses masuk ruang Neonatus dilakukan pemantauan 24 jam menggunakan CCTV dan pemeriksaan petugas.',
+        'Koridor ruang bayi dilengkapi titik pengawasan serta pencatatan pemeriksaan identitas pengunjung.',
+        'Petugas melaporkan semua kejadian keamanan secara berjenjang kepada koordinator jaga.'
+      ];
+      // This is the HTML emitted by browser numbering and also by copy/paste.
+      const source = '<ol type="1" start="2"><li value="2">Pemantauan Oleh petugas keamanan' +
+        '<ol type="a">' + alpha.map((x,i)=>'<li'+(i===2?' value="7" data-sop-manual-number="7"':'')+'>'+x+'</li>').join('') +
+        '</ol></li></ol>';
+      const intro = Array.from({length:8},(_,i)=>({id:'intro-'+i,
+        section:'PROSEDUR',html:'<p>Petugas melakukan pemeriksaan serta pemantauan keamanan rumah sakit secara berkala dan terkoordinasi.</p>'}));
+      const blocks=[...intro,{id:'nested-numbering',section:'PROSEDUR',html:source}];
+      const pages=pager.computeCanonicalA4Pages(blocks,
+        {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+      const containing=pages.findIndex(p=>p.some(b=>b.id.startsWith('nested-numbering')));
+      const firstPage=pages[containing].filter(b=>b.id.startsWith('nested-numbering'));
+      const firstNestedCount=firstPage.reduce((acc,b)=>{
+        const d=new DOMParser().parseFromString(b.html,'text/html');
+        return acc+d.querySelectorAll('ol[type="a"] > li:not([data-sop-continuation-li])').length;
+      },0);
+      const parse=(html)=>new DOMParser().parseFromString(html,'text/html');
+      const pieces=pages.flat().filter(b=>b.id.startsWith('nested-numbering')).map(b=>b.html);
+      const saved=pager.reassemblePaginatedSection(pieces.join(''));
+      const doc=parse(saved);
+      const sourceText=parse(source).body.textContent;
+      const outputText=parse(pieces.join('')).body.textContent;
+      let repeated = saved;
+      for (let cycle=0; cycle<3; cycle++) {
+        const again=pager.computeCanonicalA4Pages(
+          [...intro,{id:'nested-numbering',section:'PROSEDUR',html:repeated}],
+          {headerHeightPx:125,publicationHeightPx:0,safetyBufferPx:24});
+        repeated=pager.reassemblePaginatedSection(again.flat()
+          .filter(b=>b.id.startsWith('nested-numbering')).map(b=>b.html).join(''));
+      }
+      const roundTrip=parse(repeated);
+      return {firstNestedCount, page:containing+1, totalPages:pages.length,
+        roundTripText:roundTrip.body.textContent,
+        roundTripRoots:roundTrip.body.querySelectorAll(':scope > ol').length,
+        roundTripParents:roundTrip.querySelectorAll('ol[type="1"] > li').length,
+        roundTripChildren:roundTrip.querySelectorAll('ol[type="a"] > li').length,
+        sourceText,outputText,
+        sourceItems:parse(source).querySelectorAll('ol[type="a"] > li').length,
+        restoredItems:doc.querySelectorAll('ol[type="a"] > li').length,
+        restoredParents:doc.querySelectorAll('ol[type="1"] > li').length,
+        rootLists:doc.body.querySelectorAll(':scope > ol').length,
+        manual:doc.querySelector('li[value="7"]')?.getAttribute('data-sop-manual-number')};
+    });
+    console.log('A4 nested parent/alpha page packing:', nestedNumbering);
+    assert.ok(nestedNumbering.page > 0, 'nested list parent must exist');
+    assert.ok(nestedNumbering.firstNestedCount > 0,
+      'nested alpha children must occupy remaining A4 space below numbered parent');
+    assert.equal(nestedNumbering.sourceText, nestedNumbering.outputText,
+      'nested list page fragments must preserve complete text in order');
+    assert.equal(nestedNumbering.restoredParents, 1,
+      'edit/save must restore one numbered parent, not clone it per page');
+    assert.equal(nestedNumbering.restoredItems, nestedNumbering.sourceItems,
+      'nested manual and automatic list items must survive edit/save');
+    assert.equal(nestedNumbering.rootLists, 1,
+      'pagination must not permanently split a logical nested list');
+    assert.equal(nestedNumbering.manual, '7',
+      'nonsequential manual alpha value must remain editable and intact');
+    assert.equal(nestedNumbering.roundTripText,nestedNumbering.sourceText,
+      'repeated pagination/save must preserve nested authored text');
+    assert.equal(nestedNumbering.roundTripRoots,1,
+      'three save/reopen cycles must not multiply root lists');
+    assert.equal(nestedNumbering.roundTripParents,1,
+      'three save/reopen cycles must preserve the single decimal parent');
+    assert.equal(nestedNumbering.roundTripChildren,nestedNumbering.sourceItems,
+      'three save/reopen cycles must preserve all alpha children');
     // Mount the production React editor and TYPE using real keyboard events.
     await page.evaluate(() => {
       document.body.innerHTML = '<div id="live-app"></div>';
