@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
 import { logicalCaretOffset, resolveLogicalCaretOffset } from '../utils/editorCaretBookmark';
+import { applyInlineMarker, currentInlineMarker, refreshInlineMarkersInEditor } from '../utils/editableListMarkers';
 import { canMergeCell, createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
 import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
@@ -618,6 +619,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const markerInputRef = useRef<HTMLInputElement | null>(null);
+  const lastEnterItemRef = useRef<HTMLLIElement | null>(null);
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
@@ -1096,12 +1099,96 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   const handleInput = useCallback((historyMode: RichTextChangeMeta['historyMode'] = 'discrete') => {
     if (isUpdatingFromPropRef.current || !editorRef.current) return;
     normalizeStructuredTables(editorRef.current);
+    // Automatic markers refresh after native Enter, Backspace or paste.
+    refreshInlineMarkersInEditor(editorRef.current);
     const html = editorRef.current.innerHTML;
     const cleanHtml = html === '<br>' || html.trim() === '' ? '' : html;
     lastEmittedValueRef.current = cleanHtml;
     onChange(cleanHtml, { historyMode });
     updateFigureRect();
   }, [onChange, updateFigureRect]);
+
+  // The marker is a CSS pseudo-element. Open a REAL input over its gutter,
+  // but outside contentEditable so its text never enters the SPO body.
+  // Synchronous focus inside the click preserves the iOS keyboard gesture.
+  const handleInlineMarkerClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor || !container || selectedFigure) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const li = target?.closest('li') as HTMLLIElement | null;
+    if (!li || !editor.contains(li) || !/^(OL|UL)$/.test(li.parentElement?.tagName || '')) return;
+    const rect = li.getBoundingClientRect();
+    const style = window.getComputedStyle(li);
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const markerWidth = Math.max(21, fontSize * 1.68);
+    const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.5;
+    if (event.clientX < rect.left - 3 || event.clientX > rect.left + markerWidth ||
+        event.clientY < rect.top - 3 || event.clientY > rect.top + lineHeight + 3) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (markerInputRef.current) markerInputRef.current.blur();
+
+    const frame = container.getBoundingClientRect();
+    const scale = container.offsetWidth ? frame.width / container.offsetWidth : 1;
+    const input = document.createElement('input');
+    input.setAttribute('data-sop-inline-marker-input', 'true');
+    input.setAttribute('aria-label', 'Ketik nomor, huruf atau bullet langsung');
+    input.setAttribute('title', 'Ketik angka/huruf/bullet lalu Enter untuk menyimpan');
+    input.type = 'text';
+    input.maxLength = 6;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.className = 'sop-inline-marker-input';
+    input.value = currentInlineMarker(li);
+    input.style.left = Math.max(0, (rect.left - frame.left) / scale) + 'px';
+    input.style.top = Math.max(0, (rect.top - frame.top) / scale) + 'px';
+    input.style.width = Math.max(34, markerWidth / scale + 5) + 'px';
+    input.style.fontSize = style.fontSize;
+    input.style.height = Math.max(24, lineHeight) + 'px';
+    markerInputRef.current = input;
+    container.appendChild(input);
+
+    let closed = false;
+    let restoreFocus = false;
+    const finish = (save: boolean) => {
+      if (closed) return;
+      closed = true;
+      if (markerInputRef.current === input) markerInputRef.current = null;
+      input.remove();
+      if (save && editor.contains(li)) {
+        const updated = applyInlineMarker(li, input.value);
+        if (updated) handleInput('discrete');
+      }
+      if (restoreFocus && editor.isConnected && editor.contains(li)) {
+        editor.focus({ preventScroll: true });
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(li);
+        range.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        savedRangeRef.current = range.cloneRange();
+      }
+    };
+    input.addEventListener('keydown', (keyEvent) => {
+      if (keyEvent.key === 'Enter') {
+        keyEvent.preventDefault();
+        restoreFocus = true;
+        finish(true);
+      } else if (keyEvent.key === 'Escape') {
+        keyEvent.preventDefault();
+        restoreFocus = true;
+        finish(false);
+      }
+    });
+    input.addEventListener('blur', () => finish(true));
+    input.focus();
+    input.select();
+  };
+
+  useEffect(() => () => markerInputRef.current?.remove(), []);
 
   // Helper to reliably select a figure element and sync overlay immediately
   const selectFigureElement = useCallback((figure: HTMLElement) => {
@@ -1749,6 +1836,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const selection = window.getSelection();
+      const node = selection?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      lastEnterItemRef.current = el?.closest('li') as HTMLLIElement | null;
+    }
     const modifier = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
     if (modifier && !e.altKey && (key === 'z' || key === 'y')) {
@@ -3232,14 +3325,31 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
           onFocus={onFocus}
           onPointerDown={handleEditorPointerDown}
           onPointerUp={handleEditorPointerUp}
+          onClick={handleInlineMarkerClick}
           onInput={(event) => {
             const inputType = (event.nativeEvent as InputEvent).inputType || '';
             const historyMode: RichTextChangeMeta['historyMode'] = [
               'insertText', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward'
             ].includes(inputType) ? 'coalesce' : 'discrete';
+            if (inputType === 'insertParagraph' && lastEnterItemRef.current) {
+              const anchor = window.getSelection()?.anchorNode;
+              const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+              const nextItem = element?.closest('li');
+              if (nextItem && nextItem !== lastEnterItemRef.current) {
+                nextItem.removeAttribute('value');
+                nextItem.removeAttribute('data-sop-manual-number');
+                nextItem.removeAttribute('data-sop-marker-kind');
+                nextItem.removeAttribute('data-sop-marker-label');
+                (nextItem as HTMLElement).style.removeProperty('--sop-manual-number');
+              }
+            }
+            lastEnterItemRef.current = null;
             handleInput(historyMode);
           }}
-          onBlur={() => handleInput('discrete')}
+          onBlur={(event) => {
+            if (event.relatedTarget === markerInputRef.current) return;
+            handleInput('discrete');
+          }}
           onKeyDown={handleEditorKeyDown}
           onKeyUp={() => updateActiveFormatting()}
           onPaste={handleEditorPaste}
