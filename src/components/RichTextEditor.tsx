@@ -128,6 +128,8 @@ export interface RichTextFormattingState {
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
   insertCustomList: (listType: '1' | 'A' | 'a' | 'disc' | 'square') => void;
+  /** Set or clear a per-item numbering override. Returns false outside an ordered list or on invalid input. */
+  setListItemNumber: (numberOrLetter: string | null) => boolean;
   applyFontSize: (fontSize: LiveSopFontSize) => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
@@ -1631,6 +1633,60 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     }
   };
 
+  // A single <li> can have a nonconsecutive label, independent of page breaks.
+  // Keep the semantic HTML value attribute as the source of truth; a CSS
+  // counter-set supplies consistent rendering across editor/A4/print surfaces.
+  const setListItemNumber = (numberOrLetter: string | null): boolean => {
+    const editor = editorRef.current;
+    if (!editor || selectedFigure || !restoreSavedSelection()) return false;
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+    const item = element?.closest('li');
+    const list = item?.parentElement;
+    if (!item || !list || list.tagName.toLowerCase() !== 'ol' ||
+        !editor.contains(item)) return false;
+
+    const raw = numberOrLetter?.trim() || '';
+    let number: number | null = null;
+    if (raw) {
+      if (/^[1-9]\\d{0,3}$/.test(raw)) {
+        number = Number(raw);
+      } else if (/^[a-zA-Z]{1,3}$/.test(raw)) {
+        number = [...raw.toUpperCase()].reduce((value, char) =>
+          value * 26 + char.charCodeAt(0) - 64, 0);
+      } else {
+        return false;
+      }
+      if (!Number.isSafeInteger(number) || number < 1 || number > 9999) return false;
+    }
+
+    // Existing imported ordered lists may not yet carry an explicit style
+    // marker. Attach its current semantic type without rewriting any content.
+    if (!list.hasAttribute('data-sop-list-format')) {
+      const currentType = list.getAttribute('type') || '1';
+      list.setAttribute('data-sop-list-format',
+        currentType === 'A' ? 'A' : currentType === 'a' ? 'a' : '1');
+    }
+
+    if (number === null) {
+      item.removeAttribute('value');
+      item.removeAttribute('data-sop-manual-number');
+      (item as HTMLElement).style.removeProperty('--sop-manual-number');
+    } else {
+      item.setAttribute('value', String(number));
+      item.setAttribute('data-sop-manual-number', String(number));
+      (item as HTMLElement).style.setProperty('--sop-manual-number', String(number));
+    }
+    handleInput();
+    updateActiveFormatting();
+    const current = window.getSelection();
+    if (current?.rangeCount && editor.contains(current.anchorNode)) {
+      savedRangeRef.current = current.getRangeAt(0).cloneRange();
+    }
+    return true;
+  };
+
   const applyFontSize = (fontSize: LiveSopFontSize) => {
     if (!editorRef.current || selectedFigure) return;
     if (!restoreSavedSelection()) return;
@@ -2649,6 +2705,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   useImperativeHandle(forwardedRef, () => ({
     executeCommand,
     insertCustomList,
+    setListItemNumber,
     applyFontSize,
     insertImageFiles: async (files) => processAndInsertImageFiles(files),
     insertTable,
