@@ -127,7 +127,7 @@ export interface RichTextFormattingState {
 
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
-  insertCustomList: (listType: '1' | 'a' | 'i') => void;
+  insertCustomList: (listType: '1' | 'A' | 'a' | '1)' | 'a)') => void;
   applyFontSize: (fontSize: LiveSopFontSize) => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
