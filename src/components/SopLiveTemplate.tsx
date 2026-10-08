@@ -224,7 +224,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     getActiveEditor()?.executeCommand(cmd, val || undefined);
   };
 
-  const handleInsertList = (type: '1' | 'A' | 'a' | '1)' | 'a)') => {
+  const handleInsertList = (type: '1' | 'A' | 'a' | 'disc' | 'square') => {
     getActiveEditor()?.insertCustomList(type);
   };
 
@@ -709,8 +709,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 onMouseDown={() => getActiveEditor()?.captureSelection()}
                 onChange={(e) => {
                   const format = e.target.value;
-                  if (format === 'bullet') handleExecCommand('insertUnorderedList');
-                  else if (format) handleInsertList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                  if (format) handleInsertList(format as '1' | 'A' | 'a' | 'disc' | 'square');
                   e.target.value = '';
                 }}
                 className="h-7 w-28 shrink-0 rounded border border-slate-200 bg-white px-1 text-[11px] font-semibold"
@@ -719,9 +718,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                 <option value="A">A. B. C.</option>
                 <option value="1">1. 2. 3.</option>
                 <option value="a">a. b. c.</option>
-                <option value="a)">a) b) c)</option>
-                <option value="1)">1) 2) 3)</option>
-                <option value="bullet">• Bullet</option>
+                <option value="disc">• Bullet</option>
+                <option value="square">▪ Bullet kotak</option>
               </select>
             </div>
             <div className="toolbar-command-group">
