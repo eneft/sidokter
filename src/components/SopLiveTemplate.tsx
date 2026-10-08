@@ -41,6 +41,8 @@ import {
   buildOfficialBlocks, 
   computeCanonicalA4Pages,
   LIVE_SOP_SECTION_MIN_HEIGHT_PX,
+  CANONICAL_A4_SAFETY_BUFFER_PX,
+  measureCanonicalA4RowHeight,
   type OfficialBlock, 
   type OfficialSectionKey 
 } from '../utils/canonicalA4Pagination';
@@ -349,8 +351,13 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
         const header = root.querySelector<HTMLElement>('[data-live-measure-header]');
         const publication = root.querySelector<HTMLElement>('[data-live-measure-publication]');
         if (!header || !publication) return;
-        const headerHeightPx = header.getBoundingClientRect().height;
-        const publicationHeightPx = publication.getBoundingClientRect().height;
+        // Hidden header uses readonly first-page title markup, matching
+        // the official Preview measurement. The visible editable textarea
+        // stays an editing control and must not affect page calculations.
+        // Physical page heights must be measured in unscaled CSS pixels,
+        // exactly like the readonly Preview/PDF measurement shell.
+        const headerHeightPx = measureCanonicalA4RowHeight(header);
+        const publicationHeightPx = measureCanonicalA4RowHeight(publication);
         if (headerHeightPx <= 0 || publicationHeightPx <= 0) return;
         setLivePageMetrics((prev) =>
           prev && Math.abs(prev.headerHeightPx - headerHeightPx) < 0.5 && Math.abs(prev.publicationHeightPx - publicationHeightPx) < 0.5
@@ -374,7 +381,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     // Never paginate from guessed KOP geometry. Until the scoped physical A4
     // shell has been measured, keep the source flow intact for this first frame.
     if (!livePageMetrics) return [];
-    return computeCanonicalA4Pages(debouncedBlocks, livePageMetrics);
+    return computeCanonicalA4Pages(debouncedBlocks, {
+      ...livePageMetrics,
+      safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX
+    });
   }, [debouncedBlocks, livePageMetrics]);
 
   const totalPages = Math.max(1, calculatedPages.length);
@@ -423,7 +433,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   // ---------------------------------------------------------------------------
   // Render Official Hospital Header for Page X
   // ---------------------------------------------------------------------------
-  const renderOfficialHeader = (pageNumber: number, total: number) => {
+  const renderOfficialHeader = (pageNumber: number, total: number, measureReadonly = false) => {
     return (
       <thead>
         <tr>
@@ -433,19 +443,26 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="font-extrabold text-[11px] leading-tight uppercase text-black">LAMONGAN</div>
           </th>
           <th colSpan={3} className="border border-black p-3 text-center align-middle bg-white w-[72%] font-normal">
-            {titleEditable && pageNumber === 1 ? (
-              <textarea
-                rows={1}
-                value={title}
-                onChange={(e) => onTitleChange(e.target.value)}
-                placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
-                className="w-full min-h-[20px] text-center font-extrabold uppercase text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = `${target.scrollHeight}px`;
-                }}
-              />
+            {titleEditable && pageNumber === 1 && !measureReadonly ? (
+              <div className="relative w-full min-h-[20px]">
+                {/* The identical readonly typography determines the header row
+                    height, while the editable textarea overlays it. A textarea's
+                    intrinsic rows/padding must never shift Live A4 page breaks. */}
+                <div
+                  aria-hidden="true"
+                  className="invisible text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black"
+                >
+                  {title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
+                </div>
+                <textarea
+                  aria-label="Judul SPO"
+                  rows={1}
+                  value={title}
+                  onChange={(e) => onTitleChange(e.target.value)}
+                  placeholder="JUDUL STANDAR PROSEDUR OPERASIONAL"
+                  className="absolute inset-0 h-full w-full p-0 m-0 text-center font-extrabold uppercase text-sm bg-transparent border-0 outline-none placeholder:text-slate-400 font-bookman leading-snug resize-none overflow-hidden whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] text-black"
+                />
+              </div>
             ) : (
               <div className="text-center font-extrabold uppercase text-sm min-h-[20px] whitespace-normal [word-break:normal] [overflow-wrap:break-word] [hyphens:none] font-bookman leading-snug text-black">
                 {title || 'JUDUL STANDAR PROSEDUR OPERASIONAL'}
@@ -854,7 +871,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
               <col style={{ width: '24%' }} />
               <col style={{ width: '24%' }} />
             </colgroup>
-            {React.cloneElement(renderOfficialHeader(2, 2), { 'data-live-measure-header': true })}
+            {React.cloneElement(renderOfficialHeader(1, 1, true), { 'data-live-measure-header': true })}
             <tbody>
               {React.cloneElement(renderPublicationRow(), { 'data-live-measure-publication': true })}
             </tbody>

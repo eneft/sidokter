@@ -3624,3 +3624,81 @@ body,
   counter-increment: sop-list 0 !important;
   counter-set: sop-list var(--sop-manual-number) !important;
 }
+
+/* Canonical Batang Tubuh typography shared by the editable A4 content,
+   the readonly official Preview/PDF and the off-screen paginator.
+   Scope to opted-in roots to avoid changing other rich-text interfaces. */
+.sop-a4-rich-body {
+  font-family: "Bookman Old Style", "URW Bookman", serif !important;
+  font-size: 12pt !important;
+  line-height: 1.5 !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  hyphens: none !important;
+}
+
+/* Canonical media height: Preview previously capped images at 280px and PDF
+   at 250px while the Live editor left them uncapped. The same authored image
+   must occupy the same physical A4 height in all three surfaces. Positioning
+   and sizing metadata on a figure wrapper remain untouched. */
+.sop-a4-rich-body img,
+#printable-sop-official-document .sop-a4-rich-body img {
+  max-width: 100% !important;
+  max-height: 280px !important;
+  height: auto !important;
+  object-fit: contain !important;
+}
+.sop-a4-rich-body > img,
+.sop-a4-rich-body > p > img,
+#printable-sop-official-document .sop-a4-rich-body > img,
+#printable-sop-official-document .sop-a4-rich-body > p > img {
+  display: block !important;
+  margin: 8px auto !important;
+}
+
+/* The global print stylesheet sets html/body to 11pt. REM-based paragraph
+   margins otherwise shrink on print/PDF although the SPO body remains 12pt,
+   silently moving list items across the physical page boundary. A4 spacing
+   uses absolute CSS pixels in every medium; it does not alter authored text. */
+.sop-a4-rich-body p,
+#printable-sop-official-document .sop-a4-rich-body p {
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+}
+.sop-a4-rich-body p:last-child,
+#printable-sop-official-document .sop-a4-rich-body p:last-child {
+  margin-bottom: 0 !important;
+}
+.sop-a4-rich-body ol,
+.sop-a4-rich-body ul,
+#printable-sop-official-document .sop-a4-rich-body ol,
+#printable-sop-official-document .sop-a4-rich-body ul {
+  margin-top: 3.2px !important;
+  margin-bottom: 3.2px !important;
+}
+.sop-a4-rich-body li,
+#printable-sop-official-document .sop-a4-rich-body li {
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+}
+.sop-a4-rich-body li > ol,
+.sop-a4-rich-body li > ul,
+#printable-sop-official-document .sop-a4-rich-body li > ol,
+#printable-sop-official-document .sop-a4-rich-body li > ul {
+  margin-top: 2.4px !important;
+  margin-bottom: 2.4px !important;
+}
+
+/* The legacy ol[type="a"] > li selector is more specific than the generic
+   rich-body LI rule. Its 0.25rem margin shrank to 3.667px in print instead
+   of 4px on screen. Raise specificity ONLY for opted-in A4 body list items. */
+:is(.sop-a4-rich-body, #printable-sop-official-document .sop-a4-rich-body) ol > li,
+:is(.sop-a4-rich-body, #printable-sop-official-document .sop-a4-rich-body) ul > li {
+  margin-top: 0 !important;
+  margin-bottom: 4px !important;
+}

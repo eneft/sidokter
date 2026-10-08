@@ -50,7 +50,28 @@ export const LIVE_SOP_SECTION_MIN_HEIGHT_PX = 24;
 export const SOP_SECTION_CELL_PADDING_MM = 3;
 const CSS_PX_PER_MM = 96 / 25.4;
 const OFFICIAL_CELL_HORIZONTAL_BORDER_PX = 2;
-export const MIN_A4_SAFETY_BUFFER_PX = 8;
+/**
+ * Keep one 12pt/1.5 line of breathing room at the bottom of physical A4.
+ * Editor, Preview and PDF MUST all use the same budget: fitting a partial LI
+ * in Live while Preview moves it to the next page breaks WYSIWYG.
+ */
+export const CANONICAL_A4_SAFETY_BUFFER_PX = 24;
+export const MIN_A4_SAFETY_BUFFER_PX = CANONICAL_A4_SAFETY_BUFFER_PX;
+
+/**
+ * Read physical (unscaled) CSS-pixel row height, even inside a zoomed A4
+ * viewport. getBoundingClientRect() changes with transform: scale().
+ */
+export function measureCanonicalA4RowHeight(
+  element: HTMLElement,
+  renderedScale = 1
+): number {
+  const layoutHeight = element.offsetHeight;
+  if (layoutHeight > 0) return layoutHeight;
+  const rectHeight = element.getBoundingClientRect().height;
+  return rectHeight / (Number.isFinite(renderedScale) && renderedScale > 0 ? renderedScale : 1);
+}
+
 const OFFICIAL_BODY_FONT_PX = 12 * (96 / 72);
 const OFFICIAL_SECTION_LABEL_LINE_HEIGHT_PX = OFFICIAL_BODY_FONT_PX * 1.4;
 
@@ -535,7 +556,7 @@ export function createMeasureHost(template?: HTMLElement | null): HTMLElement {
   // this host carries sop-batang-tubuh-content, CSS adds 3mm here and every
   // extracted paragraph/list/table block gets the inset again.
   host.className =
-    'font-bookman text-black rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
+    'font-bookman text-black sop-a4-rich-body rich-text-output rich-text-document-content break-words [overflow-wrap:break-word] [word-break:normal] [hyphens:none]';
 
   if (template?.parentElement) {
     template.parentElement.appendChild(host);

@@ -96,7 +96,9 @@ test('LiveSPO canonical pagination uses scoped header/publication metrics', () =
   assert.match(live, /data-live-measure-header/);
   assert.match(live, /data-live-measure-publication/);
   assert.match(live, /if \(!livePageMetrics\) return \[\]/);
-  assert.match(live, /computeCanonicalA4Pages\(debouncedBlocks, livePageMetrics\)/);
+  assert.match(live, /computeCanonicalA4Pages\(debouncedBlocks, \{/);
+  assert.match(live, /\.\.\.livePageMetrics/);
+  assert.match(live, /safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX/);
 });
 
 test('canonical pagination refuses guessed header/publication geometry', () => {
@@ -256,7 +258,7 @@ test('canonical WYSIWYG body geometry counts official cell chrome exactly once',
 
 test('Live seamless editor has no second inner padding layer', () => {
   const editor = readFileSync('src/components/RichTextEditor.tsx', 'utf8');
-  assert.match(editor, /variant === 'seamless' \? 'p-0' : 'p-2 sm:p-2\.5'/);
+  assert.match(editor, /variant === 'seamless' \? 'sop-a4-rich-body p-0' : 'p-2 sm:p-2\.5'/);
 });
 
 test('Live A4 section-label flow matches Preview geometry and contains no layout helper text', () => {
