@@ -846,16 +846,72 @@ export function splitHtmlForCapacity(
       return [source];
     }
 
-    // Structured tables: split only at safe row boundaries using V2 engine
+    // Structured tables normally split at safe row boundaries using V2.
+    // A Word/DOCX layout table with exactly ONE row/cell has no row boundary,
+    // yet may wrap an ordinary long procedure list. Treating that entire cell
+    // as atomic moves a./b./c. to the next page and leaves a large blank area.
+    // In that specific case, split the cell's *contents* while keeping the
+    // authored table/cell tags, attributes, and formatting on both fragments.
+    // Multi-cell, merged, nested, and data tables keep the V2 safety policy.
     if (first.tagName.toLowerCase() === 'table') {
       const tableParts = splitStructuredTableV2(
         first as HTMLTableElement,
         fits
       );
-      host.remove();
       if (tableParts.length > 1) {
+        host.remove();
         return tableParts;
       }
+
+      const table = first as HTMLTableElement;
+      const rows = Array.from(table.querySelectorAll('tr'));
+      const cells = Array.from(table.querySelectorAll('td,th')) as HTMLElement[];
+      const onlyCell = cells.length === 1 ? cells[0] : null;
+      const isSimpleOneCellTable =
+        rows.length === 1 &&
+        onlyCell !== null &&
+        !onlyCell.querySelector('table') &&
+        Number(onlyCell.getAttribute('colspan') || '1') === 1 &&
+        Number(onlyCell.getAttribute('rowspan') || '1') === 1;
+      const cellHtml = onlyCell?.innerHTML.trim() || '';
+
+      if (isSimpleOneCellTable && cellHtml && maxHeight >= 40) {
+        const wrapTableFragment = (fragment: string, continuation: boolean) => {
+          const cloned = table.cloneNode(true) as HTMLTableElement;
+          const cell = cloned.querySelector('td,th') as HTMLElement | null;
+          if (!cell) return '';
+          cell.innerHTML = fragment;
+          if (continuation) {
+            cloned.setAttribute('data-sop-table-continuation', 'true');
+          }
+          return cloned.outerHTML;
+        };
+        // Measure chrome using the SAME table structure. Subtract it before
+        // asking the ordinary rich-text splitter to pack <li> items.
+        host.innerHTML = wrapTableFragment('', false);
+        const chromeHeight = host.getBoundingClientRect().height;
+        let cellCapacity = Math.max(1, maxHeight - chromeHeight - 2);
+
+        // Table borders/cell padding may vary with their content. Recheck the
+        // actual wrapped fragment rather than trusting an estimated row inset.
+        for (let attempt = 0; attempt < 16 && cellCapacity >= 24; attempt += 1) {
+          const contentParts = splitHtmlForCapacity(cellHtml, cellCapacity, template);
+          if (contentParts.length > 1 &&
+              contentParts[0].trim() &&
+              contentParts.slice(1).every((part) => part.trim())) {
+            const wrapped = contentParts.map((part, index) =>
+              wrapTableFragment(part, index > 0)
+            );
+            if (wrapped[0] && fits(wrapped[0])) {
+              host.remove();
+              return wrapped;
+            }
+          }
+          cellCapacity -= 4;
+        }
+      }
+
+      host.remove();
       return [source];
     }
 
