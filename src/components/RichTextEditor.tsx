@@ -2835,6 +2835,53 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
+              {/* Explicit list styles; typing prefixes never triggers conversion. */}
+              <div className="flex items-center gap-1 shrink-0">
+                <select
+                  aria-label="Pilih format numbering atau bullet"
+                  title="Pilih format daftar (tidak otomatis)"
+                  defaultValue=""
+                  onPointerDownCapture={() => {
+                    // Preserve the editor caret before the native select takes focus.
+                    const selection = window.getSelection();
+                    const editor = editorRef.current;
+                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
+                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const format = e.target.value;
+                    if (format === 'bullet') executeCommand('insertUnorderedList');
+                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                    e.target.value = '';
+                  }}
+                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
+                >
+                  <option value="" disabled>Daftar ▾</option>
+                  <option value="A">A. B. C.</option>
+                  <option value="1">1. 2. 3.</option>
+                  <option value="a">a. b. c.</option>
+                  <option value="a)">a) b) c)</option>
+                  <option value="1)">1) 2) 3)</option>
+                  <option value="bullet">• Bullet</option>
+                </select>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeCommand('removeFormat')}
+                  title="Reset Format"
+                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* INSERT: one compact command path for tables and existing image flow. */}
+              {allowImageUpload && (
+                <>
+                  <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+
               {/* Perataan Teks */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <button
@@ -2901,52 +2948,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
 
               <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
 
-              {/* Explicit list styles; typing prefixes never triggers conversion. */}
-              <div className="flex items-center gap-1 shrink-0">
-                <select
-                  aria-label="Pilih format numbering atau bullet"
-                  title="Pilih format daftar (tidak otomatis)"
-                  defaultValue=""
-                  onPointerDownCapture={() => {
-                    // Preserve the editor caret before the native select takes focus.
-                    const selection = window.getSelection();
-                    const editor = editorRef.current;
-                    if (editor && selection?.rangeCount && editor.contains(selection.anchorNode)) {
-                      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    const format = e.target.value;
-                    if (format === 'bullet') executeCommand('insertUnorderedList');
-                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
-                    e.target.value = '';
-                  }}
-                  className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
-                >
-                  <option value="" disabled>Daftar ▾</option>
-                  <option value="A">A. B. C.</option>
-                  <option value="1">1. 2. 3.</option>
-                  <option value="a">a. b. c.</option>
-                  <option value="a)">a) b) c)</option>
-                  <option value="1)">1) 2) 3)</option>
-                  <option value="bullet">• Bullet</option>
-                </select>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => executeCommand('removeFormat')}
-                  title="Reset Format"
-                  className="w-5.5 h-5.5 min-w-[22px] p-0.5 hover:bg-rose-50 hover:text-rose-600 rounded text-slate-400 transition-colors cursor-pointer touch-manipulation flex items-center justify-center"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                </button>
-              </div>
-
-              {/* INSERT: one compact command path for tables and existing image flow. */}
-              {allowImageUpload && (
-                <>
-                  <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
+              <div className="w-px h-3 bg-slate-300 mx-0.5 shrink-0" />
                   <div className="flex items-center shrink-0">
                     <input
                       ref={fileInputRef}
