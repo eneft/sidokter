@@ -13,13 +13,13 @@ assert.ok(css, 'Compile Vite CSS before running the A4 browser check.');
 
 const text = [
   '<p><strong>A. Ruang Bayi Neonatus</strong></p>',
-  '<ol type="1" data-sop-list-format="1"><li>Akses masuk ruang Neonatus</li></ol>',
+  '<ol type="1" data-sop-list-format="1"><li>Akses masuk ruang Neonatus',
   '<ol type="a" data-sop-list-format="a">',
   '<li>Pintu ruang Neonatus harus selalu terkunci sesuai peraturan keselamatan pasien.</li>',
   '<li>Setiap orang kecuali petugas dan orang tua kandung bayi dilarang masuk ke dalam ruang bayi.</li>',
   '<li value="7" data-sop-manual-number="7" style="--sop-manual-number:7">Orang tua menjalani pemeriksaan identitas sebelum memasuki ruangan.</li>',
   '<li>Ketentuan keamanan tambahan juga berlaku bagi pengunjung yang memerlukan pendampingan.</li>',
-  '</ol><ul data-sop-bullet="square"><li>Petugas memastikan seluruh pintu aman setiap pergantian jaga.</li></ul>',
+  '</ol></li></ol><ul data-sop-bullet="square"><li>Petugas memastikan seluruh pintu aman setiap pergantian jaga.</li></ul>',
   '<p>Prosedur pengamanan harus dilaksanakan secara tertib dan konsisten setiap hari.</p>',
   '<img src="/__image.svg" width="500" height="420" alt="Petunjuk operasional">'
 ].join('');
@@ -29,8 +29,8 @@ const localStyle = '<style>body{margin:0}.fixture{display:flex;gap:24px;padding:
 const html = title + localStyle + '</head><body><div class="fixture">' +
   '<section class="sop-batang-tubuh-content font-bookman">' +
   '<div id="live" contenteditable="true" class="rich-text-editor-content sop-a4-rich-body font-bookman">' + text + '</div></section>' +
-  '<section class="sop-batang-tubuh-content font-bookman">' +
-  '<div id="preview" class="rich-text-output rich-text-document-content sop-a4-rich-body font-bookman">' + text + '</div></section>' +
+  '<div id="printable-sop-official-document"><section class="sop-batang-tubuh-content font-bookman">' +
+  '<div id="preview" class="rich-text-output rich-text-document-content sop-a4-rich-body font-bookman">' + text + '</div></section></div>' +
   '</div></body></html>';
 
 const server = http.createServer((req, res) => {
@@ -59,6 +59,7 @@ async function snapshot(page) {
       const origin = root.getBoundingClientRect();
       return {
         width: origin.width, height: origin.height,
+        nestedListPadding: parseFloat(getComputedStyle(root.querySelector('ol[type="a"]')).paddingLeft),
         parts: [...root.querySelectorAll('p, ol > li, ul > li, img')].map(node => {
           const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
           return {
@@ -78,6 +79,13 @@ function compare(data, medium) {
   const [live, preview] = data;
   const near = (a, b, name, tol=1) =>
     assert.ok(Math.abs(a - b) <= tol, medium + ' ' + name + ': Live=' + a + ', Preview=' + b);
+  // The real readonly Preview lives under #printable-sop-official-document.
+  // Its nested a./b./c. list must retain exactly the same positive indent
+  // as contentEditable; a broad official-cell OL reset used to erase it.
+  const nestedLive = live.nestedListPadding;
+  const nestedPreview = preview.nestedListPadding;
+  near(nestedLive, nestedPreview, 'nested alpha list left padding', 0.25);
+  assert.ok(nestedPreview >= 20, medium + ': child letters must be indented relative to the parent number');
   near(live.width, preview.width, 'body width');
   assert.equal(live.parts.length, preview.parts.length, medium + ' HTML block count');
   live.parts.forEach((a, i) => {
