@@ -174,7 +174,16 @@ async function main() {
         subitems.map(x => '<li>' + x + '</li>').join('') + '</ol>';
       const cases = {};
       for (const cap of [135, 190, 250, 325]) {
-        for (const [name, source] of [['nested', nested], ['separate', separate]]) {
+        const variants = [
+          ['nested', nested],
+          ['separate', separate],
+          ['wrappedNested', '<div>' + nested + '</div>'],
+          ['wrappedSeparate', '<div><p>2. Pemantauan oleh petugas keamanan</p>' + separate + '</div>'],
+          ['adjacent', '<p>2. Pemantauan oleh petugas keamanan</p>' + separate],
+          ['nestedInsideP', '<div><p>2. Pemantauan oleh petugas keamanan</p><div>' + separate + '</div></div>'],
+          ['tableWrapped', '<table><tbody><tr><td>' + separate + '</td></tr></tbody></table>']
+        ];
+        for (const [name, source] of variants) {
           const parts = pager.splitHtmlForCapacity(source, cap, null);
           const summaries = parts.map((html) => {
             const doc = new DOMParser().parseFromString(html, 'text/html');
