@@ -1629,7 +1629,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       // Never accidentally indent a list belonging to another editor.
 
       if (inList || inCell) e.preventDefault();
-      if (inList) executeCommand(e.shiftKey ? 'outdent' : 'indent');
+      // Semantic list indentation must only run on the active editor's LI,
+      // and never on a list nested inside an authored table.
+      if (inList && !inCell) executeCommand(e.shiftKey ? 'outdent' : 'indent');
       return;
     }
 
