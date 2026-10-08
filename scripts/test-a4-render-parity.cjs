@@ -110,9 +110,24 @@ async function main() {
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(async () => Promise.all([...document.images].map(img => img.complete
       ? Promise.resolve() : new Promise(resolve => { img.onload = resolve; img.onerror = resolve; }))));
-    compare(await snapshot(page), 'screen');
+    const screen = await snapshot(page);
+    compare(screen, 'screen');
     await page.emulateMediaType('print');
-    compare(await snapshot(page), 'print/PDF');
+    const printed = await snapshot(page);
+    compare(printed, 'print/PDF');
+    // A4 content must not reflow on export. The physical page-break engine
+    // operates on screen CSS geometry; PDF must preserve those same positions.
+    const screenPreview = screen[1], printPreview = printed[1];
+    const near = (a, b, label) =>
+      assert.ok(Math.abs(a - b) <= 1, 'screen/print mismatch ' + label + ': ' + a + ' vs ' + b);
+    near(screenPreview.width, printPreview.width, 'body width');
+    near(screenPreview.height, printPreview.height, 'body height');
+    screenPreview.parts.forEach((part, i) => {
+      const other = printPreview.parts[i];
+      for (const prop of ['x', 'y', 'w', 'h'])
+        near(part[prop], other[prop], 'element ' + i + ' ' + prop);
+    });
+    console.log('A4 screen-to-PDF geometry: PASS');
   } finally {
     if (browser) await browser.close();
     server.close();
