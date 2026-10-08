@@ -162,6 +162,10 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   const editorRefs = useRef<{ [key: string]: RichTextEditorHandle | null }>({});
   const activeEditorRef = useRef<RichTextEditorHandle | null>(null);
   const activeEditorKeyRef = useRef<string | null>(null);
+  // Preserve the edit position in the logical SPO section, not in an A4 page.
+  const pendingLogicalCaretRef = useRef<{
+    section: string; offset: number; sourceKey: string; at: number;
+  } | null>(null);
   type LiveSectionId = 'pengertian' | 'tujuan' | 'kebijakan' | 'prosedur' | 'alur' | 'unitTerkait';
   type HistoryMode = 'coalesce' | 'discrete';
   type SectionHistoryBucket = {
@@ -388,6 +392,47 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
       safetyBufferPx: CANONICAL_A4_SAFETY_BUFFER_PX
     });
   }, [debouncedBlocks, livePageMetrics]);
+
+  // Restore focus on the actual page containing the edited logical text.
+  // A4 pagination can move a numbered item to a new physical page after Enter.
+  useEffect(() => {
+    const pending = pendingLogicalCaretRef.current;
+    if (!pending || !calculatedPages.length || Date.now() - pending.at > 5000) return;
+    if (typeof document === 'undefined') return;
+    const textLength = (html: string): number => {
+      const measure = document.createElement('div');
+      measure.innerHTML = html;
+      return measure.textContent?.length || 0;
+    };
+    let consumed = 0;
+    let candidate: { key: string; offset: number } | null = null;
+    for (let i = 0; i < calculatedPages.length; i += 1) {
+      const html = calculatedPages[i].filter((block) =>
+        getSectionConfig(block.section).id === pending.section
+      ).map((block) => block.html).join('');
+      if (!html) continue;
+      const length = textLength(html);
+      candidate = { key: String(i) + '-' + pending.section, offset: Math.max(0, pending.offset - consumed) };
+      if (pending.offset <= consumed + length) break;
+      consumed += length;
+    }
+    if (!candidate) return;
+    const editor = editorRefs.current[candidate.key];
+    if (!editor) return;
+    // An intentional click into another control must not be undone by reflow.
+    const focused = document.activeElement;
+    const editingAnotherField = focused instanceof HTMLElement &&
+      focused !== document.body && focused.getAttribute('contenteditable') !== 'true' &&
+      !focused.closest('.sop-canonical-viewport');
+    if (editingAnotherField) {
+      pendingLogicalCaretRef.current = null;
+      return;
+    }
+    editor.focusAtTextOffset(candidate.offset);
+    activeEditorKeyRef.current = candidate.key;
+    activeEditorRef.current = editor;
+    pendingLogicalCaretRef.current = null;
+  }, [calculatedPages]);
 
   const totalPages = Math.max(1, calculatedPages.length);
 
@@ -1060,6 +1105,22 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                   // If this section is split across multiple pages, reassemble it cleanly
                                   // before recording history. History belongs to the logical section,
                                   // never to one transient physical page fragment.
+                                  // Convert the fragment caret into a section-wide offset
+                                  // before the paginator redistributes physical pages.
+                                  const caretInFragment = editorRefs.current[editorKey]?.getCaretTextOffset();
+                                  if (caretInFragment !== null && caretInFragment !== undefined) {
+                                    const precedingHtml = calculatedPages.slice(0, pageIndex)
+                                      .flatMap((page) => page.filter((block) => block.section === group.section)
+                                        .map((block) => block.html)).join('');
+                                    const measure = document.createElement('div');
+                                    measure.innerHTML = precedingHtml;
+                                    pendingLogicalCaretRef.current = {
+                                      section: cfg.id,
+                                      offset: (measure.textContent?.length || 0) + caretInFragment,
+                                      sourceKey: editorKey,
+                                      at: Date.now()
+                                    };
+                                  }
                                   const editedPartHtml = prepareEditedPaginationFragment(newPartHtml, fragmentHtml);
                                   let nextSectionHtml = editedPartHtml;
                                   if (totalPages > 1 && calculatedPages.length > 1) {
