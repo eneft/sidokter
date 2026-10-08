@@ -127,7 +127,7 @@ export interface RichTextFormattingState {
 
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
-  insertCustomList: (listType: '1' | 'A' | 'a' | '1)' | 'a)') => void;
+  insertCustomList: (listType: '1' | 'A' | 'a' | 'disc' | 'square') => void;
   applyFontSize: (fontSize: LiveSopFontSize) => void;
   insertImageFiles: (files: FileList | File[]) => Promise<void>;
   insertTable: (rows: number, columns: number) => void;
@@ -1539,45 +1539,49 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   };
 
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
-  const insertCustomList = (listType: '1' | 'A' | 'a' | '1)' | 'a)') => {
+  // Explicit list formats are attached to the semantic list element. They survive
+  // native Enter splits, saving, pagination, and print without hard-coded labels.
+  const insertCustomList = (listType: '1' | 'A' | 'a' | 'disc' | 'square') => {
     const editor = editorRef.current;
-    if (!editor || selectedFigure) return;
-    if (!restoreSavedSelection()) return;
-
-    // Switching numbering style on an existing OL should not toggle the list
-    // off. Native insertOrderedList is a toggle, so only invoke it when the
-    // caret is not already inside an ordered list.
+    if (!editor || selectedFigure || !restoreSavedSelection()) return;
     const selectionBefore = window.getSelection();
     const anchorBefore = selectionBefore?.anchorNode;
-    const elementBefore = anchorBefore instanceof Element
-      ? anchorBefore : anchorBefore?.parentElement;
-    const existingList = elementBefore?.closest('ol');
-    const inCurrentOrderedList = Boolean(existingList && editor.contains(existingList));
+    const currentElement = anchorBefore instanceof Element ? anchorBefore : anchorBefore?.parentElement;
+    const existing = currentElement?.closest('ol,ul');
+    const owned = existing && editor.contains(existing) ? existing : null;
+    const unordered = listType === 'disc' || listType === 'square';
+    const sameKind = owned && owned.tagName.toLowerCase() === (unordered ? 'ul' : 'ol');
 
     try {
-      if (!inCurrentOrderedList) {
-        document.execCommand('insertOrderedList', false);
+      // execCommand is a TOGGLE. Do not call it when just changing an existing
+      // list's marker: that would turn the list off and make Enter jump back.
+      if (!sameKind) {
+        document.execCommand(unordered ? 'insertUnorderedList' : 'insertOrderedList', false);
       }
       const selection = window.getSelection();
       const anchor = selection?.anchorNode;
       const element = anchor instanceof Element ? anchor : anchor?.parentElement;
-      const list = element?.closest('ol');
+      const list = element?.closest(unordered ? 'ul' : 'ol');
       if (list && editor.contains(list)) {
-        const semanticType = listType === 'A' ? 'A' : listType === 'a' || listType === 'a)' ? 'a' : '1';
-        (list as HTMLOListElement).type = semanticType;
-        (list as HTMLElement).style.listStyleType =
-          listType === '1)' ? 'sop-decimal-paren' :
-          listType === 'a)' ? 'sop-alpha-paren' :
-          listType === 'A' ? 'upper-alpha' :
-          listType === 'a' ? 'lower-alpha' : 'decimal';
+        if (unordered) {
+          list.setAttribute('data-sop-bullet', listType);
+          list.removeAttribute('data-sop-list-format');
+          (list as HTMLElement).style.listStyleType = listType === 'square' ? 'square' : 'disc';
+        } else {
+          list.setAttribute('data-sop-list-format', listType);
+          list.removeAttribute('data-sop-bullet');
+          (list as HTMLOListElement).type = listType;
+          (list as HTMLElement).style.listStyleType =
+            listType === 'A' ? 'upper-alpha' : listType === 'a' ? 'lower-alpha' : 'decimal';
+        }
       }
     } catch {
-      // Keep editor content intact if native formatting is unsupported.
+      // Keep existing authored text intact if browser formatting is unavailable.
     }
     handleInput();
     updateActiveFormatting();
     const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
       savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
   };
@@ -2725,8 +2729,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                   onMouseDown={(e) => e.stopPropagation()}
                   onChange={(e) => {
                     const format = e.target.value;
-                    if (format === 'bullet') executeCommand('insertUnorderedList');
-                    else if (format) insertCustomList(format as '1' | 'A' | 'a' | '1)' | 'a)');
+                    if (format) insertCustomList(format as '1' | 'A' | 'a' | 'disc' | 'square');
                     e.target.value = '';
                   }}
                   className="h-6 max-w-[125px] rounded border border-slate-200 bg-white px-1 text-[11px] text-slate-700"
@@ -2735,9 +2738,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
                   <option value="A">A. B. C.</option>
                   <option value="1">1. 2. 3.</option>
                   <option value="a">a. b. c.</option>
-                  <option value="a)">a) b) c)</option>
-                  <option value="1)">1) 2) 3)</option>
-                  <option value="bullet">• Bullet</option>
+                  <option value="disc">• Bullet</option>
+                  <option value="square">▪ Bullet kotak</option>
                 </select>
                 <button
                   type="button"
