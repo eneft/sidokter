@@ -528,31 +528,72 @@ async function main() {
       'direct typing must reach the logical section callback');
     console.log('LiveSPO actual keyboard input: PASS');
 
-    // The shared A4 toolbar uses a compact Word-style numbering split button.
-    // Its icon applies 1,2,3 and the chevron opens five list styles. Removal
-    // of the old manual-number popover must NOT remove inline marker editing.
+    // Word-style split controls: independent Bullets and Numbering buttons.
+    // Each chevron exposes an icon-only preview gallery, not text labels.
     await page.waitForSelector('button[aria-label="Numbering"]');
-    const numberingToolbar = await page.evaluate(() => ({
-      oldManual: document.querySelectorAll('button[aria-label="Ubah nomor item daftar secara manual"]').length,
+    await page.waitForSelector('button[aria-label="Bullets"]');
+    const toolbarState = await page.evaluate(() => ({
+      noManual: document.querySelectorAll('button[aria-label="Ubah nomor item daftar secara manual"]').length === 0,
       oldSelect: document.querySelectorAll('select[aria-label="Pilih format numbering atau bullet"]').length,
-      icon: document.querySelector('button[aria-label="Numbering"]')?.querySelector('svg') !== null
+      numberIcon: !!document.querySelector('button[aria-label="Numbering"] svg'),
+      bulletIcon: !!document.querySelector('button[aria-label="Bullets"] svg')
     }));
-    assert.equal(numberingToolbar.oldManual, 0);
-    assert.equal(numberingToolbar.oldSelect, 0);
-    assert.equal(numberingToolbar.icon, true, 'Numbering main action needs an icon');
-    await page.click('button[aria-label="Pilih gaya numbering atau bullet"]');
-    await page.waitForSelector('[role="menu"][aria-label="Gaya numbering dan bullet"]');
-    const numberingChoices = await page.evaluate(() =>
-      [...document.querySelectorAll('[role="menu"][aria-label="Gaya numbering dan bullet"] button[value]')]
-        .map(button => button.getAttribute('value')));
-    assert.deepEqual(numberingChoices, ['1', 'a', 'A', 'disc', 'square']);
-    await page.click('[role="menu"][aria-label="Gaya numbering dan bullet"] button[value="a"]');
+    assert.equal(toolbarState.noManual,true);
+    assert.equal(toolbarState.oldSelect,0);
+    assert.equal(toolbarState.numberIcon,true);
+    assert.equal(toolbarState.bulletIcon,true);
+    await page.click('button[aria-label="Pilih gaya numbering"]');
+    await page.waitForSelector('[role="menu"][aria-label="Galeri ikon numbering"]');
+    const numberOptions = await page.evaluate(() => ({
+      values: [...document.querySelectorAll('[role="menu"][aria-label="Galeri ikon numbering"] button[value]')]
+        .map(button => button.getAttribute('value')),
+      text: document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]')?.textContent
+    }));
+    assert.deepEqual(numberOptions.values,['1','a','A']);
+    assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(numberOptions.text),
+      'gallery tiles must be icon-only without descriptive visible text');
+    const hitTargets = await page.evaluate(() => {
+      const menu = document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]');
+      return [...menu.querySelectorAll('button[value]')].map(button => {
+        const box = button.getBoundingClientRect();
+        const center = document.elementFromPoint(box.left + box.width/2,box.top + box.height/2);
+        return {expected:button.value,actual:center?.closest('button')?.value || null,
+          width:box.width};
+      });
+    });
+    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 60),
+      'Each numbering thumbnail must own its visual click target: '+JSON.stringify(hitTargets));
+    await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
-    assert.equal(await page.$('[role="menu"][aria-label="Gaya numbering dan bullet"]'), null,
-      'selecting a numbering style must close the menu');
+    assert.equal(await page.$('[role="menu"][aria-label="Galeri ikon numbering"]'),null);
     await page.click('button[aria-label="Numbering"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="1"'));
-    console.log('LiveSPO Word-style numbering icon and dropdown: PASS');
+    await page.click('button[aria-label="Pilih gaya bullet"]');
+    await page.waitForSelector('[role="menu"][aria-label="Galeri ikon bullet"]');
+    const bulletOptions = await page.evaluate(() => ({
+      values: [...document.querySelectorAll('[role="menu"][aria-label="Galeri ikon bullet"] button[value]')]
+        .map(button => button.getAttribute('value')),
+      text:document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]')?.textContent
+    }));
+    assert.deepEqual(bulletOptions.values,['disc','square']);
+    assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(bulletOptions.text));
+    const bulletHitTargets = await page.evaluate(() => {
+      const menu=document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]');
+      return [...menu.querySelectorAll('button[value]')].map(button => {
+        const box=button.getBoundingClientRect();
+        const center=document.elementFromPoint(box.left + box.width/2,box.top + box.height/2);
+        return {expected:button.value,actual:center?.closest('button')?.value || null,
+          width:box.width};
+      });
+    });
+    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 60),
+      'Each bullet thumbnail must own its visual click target: '+JSON.stringify(bulletHitTargets));
+    await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="square"]');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="square"'));
+    await page.click('button[aria-label="Bullets"]');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="disc"'));
+    console.log('LiveSPO Word-style bullet/numbering icon galleries: PASS');
+
 
 
     // Audit regression: an in-flight pagination pass must not re-focus the
