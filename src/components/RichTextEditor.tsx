@@ -1704,9 +1704,23 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     // Native insertOrderedList is a TOGGLE: invoking it for lists already of
     // the requested kind unwraps their content, losing the user's numbering.
     // Change the marker on ALL selected lists instead of only the anchor's.
+    // A selected sublist intersects every ancestor <ol>, too. Formatting
+    // each intersecting list incorrectly changed e.g. parent 1,2 into A,B
+    // when only children a,b were selected. Resolve the closest semantic list
+    // for the selected TEXT, keeping independent sibling lists separate.
     const touchedLists = selectedRange
-      ? Array.from(editor.querySelectorAll<HTMLOListElement | HTMLUListElement>('ol,ul'))
-          .filter((list) => selectedRange.intersectsNode(list))
+      ? (() => {
+          const selected = new Set<HTMLOListElement | HTMLUListElement>();
+          const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+          let node: Node | null;
+          while ((node = walker.nextNode())) {
+            if (!node.textContent?.trim() || !selectedRange.intersectsNode(node)) continue;
+            const closest = node.parentElement?.closest<HTMLOListElement | HTMLUListElement>('ol,ul');
+            if (closest && editor.contains(closest)) selected.add(closest);
+          }
+          if (!selected.size && owned) selected.add(owned as HTMLOListElement | HTMLUListElement);
+          return [...selected];
+        })()
       : (owned ? [owned as HTMLOListElement | HTMLUListElement] : []);
     const touchesPlainBlocks = Boolean(selectedRange && Array.from(
       editor.querySelectorAll('p,div,blockquote,h1,h2,h3,h4,h5,h6')
@@ -1848,6 +1862,114 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     updateActiveFormatting();
   };
 
+  /** Normalize Chromium's legacy <ol><li>..</li><ol>..</ol></ol>.
+   * Nested lists are only valid inside the owning <li>. This repairs existing
+   * malformed user-created markup locally without altering LI text or order. */
+  const repairMisnestedEditorLists = (editor: HTMLElement): void => {
+    editor.querySelectorAll('ol,ul').forEach(list => {
+      for (const node of Array.from(list.children)) {
+        if (node.tagName !== 'OL' && node.tagName !== 'UL') continue;
+        let previous = node.previousElementSibling;
+        while (previous && previous.tagName !== 'LI') previous = previous.previousElementSibling;
+        if (previous) previous.appendChild(node);
+      }
+    });
+  };
+
+  /** Move exactly the active item, preserving its text node and selection.
+   * Never use document.execCommand('indent') inside a semantic list: Chromium
+   * emits an invalid OL directly under OL and Shift+Tab adds stray spans. */
+  const changeListNesting = (outdent: boolean): boolean => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    if (!editor || !selection?.isCollapsed || !anchor || !editor.contains(anchor)) return false;
+    const element = anchor instanceof Element ? anchor : anchor.parentElement;
+    const item = element?.closest<HTMLLIElement>('li');
+    const list = item?.parentElement as HTMLOListElement | HTMLUListElement | null;
+    if (!item || !list || !/^(OL|UL)$/.test(list.tagName) || !editor.contains(list)) return false;
+    if (item.closest('td,th')) return false;
+
+    // An existing document may already contain the malformed OL/OL structure
+    // produced by native indent. Repair it before choosing the target level.
+    repairMisnestedEditorLists(editor);
+
+    const owningList = item.parentElement as HTMLOListElement | HTMLUListElement;
+    if (!/^(OL|UL)$/.test(owningList.tagName)) return false;
+    let destination: HTMLOListElement | HTMLUListElement | null = null;
+    let outerParent: HTMLLIElement | null = null;
+
+    if (outdent) {
+      outerParent = owningList.parentElement?.closest<HTMLLIElement>('li') || null;
+      const outerList = outerParent?.parentElement;
+      if (!outerParent || !outerList || !/^(OL|UL)$/.test(outerList.tagName)) {
+        return false; // first-level list cannot be outdented into a new level
+      }
+    } else {
+      let previous = item.previousElementSibling;
+      while (previous && previous.tagName !== 'LI') previous = previous.previousElementSibling;
+      if (!previous) return false; // a child needs an actual preceding parent
+      const previousItem = previous as HTMLLIElement;
+      destination = Array.from(previousItem.children)
+        .filter((child): child is HTMLOListElement | HTMLUListElement =>
+          child.tagName === 'OL' || child.tagName === 'UL')
+        .at(-1) || null;
+      if (!destination) {
+        // Level 1 ordered numbers descend to a,b,c; the next depth defaults
+        // to bullets. Existing child list styles always take precedence.
+        let depth = 0;
+        for (let ancestor: Element | null = owningList; ancestor && editor.contains(ancestor);
+          ancestor = ancestor.parentElement) {
+          if (ancestor.tagName === 'OL' || ancestor.tagName === 'UL') depth++;
+        }
+        if (owningList.tagName === 'OL' && depth === 1) {
+          destination = document.createElement('ol');
+          destination.setAttribute('type', 'a');
+          destination.setAttribute('data-sop-list-format', 'a');
+        } else {
+          destination = document.createElement('ul');
+          destination.setAttribute('data-sop-bullet', 'disc');
+        }
+        previousItem.appendChild(destination);
+      }
+    }
+
+    // Retain the original caret's text node after its LI is moved.
+    const caretNode = anchor;
+    const caretOffset = selection.anchorOffset;
+    const target = outdent ? outerParent!.parentElement! : destination!;
+    if (outdent) target.insertBefore(item, outerParent!.nextSibling);
+    else target.appendChild(item);
+
+    // A former ordinal is not a manual override on the NEW level.
+    item.removeAttribute('value');
+    item.removeAttribute('data-sop-manual-number');
+    item.removeAttribute('data-sop-marker-kind');
+    item.removeAttribute('data-sop-marker-inherited-kind');
+    item.removeAttribute('data-sop-marker-label');
+    item.style.removeProperty('--sop-manual-number');
+    if (outdent && !Array.from(owningList.children).some(child => child.tagName === 'LI')) {
+      owningList.remove();
+    }
+
+    const range = document.createRange();
+    try {
+      range.setStart(caretNode, Math.min(caretOffset,
+        caretNode.nodeType === Node.TEXT_NODE ? (caretNode.textContent || '').length : caretNode.childNodes.length));
+    } catch {
+      range.selectNodeContents(item);
+      range.collapse(true);
+    }
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    editor.focus({ preventScroll: true });
+    savedRangeRef.current = range.cloneRange();
+    handleInput('discrete');
+    updateActiveFormatting();
+    return true;
+  };
+
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       const selection = window.getSelection();
@@ -1877,9 +1999,9 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       // Never accidentally indent a list belonging to another editor.
 
       if (inList || inCell) e.preventDefault();
-      // Semantic list indentation must only run on the active editor's LI,
-      // and never on a list nested inside an authored table.
-      if (inList && !inCell) executeCommand(e.shiftKey ? 'outdent' : 'indent');
+      // Structural nesting must use LI > OL/UL, not native execCommand,
+      // which generates OL > OL siblings and corrupts numbering on A4.
+      if (inList && !inCell) changeListNesting(e.shiftKey);
       return;
     }
 
