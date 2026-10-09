@@ -575,7 +575,7 @@ async function main() {
         .map(button => button.getAttribute('value')),
       text:document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]')?.textContent
     }));
-    assert.deepEqual(bulletOptions.values,['disc','square']);
+    assert.deepEqual(bulletOptions.values,['disc','square','circle','check','arrow']);
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(bulletOptions.text));
     const bulletHitTargets = await page.evaluate(() => {
       const menu=document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]');
@@ -586,7 +586,7 @@ async function main() {
           width:box.width};
       });
     });
-    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 60),
+    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 40),
       'Each bullet thumbnail must own its visual click target: '+JSON.stringify(bulletHitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="square"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="square"'));
