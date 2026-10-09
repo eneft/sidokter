@@ -1670,6 +1670,21 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const restored = restoreSavedSelection();
     if (!isHistoryCommand && !restored) return;
 
+    // Both the inner editor toolbar and the shared Live SPO toolbar dispatch
+    // these commands. Route them through the same semantic LI nesting as
+    // Tab/Shift+Tab; native indent generated invalid OL > OL descendants.
+    if (command === 'indent' || command === 'outdent') {
+      const editor = editorRef.current;
+      const anchor = window.getSelection()?.anchorNode;
+      const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+      const item = element?.closest<HTMLLIElement>('li');
+      const cell = item?.closest('td,th');
+      if (item && editor.contains(item) && !(cell && editor.contains(cell))) {
+        changeListNesting(command === 'outdent');
+        return;
+      }
+    }
+
     try {
       document.execCommand(command, false, arg);
     } catch {
