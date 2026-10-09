@@ -867,9 +867,12 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       <div
                         role="menu"
                         aria-label={kind === 'bullets' ? 'Galeri ikon bullet' : 'Galeri ikon numbering'}
-                        className="absolute right-0 top-full z-[70] mt-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+                        className={`absolute right-0 top-full z-[70] mt-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl ${kind === 'bullets' ? 'w-[144px]' : 'w-[212px]'}`}
                       >
-                        <div className="grid grid-cols-3 gap-1">
+                        {/* Fixed 64px columns: the gallery lives under a narrow
+                            split button, so implicit grid width would overlap
+                            tiles and send middle taps to the final style. */}
+                        <div className={`grid gap-1 ${kind === 'bullets' ? 'grid-cols-2' : 'grid-cols-3'}`}>
                           {options.map(({ value, ariaLabel }) => (
                             <button
                               key={value}
