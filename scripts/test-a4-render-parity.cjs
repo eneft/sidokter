@@ -899,7 +899,7 @@ async function main() {
     await page.keyboard.press('Tab');
     const tabLevel = await page.evaluate(() => {
       const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
-      const candidate=[...editor.querySelectorAll('li')].find(li=>li.textContent.includes('Anak kandidat'));
+      const candidate=[...editor.querySelectorAll('li')].find(li=>li.firstChild?.textContent?.includes('Anak kandidat'));
       const parents=[];let node=candidate;
       while (node && node!==editor) {
         if (node.tagName==='OL' || node.tagName==='UL') parents.push(node.tagName);
@@ -917,7 +917,7 @@ async function main() {
     await page.keyboard.up('Shift');
     const restoredLevel = await page.evaluate(() => {
       const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
-      const candidate=[...editor.querySelectorAll('li')].find(li=>li.textContent.includes('Anak kandidat'));
+      const candidate=[...editor.querySelectorAll('li')].find(li=>li.firstChild?.textContent?.includes('Anak kandidat'));
       let depth=0;for(let e=candidate;e&&e!==editor;e=e.parentElement)
         if(e.tagName==='OL'||e.tagName==='UL')depth++;
       return {depth,html:editor.innerHTML.slice(0,1200)};
