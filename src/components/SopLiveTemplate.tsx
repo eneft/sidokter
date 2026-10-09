@@ -13,6 +13,7 @@ import {
   IndentIncrease,
   List,
   ListOrdered,
+  ChevronDown,
   ImagePlus,
   ImageIcon,
   Type,
@@ -151,9 +152,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   >('pengertian');
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
-  const [showManualNumberMenu, setShowManualNumberMenu] = useState(false);
-  const [manualNumberInput, setManualNumberInput] = useState('');
-  const [manualNumberError, setManualNumberError] = useState(false);
+  const [showNumberingMenu, setShowNumberingMenu] = useState(false);
+  const numberingMenuRef = useRef<HTMLDivElement>(null);
   const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -240,17 +240,26 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     getActiveEditor()?.insertCustomList(type);
   };
 
-  const applyManualListNumber = (value: string | null) => {
-    // The active editor owns the caret even when its A4 section spans pages.
-    const applied = getActiveEditor()?.setListItemNumber(value) ?? false;
-    if (applied) {
-      setShowManualNumberMenu(false);
-      setManualNumberInput('');
-      setManualNumberError(false);
-    } else {
-      setManualNumberError(true);
-    }
-  };
+  // Only the list STYLE belongs in the toolbar. Arbitrary number/letter
+  // overrides are edited directly on the marker inside the SPO document.
+  useEffect(() => {
+    if (!showNumberingMenu) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !numberingMenuRef.current?.contains(target)) {
+        setShowNumberingMenu(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowNumberingMenu(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showNumberingMenu]);
 
   const handleInsertImageToActiveSection = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -783,56 +792,74 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="toolbar-command-group">
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
-              <select
-                aria-label="Pilih format numbering atau bullet"
-                title="Pilih format daftar"
-                defaultValue=""
-                onMouseDown={() => getActiveEditor()?.captureSelection()}
-                onChange={(e) => {
-                  const format = e.target.value;
-                  if (format) handleInsertList(format as '1' | 'A' | 'a' | 'disc' | 'square');
-                  e.target.value = '';
-                }}
-                className="h-7 w-28 shrink-0 rounded border border-slate-200 bg-white px-1 text-[11px] font-semibold"
+              {/* Word-style split control: main icon inserts automatic
+                  numbering; chevron changes style. No manual-number popover. */}
+              <div
+                ref={numberingMenuRef}
+                className="relative inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white"
               >
-                <option value="" disabled>Daftar ▾</option>
-                <option value="A">A. B. C.</option>
-                <option value="1">1. 2. 3.</option>
-                <option value="a">a. b. c.</option>
-                <option value="disc">• Bullet</option>
-                <option value="square">▪ Bullet kotak</option>
-              </select>
-              <div className="relative shrink-0">
                 <button
                   type="button"
-                  aria-label="Ubah nomor item daftar secara manual"
-                  aria-expanded={showManualNumberMenu}
-                  title="Atur nomor atau huruf item tertentu, tidak harus berurutan"
-                  onMouseDown={(e) => { e.preventDefault(); getActiveEditor()?.captureSelection(); }}
-                  onClick={() => { setManualNumberError(false); setShowManualNumberMenu((previous) => !previous); }}
-                  className="h-7 rounded border border-slate-200 bg-white px-2 text-[11px] font-semibold hover:bg-slate-100"
+                  aria-label="Numbering"
+                  aria-pressed={activeFormatting.orderedList}
+                  title="Numbering otomatis (1. 2. 3.)"
+                  className="toolbar-icon rounded-r-none"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    getActiveEditor()?.captureSelection();
+                  }}
+                  onClick={() => handleInsertList('1')}
                 >
-                  Nomor…
+                  <ListOrdered />
                 </button>
-                {showManualNumberMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-60 rounded-lg border border-slate-200 bg-white p-3 shadow-lg z-50 text-slate-700">
-                    <p className="text-[11px] font-semibold mb-1">Nomor item terpilih</p>
-                    <p className="text-[10px] text-slate-500 mb-2">Klik item bernomor dahulu. Isi a, e, g atau 1, 4, 7.</p>
-                    <input
-                      aria-label="Nomor atau huruf manual"
-                      type="text"
-                      value={manualNumberInput}
-                      onMouseDown={() => getActiveEditor()?.captureSelection()}
-                      onChange={(e) => { setManualNumberInput(e.target.value); setManualNumberError(false); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyManualListNumber(manualNumberInput); } }}
-                      placeholder="Contoh: e atau 5"
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-                    />
-                    {manualNumberError && <p className="mt-1 text-[10px] text-rose-600">Pilih item dalam daftar A./1./a. dan isi huruf atau angka yang sah.</p>}
-                    <div className="flex items-center justify-between gap-2 mt-2">
-                      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyManualListNumber(null)} className="text-[11px] text-slate-600 hover:underline">Kembali otomatis</button>
-                      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => applyManualListNumber(manualNumberInput)} className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white">Terapkan</button>
-                    </div>
+                <span aria-hidden="true" className="h-4 w-px bg-slate-200" />
+                <button
+                  type="button"
+                  aria-label="Pilih gaya numbering atau bullet"
+                  aria-haspopup="menu"
+                  aria-expanded={showNumberingMenu}
+                  title="Pilih gaya numbering atau bullet"
+                  className="inline-flex h-6 w-5 items-center justify-center rounded-r-md text-slate-600 hover:bg-slate-100 hover:text-indigo-600"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    getActiveEditor()?.captureSelection();
+                  }}
+                  onClick={() => setShowNumberingMenu((previous) => !previous)}
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                {showNumberingMenu && (
+                  <div
+                    role="menu"
+                    aria-label="Gaya numbering dan bullet"
+                    className="absolute left-0 top-full z-[70] mt-1 w-36 rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
+                  >
+                    {([
+                      { value: '1', label: '1. 2. 3.' },
+                      { value: 'a', label: 'a. b. c.' },
+                      { value: 'A', label: 'A. B. C.' },
+                      { value: 'disc', label: '• Bullet' },
+                      { value: 'square', label: '▪ Bullet kotak' },
+                    ] as const).map(({ value, label }) => (
+                      <button
+                        key={value}
+                        value={value}
+                        type="button"
+                        role="menuitem"
+                        title={label}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          getActiveEditor()?.captureSelection();
+                        }}
+                        onClick={() => {
+                          handleInsertList(value);
+                          setShowNumberingMenu(false);
+                        }}
+                        className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
