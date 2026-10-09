@@ -135,9 +135,14 @@ test('typed numbering prefixes stay literal and five explicit list styles are se
   assert.match(list, /if \(!sameKind\)/);
   assert.match(list, /data-sop-list-format/);
   assert.match(list, /data-sop-bullet/);
-  for (const marker of ['A', '1', 'a', 'disc', 'square', 'circle', 'check', 'arrow']) {
+  for (const marker of ['A', '1', 'a', 'disc', 'square']) {
     assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
     assert.ok(template.includes(`value: '${marker}'`), `Missing visible Live SPO marker ${marker}`);
+  }
+  const markerHelper = readFileSync('src/utils/editableListMarkers.ts','utf8');
+  for (const kind of ['circle','check','arrow']) {
+    assert.ok(template.includes(`value: '${kind}'`), `Missing extended gallery tile ${kind}`);
+    assert.ok(markerHelper.includes(`kind:'${kind}'`), `Missing direct marker parser for ${kind}`);
   }
   for (const removed of ['a)', '1)', 'bullet']) {
     assert.ok(!template.includes(`value="${removed}"`), `Legacy extra marker ${removed} should not appear`);
