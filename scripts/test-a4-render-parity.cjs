@@ -1166,6 +1166,51 @@ async function main() {
       'pasted nested numbering must pack remaining A4 page space; gap='+gap.toFixed(1));
     console.log('LiveSPO clipboard multi-level numbering A4: PASS');
 
+    // AUDIT: changing a manual marker inside a paginated logical list must
+    // renumber all later AUTOMATIC items, including other physical A4 pages.
+    // Earlier page-break tests checked only pre-existing labels surviving,
+    // not what happens after an actual cross-page marker edit.
+    const crossPageSeed='<ol type="1" data-sop-list-format="1" data-sop-inline-markers="true">'+
+      Array.from({length:24},(_,i)=>
+        '<li data-sop-marker-label="'+(i+1)+'.">'+
+        'Audit urutan item '+String(i+1).padStart(2,'0')+
+        ': Petugas melakukan pemeriksaan keamanan dan mencatat setiap temuan penting di lokasi pelayanan rumah sakit.'+
+        '</li>').join('')+'</ol>';
+    await page.evaluate((seed) => window.__mountLive(seed),crossPageSeed);
+    await page.waitForFunction(() => window.__savedProcedure?.includes('Audit urutan item 24'));
+    await page.waitForFunction(() => [...document.querySelectorAll(
+      '[contenteditable="true"][data-placeholder*="Langkah persiapan"]'
+    )].filter(e => e.querySelector('ol[data-sop-inline-markers="true"] > li')).length >= 2);
+    const firstMarker = await page.evaluate(() => {
+      const li=document.querySelector(
+        '[contenteditable="true"][data-placeholder*="Langkah persiapan"] ol[data-sop-inline-markers="true"] > li'
+      );
+      li.scrollIntoView({block:'center'});
+      const r=li.getBoundingClientRect();
+      return {x:r.left+Math.min(7,Math.max(3,r.width*.02)),y:r.top+7};
+    });
+    await page.mouse.click(firstMarker.x,firstMarker.y);
+    await page.waitForSelector('[data-sop-inline-marker-input="true"]');
+    await page.evaluate(() => {document.querySelector('[data-sop-inline-marker-input="true"]').value='50.';});
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-marker-label="50."'));
+    await new Promise(resolve=>setTimeout(resolve,900));
+    const crossPageAfter = await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedProcedure,'text/html');
+      return {labels:[...doc.querySelectorAll('ol > li')]
+        .filter(li => li.textContent?.includes('Audit urutan item'))
+        .map(li=>li.getAttribute('data-sop-marker-label')),
+        firstValue:doc.querySelector('ol > li')?.getAttribute('value'),
+        pages:document.querySelectorAll('.sop-live-a4-page').length};
+    });
+    console.log('AUDIT edited numbering across pages:',crossPageAfter);
+    assert.equal(crossPageAfter.firstValue,'50');
+    assert.equal(crossPageAfter.labels.length,24);
+    assert.deepEqual(crossPageAfter.labels,Array.from({length:24},(_,i)=>(50+i)+'.'),
+      'manual number on page 1 must update automatic numbering on every following A4 page');
+    console.log('AUDIT cross-page sequential marker edit: PASS');
+
+
 
 
 
