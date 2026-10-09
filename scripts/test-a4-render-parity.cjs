@@ -594,6 +594,19 @@ async function main() {
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="disc"'));
     console.log('LiveSPO Word-style bullet/numbering icon galleries: PASS');
 
+    for (const [kind, glyph] of [['circle','○'],['check','✓'],['arrow','➤']]) {
+      await page.click('button[aria-label="Pilih gaya bullet"]');
+      await page.waitForSelector('[role="menu"][aria-label="Galeri ikon bullet"]');
+      await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="'+kind+'"]');
+      await page.waitForFunction(k => window.__savedProcedure?.includes('data-sop-bullet="'+k+'"'), {}, kind);
+      const html = await page.evaluate(() => window.__savedProcedure || '');
+      assert.ok(html.includes('data-sop-inline-markers="true"'));
+      assert.ok(html.includes('data-sop-marker-label="'+glyph+'"'));
+      assert.ok(html.includes('Pemeriksaan akses ruang bayi'));
+    }
+    console.log('LiveSPO five compact bullet symbols survive edit and save: PASS');
+
+
 
 
     // Audit regression: an in-flight pagination pass must not re-focus the
