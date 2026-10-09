@@ -961,6 +961,81 @@ async function main() {
     if(levelFormat.nestedType!=='A') violations.push('selected Level 2 format was not applied');
     assert.deepEqual(violations,[],'Nested numbering structural audit findings');
 
+    console.log('LiveSPO semantic Tab and nested child style isolation: PASS');
+
+    // Both inline editor tools and shared A4 toolbar use executeCommand.
+    // They MUST have identical structural behavior to Tab/Shift+Tab.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">'+
+      '<li>Induk toolbar satu</li><li>Anak toolbar</li><li>Induk toolbar dua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    const toolbarAfterIndent = await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const child=editor.querySelectorAll('ol > li')[1];
+      const range=document.createRange();
+      range.setStart(child.firstChild,1);range.collapse(true);
+      editor.focus();
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.executeCommand('indent');
+      return {
+        html:editor.innerHTML,
+        nested:!!editor.querySelector('ol > li > ol[type="a"] > li'),
+        directListChild:!!editor.querySelector('ol > ol'),
+        focused:document.activeElement===editor
+      };
+    });
+    assert.ok(toolbarAfterIndent.nested && !toolbarAfterIndent.directListChild,
+      'toolbar indent must create valid nested OL under the parent LI');
+    assert.ok(toolbarAfterIndent.focused,'toolbar indent must retain editing focus');
+    const toolbarAfterOutdent=await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.executeCommand('outdent');
+      return {
+        nested:!!editor.querySelector('ol > li > ol > li'),
+        items:editor.querySelectorAll(':scope > ol > li').length,
+        html:editor.innerHTML
+      };
+    });
+    assert.equal(toolbarAfterOutdent.nested,false);
+    assert.equal(toolbarAfterOutdent.items,3);
+    console.log('LiveSPO toolbar indent/outdent semantic hierarchy: PASS');
+
+    // Enter in the child level continues the child's own alpha sequence and
+    // leaves the top-level decimal sequence unchanged.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">'+
+      '<li>Induk nomor satu</li><li>Anak awal</li><li>Induk nomor dua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const item=editor.querySelectorAll(':scope > ol > li')[1];
+      const range=document.createRange();range.selectNodeContents(item);range.collapse(false);
+      editor.focus();
+      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+    });
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Anak berikutnya');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('Anak berikutnya'));
+    const nestedAfterEnter=await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      const root=doc.body.querySelector('ol[type="1"]');
+      const child=root?.querySelector(':scope > li > ol[type="a"]');
+      return {rootCount:root?.querySelectorAll(':scope > li').length,
+        childCount:child?.querySelectorAll(':scope > li').length,
+        text:doc.body.textContent};
+    });
+    assert.equal(nestedAfterEnter.rootCount,2,
+      'Enter in Level 2 cannot add or renumber Level 1');
+    assert.equal(nestedAfterEnter.childCount,2,
+      'Enter in Level 2 must add a second child at the same level');
+    console.log('LiveSPO nested alpha Enter auto-continuation: PASS');
+
+
     // Direct marker editing: click the visible pseudo-marker gutter and type a
     // new number/letter instead of opening the toolbar or modal.
     await page.evaluate(() => window.__mountRichEditor(
