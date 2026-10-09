@@ -36,6 +36,7 @@ import {
 import type { TableCommand } from '../utils/editorTableCommands';
 import { RichTextEditor, type LiveSopFontSize, type RichTextEditorHandle, type RichTextFormattingState } from './RichTextEditor';
 import { logicalHtmlLength } from '../utils/editorCaretBookmark';
+import { BULLET_MARKER_GLYPHS, isBulletMarkerKind, type EditableMarkerKind } from '../utils/editableListMarkers';
 import { HospitalLogo } from './HospitalLogo';
 import { DirectorSignature } from './DirectorSignature';
 import { SOEGIRI_HOSPITAL_INFO } from '../utils/soegiriStructure';
@@ -81,26 +82,29 @@ interface SopLiveTemplateProps {
   toolbarStickyTopClassName?: string;
 }
 
-// Icon gallery previews use marker glyphs and neutral strokes, not text
-// labels. Screen reader names live on the menu buttons instead.
-const MARKER_PREVIEW: Record<'1' | 'a' | 'A' | 'disc' | 'square', readonly string[]> = {
+// The compact toolbar displays only the symbol, never a written menu label.
+const NUMBER_PREVIEW: Record<'1' | 'a' | 'A', readonly string[]> = {
   '1': ['1.', '2.', '3.'],
   'a': ['a.', 'b.', 'c.'],
   'A': ['A.', 'B.', 'C.'],
-  disc: ['•', '•', '•'],
-  square: ['▪', '▪', '▪'],
 };
-
-const ListMarkerPreview: React.FC<{ styleType: keyof typeof MARKER_PREVIEW }> = ({ styleType }) => (
-  <span aria-hidden="true" className="flex flex-col gap-[3px]">
-    {MARKER_PREVIEW[styleType].map((marker, index) => (
-      <span key={index} className="flex h-2.5 items-center gap-1">
-        <span className="w-4 text-right text-[9px] font-semibold leading-none text-slate-700">{marker}</span>
-        <span className="h-[2px] w-7 rounded bg-slate-400" />
-      </span>
-    ))}
-  </span>
-);
+const ListMarkerPreview: React.FC<{ styleType: EditableMarkerKind }> = ({ styleType }) => {
+  if (isBulletMarkerKind(styleType)) {
+    return <span aria-hidden="true" className="text-[22px] font-semibold leading-none text-slate-700">
+      {BULLET_MARKER_GLYPHS[styleType]}
+    </span>;
+  }
+  return (
+    <span aria-hidden="true" className="flex flex-col gap-[2px]">
+      {NUMBER_PREVIEW[styleType].map((marker, index) => (
+        <span key={index} className="flex h-2.5 items-center gap-0.5">
+          <span className="w-3 text-right text-[9px] font-semibold leading-none text-slate-700">{marker}</span>
+          <span className="h-[2px] w-4 rounded bg-slate-400" />
+        </span>
+      ))}
+    </span>
+  );
+};
 
 export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   title,
@@ -257,7 +261,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
     getActiveEditor()?.executeCommand(cmd, val || undefined);
   };
 
-  const handleInsertList = (type: '1' | 'A' | 'a' | 'disc' | 'square') => {
+  const handleInsertList = (type: EditableMarkerKind) => {
     getActiveEditor()?.insertCustomList(type);
   };
 
@@ -821,6 +825,9 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                     options: [
                       { value: 'disc', ariaLabel: 'Bullet titik' },
                       { value: 'square', ariaLabel: 'Bullet kotak' },
+                      { value: 'circle', ariaLabel: 'Bullet lingkaran kosong' },
+                      { value: 'check', ariaLabel: 'Bullet centang' },
+                      { value: 'arrow', ariaLabel: 'Bullet panah' },
                     ],
                   },
                   {
@@ -867,12 +874,11 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                       <div
                         role="menu"
                         aria-label={kind === 'bullets' ? 'Galeri ikon bullet' : 'Galeri ikon numbering'}
-                        className={`absolute right-0 top-full z-[70] mt-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl ${kind === 'bullets' ? 'w-[144px]' : 'w-[212px]'}`}
+                        className="absolute right-0 top-full z-[70] mt-1 w-[160px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
                       >
-                        {/* Fixed 64px columns: the gallery lives under a narrow
-                            split button, so implicit grid width would overlap
-                            tiles and send middle taps to the final style. */}
-                        <div className={`grid gap-1 ${kind === 'bullets' ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                        {/* Five bullets fit in a compact 3x2 glyph grid.
+                            Fixed tile sizes prevent overlapping click targets. */}
+                        <div className="grid grid-cols-3 gap-1">
                           {options.map(({ value, ariaLabel }) => (
                             <button
                               key={value}
@@ -889,7 +895,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
                                 handleInsertList(value);
                                 setOpenListMenu(null);
                               }}
-                              className="inline-flex h-14 w-16 items-center justify-center rounded-md border border-transparent hover:border-indigo-200 hover:bg-indigo-50 focus-visible:border-indigo-500 focus-visible:outline-none"
+                              className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-transparent hover:border-indigo-200 hover:bg-indigo-50 focus-visible:border-indigo-500 focus-visible:outline-none"
                             >
                               <ListMarkerPreview styleType={value} />
                             </button>
