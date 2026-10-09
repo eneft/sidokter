@@ -552,7 +552,25 @@ async function main() {
     assert.deepEqual(numberOptions.values,['1','a','A']);
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(numberOptions.text),
       'gallery tiles must be icon-only without descriptive visible text');
+    const tileGeometry = await page.evaluate(() => {
+      const menu = document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]');
+      return [...menu.querySelectorAll('button[value]')].map(el => {
+        const b = el.getBoundingClientRect(), centerX=b.x+b.width/2, centerY=b.y+b.height/2;
+        const hit = document.elementFromPoint(centerX,centerY);
+        return {value:el.value,bounds:{x:b.x,y:b.y,w:b.width,h:b.height},
+          hit:hit?.closest('button')?.getAttribute('value'),name:hit?.tagName};
+      });
+    });
+    console.log('LiveSPO icon gallery click tile geometry:',tileGeometry);
+    await page.evaluate(() => {
+      window.__lastIconSelection = null;
+      document.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('[role="menu"] button[value]');
+        if (button) window.__lastIconSelection = button.value;
+      }, {capture:true,once:true});
+    });
     await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
+    console.log('LiveSPO icon gallery actually clicked:', await page.evaluate(()=>window.__lastIconSelection));
     const afterNumberChoice = await page.evaluate(() => {
       const procedure = document.querySelector('[contenteditable="true"][data-placeholder*="Langkah persiapan"]');
       const selection = window.getSelection();
