@@ -29,7 +29,7 @@ export function parseEditableMarker(input: string): MarkerParseResult | null {
   if (raw === '•' || raw === '●' || raw === '-' || raw === '*') {
     return { kind: 'disc', number: null };
   }
-  if (raw === '▪' || raw === '■') return {kind:'square',number:null};
+  if (raw === '▪' || raw === '■' || raw === '□') return {kind:'square',number:null};
   if (raw === '○' || raw === '◦' || raw === '◯') return {kind:'circle',number:null};
   if (raw === '✓' || raw === '✔') return {kind:'check',number:null};
   if (raw === '➤' || raw === '➜' || raw === '→') return {kind:'arrow',number:null};
