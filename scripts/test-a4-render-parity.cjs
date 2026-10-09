@@ -905,7 +905,10 @@ async function main() {
         if (node.tagName==='OL' || node.tagName==='UL') parents.push(node.tagName);
         node=node.parentElement;
       }
+      const nested=candidate?.closest('ol');
       return {depth:parents.length,
+        parentTag:nested?.parentElement?.tagName || null,
+        nestedType:nested?.getAttribute('type') || null,
         rootType:editor.querySelector('ol')?.getAttribute('type'),
         html:editor.innerHTML.slice(0,1400)};
     });
@@ -948,13 +951,15 @@ async function main() {
         html:result.body.innerHTML.slice(0,1600)};
     });
     console.log('AUDIT selected child style isolation:',levelFormat);
-    assert.equal(tabLevel.depth,2,'Tab should turn the chosen list item into a nested second-level LI');
-    assert.equal(restoredLevel.depth,1,'Shift+Tab should return the chosen LI to level one');
-    assert.equal(levelFormat.parentType,'1',
-      'selecting nested children and applying uppercase style must not change parent numbering');
-    assert.equal(levelFormat.nestedType,'A',
-      'nested child selection should update only the selected nested list');
-    console.log('AUDIT nested list Tab/selection isolation: PASS');
+    const violations=[];
+    if(tabLevel.depth!==2) violations.push('Tab did not create Level 2');
+    if(tabLevel.parentTag!=='LI') violations.push(
+      'Tab emitted an OL as a direct child of OL instead of nesting under parent LI');
+    if(restoredLevel.depth!==1) violations.push('Shift+Tab did not restore Level 1');
+    if(levelFormat.parentType!=='1') violations.push(
+      'formatting Level 2 children unexpectedly reformatted the Level 1 parent');
+    if(levelFormat.nestedType!=='A') violations.push('selected Level 2 format was not applied');
+    assert.deepEqual(violations,[],'Nested numbering structural audit findings');
 
     // Direct marker editing: click the visible pseudo-marker gutter and type a
     // new number/letter instead of opening the toolbar or modal.
