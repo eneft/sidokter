@@ -81,6 +81,27 @@ interface SopLiveTemplateProps {
   toolbarStickyTopClassName?: string;
 }
 
+// Icon gallery previews use marker glyphs and neutral strokes, not text
+// labels. Screen reader names live on the menu buttons instead.
+const MARKER_PREVIEW: Record<'1' | 'a' | 'A' | 'disc' | 'square', readonly string[]> = {
+  '1': ['1.', '2.', '3.'],
+  'a': ['a.', 'b.', 'c.'],
+  'A': ['A.', 'B.', 'C.'],
+  disc: ['•', '•', '•'],
+  square: ['▪', '▪', '▪'],
+};
+
+const ListMarkerPreview: React.FC<{ styleType: keyof typeof MARKER_PREVIEW }> = ({ styleType }) => (
+  <span aria-hidden="true" className="flex flex-col gap-[3px]">
+    {MARKER_PREVIEW[styleType].map((marker, index) => (
+      <span key={index} className="flex h-2.5 items-center gap-1">
+        <span className="w-4 text-right text-[9px] font-semibold leading-none text-slate-700">{marker}</span>
+        <span className="h-[2px] w-7 rounded bg-slate-400" />
+      </span>
+    ))}
+  </span>
+);
+
 export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   title,
   onTitleChange,
@@ -152,8 +173,8 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   >('pengertian');
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
-  const [showNumberingMenu, setShowNumberingMenu] = useState(false);
-  const numberingMenuRef = useRef<HTMLDivElement>(null);
+  const [openListMenu, setOpenListMenu] = useState<'bullets' | 'numbering' | null>(null);
+  const listMenusRef = useRef<HTMLDivElement>(null);
   const [activeToolMode, setActiveToolMode] = useState<'text' | 'table' | 'image'>('text');
   const tableFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -243,15 +264,14 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
   // Only the list STYLE belongs in the toolbar. Arbitrary number/letter
   // overrides are edited directly on the marker inside the SPO document.
   useEffect(() => {
-    if (!showNumberingMenu) return;
+    if (!openListMenu) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !numberingMenuRef.current?.contains(target)) {
-        setShowNumberingMenu(false);
+      if (event.target instanceof Node && !listMenusRef.current?.contains(event.target)) {
+        setOpenListMenu(null);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShowNumberingMenu(false);
+      if (event.key === 'Escape') setOpenListMenu(null);
     };
     document.addEventListener('pointerdown', closeOnOutsideClick);
     document.addEventListener('keydown', closeOnEscape);
@@ -259,7 +279,7 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
       document.removeEventListener('pointerdown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [showNumberingMenu]);
+  }, [openListMenu]);
 
   const handleInsertImageToActiveSection = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -792,76 +812,90 @@ export const SopLiveTemplate: React.FC<SopLiveTemplateProps> = ({
             <div className="toolbar-command-group">
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('outdent')} title="Kurangi indentasi" aria-label="Kurangi indentasi" className="toolbar-icon"><IndentDecrease /></button>
               <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => handleExecCommand('indent')} title="Tambah indentasi" aria-label="Tambah indentasi" className="toolbar-icon"><IndentIncrease /></button>
-              {/* Word-style split control: main icon inserts automatic
-                  numbering; chevron changes style. No manual-number popover. */}
-              <div
-                ref={numberingMenuRef}
-                className="relative inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white"
-              >
-                <button
-                  type="button"
-                  aria-label="Numbering"
-                  aria-pressed={activeFormatting.orderedList}
-                  title="Numbering otomatis (1. 2. 3.)"
-                  className="toolbar-icon rounded-r-none"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    getActiveEditor()?.captureSelection();
-                  }}
-                  onClick={() => handleInsertList('1')}
-                >
-                  <ListOrdered />
-                </button>
-                <span aria-hidden="true" className="h-4 w-px bg-slate-200" />
-                <button
-                  type="button"
-                  aria-label="Pilih gaya numbering atau bullet"
-                  aria-haspopup="menu"
-                  aria-expanded={showNumberingMenu}
-                  title="Pilih gaya numbering atau bullet"
-                  className="inline-flex h-6 w-5 items-center justify-center rounded-r-md text-slate-600 hover:bg-slate-100 hover:text-indigo-600"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    getActiveEditor()?.captureSelection();
-                  }}
-                  onClick={() => setShowNumberingMenu((previous) => !previous)}
-                >
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {showNumberingMenu && (
-                  <div
-                    role="menu"
-                    aria-label="Gaya numbering dan bullet"
-                    className="absolute left-0 top-full z-[70] mt-1 w-36 rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
-                  >
-                    {([
-                      { value: '1', label: '1. 2. 3.' },
-                      { value: 'a', label: 'a. b. c.' },
-                      { value: 'A', label: 'A. B. C.' },
-                      { value: 'disc', label: '• Bullet' },
-                      { value: 'square', label: '▪ Bullet kotak' },
-                    ] as const).map(({ value, label }) => (
-                      <button
-                        key={value}
-                        value={value}
-                        type="button"
-                        role="menuitem"
-                        title={label}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          getActiveEditor()?.captureSelection();
-                        }}
-                        onClick={() => {
-                          handleInsertList(value);
-                          setShowNumberingMenu(false);
-                        }}
-                        className="flex w-full items-center rounded px-2 py-1.5 text-left text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
+              {/* Word separates Bullets and Numbering. Each has a one-click
+                  primary icon and a compact icon-only library of styles. */}
+              <div ref={listMenusRef} className="relative inline-flex shrink-0 items-center gap-1">
+                {([
+                  {
+                    kind: 'bullets', label: 'Bullets', Icon: List, defaultStyle: 'disc',
+                    options: [
+                      { value: 'disc', ariaLabel: 'Bullet titik' },
+                      { value: 'square', ariaLabel: 'Bullet kotak' },
+                    ],
+                  },
+                  {
+                    kind: 'numbering', label: 'Numbering', Icon: ListOrdered, defaultStyle: '1',
+                    options: [
+                      { value: '1', ariaLabel: 'Angka 1 2 3' },
+                      { value: 'a', ariaLabel: 'Huruf kecil a b c' },
+                      { value: 'A', ariaLabel: 'Huruf besar A B C' },
+                    ],
+                  },
+                ] as const).map(({ kind, label, Icon, defaultStyle, options }) => (
+                  <div key={kind} className="relative inline-flex items-center rounded-md border border-slate-200 bg-white">
+                    <button
+                      type="button"
+                      aria-label={label}
+                      title={kind === 'bullets' ? 'Bullet otomatis' : 'Numbering otomatis'}
+                      aria-pressed={kind === 'bullets' ? activeFormatting.unorderedList : activeFormatting.orderedList}
+                      className="toolbar-icon rounded-r-none"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        getActiveEditor()?.captureSelection();
+                      }}
+                      onClick={() => handleInsertList(defaultStyle)}
+                    >
+                      <Icon />
+                    </button>
+                    <span aria-hidden="true" className="h-4 w-px bg-slate-200" />
+                    <button
+                      type="button"
+                      aria-label={kind === 'bullets' ? 'Pilih gaya bullet' : 'Pilih gaya numbering'}
+                      aria-haspopup="menu"
+                      aria-expanded={openListMenu === kind}
+                      title={kind === 'bullets' ? 'Pilihan bullet' : 'Pilihan numbering'}
+                      className="inline-flex h-6 w-5 items-center justify-center rounded-r-md text-slate-600 hover:bg-slate-100 hover:text-indigo-600"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        getActiveEditor()?.captureSelection();
+                      }}
+                      onClick={() => setOpenListMenu((previous) => previous === kind ? null : kind)}
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {openListMenu === kind && (
+                      <div
+                        role="menu"
+                        aria-label={kind === 'bullets' ? 'Galeri ikon bullet' : 'Galeri ikon numbering'}
+                        className="absolute right-0 top-full z-[70] mt-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
                       >
-                        {label}
-                      </button>
-                    ))}
+                        <div className="grid grid-cols-3 gap-1">
+                          {options.map(({ value, ariaLabel }) => (
+                            <button
+                              key={value}
+                              value={value}
+                              type="button"
+                              role="menuitem"
+                              aria-label={ariaLabel}
+                              title={ariaLabel}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                getActiveEditor()?.captureSelection();
+                              }}
+                              onClick={() => {
+                                handleInsertList(value);
+                                setOpenListMenu(null);
+                              }}
+                              className="inline-flex h-14 w-16 items-center justify-center rounded-md border border-transparent hover:border-indigo-200 hover:bg-indigo-50 focus-visible:border-indigo-500 focus-visible:outline-none"
+                            >
+                              <ListMarkerPreview styleType={value} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
             </div>
             <div className="toolbar-command-group">
