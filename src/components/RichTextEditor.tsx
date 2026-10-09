@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useImperativeHandle } from 'react';
 import DOMPurify from 'dompurify';
 import { logicalCaretOffset, resolveLogicalCaretOffset } from '../utils/editorCaretBookmark';
-import { applyInlineMarker, currentInlineMarker, refreshInlineMarkersInEditor } from '../utils/editableListMarkers';
+import { applyInlineMarker, currentInlineMarker, refreshInlineMarkersInEditor, isBulletMarkerKind, type EditableMarkerKind } from '../utils/editableListMarkers';
 import { canMergeCell, createSemanticTable, mutateTable, type TableCommand } from '../utils/editorTableCommands';
 import { applyTableAlignment, normalizeStructuredTables, type TableAlignment } from '../utils/a4Layout';
 import {
@@ -129,7 +129,7 @@ export interface RichTextFormattingState {
 
 export interface RichTextEditorHandle {
   executeCommand: (command: string, arg?: string) => void;
-  insertCustomList: (listType: '1' | 'A' | 'a' | 'disc' | 'square') => void;
+  insertCustomList: (listType: EditableMarkerKind) => void;
   /** Set or clear a per-item numbering override. Returns false outside an ordered list or on invalid input. */
   setListItemNumber: (numberOrLetter: string | null) => boolean;
   applyFontSize: (fontSize: LiveSopFontSize) => void;
@@ -1687,7 +1687,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
   // Helper for 1-tap SPO list hierarchies (1. Utama, a. Sub-poin, i. Sub-sub-poin)
   // Explicit list formats are attached to the semantic list element. They survive
   // native Enter splits, saving, pagination, and print without hard-coded labels.
-  const insertCustomList = (listType: '1' | 'A' | 'a' | 'disc' | 'square') => {
+  const insertCustomList = (listType: EditableMarkerKind) => {
     const editor = editorRef.current;
     if (!editor || selectedFigure || !restoreSavedSelection()) return;
     const selectionBefore = window.getSelection();
@@ -1695,7 +1695,7 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const currentElement = anchorBefore instanceof Element ? anchorBefore : anchorBefore?.parentElement;
     const existing = currentElement?.closest('ol,ul');
     const owned = existing && editor.contains(existing) ? existing : null;
-    const unordered = listType === 'disc' || listType === 'square';
+    const unordered = isBulletMarkerKind(listType);
     const tag = unordered ? 'ul' : 'ol';
     const selectedRange = selectionBefore?.rangeCount && !selectionBefore.isCollapsed
       ? selectionBefore.getRangeAt(0) : null;
@@ -1718,7 +1718,12 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
       if (unordered) {
         list.setAttribute('data-sop-bullet', listType);
         list.removeAttribute('data-sop-list-format');
-        list.style.listStyleType = listType === 'square' ? 'square' : 'disc';
+        // Native bullets cover only disc/square. For ○ ✓ ➤ we store one
+        // semantic UL and render deterministic marker labels in all A4 views.
+        list.style.listStyleType = listType === 'square' ? 'square' : listType === 'disc' ? 'disc' : 'none';
+        if (listType !== 'disc' && listType !== 'square') {
+          list.setAttribute('data-sop-inline-markers', 'true');
+        }
       } else {
         list.setAttribute('data-sop-list-format', listType);
         list.removeAttribute('data-sop-bullet');

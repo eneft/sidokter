@@ -3,7 +3,13 @@
  * authored paragraphs. The editable HTML retains <ol>/<li value>, and marker
  * display attributes are regenerated for automatic continuation after edits.
  */
-export type EditableMarkerKind = '1' | 'a' | 'A' | 'disc' | 'square';
+export type BulletMarkerKind = 'disc' | 'square' | 'circle' | 'check' | 'arrow';
+export type EditableMarkerKind = '1' | 'a' | 'A' | BulletMarkerKind;
+export const BULLET_MARKER_GLYPHS: Record<BulletMarkerKind, string> = {
+  disc:'•',square:'▪',circle:'○',check:'✓',arrow:'➤'
+};
+export const isBulletMarkerKind = (value:string):value is BulletMarkerKind =>
+  Object.prototype.hasOwnProperty.call(BULLET_MARKER_GLYPHS,value);
 export type MarkerParseResult = { kind: EditableMarkerKind; number: number | null };
 
 const numericValue = (input: string): number =>
@@ -23,9 +29,10 @@ export function parseEditableMarker(input: string): MarkerParseResult | null {
   if (raw === '•' || raw === '●' || raw === '-' || raw === '*') {
     return { kind: 'disc', number: null };
   }
-  if (raw === '▪' || raw === '■' || raw === '□') {
-    return { kind: 'square', number: null };
-  }
+  if (raw === '▪' || raw === '■' || raw === '□') return {kind:'square',number:null};
+  if (raw === '○' || raw === '◦' || raw === '◯') return {kind:'circle',number:null};
+  if (raw === '✓' || raw === '✔') return {kind:'check',number:null};
+  if (raw === '➤' || raw === '➜' || raw === '→') return {kind:'arrow',number:null};
   return null;
 }
 
@@ -41,8 +48,7 @@ const letter = (number: number, upper: boolean): string => {
 };
 
 const formatMarker = (kind: EditableMarkerKind, number: number): string => {
-  if (kind === 'disc') return '•';
-  if (kind === 'square') return '▪';
+  if (isBulletMarkerKind(kind)) return BULLET_MARKER_GLYPHS[kind];
   if (kind === 'a' || kind === 'A') return letter(number, kind === 'A') + '.';
   return String(number) + '.';
 };
@@ -57,7 +63,8 @@ export function refreshInlineListMarkers(list: HTMLOListElement | HTMLUListEleme
   const initialKind: EditableMarkerKind = isOrdered
     ? (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'a' ? 'a'
       : (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'A' ? 'A' : '1'
-    : list.getAttribute('data-sop-bullet') === 'square' ? 'square' : 'disc';
+    : isBulletMarkerKind(list.getAttribute('data-sop-bullet') || '')
+      ? list.getAttribute('data-sop-bullet') as BulletMarkerKind : 'disc';
   const items = childItems(list);
   // Physical A4 pagination can split an OL after a mode switch (e.g. 5. → c.).
   // The first LI of the next physical fragment carries its inherited marker
@@ -68,9 +75,9 @@ export function refreshInlineListMarkers(list: HTMLOListElement | HTMLUListEleme
   let next = isOrdered ? Math.max(1, list.start || 1) : 1;
   for (const item of items) {
     const override = item.getAttribute('data-sop-marker-kind') as EditableMarkerKind | null;
-    const kind = override && ['1','a','A','disc','square'].includes(override)
+    const kind = override && (['1','a','A'].includes(override) || isBulletMarkerKind(override))
       ? override : currentKind;
-    if (kind !== 'disc' && kind !== 'square') {
+    if (!isBulletMarkerKind(kind)) {
       currentKind = kind;
       const value = Number(item.getAttribute('value') ?? item.getAttribute('data-sop-manual-number'));
       if (Number.isSafeInteger(value) && value >= 1 && value <= 9999) next = value;
@@ -94,7 +101,10 @@ export function currentInlineMarker(item: HTMLLIElement): string {
   const list = item.parentElement;
   if (!list || !/^(OL|UL)$/.test(list.tagName)) return '';
   const isOrdered = list.tagName === 'OL';
-  if (!isOrdered) return list.getAttribute('data-sop-bullet') === 'square' ? '▪' : '•';
+  if (!isOrdered) {
+    const style = list.getAttribute('data-sop-bullet') || 'disc';
+    return BULLET_MARKER_GLYPHS[isBulletMarkerKind(style) ? style : 'disc'];
+  }
   const kind = (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'a'
     ? 'a' : (list.getAttribute('data-sop-list-format') || list.getAttribute('type')) === 'A' ? 'A' : '1';
   let next = Math.max(1, (list as HTMLOListElement).start || 1);
@@ -123,7 +133,8 @@ export function applyInlineMarker(item: HTMLLIElement, typed: string): boolean {
     }
     replacement.setAttribute('type', '1');
     replacement.setAttribute('data-sop-list-format', '1');
-    const originalBullet = list.getAttribute('data-sop-bullet') === 'square' ? 'square' : 'disc';
+    const initialBullet = list.getAttribute('data-sop-bullet') || 'disc';
+    const originalBullet = isBulletMarkerKind(initialBullet) ? initialBullet : 'disc';
     const priorItems = childItems(list);
     for (const li of priorItems) {
       if (li !== item && !li.hasAttribute('data-sop-marker-kind')) {

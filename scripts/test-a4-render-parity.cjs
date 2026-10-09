@@ -561,7 +561,7 @@ async function main() {
           width:box.width};
       });
     });
-    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 60),
+    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 40),
       'Each numbering thumbnail must own its visual click target: '+JSON.stringify(hitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
@@ -575,7 +575,7 @@ async function main() {
         .map(button => button.getAttribute('value')),
       text:document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]')?.textContent
     }));
-    assert.deepEqual(bulletOptions.values,['disc','square']);
+    assert.deepEqual(bulletOptions.values,['disc','square','circle','check','arrow']);
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(bulletOptions.text));
     const bulletHitTargets = await page.evaluate(() => {
       const menu=document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]');
@@ -586,13 +586,26 @@ async function main() {
           width:box.width};
       });
     });
-    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 60),
+    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 40),
       'Each bullet thumbnail must own its visual click target: '+JSON.stringify(bulletHitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="square"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="square"'));
     await page.click('button[aria-label="Bullets"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="disc"'));
     console.log('LiveSPO Word-style bullet/numbering icon galleries: PASS');
+
+    for (const [kind, glyph] of [['circle','○'],['check','✓'],['arrow','➤']]) {
+      await page.click('button[aria-label="Pilih gaya bullet"]');
+      await page.waitForSelector('[role="menu"][aria-label="Galeri ikon bullet"]');
+      await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="'+kind+'"]');
+      await page.waitForFunction(k => window.__savedProcedure?.includes('data-sop-bullet="'+k+'"'), {}, kind);
+      const html = await page.evaluate(() => window.__savedProcedure || '');
+      assert.ok(html.includes('data-sop-inline-markers="true"'));
+      assert.ok(html.includes('data-sop-marker-label="'+glyph+'"'));
+      assert.ok(html.includes('Pemeriksaan akses ruang bayi'));
+    }
+    console.log('LiveSPO five compact bullet symbols survive edit and save: PASS');
+
 
 
 

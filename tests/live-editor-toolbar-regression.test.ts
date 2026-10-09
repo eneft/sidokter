@@ -139,6 +139,11 @@ test('typed numbering prefixes stay literal and five explicit list styles are se
     assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
     assert.ok(template.includes(`value: '${marker}'`), `Missing visible Live SPO marker ${marker}`);
   }
+  const markerHelper = readFileSync('src/utils/editableListMarkers.ts','utf8');
+  for (const kind of ['circle','check','arrow']) {
+    assert.ok(template.includes(`value: '${kind}'`), `Missing extended gallery tile ${kind}`);
+    assert.ok(markerHelper.includes(`kind:'${kind}'`), `Missing direct marker parser for ${kind}`);
+  }
   for (const removed of ['a)', '1)', 'bullet']) {
     assert.ok(!template.includes(`value="${removed}"`), `Legacy extra marker ${removed} should not appear`);
   }
@@ -183,7 +188,7 @@ test('Live SPO has separate Bullet and Numbering icon split controls with icon-o
   assert.match(template, /<ChevronDown/);
   assert.match(template, /<Icon \s*\/>/);
   assert.match(template, /<ListMarkerPreview styleType=\{value\} \s*\/>/);
-  assert.match(template, /aria-hidden="true" className="flex flex-col gap-\[3px\]"/);
+  assert.match(template, /aria-hidden="true" className="text-\[22px\] font-semibold/);
   assert.match(template, /onClick=\{\(\) => handleInsertList\(defaultStyle\)\}/);
   assert.match(template, /onClick=\{\(\) => \{\s*handleInsertList\(value\);\s*setOpenListMenu\(null\);/);
   assert.match(template, /getActiveEditor\(\)\?\.captureSelection\(\)/);
