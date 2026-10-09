@@ -881,17 +881,178 @@ async function main() {
       'selection-wide list formatting must preserve authored content');
     console.log('LiveSPO multi-selection numbering style: PASS');
 
+
+    // AUDIT ONLY: Tab must create a semantic second level, not merely shift
+    // the margin. Shift+Tab should restore the original level.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1"><li>Induk satu</li><li>Anak kandidat</li><li>Induk dua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const li=editor.querySelectorAll('ol > li')[1], node=li.firstChild;
+      const r=document.createRange();
+      r.setStart(node, 2);r.collapse(true);
+      editor.focus();
+      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(r);
+    });
+    await page.keyboard.press('Tab');
+    const tabLevel = await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const candidate=[...editor.querySelectorAll('li')].find(li=>li.firstChild?.textContent?.includes('Anak kandidat'));
+      const parents=[];let node=candidate;
+      while (node && node!==editor) {
+        if (node.tagName==='OL' || node.tagName==='UL') parents.push(node.tagName);
+        node=node.parentElement;
+      }
+      const nested=candidate?.closest('ol');
+      return {depth:parents.length,
+        parentTag:nested?.parentElement?.tagName || null,
+        nestedType:nested?.getAttribute('type') || null,
+        rootType:editor.querySelector('ol')?.getAttribute('type'),
+        html:editor.innerHTML.slice(0,1400)};
+    });
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    await page.keyboard.up('Shift');
+    const restoredLevel = await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const candidate=[...editor.querySelectorAll('li')].find(li=>li.firstChild?.textContent?.includes('Anak kandidat'));
+      let depth=0;for(let e=candidate;e&&e!==editor;e=e.parentElement)
+        if(e.tagName==='OL'||e.tagName==='UL')depth++;
+      return {depth,html:editor.innerHTML.slice(0,1200)};
+    });
+    console.log('AUDIT numbered Tab/Shift+Tab levels:',tabLevel,restoredLevel);
+
+    // AUDIT ONLY: formatting selected nested children must not mutate their
+    // parent numbering or other unrelated levels.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">'+
+      '<li>Induk pertama<ol type="a" data-sop-list-format="a">'+
+      '<li>Anak alpha satu</li><li>Anak alpha dua</li></ol></li>'+
+      '<li>Induk kedua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol').length === 2);
+    const levelFormat = await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const sub=editor.querySelector('ol ol');
+      const first=sub.querySelectorAll('li')[0].firstChild;
+      const last=sub.querySelectorAll('li')[1].firstChild;
+      const range=document.createRange();
+      range.setStart(first,0);range.setEnd(last,last.textContent.length);
+      editor.focus();
+      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.insertCustomList('A');
+      const result=new DOMParser().parseFromString(editor.innerHTML,'text/html');
+      return {parentType:result.querySelector('ol')?.getAttribute('type'),
+        nestedType:result.querySelector('ol ol')?.getAttribute('type'),
+        rootCount:result.querySelectorAll('ol').length,
+        html:result.body.innerHTML.slice(0,1600)};
+    });
+    console.log('AUDIT selected child style isolation:',levelFormat);
+    const violations=[];
+    if(tabLevel.depth!==2) violations.push('Tab did not create Level 2');
+    if(tabLevel.parentTag!=='LI') violations.push(
+      'Tab emitted an OL as a direct child of OL instead of nesting under parent LI');
+    if(restoredLevel.depth!==1) violations.push('Shift+Tab did not restore Level 1');
+    if(levelFormat.parentType!=='1') violations.push(
+      'formatting Level 2 children unexpectedly reformatted the Level 1 parent');
+    if(levelFormat.nestedType!=='A') violations.push('selected Level 2 format was not applied');
+    assert.deepEqual(violations,[],'Nested numbering structural audit findings');
+
+    console.log('LiveSPO semantic Tab and nested child style isolation: PASS');
+
+    // Both inline editor tools and shared A4 toolbar use executeCommand.
+    // They MUST have identical structural behavior to Tab/Shift+Tab.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">'+
+      '<li>Induk toolbar satu</li><li>Anak toolbar</li><li>Induk toolbar dua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    const toolbarAfterIndent = await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const child=editor.querySelectorAll('ol > li')[1];
+      const range=document.createRange();
+      range.setStart(child.firstChild,1);range.collapse(true);
+      editor.focus();
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.executeCommand('indent');
+      return {
+        html:editor.innerHTML,
+        nested:!!editor.querySelector('ol > li > ol[type="a"] > li'),
+        directListChild:!!editor.querySelector('ol > ol'),
+        focused:document.activeElement===editor
+      };
+    });
+    assert.ok(toolbarAfterIndent.nested && !toolbarAfterIndent.directListChild,
+      'toolbar indent must create valid nested OL under the parent LI');
+    assert.ok(toolbarAfterIndent.focused,'toolbar indent must retain editing focus');
+    const toolbarAfterOutdent=await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      window.__richEditorHandle.captureSelection();
+      window.__richEditorHandle.executeCommand('outdent');
+      return {
+        nested:!!editor.querySelector('ol > li > ol > li'),
+        items:editor.querySelectorAll(':scope > ol > li').length,
+        html:editor.innerHTML
+      };
+    });
+    assert.equal(toolbarAfterOutdent.nested,false);
+    assert.equal(toolbarAfterOutdent.items,3);
+    console.log('LiveSPO toolbar indent/outdent semantic hierarchy: PASS');
+
+    // Enter in the child level continues the child's own alpha sequence and
+    // leaves the top-level decimal sequence unchanged.
+    await page.evaluate(() => window.__mountRichEditor(
+      '<ol type="1" data-sop-list-format="1">'+
+      '<li>Induk nomor satu</li><li>Anak awal</li><li>Induk nomor dua</li></ol>'));
+    await page.waitForFunction(() =>
+      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 3);
+    await page.evaluate(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      const item=editor.querySelectorAll(':scope > ol > li')[1];
+      const range=document.createRange();range.selectNodeContents(item);range.collapse(false);
+      editor.focus();
+      const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+    });
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Anak berikutnya');
+    await page.waitForFunction(() => window.__savedRichHtml?.includes('Anak berikutnya'));
+    const nestedAfterEnter=await page.evaluate(() => {
+      const doc=new DOMParser().parseFromString(window.__savedRichHtml,'text/html');
+      const root=doc.body.querySelector('ol[type="1"]');
+      const child=root?.querySelector(':scope > li > ol[type="a"]');
+      return {rootCount:root?.querySelectorAll(':scope > li').length,
+        childCount:child?.querySelectorAll(':scope > li').length,
+        text:doc.body.textContent};
+    });
+    assert.equal(nestedAfterEnter.rootCount,2,
+      'Enter in Level 2 cannot add or renumber Level 1');
+    assert.equal(nestedAfterEnter.childCount,2,
+      'Enter in Level 2 must add a second child at the same level');
+    console.log('LiveSPO nested alpha Enter auto-continuation: PASS');
+
+
     // Direct marker editing: click the visible pseudo-marker gutter and type a
     // new number/letter instead of opening the toolbar or modal.
     await page.evaluate(() => window.__mountRichEditor(
       '<ol type="1" data-sop-list-format="1">' +
         '<li>Pertama pemeriksaan</li><li>Kedua pemeriksaan</li>' +
         '<li>Ketiga pemeriksaan</li><li>Keempat pemeriksaan</li></ol>'));
-    await page.waitForFunction(() =>
-      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 4);
+    await page.waitForFunction(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      return editor?.textContent?.includes('Pertama pemeriksaan') &&
+        editor.querySelectorAll('ol > li').length === 4;
+    });
     const clickMarker = async (index) => {
+      // React root changes are async, and earlier leveling tests can leave
+      // the page scrolled. Click only a visible, fully mounted marker.
       const pt=await page.evaluate(index=>{
         const li=document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li')[index];
+        li.scrollIntoView({block:'center',inline:'nearest'});
         const r=li.getBoundingClientRect();
         return {x:r.left+8,y:r.top+9};
       },index);
