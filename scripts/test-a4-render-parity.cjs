@@ -553,7 +553,19 @@ async function main() {
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(numberOptions.text),
       'gallery tiles must be icon-only without descriptive visible text');
     await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
-    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
+    const afterNumberChoice = await page.evaluate(() => {
+      const procedure = document.querySelector('[contenteditable="true"][data-placeholder*="Langkah persiapan"]');
+      const selection = window.getSelection();
+      return {
+        saved: window.__savedProcedure?.slice(0, 800),
+        actual: procedure?.innerHTML?.slice(0, 800),
+        focus: document.activeElement?.getAttribute('aria-label') || document.activeElement?.getAttribute('data-placeholder'),
+        menu: !!document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]'),
+        selection: selection?.anchorNode?.parentElement?.outerHTML?.slice(0, 200),
+      };
+    });
+    console.log('LiveSPO icon gallery number selection diagnostics:',afterNumberChoice);
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'),{timeout:5000});
     assert.equal(await page.$('[role="menu"][aria-label="Galeri ikon numbering"]'),null);
     await page.click('button[aria-label="Numbering"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="1"'));
