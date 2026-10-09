@@ -1888,7 +1888,8 @@ export const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEdi
     const item = element?.closest<HTMLLIElement>('li');
     const list = item?.parentElement as HTMLOListElement | HTMLUListElement | null;
     if (!item || !list || !/^(OL|UL)$/.test(list.tagName) || !editor.contains(list)) return false;
-    if (item.closest('td,th')) return false;
+    const authoredTableCell = item.closest('td,th');
+    if (authoredTableCell && editor.contains(authoredTableCell)) return false;
 
     // An existing document may already contain the malformed OL/OL structure
     // produced by native indent. Repair it before choosing the target level.
