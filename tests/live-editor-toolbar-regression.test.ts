@@ -135,7 +135,7 @@ test('typed numbering prefixes stay literal and five explicit list styles are se
   assert.match(list, /if \(!sameKind\)/);
   assert.match(list, /data-sop-list-format/);
   assert.match(list, /data-sop-bullet/);
-  for (const marker of ['A', '1', 'a', 'disc', 'square']) {
+  for (const marker of ['A', '1', 'a', 'disc', 'square', 'circle', 'check', 'arrow']) {
     assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
     assert.ok(template.includes(`value: '${marker}'`), `Missing visible Live SPO marker ${marker}`);
   }
@@ -183,7 +183,7 @@ test('Live SPO has separate Bullet and Numbering icon split controls with icon-o
   assert.match(template, /<ChevronDown/);
   assert.match(template, /<Icon \s*\/>/);
   assert.match(template, /<ListMarkerPreview styleType=\{value\} \s*\/>/);
-  assert.match(template, /aria-hidden="true" className="flex flex-col gap-\[3px\]"/);
+  assert.match(template, /aria-hidden="true" className="text-\[22px\] font-semibold/);
   assert.match(template, /onClick=\{\(\) => handleInsertList\(defaultStyle\)\}/);
   assert.match(template, /onClick=\{\(\) => \{\s*handleInsertList\(value\);\s*setOpenListMenu\(null\);/);
   assert.match(template, /getActiveEditor\(\)\?\.captureSelection\(\)/);
