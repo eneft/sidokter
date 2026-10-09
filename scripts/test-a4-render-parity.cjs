@@ -528,6 +528,33 @@ async function main() {
       'direct typing must reach the logical section callback');
     console.log('LiveSPO actual keyboard input: PASS');
 
+    // The shared A4 toolbar uses a compact Word-style numbering split button.
+    // Its icon applies 1,2,3 and the chevron opens five list styles. Removal
+    // of the old manual-number popover must NOT remove inline marker editing.
+    await page.waitForSelector('button[aria-label="Numbering"]');
+    const numberingToolbar = await page.evaluate(() => ({
+      oldManual: document.querySelectorAll('button[aria-label="Ubah nomor item daftar secara manual"]').length,
+      oldSelect: document.querySelectorAll('select[aria-label="Pilih format numbering atau bullet"]').length,
+      icon: document.querySelector('button[aria-label="Numbering"]')?.querySelector('svg') !== null
+    }));
+    assert.equal(numberingToolbar.oldManual, 0);
+    assert.equal(numberingToolbar.oldSelect, 0);
+    assert.equal(numberingToolbar.icon, true, 'Numbering main action needs an icon');
+    await page.click('button[aria-label="Pilih gaya numbering atau bullet"]');
+    await page.waitForSelector('[role="menu"][aria-label="Gaya numbering dan bullet"]');
+    const numberingChoices = await page.evaluate(() =>
+      [...document.querySelectorAll('[role="menu"][aria-label="Gaya numbering dan bullet"] button[value]')]
+        .map(button => button.getAttribute('value')));
+    assert.deepEqual(numberingChoices, ['1', 'a', 'A', 'disc', 'square']);
+    await page.click('[role="menu"][aria-label="Gaya numbering dan bullet"] button[value="a"]');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
+    assert.equal(await page.$('[role="menu"][aria-label="Gaya numbering dan bullet"]'), null,
+      'selecting a numbering style must close the menu');
+    await page.click('button[aria-label="Numbering"]');
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="1"'));
+    console.log('LiveSPO Word-style numbering icon and dropdown: PASS');
+
+
     // Audit regression: an in-flight pagination pass must not re-focus the
     // previous section after the user intentionally switches to another
     // contentEditable field. Current pending-caret logic only checks if the
