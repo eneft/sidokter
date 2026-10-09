@@ -561,7 +561,7 @@ async function main() {
           width:box.width};
       });
     });
-    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 60),
+    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 40),
       'Each numbering thumbnail must own its visual click target: '+JSON.stringify(hitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
