@@ -175,28 +175,33 @@ test('Live SPO manual overrides still use semantic LI values without the old man
   assert.match(pagination, /const number = continuationNumber \?\? numberAtIndex\(startIndex\)/);
 });
 
-test('Live SPO numbering toolbar has an icon and dropdown like Word, without manual-number popup', () => {
-  assert.match(template, /aria-label="Numbering"/);
-  assert.match(template, /<ListOrdered\s*\/>/);
-  assert.match(template, /aria-label="Pilih gaya numbering atau bullet"/);
+test('Live SPO has separate Bullet and Numbering icon split controls with icon-only galleries', () => {
+  assert.match(template, /kind: 'bullets', label: 'Bullets', Icon: List, defaultStyle: 'disc'/);
+  assert.match(template, /kind: 'numbering', label: 'Numbering', Icon: ListOrdered, defaultStyle: '1'/);
+  assert.match(template, /aria-label=\{kind === 'bullets' \? 'Pilih gaya bullet' : 'Pilih gaya numbering'\}/);
+  assert.match(template, /aria-expanded=\{openListMenu === kind\}/);
   assert.match(template, /<ChevronDown/);
-  assert.match(template, /aria-haspopup="menu"/);
-  assert.match(template, /aria-expanded=\{showNumberingMenu\}/);
-  assert.match(template, /onClick=\{\(\) => handleInsertList\('1'\)\}/);
-  assert.match(template, /onClick=\{\(\) => \{\s*handleInsertList\(value\);\s*setShowNumberingMenu\(false\);/);
-  assert.match(template, /onMouseDown=\{\(event\) => \{\s*event.preventDefault\(\);\s*getActiveEditor\(\)\?\.captureSelection\(\);/);
+  assert.match(template, /<Icon \s*\/>/);
+  assert.match(template, /<ListMarkerPreview styleType=\{value\} \s*\/>/);
+  assert.match(template, /aria-hidden="true" className="flex flex-col gap-\[3px\]"/);
+  assert.match(template, /onClick=\{\(\) => handleInsertList\(defaultStyle\)\}/);
+  assert.match(template, /onClick=\{\(\) => \{\s*handleInsertList\(value\);\s*setOpenListMenu\(null\);/);
+  assert.match(template, /getActiveEditor\(\)\?\.captureSelection\(\)/);
   assert.match(template, /document.addEventListener\('pointerdown', closeOnOutsideClick\)/);
   assert.match(template, /document.addEventListener\('keydown', closeOnEscape\)/);
   for (const marker of ['A', '1', 'a', 'disc', 'square']) {
-    assert.ok(template.includes(`value: '${marker}'`), `Missing menu style ${marker}`);
+    assert.ok(template.includes(`value: '${marker}'`), `Missing list style ${marker}`);
   }
-  for (const removed of ['Daftar ▾', 'Nomor…', 'Nomor item terpilih', 'Kembali otomatis',
-    'showManualNumberMenu', 'applyManualListNumber', 'manualNumberInput']) {
-    assert.ok(!template.includes(removed), `Obsolete manual UI: ${removed}`);
+  for (const removed of [
+    'Daftar ▾', 'Nomor…', 'Nomor item terpilih', 'Kembali otomatis',
+    'showManualNumberMenu', 'applyManualListNumber', 'manualNumberInput',
+    'showNumberingMenu', 'setShowNumberingMenu',
+  ]) {
+    assert.ok(!template.includes(removed), `Old toolbar UI remains: ${removed}`);
   }
-  const button = template.indexOf('aria-label="Numbering"');
+  const controls = template.indexOf('ref={listMenusRef}');
   const pages = template.indexOf('calculatedPages.map((pageBlocks, pageIndex)');
-  assert.ok(button >= 0 && pages > button, 'Numbering controls must be shared across A4 pages');
+  assert.ok(controls >= 0 && pages > controls, 'List controls must be shared between all A4 pages');
   assert.match(template, /const focusedFragment = editorRefs\.current\[activeKey\]/);
   assert.match(template, /editorRefs\.current\[editorKey\] = el/);
 });
