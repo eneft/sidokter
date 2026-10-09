@@ -313,7 +313,8 @@ export function orderedListItemNumbers(
     // A manually chosen bullet inside a numeric list is not another number.
     // Do not advance the semantic list counter when A4 splits across pages.
     const markerKind = item.getAttribute('data-sop-marker-kind');
-    if (markerKind === 'disc' || markerKind === 'square') {
+    if (markerKind === 'disc' || markerKind === 'square' ||
+        markerKind === 'circle' || markerKind === 'check' || markerKind === 'arrow') {
       return Math.max(1, next - 1);
     }
     const raw = item.getAttribute('value') ?? item.getAttribute('data-sop-manual-number');
