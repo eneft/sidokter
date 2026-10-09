@@ -552,38 +552,19 @@ async function main() {
     assert.deepEqual(numberOptions.values,['1','a','A']);
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(numberOptions.text),
       'gallery tiles must be icon-only without descriptive visible text');
-    const tileGeometry = await page.evaluate(() => {
+    const hitTargets = await page.evaluate(() => {
       const menu = document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]');
-      return [...menu.querySelectorAll('button[value]')].map(el => {
-        const b = el.getBoundingClientRect(), centerX=b.x+b.width/2, centerY=b.y+b.height/2;
-        const hit = document.elementFromPoint(centerX,centerY);
-        return {value:el.value,bounds:{x:b.x,y:b.y,w:b.width,h:b.height},
-          hit:hit?.closest('button')?.getAttribute('value'),name:hit?.tagName};
+      return [...menu.querySelectorAll('button[value]')].map(button => {
+        const box = button.getBoundingClientRect();
+        const center = document.elementFromPoint(box.left + box.width/2,box.top + box.height/2);
+        return {expected:button.value,actual:center?.closest('button')?.value || null,
+          width:box.width};
       });
     });
-    console.log('LiveSPO icon gallery click tile geometry:',tileGeometry);
-    await page.evaluate(() => {
-      window.__lastIconSelection = null;
-      document.addEventListener('click', (event) => {
-        const button = event.target?.closest?.('[role="menu"] button[value]');
-        if (button) window.__lastIconSelection = button.value;
-      }, {capture:true,once:true});
-    });
+    assert.ok(hitTargets.every(x => x.expected === x.actual && x.width >= 60),
+      'Each numbering thumbnail must own its visual click target: '+JSON.stringify(hitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon numbering"] button[value="a"]');
-    console.log('LiveSPO icon gallery actually clicked:', await page.evaluate(()=>window.__lastIconSelection));
-    const afterNumberChoice = await page.evaluate(() => {
-      const procedure = document.querySelector('[contenteditable="true"][data-placeholder*="Langkah persiapan"]');
-      const selection = window.getSelection();
-      return {
-        saved: window.__savedProcedure?.slice(0, 800),
-        actual: procedure?.innerHTML?.slice(0, 800),
-        focus: document.activeElement?.getAttribute('aria-label') || document.activeElement?.getAttribute('data-placeholder'),
-        menu: !!document.querySelector('[role="menu"][aria-label="Galeri ikon numbering"]'),
-        selection: selection?.anchorNode?.parentElement?.outerHTML?.slice(0, 200),
-      };
-    });
-    console.log('LiveSPO icon gallery number selection diagnostics:',afterNumberChoice);
-    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'),{timeout:5000});
+    await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="a"'));
     assert.equal(await page.$('[role="menu"][aria-label="Galeri ikon numbering"]'),null);
     await page.click('button[aria-label="Numbering"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-list-format="1"'));
@@ -596,6 +577,17 @@ async function main() {
     }));
     assert.deepEqual(bulletOptions.values,['disc','square']);
     assert.ok(!/Bullet|kotak|Numbering|Daftar/i.test(bulletOptions.text));
+    const bulletHitTargets = await page.evaluate(() => {
+      const menu=document.querySelector('[role="menu"][aria-label="Galeri ikon bullet"]');
+      return [...menu.querySelectorAll('button[value]')].map(button => {
+        const box=button.getBoundingClientRect();
+        const center=document.elementFromPoint(box.left + box.width/2,box.top + box.height/2);
+        return {expected:button.value,actual:center?.closest('button')?.value || null,
+          width:box.width};
+      });
+    });
+    assert.ok(bulletHitTargets.every(x => x.expected === x.actual && x.width >= 60),
+      'Each bullet thumbnail must own its visual click target: '+JSON.stringify(bulletHitTargets));
     await page.click('[role="menu"][aria-label="Galeri ikon bullet"] button[value="square"]');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-bullet="square"'));
     await page.click('button[aria-label="Bullets"]');
