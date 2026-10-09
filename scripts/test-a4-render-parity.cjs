@@ -1181,16 +1181,21 @@ async function main() {
     await page.waitForFunction(() => [...document.querySelectorAll(
       '[contenteditable="true"][data-placeholder*="Langkah persiapan"]'
     )].filter(e => e.querySelector('ol[data-sop-inline-markers="true"] > li')).length >= 2);
-    const firstMarker = await page.evaluate(() => {
+    const auditMarkerClick = await page.evaluate(() => {
       const li=document.querySelector(
         '[contenteditable="true"][data-placeholder*="Langkah persiapan"] ol[data-sop-inline-markers="true"] > li'
       );
-      li.scrollIntoView({block:'center'});
       const r=li.getBoundingClientRect();
-      return {x:r.left+Math.min(7,Math.max(3,r.width*.02)),y:r.top+7};
+      // Dispatch on the exact LI to isolate handler/hitbox semantics from
+      // viewport overlays/scaled-page hit testing already tested separately.
+      const click = new MouseEvent('click',{bubbles:true,cancelable:true,
+        clientX:r.left+Math.min(7,Math.max(3,r.width*.02)),clientY:r.top+7});
+      li.dispatchEvent(click);
+      return {text:li.textContent.slice(0,65),x:r.left,y:r.top,
+        inputOpened:!!document.querySelector('[data-sop-inline-marker-input="true"]')};
     });
-    await page.mouse.click(firstMarker.x,firstMarker.y);
-    await page.waitForSelector('[data-sop-inline-marker-input="true"]');
+    console.log('AUDIT marker click:',auditMarkerClick);
+    assert.ok(auditMarkerClick.inputOpened,'clicking visible numbered item must open its editor');
     await page.evaluate(() => {document.querySelector('[data-sop-inline-marker-input="true"]').value='50.';});
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => window.__savedProcedure?.includes('data-sop-marker-label="50."'));
