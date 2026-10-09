@@ -137,7 +137,7 @@ test('typed numbering prefixes stay literal and five explicit list styles are se
   assert.match(list, /data-sop-bullet/);
   for (const marker of ['A', '1', 'a', 'disc', 'square']) {
     assert.ok(editor.includes(`value="${marker}"`), `Missing internal editor marker ${marker}`);
-    assert.ok(template.includes(`value="${marker}"`), `Missing visible Live SPO marker ${marker}`);
+    assert.ok(template.includes(`value: '${marker}'`), `Missing visible Live SPO marker ${marker}`);
   }
   for (const removed of ['a)', '1)', 'bullet']) {
     assert.ok(!template.includes(`value="${removed}"`), `Legacy extra marker ${removed} should not appear`);
@@ -161,27 +161,42 @@ test('selected marker CSS persists for every listed SPO surface and square bulle
   assert.match(css, /list-style-type: square !important/);
 });
 
-test('Live SPO manual list-item override uses semantic LI values and a reversible toolbar control', () => {
+test('Live SPO manual overrides still use semantic LI values without the old manual toolbar', () => {
   const css = readFileSync('src/index.css', 'utf8');
   const pagination = readFileSync('src/utils/canonicalA4Pagination.ts', 'utf8');
+  const markerUtility = readFileSync('src/utils/editableListMarkers.ts', 'utf8');
   assert.match(editor, /setListItemNumber: \(numberOrLetter: string \| null\) => boolean/);
   assert.match(editor, /item\.setAttribute\('value', String\(number\)\)/);
-  assert.match(editor, /item\.setAttribute\('data-sop-manual-number', String\(number\)\)/);
-  assert.match(editor, /item\.removeAttribute\('data-sop-manual-number'\)/);
-  assert.match(template, /aria-label="Ubah nomor item daftar secara manual"/);
-  assert.match(template, /Kembali otomatis/);
-  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
+  assert.match(markerUtility, /export function applyInlineMarker/);
+  assert.match(markerUtility, /item\.setAttribute\('data-sop-manual-number'/);
+  assert.match(editor, /const handleInlineMarkerClick/);
   assert.match(css, /counter-set: sop-list var\(--sop-manual-number\) !important/);
   assert.match(pagination, /orderedListItemNumbers\(items, explicitStart\)/);
   assert.match(pagination, /const number = continuationNumber \?\? numberAtIndex\(startIndex\)/);
 });
 
-test('manual numbering toolbar is shared by A4 page one and later pages', () => {
-  const control = template.indexOf('aria-label="Ubah nomor item daftar secara manual"');
+test('Live SPO numbering toolbar has an icon and dropdown like Word, without manual-number popup', () => {
+  assert.match(template, /aria-label="Numbering"/);
+  assert.match(template, /<ListOrdered\s*\/>/);
+  assert.match(template, /aria-label="Pilih gaya numbering atau bullet"/);
+  assert.match(template, /<ChevronDown/);
+  assert.match(template, /aria-haspopup="menu"/);
+  assert.match(template, /aria-expanded=\{showNumberingMenu\}/);
+  assert.match(template, /onClick=\{\(\) => handleInsertList\('1'\)\}/);
+  assert.match(template, /onClick=\{\(\) => \{\s*handleInsertList\(value\);\s*setShowNumberingMenu\(false\);/);
+  assert.match(template, /onMouseDown=\{\(event\) => \{\s*event.preventDefault\(\);\s*getActiveEditor\(\)\?\.captureSelection\(\);/);
+  assert.match(template, /document.addEventListener\('pointerdown', closeOnOutsideClick\)/);
+  assert.match(template, /document.addEventListener\('keydown', closeOnEscape\)/);
+  for (const marker of ['A', '1', 'a', 'disc', 'square']) {
+    assert.ok(template.includes(`value: '${marker}'`), `Missing menu style ${marker}`);
+  }
+  for (const removed of ['Daftar ▾', 'Nomor…', 'Nomor item terpilih', 'Kembali otomatis',
+    'showManualNumberMenu', 'applyManualListNumber', 'manualNumberInput']) {
+    assert.ok(!template.includes(removed), `Obsolete manual UI: ${removed}`);
+  }
+  const button = template.indexOf('aria-label="Numbering"');
   const pages = template.indexOf('calculatedPages.map((pageBlocks, pageIndex)');
-  assert.ok(control >= 0 && pages > control, 'Manual edit must be in the shared toolbar, outside page loop');
+  assert.ok(button >= 0 && pages > button, 'Numbering controls must be shared across A4 pages');
   assert.match(template, /const focusedFragment = editorRefs\.current\[activeKey\]/);
   assert.match(template, /editorRefs\.current\[editorKey\] = el/);
-  assert.match(template, /activeEditorKeyRef\.current = editorKey/);
-  assert.match(template, /getActiveEditor\(\)\?\.setListItemNumber\(value\)/);
 });
