@@ -1042,11 +1042,17 @@ async function main() {
       '<ol type="1" data-sop-list-format="1">' +
         '<li>Pertama pemeriksaan</li><li>Kedua pemeriksaan</li>' +
         '<li>Ketiga pemeriksaan</li><li>Keempat pemeriksaan</li></ol>'));
-    await page.waitForFunction(() =>
-      document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li').length === 4);
+    await page.waitForFunction(() => {
+      const editor=document.querySelector('[data-placeholder="Uji seleksi editor"]');
+      return editor?.textContent?.includes('Pertama pemeriksaan') &&
+        editor.querySelectorAll('ol > li').length === 4;
+    });
     const clickMarker = async (index) => {
+      // React root changes are async, and earlier leveling tests can leave
+      // the page scrolled. Click only a visible, fully mounted marker.
       const pt=await page.evaluate(index=>{
         const li=document.querySelectorAll('[data-placeholder="Uji seleksi editor"] ol > li')[index];
+        li.scrollIntoView({block:'center',inline:'nearest'});
         const r=li.getBoundingClientRect();
         return {x:r.left+8,y:r.top+9};
       },index);
