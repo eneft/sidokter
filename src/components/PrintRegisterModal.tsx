@@ -17,6 +17,7 @@ import { getPersistedClientSession, getCurrentAuthToken, refreshUserSessionProfi
 import { buildCloudFunctionUrl, isCapacitorNativeRuntime, publicWebBaseUrl } from '../lib/runtimeEndpoints';
 import { responseToPdfBlob } from '../utils/pdfBinary';
 import { shareOrSaveBlobNative } from '../lib/nativeFileActions';
+import { evaluatePeriodicReview } from '../lib/notificationService';
 
 interface PrintRegisterModalProps {
   isOpen: boolean;
@@ -487,13 +488,14 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
                     <th className="py-2.5 px-3 border-r border-slate-300">Unit / Hierarki</th>
                     <th className="py-2.5 px-3 text-center border-r border-slate-300 w-14">Versi</th>
                     <th className="py-2.5 px-3 border-r border-slate-300 whitespace-nowrap">Tgl Terbit</th>
+                    <th className="py-2.5 px-3 border-r border-slate-300 whitespace-nowrap" title="Jadwal riviu berikutnya">Tanggal Riviu</th>
                     <th className="py-2.5 px-3 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-300">
                   {filteredSops.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
+                      <td colSpan={8} className="py-8 text-center text-slate-500 italic">
                         Tidak ada dokumen SPO yang sesuai dengan kriteria filter yang dipilih.
                       </td>
                     </tr>
@@ -528,6 +530,9 @@ const PrintRegisterModalContent: React.FC<PrintRegisterModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3 text-slate-800 border-r border-slate-200 whitespace-nowrap">
                           {sop.effectiveDate}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-800 border-r border-slate-200 whitespace-nowrap">
+                          {sop.isNumberReservation ? '—' : (sop.nextReviewDate || evaluatePeriodicReview(sop).dueDate || '—')}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           {getStandardJenisSpo(sop) === 'RIVIU' ? (
